@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "start": "node server.js",
     "lint": "node --check server.js",
-    "test": "node --test 'test/*.test.js'"
+    "test": "node --test test/syntax.test.js test/calc.test.js"
   },
   "keywords": [],
   "author": "",
