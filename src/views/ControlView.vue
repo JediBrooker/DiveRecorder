@@ -490,6 +490,8 @@ socket.on('score_received', (data) => {
     addHistoryCard({
       diverName: currentActive.value.full_name,
       country_code: currentActive.value.country_code,
+      club_name: currentActive.value.club_name,
+      club_code: currentActive.value.club_code,
       round_number: currentActive.value.round_number,
       dive_code: currentActive.value.dive_code,
       position: currentActive.value.position,
@@ -545,6 +547,8 @@ function addHistoryCard(data) {
 
   const name = data.diverName || data.full_name || '—'
   const country = data.country_code || null
+  const club_name = data.club_name || null
+  const club_code = data.club_code || null
   const dive_code = data.dive_code || null
   const position = data.position || null
   const dd = data.dd != null ? parseFloat(data.dd) : null
@@ -561,7 +565,8 @@ function addHistoryCard(data) {
   const competitor_id = data.competitor_id || null
 
   historyCards.value.unshift({
-    name, country, dive_code, position, dd, desc,
+    name, country, club_name, club_code,
+    dive_code, position, dd, desc,
     round: data.round_number, total_rounds, scores, total,
     score_ids, event_id, competitor_id,
   })
@@ -582,11 +587,18 @@ function setActive(idx) {
     partner_name: currentActive.value.partner_name || null,
     partner_country: currentActive.value.partner_country || null,
     round_number: currentActive.value.round_number,
+    // Club details — surfaced in the active-diver block so the
+    // operator can verify identity at a glance and the audience
+    // (via broadcast mode) sees who's representing whom.
+    club_name: currentActive.value.club_name || null,
+    club_code: currentActive.value.club_code || null,
   }
   socket.emit('set_active_diver', {
     ...currentActive.value,
     diverName: currentActive.value.full_name,
     country_code: currentActive.value.country_code || null,
+    club_name: currentActive.value.club_name || null,
+    club_code: currentActive.value.club_code || null,
     diveCode: `${currentActive.value.dive_code}${currentActive.value.position}`,
     description: currentActive.value.description || '—',
     eventName: currentEvent.value?.name || '—',
@@ -773,6 +785,8 @@ async function onEventChange() {
     addHistoryCard({
       diverName: h.diverName || h.full_name,
       country_code: h.country_code,
+      club_name: h.club_name,
+      club_code: h.club_code,
       round_number: h.round_number,
       dive_code: h.dive_code,
       position: h.position,
@@ -939,6 +953,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               <div class="hist-name">{{ card.name }}<span v-if="card.country" class="hist-country">{{ card.country }}</span></div>
               <div class="hist-total">{{ card.total }}</div>
             </div>
+            <!-- Club affiliation (mirrors the active diver block) -->
+            <div v-if="card.club_name" class="hist-club">
+              {{ card.club_name }}<span v-if="card.club_code" class="hist-club-code">{{ card.club_code }}</span>
+            </div>
             <div class="hist-dive-line">
               <span class="hist-code">{{ card.dive_code ? `${card.dive_code}${card.position || ''}` : '—' }}</span>
               <span v-if="card.dd != null" class="hist-dd">DD {{ card.dd.toFixed(1) }}</span>
@@ -994,6 +1012,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             </template>
           </div>
           <div v-if="activeInfo.team_name" class="active-team">{{ activeInfo.team_name }}</div>
+          <!-- Club affiliation. Hidden when team_name is set
+               (team events surface that instead) so we don't
+               show two competing identities. -->
+          <div v-if="activeInfo.club_name && !activeInfo.team_name" class="active-club">
+            {{ activeInfo.club_name }}<span v-if="activeInfo.club_code" class="active-club-code">{{ activeInfo.club_code }}</span>
+          </div>
           <div class="active-badges">
             <div class="active-code">{{ activeInfo.code }}</div>
             <div class="active-dd">{{ activeInfo.dd }}</div>
@@ -1127,6 +1151,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                     <span v-if="item.withdrawn_at" class="roster-wd-badge">WITHDRAWN</span>
                   </div>
                   <div v-if="item.team_name" class="roster-team">{{ item.team_name }}</div>
+                  <div v-if="item.club_name && !item.team_name" class="roster-club">
+                    {{ item.club_name }}<span v-if="item.club_code" class="roster-club-code">{{ item.club_code }}</span>
+                  </div>
                   <div class="roster-meta">
                     <span>{{ item.dive_code }}{{ item.position }}</span>
                     <span>DD {{ item.dd }}</span>
@@ -1422,6 +1449,39 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   letter-spacing: 0.18em; text-transform: uppercase; color: #c4b5fd;
   background: rgba(139,92,246,0.10); border: 1px solid rgba(139,92,246,0.45);
   border-radius: 4px; padding: 0.3rem 0.7rem;
+}
+
+/* Club affiliations — surfaced under the diver's name in the
+   active block, queue rows, and history cards. Sized down by
+   tier so the active diver's club reads largest. */
+.active-club {
+  font-family: var(--font-mono); font-size: 14px; color: var(--text-2);
+  margin-bottom: 1rem;
+}
+.active-club-code {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.05em; color: var(--cyan);
+  background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.3);
+  border-radius: 3px; padding: 0.1rem 0.4rem;
+  margin-left: 0.5rem; vertical-align: middle;
+}
+.roster-club {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3);
+  margin-top: 0.15rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.roster-club-code {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  color: var(--cyan); margin-left: 0.4rem;
+}
+.hist-club {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+  margin-bottom: 0.25rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hist-club-code {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  color: var(--cyan); margin-left: 0.4rem;
 }
 
 .country-badge { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); background: var(--bg-3); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; margin-left: 0.5rem; vertical-align: middle; }
