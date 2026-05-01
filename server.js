@@ -1750,6 +1750,82 @@ app.get("/api/events", async (req, res) => {
   }
 });
 
+// =============================================================
+// EVENT TEMPLATES — saved configurations a manager can apply
+// to a new event. config is the full form state as JSON.
+// =============================================================
+
+app.get(
+  "/api/event-templates",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    try {
+      const r = await pool.query(
+        `SELECT id, name, config, created_at, updated_at
+         FROM event_templates
+         WHERE org_id = $1
+         ORDER BY name ASC`,
+        [req.user.org_id],
+      );
+      res.json(r.rows);
+    } catch (err) {
+      console.error("[Templates List Error]", err.message);
+      res.status(500).json([]);
+    }
+  },
+);
+
+app.post(
+  "/api/event-templates",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    const { name, config } = req.body || {};
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: "Template name is required" });
+    }
+    if (!config || typeof config !== "object") {
+      return res.status(400).json({ error: "config must be an object" });
+    }
+    try {
+      // Upsert by (org_id, name) — re-saving overwrites the
+      // existing config, lets a manager iterate without
+      // duplicating templates.
+      const r = await pool.query(
+        `INSERT INTO event_templates (org_id, name, config, created_by, updated_at)
+         VALUES ($1, $2, $3::jsonb, $4, now())
+         ON CONFLICT (org_id, name)
+         DO UPDATE SET
+           config     = EXCLUDED.config,
+           updated_at = now()
+         RETURNING id, name, config, created_at, updated_at`,
+        [req.user.org_id, name.trim(), JSON.stringify(config), req.user.user_id],
+      );
+      res.status(201).json(r.rows[0]);
+    } catch (err) {
+      console.error("[Template Save Error]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+app.delete(
+  "/api/event-templates/:id",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    try {
+      const r = await pool.query(
+        "DELETE FROM event_templates WHERE id = $1 AND org_id = $2 RETURNING id",
+        [req.params.id, req.user.org_id],
+      );
+      if (!r.rows.length) return res.status(404).json({ error: "Template not found" });
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[Template Delete Error]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
 app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
   const {
     name, gender, number_of_judges, total_rounds, height, event_type, meet_id,

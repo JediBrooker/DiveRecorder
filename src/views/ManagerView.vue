@@ -31,6 +31,94 @@ const createAdvanceCount = ref(12)      // FINA standard
 const createDdLimitRounds = ref(0)      // 0 = no limit
 const createDdLimitValue  = ref('')     // '' = no limit; numeric otherwise
 
+// Event templates — saved form configurations the manager can
+// apply to a fresh event with one click.
+const eventTemplates = ref([])
+const saveTemplateOpen = ref(false)
+const saveTemplateName = ref('')
+const saveTemplateBusy = ref(false)
+const templateErr = ref('')
+
+async function loadEventTemplates() {
+  try {
+    eventTemplates.value = await auth.apiFetch('/api/event-templates')
+  } catch {
+    eventTemplates.value = []
+  }
+}
+
+function applyEventTemplate(t) {
+  const c = t.config || {}
+  // Name is intentionally NOT pulled in — the saved name is
+  // usually a season-specific label that the manager wants to
+  // re-write for the new event. Everything else fills.
+  if (c.gender)            createGender.value = c.gender
+  if (c.height !== undefined) createHeight.value = c.height || ''
+  if (c.number_of_judges)  createJudges.value = c.number_of_judges
+  if (c.total_rounds)      createRounds.value = c.total_rounds
+  if (c.event_type)        createType.value = c.event_type
+  if (c.age_group !== undefined)        createAgeGroup.value = c.age_group || ''
+  if (c.event_format)      createFormat.value = c.event_format
+  if (c.advance_count)     createAdvanceCount.value = c.advance_count
+  if (c.dd_limit_rounds !== undefined)  createDdLimitRounds.value = c.dd_limit_rounds || 0
+  if (c.dd_limit_value !== undefined)   createDdLimitValue.value = c.dd_limit_value ?? ''
+}
+
+async function saveAsEventTemplate() {
+  templateErr.value = ''
+  const name = saveTemplateName.value.trim()
+  if (!name) {
+    templateErr.value = 'Pick a template name'
+    return
+  }
+  saveTemplateBusy.value = true
+  try {
+    // Build the config snapshot from the current form state.
+    // event-specific fields like meet_id and parent_event_id are
+    // intentionally excluded — a template should be re-usable
+    // across meets.
+    const config = {
+      gender: createGender.value,
+      height: createHeight.value || null,
+      number_of_judges: parseInt(createJudges.value),
+      total_rounds: parseInt(createRounds.value),
+      event_type: createType.value,
+      age_group: createAgeGroup.value || null,
+      event_format: createFormat.value,
+      advance_count: parseInt(createAdvanceCount.value) || 12,
+      dd_limit_rounds: parseInt(createDdLimitRounds.value) || 0,
+      dd_limit_value: createDdLimitValue.value
+        ? parseFloat(createDdLimitValue.value)
+        : null,
+    }
+    const saved = await auth.apiFetch('/api/event-templates', {
+      method: 'POST',
+      body: JSON.stringify({ name, config }),
+    })
+    // Replace any prior entry by name (server upserts).
+    eventTemplates.value = [
+      saved,
+      ...eventTemplates.value.filter(t => t.name !== saved.name),
+    ].sort((a, b) => a.name.localeCompare(b.name))
+    saveTemplateOpen.value = false
+    saveTemplateName.value = ''
+  } catch (err) {
+    templateErr.value = err.message
+  } finally {
+    saveTemplateBusy.value = false
+  }
+}
+
+async function deleteEventTemplate(t) {
+  if (!confirm(`Delete template "${t.name}"?`)) return
+  try {
+    await auth.apiFetch(`/api/event-templates/${t.id}`, { method: 'DELETE' })
+    eventTemplates.value = eventTemplates.value.filter(x => x.id !== t.id)
+  } catch (err) {
+    alert('Failed: ' + err.message)
+  }
+}
+
 // Meet management — separate from event create/edit. A meet is
 // a bundle of events; org admins create them here so events
 // can be filed under e.g. "2026 National Open".
@@ -409,7 +497,9 @@ async function removeTeamFromEvent(team) {
   }
 }
 
-onMounted(async () => { await Promise.all([loadEvents(), loadMeets()]) })
+onMounted(async () => {
+  await Promise.all([loadEvents(), loadMeets(), loadEventTemplates()])
+})
 </script>
 
 <template>
@@ -421,7 +511,46 @@ onMounted(async () => { await Promise.all([loadEvents(), loadMeets()]) })
   <div class="main">
     <!-- Create form -->
     <div class="card">
-      <h2 style="font-size:20px;font-style:italic;margin-bottom:1.5rem">New Event</h2>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap">
+        <h2 style="font-size:20px;font-style:italic">New Event</h2>
+        <button type="button"
+                class="btn btn-ghost btn-sm"
+                @click="saveTemplateOpen = !saveTemplateOpen">
+          {{ saveTemplateOpen ? 'Cancel' : '＋ Save as template' }}
+        </button>
+      </div>
+
+      <!-- Template strip — apply a saved configuration with one
+           click. Templates are per-org; saving upserts by name. -->
+      <div v-if="eventTemplates.length || saveTemplateOpen" class="event-templates">
+        <div v-if="eventTemplates.length" class="event-templates-list">
+          <div v-for="t in eventTemplates" :key="t.id" class="event-template-row">
+            <button type="button" class="event-template-apply" @click="applyEventTemplate(t)">
+              <span class="event-template-name">{{ t.name }}</span>
+              <span class="event-template-config">
+                {{ t.config?.event_type || 'individual' }}{{ t.config?.height ? ' · ' + t.config.height : '' }}{{ t.config?.gender ? ' · ' + t.config.gender : '' }}{{ t.config?.age_group ? ' · ' + t.config.age_group : '' }}
+              </span>
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm event-template-del"
+                    @click="deleteEventTemplate(t)" title="Delete template">✕</button>
+          </div>
+        </div>
+
+        <div v-if="saveTemplateOpen" class="event-template-save">
+          <input class="input"
+                 type="text"
+                 v-model="saveTemplateName"
+                 placeholder='Template name (e.g. "FINA U16 Womens 3m")'
+                 @keyup.enter="saveAsEventTemplate">
+          <button type="button" class="btn btn-primary btn-sm"
+                  :disabled="saveTemplateBusy"
+                  @click="saveAsEventTemplate">
+            {{ saveTemplateBusy ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
+        <div v-if="templateErr" class="msg msg-error" style="margin-top:0.5rem">{{ templateErr }}</div>
+      </div>
+
       <form @submit.prevent="createEvent" class="form-stack">
         <div class="field">
           <label class="label">Event Name</label>
@@ -881,6 +1010,40 @@ onMounted(async () => { await Promise.all([loadEvents(), loadMeets()]) })
 }
 .org-filter .label { margin: 0; flex-shrink: 0; }
 .org-filter .select { max-width: 320px; }
+
+/* Event template strip — saved form configurations the manager
+   re-applies with one click. Sits above the form fields. */
+.event-templates {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 0.625rem 0.75rem;
+  margin-bottom: 1rem;
+}
+.event-templates-list { display: flex; flex-direction: column; gap: 0.35rem; }
+.event-template-row {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.event-template-apply {
+  flex: 1; min-width: 0; text-align: left;
+  background: transparent; border: none; padding: 0; cursor: pointer;
+  display: flex; flex-direction: column; gap: 0.1rem;
+}
+.event-template-name {
+  font-family: var(--font-display); font-size: 13px; font-weight: 700;
+  color: var(--text);
+}
+.event-template-apply:hover .event-template-name { color: var(--cyan); }
+.event-template-config {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3);
+}
+.event-template-del { padding: 0.2rem 0.5rem; min-width: auto; }
+.event-template-del:hover { color: var(--red); border-color: var(--red); }
+.event-template-save {
+  display: flex; gap: 0.5rem; margin-top: 0.5rem;
+}
+.event-template-save .input { flex: 1; font-size: 12px; padding: 0.4rem 0.6rem; }
 .actions{display:flex;gap:0.5rem;flex-shrink:0;}
 .events-list{display:flex;flex-direction:column;gap:0.75rem;}
 .empty{color:var(--text-3);font-size:12px;text-align:center;padding:2rem;}
