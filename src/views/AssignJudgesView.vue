@@ -94,13 +94,19 @@ async function savePanel() {
   }
 }
 
+const loading = ref(true)
+
 onMounted(async () => {
-  const [evs, jdgs] = await Promise.all([
-    auth.apiFetch('/api/events'),
-    auth.apiFetch('/api/judges'),
-  ])
-  events.value = evs
-  allJudges.value = jdgs
+  try {
+    const [evs, jdgs] = await Promise.all([
+      auth.apiFetch('/api/events'),
+      auth.apiFetch('/api/judges'),
+    ])
+    events.value = evs
+    allJudges.value = jdgs
+  } finally {
+    loading.value = false
+  }
 })
 </script>
 
@@ -111,13 +117,18 @@ onMounted(async () => {
   </div>
 
   <div class="main">
+    <div v-if="loading" class="empty-card">Loading events and judges…</div>
+
     <!-- Step 1: select event -->
-    <div class="card">
+    <div v-else class="card">
       <label class="label" style="margin-bottom:0.75rem;display:block">Step 1 — Select Event</label>
       <select class="select" v-model="selectedEventId" @change="onEventChange">
         <option value="">— Choose Event —</option>
         <option v-for="ev in events" :key="ev.id" :value="ev.id">{{ ev.name }}</option>
       </select>
+      <p v-if="!events.length" class="hint" style="margin-top:0.6rem">
+        No events have been created yet — head to <strong>Manager</strong> to set one up.
+      </p>
     </div>
 
     <!-- Step 2: build panel -->
@@ -189,6 +200,18 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.empty-card {
+  background: var(--surface); border: 1px dashed var(--border);
+  border-radius: var(--radius-lg); padding: 2rem;
+  text-align: center; color: var(--text-3);
+  font-family: var(--font-mono); font-size: 13px;
+}
+.hint {
+  font-size: 11px; color: var(--text-3); line-height: 1.5;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-3); border-left: 3px solid var(--amber); border-radius: 3px;
+}
+
 .page-header {
   display: flex;
   align-items: center;

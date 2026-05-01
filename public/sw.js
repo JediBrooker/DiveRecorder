@@ -18,8 +18,15 @@
  * cached asset on activate.
  */
 
-const CACHE = "diverecorder-shell-v1";
-const SHELL = ["/", "/index.html", "/icon.svg", "/manifest.webmanifest"];
+const CACHE = "diverecorder-shell-v2";
+const SHELL = [
+  "/",
+  "/index.html",
+  "/icon.svg",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/manifest.webmanifest",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
