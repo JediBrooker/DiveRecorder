@@ -141,7 +141,7 @@ test("synchro: empty scores returns 0", async (t) => {
 test("schema_meta is populated", async (t) => {
   if (!dbReachable) return t.skip("DB not reachable");
   const r = await pool.query("SELECT version FROM schema_meta WHERE id = 1");
-  assert.ok(r.rows[0]?.version >= 10, `expected schema version ≥ 10, got ${r.rows[0]?.version}`);
+  assert.ok(r.rows[0]?.version >= 11, `expected schema version ≥ 11, got ${r.rows[0]?.version}`);
 });
 
 test("purge_audit_logs returns per-table counts", async (t) => {

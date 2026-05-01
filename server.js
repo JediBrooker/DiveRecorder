@@ -2399,6 +2399,67 @@ app.get("/api/scoreboard/:eventId", async (req, res) => {
 });
 
 // =============================================================
+// DIVE LIST TEMPLATES — per-diver saved combinations
+// =============================================================
+
+app.get("/api/templates", verifyToken, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, name, height, dives, created_at, updated_at
+       FROM dive_list_templates
+       WHERE user_id = $1
+       ORDER BY updated_at DESC`,
+      [req.user.user_id],
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error("[Templates List Error]", err.message);
+    res.status(500).json([]);
+  }
+});
+
+app.post("/api/templates", verifyToken, async (req, res) => {
+  const { name, height, dives } = req.body || {};
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: "Template name is required" });
+  }
+  if (!Array.isArray(dives)) {
+    return res.status(400).json({ error: "dives must be an array" });
+  }
+  try {
+    const r = await pool.query(
+      `INSERT INTO dive_list_templates (user_id, name, height, dives, updated_at)
+       VALUES ($1, $2, $3, $4::jsonb, now())
+       ON CONFLICT (user_id, name)
+       DO UPDATE SET
+         height     = EXCLUDED.height,
+         dives      = EXCLUDED.dives,
+         updated_at = now()
+       RETURNING id, name, height, dives, created_at, updated_at`,
+      [req.user.user_id, name.trim(), height || null, JSON.stringify(dives)],
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    console.error("[Template Save Error]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/templates/:id", verifyToken, async (req, res) => {
+  try {
+    const r = await pool.query(
+      "DELETE FROM dive_list_templates WHERE id = $1 AND user_id = $2 RETURNING id",
+      [req.params.id, req.user.user_id],
+    );
+    if (!r.rows.length) return res.status(404).json({ error: "Template not found" });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[Template Delete Error]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================================
 // COMPETITOR ROUTES
 // =============================================================
 

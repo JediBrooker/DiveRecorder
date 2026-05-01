@@ -23,6 +23,106 @@ const orgDivers = ref([])      // potential partners — fellow divers in your o
 const partnerId = ref('')       // selected partner's user id, '' = none
 const isSynchro = computed(() => currentEvent.value?.event_type === 'synchro_pair')
 
+// Saved dive list templates. Persists per-diver across meets so
+// a 6-dive 3m optionals list doesn't have to be retyped every
+// month. Filtered to the active event's height when one is
+// loaded so the picker only shows compatible templates.
+const templates = ref([])
+const saveTemplateName = ref('')
+const saveTemplateOpen = ref(false)
+const saveTemplateBusy = ref(false)
+const templateError = ref('')
+
+const matchingTemplates = computed(() => {
+  if (!templates.value.length) return []
+  if (!currentEvent.value?.height) return templates.value
+  return templates.value.filter(
+    t => !t.height || t.height === currentEvent.value.height,
+  )
+})
+
+async function loadTemplates() {
+  try {
+    templates.value = await auth.apiFetch('/api/templates')
+  } catch {
+    templates.value = []
+  }
+}
+
+function applyTemplate(t) {
+  // Resolve each saved {dive_code, position} to its directory
+  // entry at the event's height. Unknown dives are skipped with
+  // a warning so a template applied at the wrong height still
+  // partly populates.
+  templateError.value = ''
+  const eventHeight = activeEventHeight.value
+  const newSelection = Array(selectedDives.value.length).fill(null)
+  let missing = 0
+  for (const item of (t.dives || [])) {
+    const round = item.round_number
+    if (!round || round < 1 || round > newSelection.length) continue
+    const match = diveDirectory.value.find(d =>
+      d.dive_code === item.dive_code &&
+      d.position  === item.position &&
+      (eventHeight === null || parseFloat(d.height) === eventHeight),
+    )
+    if (match) newSelection[round - 1] = match
+    else missing++
+  }
+  selectedDives.value = newSelection
+  if (missing) {
+    templateError.value = `Loaded — ${missing} dive(s) skipped (not in directory at this height).`
+  }
+}
+
+async function saveAsTemplate() {
+  templateError.value = ''
+  const name = saveTemplateName.value.trim()
+  if (!name) {
+    templateError.value = 'Pick a name first'
+    return
+  }
+  saveTemplateBusy.value = true
+  try {
+    const dives = selectedDives.value
+      .map((d, i) => d ? {
+        round_number: i + 1,
+        dive_code: d.dive_code,
+        position:  d.position,
+      } : null)
+      .filter(Boolean)
+    const saved = await auth.apiFetch('/api/templates', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        height: currentEvent.value?.height || null,
+        dives,
+      }),
+    })
+    // Replace if it already existed (server upserts on name).
+    templates.value = [
+      saved,
+      ...templates.value.filter(t => t.name !== saved.name),
+    ]
+    saveTemplateName.value = ''
+    saveTemplateOpen.value = false
+  } catch (err) {
+    templateError.value = err.message
+  } finally {
+    saveTemplateBusy.value = false
+  }
+}
+
+async function deleteTemplate(t) {
+  if (!confirm(`Delete template "${t.name}"?`)) return
+  try {
+    await auth.apiFetch(`/api/templates/${t.id}`, { method: 'DELETE' })
+    templates.value = templates.value.filter(x => x.id !== t.id)
+  } catch (err) {
+    alert('Failed to delete: ' + err.message)
+  }
+}
+
 const activeEventHeight = computed(() => {
   if (!currentEvent.value?.height) return null
   return parseFloat(currentEvent.value.height)
@@ -113,6 +213,7 @@ onMounted(async () => {
   const [evs, dir] = await Promise.all([
     auth.apiFetch('/api/events'),
     auth.apiFetch('/api/dive-directory'),
+    loadTemplates(),
   ])
   events.value = evs
   diveDirectory.value = dir
@@ -175,6 +276,52 @@ watch(currentEvent, async (ev) => {
     </div>
 
     <div v-if="currentEvent">
+      <!-- Templates strip — shows only when at least one saved
+           template matches the active event's height. Tapping
+           a template fills the dive slots; the diver can then
+           tweak before submitting. -->
+      <div v-if="matchingTemplates.length || templates.length" class="card template-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;gap:0.5rem;flex-wrap:wrap">
+          <label class="label" style="margin:0">Saved templates</label>
+          <button class="btn btn-ghost btn-sm" @click="saveTemplateOpen = !saveTemplateOpen">
+            {{ saveTemplateOpen ? 'Cancel' : 'Save current as template' }}
+          </button>
+        </div>
+
+        <div v-if="!matchingTemplates.length" class="hint-line">
+          No templates for this height yet. Build a list, then save it.
+        </div>
+        <div v-else class="template-list">
+          <div v-for="t in matchingTemplates" :key="t.id" class="template-row">
+            <div class="template-id">
+              <span class="template-name">{{ t.name }}</span>
+              <span v-if="t.height" class="template-height">{{ t.height }}</span>
+              <span class="template-count">{{ (t.dives || []).length }} dive{{ (t.dives || []).length === 1 ? '' : 's' }}</span>
+            </div>
+            <div class="template-actions">
+              <button class="btn btn-ghost btn-sm" @click="applyTemplate(t)">Load</button>
+              <button class="btn btn-ghost btn-sm" @click="deleteTemplate(t)" title="Delete template">✕</button>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="saveTemplateOpen" class="template-save-form">
+          <input
+            class="input"
+            type="text"
+            v-model="saveTemplateName"
+            placeholder='Name (e.g. "3m optionals 2026")'
+            @keyup.enter="saveAsTemplate"
+          >
+          <button class="btn btn-primary btn-sm"
+                  :disabled="saveTemplateBusy"
+                  @click="saveAsTemplate">
+            {{ saveTemplateBusy ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
+        <div v-if="templateError" class="msg msg-error" style="margin-top:0.6rem">{{ templateError }}</div>
+      </div>
+
       <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
           <h2 style="font-size:20px;font-style:italic">Step 2 — Your Dive List</h2>
@@ -323,4 +470,35 @@ watch(currentEvent, async (ev) => {
   padding:0.25rem 0.625rem;border-radius:4px;
   background:var(--cyan-dim);color:var(--cyan);border:1px solid rgba(6,182,212,0.3);
 }
+
+/* Saved-template strip */
+.template-card { padding: 1rem 1.25rem; }
+.template-list { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.5rem; }
+.template-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.5rem; padding: 0.5rem 0.7rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.template-id { display: flex; align-items: baseline; gap: 0.5rem; min-width: 0; }
+.template-name {
+  font-family: var(--font-display); font-size: 14px; font-weight: 700;
+  color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.template-height {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.05em; color: var(--cyan); background: var(--cyan-dim);
+  border: 1px solid rgba(6,182,212,0.3); border-radius: 3px;
+  padding: 0.05rem 0.35rem;
+}
+.template-count {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+}
+.template-actions { display: flex; gap: 0.3rem; flex-shrink: 0; }
+
+.template-save-form {
+  display: flex; gap: 0.5rem; margin-top: 0.5rem;
+}
+.template-save-form .input { flex: 1; }
 </style>

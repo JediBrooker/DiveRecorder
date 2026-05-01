@@ -370,6 +370,21 @@ CREATE TABLE public.score_audit_log (
     created_at      timestamptz DEFAULT now() NOT NULL
 );
 
+-- Saved dive lists per diver. Lets a diver carry common 5- or
+-- 6-dive combinations between meets without retyping — pick a
+-- template, load it, tweak, submit.
+CREATE TABLE public.dive_list_templates (
+    id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id     uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    name        varchar(255) NOT NULL,
+    height      board_height,
+    dives       jsonb NOT NULL DEFAULT '[]'::jsonb,
+    created_at  timestamptz DEFAULT now() NOT NULL,
+    updated_at  timestamptz DEFAULT now() NOT NULL,
+    UNIQUE (user_id, name)
+);
+
+
 -- Coach ↔ Diver links — many-to-many. A coach can mentor
 -- multiple divers; a diver may have multiple coaches over time.
 -- Cascade on either side's deletion; UNIQUE keeps duplicate
@@ -584,6 +599,7 @@ CREATE INDEX idx_coach_diver_org           ON public.coach_diver_links (org_id);
 CREATE INDEX idx_meets_org                 ON public.meets (org_id);
 CREATE INDEX idx_meets_dates               ON public.meets (start_date DESC NULLS LAST);
 CREATE INDEX idx_events_meet               ON public.events (meet_id);
+CREATE INDEX idx_dive_list_templates_user  ON public.dive_list_templates (user_id);
 
 
 -- =============================================================
@@ -601,7 +617,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 10);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 11);
 
 
 -- =============================================================
