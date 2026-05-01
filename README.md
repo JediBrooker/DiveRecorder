@@ -128,6 +128,7 @@ psql -d diverecorder -f migrations/002_calc_dive_points.sql
 psql -d diverecorder -f migrations/003_clubs_and_role_audit.sql
 psql -d diverecorder -f migrations/004_event_types_and_synchro.sql
 psql -d diverecorder -f migrations/005_teams.sql
+psql -d diverecorder -f migrations/006_team_synchro_dives.sql
 ```
 
 ### 5. (Optional) Seed test data
@@ -193,7 +194,8 @@ Open `http://localhost:5173` (dev) or `http://localhost:3000` (built).
 │   ├── 002_calc_dive_points.sql
 │   ├── 003_clubs_and_role_audit.sql
 │   ├── 004_event_types_and_synchro.sql
-│   └── 005_teams.sql
+│   ├── 005_teams.sql
+│   └── 006_team_synchro_dives.sql
 ├── src/
 │   ├── views/               # One Vue component per route
 │   ├── stores/auth.js       # Pinia auth store (JWT in sessionStorage)

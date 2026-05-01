@@ -142,6 +142,9 @@ const submitLabel = computed(() => {
               {{ activeDiver?.diverName || 'Waiting for diver...' }}<span v-if="activeDiver?.country_code" class="diver-country">{{ activeDiver.country_code }}</span>
             </template>
           </div>
+          <div v-if="activeDiver?.team_name" class="judge-team-line">
+            Team: <strong>{{ activeDiver.team_name }}</strong>
+          </div>
           <div v-if="synchroRole" :class="['synchro-role', `role-${synchroRole.tone}`]">
             You are scoring: <strong>{{ synchroRole.label }}</strong>
           </div>
@@ -273,6 +276,14 @@ const submitLabel = computed(() => {
 .synchro-role.role-a    { color: #c4b5fd; border-color: rgba(139,92,246,0.45); background: rgba(139,92,246,0.10); }
 .synchro-role.role-b    { color: #fbbf24; border-color: rgba(245,158,11,0.45); background: rgba(245,158,11,0.10); }
 .synchro-role.role-sync { color: #34d399; border-color: rgba(16,185,129,0.45); background: rgba(16,185,129,0.10); }
+.judge-team-line {
+  display: inline-block; margin-top: 0.5rem; margin-right: 0.5rem;
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.15em; text-transform: uppercase;
+  padding: 0.3rem 0.7rem; border-radius: 4px;
+  border: 1px solid rgba(139,92,246,0.45); background: rgba(139,92,246,0.10); color: #c4b5fd;
+}
+.judge-team-line strong { color: var(--text); }
 .judge-id {
   font-family: var(--font-display);
   font-size: 10px;

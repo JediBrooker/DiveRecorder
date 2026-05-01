@@ -482,11 +482,15 @@ CREATE OR REPLACE FUNCTION public.calc_event_dive_points(
     scores        numeric[],
     num_judges    integer,
     dd            numeric,
-    e_type        event_type
+    e_type        event_type,
+    has_partner   boolean DEFAULT false
 ) RETURNS numeric LANGUAGE plpgsql IMMUTABLE AS $$
 BEGIN
     IF e_type = 'synchro_pair' THEN
         RETURN public.calc_synchro_dive_points(judge_numbers, scores, num_judges, dd);
+    ELSIF has_partner THEN
+        -- Synchro dive within a team event: individual trim × 0.6
+        RETURN public.calc_dive_points(scores, num_judges, dd) * 0.6;
     ELSE
         RETURN public.calc_dive_points(scores, num_judges, dd);
     END IF;

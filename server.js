@@ -1383,6 +1383,7 @@ app.get(
         `SELECT u.id AS competitor_id, u.full_name, o.country_code,
                 cl.name AS club_name, cl.short_code AS club_code,
                 cdl.partner_id, pu.full_name AS partner_name, po.country_code AS partner_country,
+                cdl.team_id, t.name AS team_name, t.short_code AS team_code,
                 cdl.event_id, cdl.round_number, cdl.dive_id,
                 d.dive_code, d.description, d.dd, d.position,
                 e.event_type, e.number_of_judges
@@ -1394,8 +1395,9 @@ app.get(
          LEFT JOIN clubs cl ON cl.id = u.club_id
          LEFT JOIN users pu ON pu.id = cdl.partner_id
          LEFT JOIN organisations po ON po.id = pu.org_id
+         LEFT JOIN teams t ON t.id = cdl.team_id
          WHERE cdl.event_id = $1
-         ORDER BY cdl.round_number ASC, u.full_name ASC`,
+         ORDER BY cdl.round_number ASC, t.name ASC NULLS LAST, u.full_name ASC`,
         [req.params.id],
       );
       res.json(r.rows);
@@ -1416,8 +1418,9 @@ app.get("/api/events/:id/history", async (req, res) => {
               calc_event_dive_points(
                 array_agg(ej.judge_number ORDER BY ej.judge_number),
                 array_agg(s.score ORDER BY ej.judge_number),
-                e.number_of_judges, d.dd, e.event_type
-              ) AS total_points,
+                e.number_of_judges, d.dd, e.event_type,
+                BOOL_OR(cdl.partner_id IS NOT NULL)
+) AS total_points,
               JSON_AGG(s.score ORDER BY s.judge_id) AS judge_scores
        FROM scores s
        JOIN events e ON e.id = s.event_id
@@ -1460,8 +1463,9 @@ app.get("/api/scoreboard/:eventId", async (req, res) => {
                   calc_event_dive_points(
                     array_agg(ej.judge_number ORDER BY ej.judge_number),
                     array_agg(s.score ORDER BY ej.judge_number),
-                    e.number_of_judges, MAX(d.dd), e.event_type
-                  ) AS dive_points
+                    e.number_of_judges, MAX(d.dd), e.event_type,
+                  BOOL_OR(cdl.partner_id IS NOT NULL)
+  ) AS dive_points
            FROM scores s
            JOIN events e ON e.id = s.event_id
            LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
@@ -1523,8 +1527,9 @@ app.get("/api/scoreboard/:eventId", async (req, res) => {
                 calc_event_dive_points(
                   array_agg(ej.judge_number ORDER BY ej.judge_number),
                   array_agg(s.score ORDER BY ej.judge_number),
-                  e.number_of_judges, d.dd, e.event_type
-                ) AS total_dive_score,
+                  e.number_of_judges, d.dd, e.event_type,
+                BOOL_OR(cdl.partner_id IS NOT NULL)
+  ) AS total_dive_score,
                 STRING_AGG(s.score::text, ',' ORDER BY s.judge_id) AS judge_array
          FROM scores s
          JOIN events e ON e.id = s.event_id
@@ -1656,8 +1661,9 @@ app.get("/api/scoreboard/:eventId/leaderboard", async (req, res) => {
                 calc_event_dive_points(
                   array_agg(ej.judge_number ORDER BY ej.judge_number),
                   array_agg(s.score ORDER BY ej.judge_number),
-                  e.number_of_judges, MAX(d.dd), e.event_type
-                ) AS round_total
+                  e.number_of_judges, MAX(d.dd), e.event_type,
+                  BOOL_OR(cdl.partner_id IS NOT NULL)
+) AS round_total
          FROM scores s
          JOIN events e ON e.id = s.event_id
          LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
@@ -1778,8 +1784,9 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
                 calc_event_dive_points(
                   array_agg(ej.judge_number ORDER BY ej.judge_number),
                   array_agg(s.score ORDER BY ej.judge_number),
-                  e.number_of_judges, MAX(d.dd), e.event_type
-                ) AS dive_total,
+                  e.number_of_judges, MAX(d.dd), e.event_type,
+                  BOOL_OR(cdl.partner_id IS NOT NULL)
+) AS dive_total,
                 MAX(d.dd) AS dd
          FROM scores s
          JOIN events e ON e.id = s.event_id
@@ -1811,8 +1818,9 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
                 calc_event_dive_points(
                   array_agg(ej.judge_number ORDER BY ej.judge_number),
                   array_agg(s.score ORDER BY ej.judge_number),
-                  e.number_of_judges, d.dd, e.event_type
-                ) AS dive_total
+                  e.number_of_judges, d.dd, e.event_type,
+                BOOL_OR(cdl.partner_id IS NOT NULL)
+  ) AS dive_total
          FROM scores s
          JOIN events e ON e.id = s.event_id
          LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
@@ -1861,8 +1869,9 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
                 calc_event_dive_points(
                   array_agg(ej.judge_number ORDER BY ej.judge_number),
                   array_agg(s.score ORDER BY ej.judge_number),
-                  e.number_of_judges, MAX(d.dd), e.event_type
-                ) AS dive_points
+                  e.number_of_judges, MAX(d.dd), e.event_type,
+                  BOOL_OR(cdl.partner_id IS NOT NULL)
+) AS dive_points
          FROM scores s
          JOIN events e ON e.id = s.event_id
          LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
@@ -1888,7 +1897,8 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
               e.event_type::text AS event_type,
               ranked.total::numeric(8,2) AS total_score,
               ranked.rnk::int AS final_rank,
-              partner.full_name AS partner_name
+              partner.full_name AS partner_name,
+              tm.name AS team_name
        FROM ranked
        JOIN events e ON e.id = ranked.event_id
        LEFT JOIN LATERAL (
@@ -1900,6 +1910,15 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
          LIMIT 1
        ) p ON true
        LEFT JOIN users partner ON partner.id = p.partner_id
+       LEFT JOIN LATERAL (
+         SELECT DISTINCT cdl.team_id
+         FROM competitor_dive_lists cdl
+         WHERE cdl.event_id = e.id
+           AND cdl.competitor_id = $1
+           AND cdl.team_id IS NOT NULL
+         LIMIT 1
+       ) tlink ON e.event_type = 'team'
+       LEFT JOIN teams tm ON tm.id = tlink.team_id
        WHERE ranked.competitor_id = $1
        ORDER BY e.created_at ASC`,
       [req.params.id],
@@ -2208,8 +2227,9 @@ app.get("/api/archive/:eventId/results", async (req, res) => {
                   calc_event_dive_points(
                     array_agg(ej.judge_number ORDER BY ej.judge_number),
                     array_agg(s.score ORDER BY ej.judge_number),
-                    e.number_of_judges, MAX(d.dd), e.event_type
-                  ) AS dive_points
+                    e.number_of_judges, MAX(d.dd), e.event_type,
+                  BOOL_OR(cdl.partner_id IS NOT NULL)
+  ) AS dive_points
            FROM scores s
            JOIN events e ON e.id = s.event_id
            LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
@@ -2266,8 +2286,9 @@ app.get("/api/archive/:eventId/results", async (req, res) => {
                 calc_event_dive_points(
                   array_agg(ej.judge_number ORDER BY ej.judge_number),
                   array_agg(s.score ORDER BY ej.judge_number),
-                  e.number_of_judges, d.dd, e.event_type
-                ) AS total_dive_score,
+                  e.number_of_judges, d.dd, e.event_type,
+                BOOL_OR(cdl.partner_id IS NOT NULL)
+  ) AS total_dive_score,
                 STRING_AGG(s.score::text, ',' ORDER BY s.judge_id) AS judge_scores
          FROM scores s
          JOIN events e ON e.id = s.event_id
@@ -2315,8 +2336,9 @@ app.get("/api/events/:id/results.pdf", async (req, res) => {
                   calc_event_dive_points(
                     array_agg(ej.judge_number ORDER BY ej.judge_number),
                     array_agg(s.score ORDER BY ej.judge_number),
-                    e.number_of_judges, MAX(d.dd), e.event_type
-                  ) AS dive_points
+                    e.number_of_judges, MAX(d.dd), e.event_type,
+                  BOOL_OR(cdl.partner_id IS NOT NULL)
+  ) AS dive_points
            FROM scores s
            JOIN events e ON e.id = s.event_id
            LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
@@ -2351,8 +2373,9 @@ app.get("/api/events/:id/results.pdf", async (req, res) => {
                 calc_event_dive_points(
                   array_agg(ej.judge_number ORDER BY ej.judge_number),
                   array_agg(s.score ORDER BY ej.judge_number),
-                  e.number_of_judges, d.dd, e.event_type
-                ) AS total_dive_score,
+                  e.number_of_judges, d.dd, e.event_type,
+                BOOL_OR(cdl.partner_id IS NOT NULL)
+  ) AS total_dive_score,
                 STRING_AGG(s.score::text, ', ' ORDER BY s.judge_id) AS judge_scores
          FROM scores s
          JOIN events e ON e.id = s.event_id

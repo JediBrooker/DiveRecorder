@@ -325,10 +325,11 @@ onMounted(async () => {
               {{ activeDiver?.diverName || 'Waiting...' }}
             </template>
           </div>
-          <div v-if="activeDiver?.country_code || activeDiver?.club_name"
+          <div v-if="activeDiver?.country_code || activeDiver?.club_name || activeDiver?.team_name"
                class="sb-country-line" :style="{ opacity: activeDiver ? '1' : '0.2' }">
             <span v-if="activeDiver.country_code">{{ activeDiver.country_code }}</span>
-            <span v-if="activeDiver.club_name" class="sb-club-line">{{ activeDiver.club_name }}</span>
+            <span v-if="activeDiver.team_name" class="sb-team-line">{{ activeDiver.team_name }}</span>
+            <span v-if="activeDiver.club_name && !activeDiver.team_name" class="sb-club-line">{{ activeDiver.club_name }}</span>
           </div>
           <div class="sb-badges" :style="{ opacity: activeDiver ? '1' : '0.2' }">
             <div class="sb-code">{{ activeDiver?.diveCode || '—' }}</div>
@@ -697,6 +698,7 @@ onMounted(async () => {
 .standing-country { font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.05em; color: var(--text-3); background: var(--bg-2); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; margin-left: 0.4rem; vertical-align: middle; }
 .standing-score { font-family: var(--font-mono); font-size: 15px; font-weight: 500; color: var(--text); }
 .sb-club-line { font-family: var(--font-mono); font-size: clamp(11px,1.4vw,14px); color: var(--text-3); margin-left: 0.6rem; }
+.sb-team-line { font-family: var(--font-display); font-size: clamp(13px,1.7vw,18px); font-weight: 700; color: var(--cyan); margin-left: 0.7rem; }
 
 .event-sel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.4rem 0.75rem; font-family: var(--font-mono); font-size: 13px; color: var(--text); outline: none; cursor: pointer; }
 

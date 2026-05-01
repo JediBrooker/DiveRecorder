@@ -199,7 +199,9 @@ watch(targetId, load)
               <span class="trend-name">
                 {{ t.event_name }}
                 <span v-if="t.event_type === 'synchro_pair'" class="trend-synchro">SYNCHRO</span>
+                <span v-else-if="t.event_type === 'team'" class="trend-team-badge">TEAM</span>
                 <span v-if="t.partner_name" class="trend-partner">with {{ t.partner_name }}</span>
+                <span v-if="t.team_name" class="trend-partner">on {{ t.team_name }}</span>
               </span>
               <span :class="['trend-place', placeColor(t.final_rank)]">{{ placeOrdinal(t.final_rank) }}</span>
               <span class="trend-total">{{ Number(t.total_score).toFixed(2) }}</span>
@@ -330,6 +332,12 @@ watch(targetId, load)
   font-family: var(--font-display); font-size: 9px; font-weight: 900;
   letter-spacing: 0.18em; color: var(--cyan);
   background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.4);
+  border-radius: 3px; padding: 0.1rem 0.4rem; margin-left: 0.4rem;
+}
+.trend-team-badge {
+  font-family: var(--font-display); font-size: 9px; font-weight: 900;
+  letter-spacing: 0.18em; color: #c4b5fd;
+  background: rgba(139,92,246,0.10); border: 1px solid rgba(139,92,246,0.45);
   border-radius: 3px; padding: 0.1rem 0.4rem; margin-left: 0.4rem;
 }
 .trend-partner { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-left: 0.4rem; }
