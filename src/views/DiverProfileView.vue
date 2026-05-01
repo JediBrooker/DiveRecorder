@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { cachedFetch, idbDelete } from '@/lib/idbCache'
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -9,6 +10,10 @@ const auth = useAuthStore()
 const profile = ref(null)
 const loading = ref(false)
 const error = ref('')
+// True while we're rendering a stale (cached) copy and waiting
+// for the network refresh to land. Surfaces as a small banner
+// on the page so the diver knows the data is being verified.
+const fromCache = ref(false)
 
 // :id route param is optional — fall back to the logged-in user.
 const targetId = computed(() => route.params.id || auth.user?.id)
@@ -90,13 +95,40 @@ const trendChart = computed(() => {
 
 async function load() {
   if (!targetId.value) return
+  const url = `/api/divers/${targetId.value}/profile`
   loading.value = true
   error.value = ''
+  fromCache.value = false
   try {
-    profile.value = await auth.apiFetch(`/api/divers/${targetId.value}/profile`)
+    // Stale-while-revalidate via IndexedDB. If we have a cached
+    // copy from a previous load it shows instantly; the network
+    // call updates it underneath. Critical for diver phones on
+    // poolside wifi: the app stays usable when the network
+    // momentarily drops.
+    const result = await cachedFetch(
+      url,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(auth.token ? { Authorization: `Bearer ${auth.token}` } : {}),
+        },
+        credentials: 'same-origin',
+      },
+      {
+        onUpdate(fresh) {
+          profile.value = fresh
+          fromCache.value = false
+        },
+      },
+    )
+    if (result.data) {
+      profile.value = result.data
+      fromCache.value = result.fromCache
+    } else if (!profile.value) {
+      error.value = 'Offline and no cached profile yet'
+    }
   } catch (err) {
     error.value = err.message
-    profile.value = null
   } finally {
     loading.value = false
   }
@@ -197,7 +229,11 @@ watch(targetId, load)
       </div>
     </div>
 
-    <div v-if="loading" class="empty">Loading profile…</div>
+    <div v-if="loading && !profile" class="empty">Loading profile…</div>
+    <div v-else-if="fromCache" class="cache-banner">
+      <span class="cache-dot"></span>
+      Showing your last saved copy — refreshing in the background
+    </div>
     <div v-else-if="error" class="msg msg-error">{{ error }}</div>
     <div v-else-if="profile" class="content">
       <!-- Headline stats -->
@@ -380,6 +416,21 @@ watch(targetId, load)
 
 .content { display: flex; flex-direction: column; gap: 1.5rem; }
 .empty { color: var(--text-3); padding: 3rem 0; text-align: center; font-family: var(--font-mono); font-size: 13px; }
+
+/* "Showing cached" banner — small, unobtrusive, sits above the
+   profile content while a network refresh is in flight. */
+.cache-banner {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-family: var(--font-mono); font-size: 11px; color: var(--amber);
+  background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.7rem; margin-bottom: 1rem;
+}
+.cache-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--amber); animation: cachePulse 1.2s infinite;
+}
+@keyframes cachePulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 .empty-mini { color: var(--text-3); padding: 1rem 0; font-family: var(--font-mono); font-size: 12px; }
 
 .stats-row {

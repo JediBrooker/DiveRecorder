@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useSocket } from '@/composables/useSocket'
 import { annotatedScores, groupedSynchroScoresForDisplay } from '@/composables/useScoreCategories'
+import { cachedFetch } from '@/lib/idbCache'
 
 const route  = useRoute()
 const router = useRouter()
@@ -21,6 +22,7 @@ const broadcastMode = computed(() => route.params.mode === 'broadcast')
 const events = ref([])
 const clubsList = ref([])
 const loadingList = ref(false)
+const meetsFromCache = ref(false)
 
 const currentEventId = ref(null)
 const currentEvent = computed(() => events.value.find(e => String(e.id) === String(currentEventId.value)) || null)
@@ -419,13 +421,30 @@ function parseScores(judgeArray) {
 
 onMounted(async () => {
   loadingList.value = true
+  meetsFromCache.value = false
   try {
+    // Stale-while-revalidate via IndexedDB. Spectators landing
+    // on /scoreboard get an instant render from cache (if they've
+    // visited before) and the network refresh updates the list
+    // when it lands. Works offline for browsing past meets even
+    // if the network is gone — only live state stays unavailable.
     const [evs, cls] = await Promise.all([
-      fetchJsonArray('/api/archive'),
-      fetchJsonArray('/api/archive/clubs'),
+      cachedFetch('/api/archive', { credentials: 'same-origin' }, {
+        onUpdate(fresh) {
+          if (Array.isArray(fresh)) { events.value = fresh; meetsFromCache.value = false }
+        },
+      }),
+      cachedFetch('/api/archive/clubs', { credentials: 'same-origin' }, {
+        onUpdate(fresh) { if (Array.isArray(fresh)) clubsList.value = fresh },
+      }),
     ])
-    events.value = evs
-    clubsList.value = cls
+    if (Array.isArray(evs.data)) {
+      events.value = evs.data
+      meetsFromCache.value = evs.fromCache
+    }
+    if (Array.isArray(cls.data)) {
+      clubsList.value = cls.data
+    }
   } finally {
     loadingList.value = false
   }
@@ -499,6 +518,14 @@ onMounted(async () => {
          ArchiveView used.
          ========================================================= -->
     <div v-if="!currentEventId" class="meets-mode">
+      <!-- Cache banner — visible while the meets list was served
+           from IndexedDB and the network refresh is in flight.
+           Disappears the moment fresh data arrives. -->
+      <div v-if="meetsFromCache" class="cache-banner">
+        <span class="cache-dot"></span>
+        Showing your last cached meets list — refreshing in the background
+      </div>
+
       <!-- Live banner: only visible when at least one meet is in
            progress. Each card jumps straight into the live
            broadcast layout for that event. -->
@@ -1262,6 +1289,20 @@ onMounted(async () => {
   background: var(--bg-2); border: 1px dashed var(--border);
   border-radius: var(--radius-lg);
 }
+
+/* Stale-cache banner shared with DiverProfileView. */
+.cache-banner {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-family: var(--font-mono); font-size: 11px; color: var(--amber);
+  background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.7rem; margin-bottom: 0.5rem;
+}
+.cache-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--amber); animation: cachePulse 1.2s infinite;
+}
+@keyframes cachePulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
 .sb-body { flex: 1; display: grid; grid-template-columns: 380px 1fr 300px; overflow: hidden; }
 .sb-col { display: flex; flex-direction: column; overflow: hidden; }
