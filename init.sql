@@ -1,13 +1,549 @@
--- =============================================================================
--- DIVE DIRECTORY SEED — World Aquatics / FINA DD Tables
--- Source: FINA Competition Regulations (valid from 2017, confirmed against
---         World Aquatics 2024 publication)
--- Heights: 1m, 3m (springboard)  |  5m, 7.5m, 10m (platform)
--- Positions: A = Straight, B = Pike, C = Tuck, D = Free
--- Only rows with a valid DD value are inserted (dashes = impossible, omitted).
--- =============================================================================
+-- =============================================================
+-- DiveRecorder — INITIAL LOAD
+--
+-- One-shot bootstrap for a fresh, empty database. Folds in the
+-- old schema_v2.sql + every migration (001 .. 007), the full
+-- World Aquatics dive directory, and a single super-admin
+-- account so you can sign in immediately.
+--
+-- Usage:
+--     createdb diverecorder
+--     psql -d diverecorder -f init.sql
+--
+-- After this finishes, log in with:
+--     username: admin
+--     password: admin
+--
+-- (Change the password from the User Manager as soon as you do.)
+-- =============================================================
 
 BEGIN;
+
+-- =============================================================
+-- EXTENSIONS
+-- =============================================================
+
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+
+-- =============================================================
+-- ENUM TYPES
+-- =============================================================
+
+CREATE TYPE org_status AS ENUM (
+    'pending',      -- registered, awaiting system_admin approval
+    'active',       -- fully operational
+    'suspended'     -- disabled by system_admin
+);
+
+CREATE TYPE org_role AS ENUM (
+    'org_admin',
+    'meet_manager',
+    'referee',
+    'judge',
+    'diver',
+    'spectator'
+);
+
+CREATE TYPE request_status AS ENUM (
+    'pending',
+    'approved',
+    'rejected'
+);
+
+CREATE TYPE dive_position AS ENUM (
+    'A',  -- straight
+    'B',  -- pike
+    'C',  -- tuck
+    'D'   -- free
+);
+
+CREATE TYPE event_gender AS ENUM (
+    'Male',
+    'Female',
+    'Mixed'
+);
+
+CREATE TYPE event_status AS ENUM (
+    'Upcoming',
+    'Live',
+    'Completed'
+);
+
+CREATE TYPE event_type AS ENUM (
+    'individual',
+    'synchro_pair',
+    'team'
+);
+
+CREATE TYPE board_height AS ENUM (
+    '1m',
+    '3m',
+    '5m',
+    '7.5m',
+    '10m'
+);
+
+CREATE TYPE score_audit_action AS ENUM (
+    'insert',
+    'update',
+    'delete'
+);
+
+CREATE TYPE role_audit_action AS ENUM (
+    'granted',
+    'revoked'
+);
+
+
+-- =============================================================
+-- ORGANISATIONS
+-- Top-level multi-tenant boundary. Country federations live here.
+-- =============================================================
+
+CREATE TABLE public.organisations (
+    id           uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name         varchar(255) NOT NULL,
+    country_code char(3),                        -- ISO 3166-1 alpha-3 e.g. 'AUS'
+    slug         varchar(100) UNIQUE NOT NULL,
+    status       org_status DEFAULT 'pending' NOT NULL,
+    created_at   timestamptz DEFAULT now()
+);
+
+
+-- =============================================================
+-- CLUBS
+-- A smaller organisational unit nested under organisations
+-- (country federations). Optional — independent divers can have
+-- NULL club_id.
+-- =============================================================
+
+CREATE TABLE public.clubs (
+    id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    org_id      uuid NOT NULL REFERENCES public.organisations(id) ON DELETE CASCADE,
+    name        varchar(255) NOT NULL,
+    short_code  varchar(20),
+    created_at  timestamptz DEFAULT now() NOT NULL
+);
+
+
+-- =============================================================
+-- USERS
+-- =============================================================
+
+CREATE TABLE public.users (
+    id              uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    username        varchar(50) UNIQUE NOT NULL,
+    password        varchar(255),
+    full_name       varchar(100) NOT NULL,
+    email           varchar(255),
+    org_id          uuid NOT NULL REFERENCES public.organisations(id) ON DELETE RESTRICT,
+    club_id         uuid REFERENCES public.clubs(id) ON DELETE SET NULL,
+    is_system_admin boolean DEFAULT false NOT NULL,
+    created_at      timestamptz DEFAULT now()
+);
+
+
+-- =============================================================
+-- USER ORG ROLES
+-- A user can hold multiple roles within their org.
+-- =============================================================
+
+CREATE TABLE public.user_org_roles (
+    user_id    uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    org_id     uuid NOT NULL REFERENCES public.organisations(id) ON DELETE CASCADE,
+    role       org_role NOT NULL,
+    granted_by uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    granted_at timestamptz DEFAULT now(),
+    PRIMARY KEY (user_id, org_id, role)
+);
+
+
+-- =============================================================
+-- ROLE REQUESTS
+-- Self-serve flow: user requests a role, org_admin approves.
+-- =============================================================
+
+CREATE TABLE public.role_requests (
+    id             uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id        uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    org_id         uuid NOT NULL REFERENCES public.organisations(id) ON DELETE CASCADE,
+    requested_role org_role NOT NULL,
+    status         request_status DEFAULT 'pending' NOT NULL,
+    note           text,
+    reviewed_by    uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    reviewed_at    timestamptz,
+    created_at     timestamptz DEFAULT now(),
+    UNIQUE (user_id, org_id, requested_role, status)
+);
+
+
+-- =============================================================
+-- DIVE DIRECTORY
+-- Global reference table — not org-scoped.
+-- =============================================================
+
+CREATE TABLE public.dive_directory (
+    id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    dive_code   varchar(10) NOT NULL,
+    height      numeric(3,1) NOT NULL,
+    position    dive_position NOT NULL,
+    dd          numeric(3,1) NOT NULL,
+    description text,
+    UNIQUE (dive_code, height, position)
+);
+
+
+-- =============================================================
+-- EVENTS
+-- =============================================================
+
+CREATE TABLE public.events (
+    id               uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    org_id           uuid NOT NULL REFERENCES public.organisations(id) ON DELETE CASCADE,
+    name             varchar(255) NOT NULL,
+    gender           event_gender NOT NULL,
+    height           board_height,
+    number_of_judges integer NOT NULL,
+    total_rounds     integer DEFAULT 6 NOT NULL,
+    dd_limit_rounds  integer DEFAULT 0,
+    dd_limit_value   numeric(3,1),
+    event_type       event_type DEFAULT 'individual' NOT NULL,
+    status           event_status DEFAULT 'Upcoming' NOT NULL,
+    created_at       timestamptz DEFAULT now(),
+    CONSTRAINT events_number_of_judges_check
+        CHECK (number_of_judges = ANY (ARRAY[3, 5, 7, 9, 11])),
+    CONSTRAINT events_total_rounds_check
+        CHECK (total_rounds > 0)
+);
+
+
+-- =============================================================
+-- EVENT MANAGERS / EVENT JUDGES
+-- =============================================================
+
+CREATE TABLE public.event_managers (
+    event_id uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    user_id  uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    added_by uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    added_at timestamptz DEFAULT now(),
+    PRIMARY KEY (event_id, user_id)
+);
+
+CREATE TABLE public.event_judges (
+    event_id     uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    judge_id     uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    judge_number integer,
+    PRIMARY KEY (event_id, judge_id)
+);
+
+
+-- =============================================================
+-- TEAMS — for event_type = 'team' events.
+-- Defined BEFORE competitor_dive_lists so the team_id FK on that
+-- table resolves cleanly. (The old schema_v2.sql had teams below
+-- competitor_dive_lists which made the FK forward-ref explode on
+-- a fresh install — fixed here.)
+-- =============================================================
+
+CREATE TABLE public.teams (
+    id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    org_id      uuid NOT NULL REFERENCES public.organisations(id) ON DELETE CASCADE,
+    name        varchar(255) NOT NULL,
+    short_code  varchar(20),
+    created_at  timestamptz DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.team_members (
+    team_id    uuid NOT NULL REFERENCES public.teams(id) ON DELETE CASCADE,
+    user_id    uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    added_at   timestamptz DEFAULT now() NOT NULL,
+    PRIMARY KEY (team_id, user_id)
+);
+
+CREATE TABLE public.event_teams (
+    event_id   uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    team_id    uuid NOT NULL REFERENCES public.teams(id) ON DELETE CASCADE,
+    added_at   timestamptz DEFAULT now() NOT NULL,
+    PRIMARY KEY (event_id, team_id)
+);
+
+
+-- =============================================================
+-- COMPETITOR DIVE LISTS
+-- partner_id: synchro pair partner (synchro events / synchro
+--             dives within team events).
+-- team_id:    team owning this dive list row in team events.
+--             ON DELETE SET NULL preserves history when a team
+--             is renamed or pruned.
+-- =============================================================
+
+CREATE TABLE public.competitor_dive_lists (
+    id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    event_id      uuid REFERENCES public.events(id) ON DELETE CASCADE,
+    competitor_id uuid REFERENCES public.users(id) ON DELETE CASCADE,
+    partner_id    uuid REFERENCES public.users(id) ON DELETE CASCADE,
+    team_id       uuid REFERENCES public.teams(id) ON DELETE SET NULL,
+    dive_id       uuid REFERENCES public.dive_directory(id) ON DELETE RESTRICT,
+    round_number  integer NOT NULL,
+    UNIQUE (event_id, competitor_id, round_number),
+    CONSTRAINT competitor_dive_lists_round_number_check
+        CHECK (round_number > 0)
+);
+
+
+-- =============================================================
+-- SCORES
+-- =============================================================
+
+CREATE TABLE public.scores (
+    id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    event_id      uuid REFERENCES public.events(id) ON DELETE CASCADE,
+    competitor_id uuid REFERENCES public.users(id) ON DELETE CASCADE,
+    judge_id      uuid REFERENCES public.users(id) ON DELETE CASCADE,
+    dive_id       uuid REFERENCES public.dive_directory(id),
+    round_number  integer NOT NULL,
+    score         numeric(3,1) NOT NULL,
+    status        varchar(20) DEFAULT 'active',
+    created_at    timestamptz DEFAULT now(),
+    UNIQUE (event_id, competitor_id, round_number, judge_id),
+    CONSTRAINT scores_score_check
+        CHECK (
+            score >= 0.0
+            AND score <= 10.0
+            AND ((score * 2) % 1) = 0  -- must be a 0.5 increment
+        ),
+    FOREIGN KEY (event_id, competitor_id, round_number)
+        REFERENCES public.competitor_dive_lists(event_id, competitor_id, round_number)
+        ON DELETE CASCADE
+);
+
+
+-- =============================================================
+-- AUDIT LOGS
+-- score_audit_log: append-only history of every score mutation.
+-- role_audit_log:  append-only history of every role grant/revoke.
+-- =============================================================
+
+CREATE TABLE public.score_audit_log (
+    id              uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    score_id        uuid,                                            -- nullable after delete
+    event_id        uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    competitor_id   uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    judge_id        uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    round_number    integer NOT NULL,
+    action          score_audit_action NOT NULL,
+    old_score       numeric(3,1),                                    -- null for insert
+    new_score       numeric(3,1),                                    -- null for delete
+    actor_user_id   uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    ip_address      inet,
+    user_agent      text,
+    created_at      timestamptz DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.role_audit_log (
+    id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id     uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    org_id      uuid NOT NULL REFERENCES public.organisations(id) ON DELETE CASCADE,
+    role        org_role NOT NULL,
+    action      role_audit_action NOT NULL,
+    actor_id    uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    note        text,
+    created_at  timestamptz DEFAULT now() NOT NULL
+);
+
+
+-- =============================================================
+-- WORLD AQUATICS DIVE POINTS — INDIVIDUAL
+-- Trim rules:
+--   3j keep all, 5j drop high+low, 7j drop 2+2,
+--   9j drop 2+2 × 0.6,  11j drop 3+3 × 0.6
+--   dive_points = (sum of counted scores) × DD × scaling
+-- =============================================================
+
+CREATE OR REPLACE FUNCTION public.calc_dive_points(
+    scores      numeric[],
+    num_judges  integer,
+    dd          numeric
+) RETURNS numeric LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE
+    sorted       numeric[];
+    n            integer;
+    drop_count   integer;
+    scaling      numeric;
+    counted_sum  numeric;
+BEGIN
+    IF scores IS NULL OR array_length(scores, 1) IS NULL THEN
+        RETURN 0;
+    END IF;
+    SELECT array_agg(s ORDER BY s) INTO sorted FROM unnest(scores) AS s;
+    n := array_length(sorted, 1);
+    drop_count := CASE
+        WHEN num_judges = 5  THEN 1
+        WHEN num_judges = 7  THEN 2
+        WHEN num_judges = 9  THEN 2
+        WHEN num_judges = 11 THEN 3
+        ELSE 0
+    END;
+    scaling := CASE WHEN num_judges IN (9, 11) THEN 0.6 ELSE 1.0 END;
+    IF drop_count > 0 AND n > drop_count * 2 THEN
+        SELECT SUM(s) INTO counted_sum
+        FROM unnest(sorted[(drop_count + 1) : (n - drop_count)]) AS s;
+    ELSE
+        SELECT SUM(s) INTO counted_sum FROM unnest(sorted) AS s;
+    END IF;
+    RETURN COALESCE(counted_sum, 0) * COALESCE(dd, 1.0) * scaling;
+END
+$$;
+
+
+-- =============================================================
+-- WORLD AQUATICS DIVE POINTS — SYNCHRO
+-- 9-judge:  j1+j2 exec A, j3+j4 exec B, j5..j9 sync (drop hi+lo,
+--           keep middle 3) — both exec scores keep, no drops.
+-- 11-judge: j1..j3 exec A (keep middle 1), j4..j6 exec B (keep
+--           middle 1), j7..j11 sync (drop hi+lo, keep middle 3).
+-- award = (counted exec A + counted exec B + counted sync) × DD × 0.6
+-- =============================================================
+
+CREATE OR REPLACE FUNCTION public.calc_synchro_dive_points(
+    judge_numbers integer[],
+    scores        numeric[],
+    num_judges    integer,
+    dd            numeric
+) RETURNS numeric LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE
+    n           integer;
+    exec_a      numeric[];
+    exec_b      numeric[];
+    sync_grp    numeric[];
+    sorted      numeric[];
+    counted_sum numeric := 0;
+BEGIN
+    IF scores IS NULL OR array_length(scores, 1) IS NULL THEN
+        RETURN 0;
+    END IF;
+    exec_a := ARRAY[]::numeric[];
+    exec_b := ARRAY[]::numeric[];
+    sync_grp := ARRAY[]::numeric[];
+    FOR n IN 1 .. array_length(scores, 1) LOOP
+        IF num_judges = 9 THEN
+            IF judge_numbers[n] BETWEEN 1 AND 2 THEN exec_a := exec_a || scores[n];
+            ELSIF judge_numbers[n] BETWEEN 3 AND 4 THEN exec_b := exec_b || scores[n];
+            ELSIF judge_numbers[n] BETWEEN 5 AND 9 THEN sync_grp := sync_grp || scores[n]; END IF;
+        ELSIF num_judges = 11 THEN
+            IF judge_numbers[n] BETWEEN 1 AND 3 THEN exec_a := exec_a || scores[n];
+            ELSIF judge_numbers[n] BETWEEN 4 AND 6 THEN exec_b := exec_b || scores[n];
+            ELSIF judge_numbers[n] BETWEEN 7 AND 11 THEN sync_grp := sync_grp || scores[n]; END IF;
+        ELSE
+            sync_grp := sync_grp || scores[n];
+        END IF;
+    END LOOP;
+    IF array_length(exec_a, 1) IS NOT NULL THEN
+        IF num_judges = 9 THEN
+            SELECT SUM(s) INTO counted_sum FROM unnest(exec_a) AS s;
+        ELSIF num_judges = 11 AND array_length(exec_a, 1) = 3 THEN
+            SELECT array_agg(s ORDER BY s) INTO sorted FROM unnest(exec_a) AS s;
+            counted_sum := counted_sum + sorted[2];
+        ELSE
+            SELECT counted_sum + SUM(s) INTO counted_sum FROM unnest(exec_a) AS s;
+        END IF;
+    END IF;
+    IF array_length(exec_b, 1) IS NOT NULL THEN
+        IF num_judges = 9 THEN
+            SELECT counted_sum + SUM(s) INTO counted_sum FROM unnest(exec_b) AS s;
+        ELSIF num_judges = 11 AND array_length(exec_b, 1) = 3 THEN
+            SELECT array_agg(s ORDER BY s) INTO sorted FROM unnest(exec_b) AS s;
+            counted_sum := counted_sum + sorted[2];
+        ELSE
+            SELECT counted_sum + SUM(s) INTO counted_sum FROM unnest(exec_b) AS s;
+        END IF;
+    END IF;
+    IF array_length(sync_grp, 1) IS NOT NULL THEN
+        IF array_length(sync_grp, 1) = 5 THEN
+            SELECT array_agg(s ORDER BY s) INTO sorted FROM unnest(sync_grp) AS s;
+            counted_sum := counted_sum + sorted[2] + sorted[3] + sorted[4];
+        ELSE
+            SELECT counted_sum + SUM(s) INTO counted_sum FROM unnest(sync_grp) AS s;
+        END IF;
+    END IF;
+    RETURN counted_sum * COALESCE(dd, 1.0) * 0.6;
+END
+$$;
+
+
+-- =============================================================
+-- DISPATCH WRAPPER — used by every standings / leaderboard /
+-- archive / PDF query so they don't have to CASE on event_type
+-- inline.
+--   synchro_pair             → role-grouped synchro
+--   team event w/ has_partner → individual trim × 0.6
+--   else                     → standard individual trim × DD
+-- =============================================================
+
+CREATE OR REPLACE FUNCTION public.calc_event_dive_points(
+    judge_numbers integer[],
+    scores        numeric[],
+    num_judges    integer,
+    dd            numeric,
+    e_type        event_type,
+    has_partner   boolean DEFAULT false
+) RETURNS numeric LANGUAGE plpgsql IMMUTABLE AS $$
+BEGIN
+    IF e_type = 'synchro_pair' THEN
+        RETURN public.calc_synchro_dive_points(judge_numbers, scores, num_judges, dd);
+    ELSIF has_partner THEN
+        RETURN public.calc_dive_points(scores, num_judges, dd) * 0.6;
+    ELSE
+        RETURN public.calc_dive_points(scores, num_judges, dd);
+    END IF;
+END
+$$;
+
+
+-- =============================================================
+-- INDEXES
+-- =============================================================
+
+CREATE INDEX idx_users_org              ON public.users (org_id);
+CREATE INDEX idx_users_club             ON public.users (club_id);
+CREATE INDEX idx_user_org_roles_user    ON public.user_org_roles (user_id);
+CREATE INDEX idx_user_org_roles_org     ON public.user_org_roles (org_id);
+CREATE INDEX idx_role_requests_org      ON public.role_requests (org_id, status);
+CREATE INDEX idx_clubs_org              ON public.clubs (org_id);
+CREATE INDEX idx_events_org             ON public.events (org_id);
+CREATE INDEX idx_events_status          ON public.events (status);
+CREATE INDEX idx_event_managers_event   ON public.event_managers (event_id);
+CREATE INDEX idx_event_managers_user    ON public.event_managers (user_id);
+CREATE INDEX idx_event_judges_event     ON public.event_judges (event_id);
+CREATE INDEX idx_dive_lists_event       ON public.competitor_dive_lists (event_id);
+CREATE INDEX idx_dive_lists_competitor  ON public.competitor_dive_lists (competitor_id);
+CREATE INDEX idx_dive_lists_partner     ON public.competitor_dive_lists (partner_id);
+CREATE INDEX idx_dive_lists_team        ON public.competitor_dive_lists (team_id);
+CREATE INDEX idx_teams_org              ON public.teams (org_id);
+CREATE INDEX idx_team_members_user      ON public.team_members (user_id);
+CREATE INDEX idx_event_teams_team       ON public.event_teams (team_id);
+CREATE INDEX idx_scores_event           ON public.scores (event_id);
+CREATE INDEX idx_scores_competitor      ON public.scores (competitor_id);
+CREATE INDEX idx_score_audit_event_round   ON public.score_audit_log (event_id, round_number);
+CREATE INDEX idx_score_audit_event_created ON public.score_audit_log (event_id, created_at DESC);
+CREATE INDEX idx_score_audit_competitor    ON public.score_audit_log (competitor_id);
+CREATE INDEX idx_score_audit_judge         ON public.score_audit_log (judge_id);
+CREATE INDEX idx_role_audit_user           ON public.role_audit_log (user_id, created_at DESC);
+CREATE INDEX idx_role_audit_org            ON public.role_audit_log (org_id, created_at DESC);
+CREATE INDEX idx_role_audit_actor          ON public.role_audit_log (actor_id);
+
+
+-- =============================================================
+-- DIVE DIRECTORY DATA
+-- World Aquatics / FINA DD tables (valid from 2017, confirmed
+-- against the 2024 publication).
+-- Heights:    1m, 3m (springboard) | 5m, 7.5m, 10m (platform)
+-- Positions:  A = Straight, B = Pike, C = Tuck, D = Free
+-- Only rows with a valid DD are inserted (dashes = impossible).
+-- =============================================================
+
 
 -- -----------------------------------------------------------------------------
 -- FORWARD GROUP (1xx)
@@ -1134,18 +1670,82 @@ INSERT INTO dive_directory (dive_code, height, position, dd, description) VALUES
 ('6265', 10.0, 'B', 4.6, 'Armstand Back 3 Somersaults 2½ Twists'),
 ('6265', 10.0, 'C', 4.4, 'Armstand Back 3 Somersaults 2½ Twists');
 
+
+
+-- =============================================================
+-- SUPER ADMIN ACCOUNT
+--
+-- Creates a single platform organisation and the 'admin' user
+-- so the freshly built database is immediately usable.
+--
+--   username: admin
+--   password: admin
+--
+-- The bcrypt hash below was generated with the same cost factor
+-- (12) the server uses for live registrations:
+--     node -e "console.log(require('bcryptjs').hashSync('admin', 12))"
+-- Replace the password from the User Manager once you sign in.
+-- =============================================================
+
+INSERT INTO public.organisations (id, name, country_code, slug, status, created_at)
+VALUES (
+    '00000000-0000-0000-0000-000000000001',
+    'Administration',
+    NULL,
+    'admin',
+    'active',
+    now()
+);
+
+INSERT INTO public.users
+    (id, username, password, full_name, email, org_id, club_id, is_system_admin, created_at)
+VALUES (
+    '00000000-0000-0000-0000-000000000002',
+    'admin',
+    '$2b$12$ByJxDUrjsvPjFqTjsWp2O.eTL6QoytQLQmHyTNwiNJLOJVZJZ/Oha',  -- bcrypt('admin', 12)
+    'System Administrator',
+    'admin@diverecorder.local',
+    '00000000-0000-0000-0000-000000000001',
+    NULL,
+    true,
+    now()
+);
+
+-- is_system_admin gives this user cross-org access regardless of
+-- explicit role rows, but we add org_admin + spectator within the
+-- platform org too so any code path that does a strict role check
+-- still resolves cleanly.
+INSERT INTO public.user_org_roles (user_id, org_id, role, granted_at) VALUES
+    ('00000000-0000-0000-0000-000000000002',
+     '00000000-0000-0000-0000-000000000001',
+     'spectator',
+     now()),
+    ('00000000-0000-0000-0000-000000000002',
+     '00000000-0000-0000-0000-000000000001',
+     'org_admin',
+     now());
+
+INSERT INTO public.role_audit_log
+    (user_id, org_id, role, action, actor_id, note, created_at)
+VALUES
+    ('00000000-0000-0000-0000-000000000002',
+     '00000000-0000-0000-0000-000000000001',
+     'spectator', 'granted', NULL, 'bootstrap', now()),
+    ('00000000-0000-0000-0000-000000000002',
+     '00000000-0000-0000-0000-000000000001',
+     'org_admin', 'granted', NULL, 'bootstrap', now());
+
+
 COMMIT;
 
--- =============================================================================
--- Summary of rows inserted (approximate):
---   Forward group (1xx):        ~111 rows
---   Back group (2xx):           ~109 rows
---   Reverse group (3xx):        ~100 rows
---   Inward group (4xx):         ~91 rows
---   Forward twisting (51xx):    ~90 rows
---   Back twisting (52xx):       ~82 rows
---   Reverse twisting (53xx):    ~88 rows
---   Inward twisting (54xx):     ~48 rows
---   Armstand group (6xx/6xxx):  ~115 rows
---   Total:                      ~834 rows
--- =============================================================================
+
+-- =============================================================
+-- DONE
+--
+-- Sign in at /login with admin / admin. You'll have full system
+-- admin access (cross-org User Manager, Clubs, Teams, Archive,
+-- and the ability to register additional organisations).
+--
+-- For test data on top of this clean install, run:
+--     psql -d diverecorder -f seed_test_data.sql
+-- =============================================================

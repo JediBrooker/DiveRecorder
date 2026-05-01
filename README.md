@@ -136,53 +136,40 @@ cd DiveRecorder
 npm install
 ```
 
-### 3. Create the database
+### 3. Create and initialise the database
 
 ```bash
 createdb diverecorder
-psql -d diverecorder -f schema_v2.sql
-psql -d diverecorder -f seed_dive_directory.sql
+psql -d diverecorder -f init.sql
 ```
 
-### 4. Run migrations
+`init.sql` is the single bootstrap script — it creates every table, enum, function and index, loads the full World Aquatics dive directory (~830 dives), and creates a system-admin account so you can sign in immediately.
+
+### 4. (Optional) Seed test data
 
 ```bash
-psql -d diverecorder -f migrations/001_score_audit_log.sql
-psql -d diverecorder -f migrations/002_calc_dive_points.sql
-psql -d diverecorder -f migrations/003_clubs_and_role_audit.sql
-psql -d diverecorder -f migrations/004_event_types_and_synchro.sql
-psql -d diverecorder -f migrations/005_teams.sql
-psql -d diverecorder -f migrations/006_team_synchro_dives.sql
-psql -d diverecorder -f migrations/007_team_fk_set_null.sql
+psql -d diverecorder -f seed_test_data.sql
 ```
 
-### 5. (Optional) Seed test data
+Adds 20 country federations, 80 clubs, 1000 users, 50 individual events, 20 synchronised pair events (11-judge panels with proper World Aquatics scoring) and 10 team events (3 teams of 4 members each), all with dive lists, judge scores, and matching audit history. Useful for stress-testing the archive, scoreboard, and admin views. Idempotent — safe to re-run; deletes the prior seed before re-inserting.
 
-```bash
-psql -d diverecorder -f seed_bulk_test_data.sql
-psql -d diverecorder -f seed_synchro_team_events.sql
-```
-
-The first creates 20 country federations, 80 clubs, 1000 users, 50 individual events with full scoring data, and matching audit history. The second adds 20 synchronised pair events (11-judge panels with proper World Aquatics scoring) and 10 team events (3 teams of 4 members each) on top. All seeded users share the password `password123`. Useful for stress-testing the archive, scoreboard, and admin views.
-
-### 6. Configure environment
+### 5. Configure environment
 
 ```bash
 cp .env.example .env
 # edit .env with your local DB credentials and a JWT secret
 ```
 
-### 7. Promote yourself to system admin (optional but useful)
+### 6. Sign in
 
-After registering your first account through the app:
+| Account | Username | Password |
+|---|---|---|
+| System administrator (created by `init.sql`) | `admin` | `admin` |
+| Any seeded test user (created by `seed_test_data.sql`) | `bulk_user_0001` … `bulk_user_1000` | `password123` |
 
-```sql
-UPDATE users SET is_system_admin = true WHERE username = 'your_username';
-```
+Change the `admin` password from the User Manager once you're in.
 
-Sign out and back in for the change to take effect (the JWT carries the flag).
-
-### 8. Run
+### 7. Run
 
 In two terminals:
 
@@ -210,18 +197,8 @@ Open `http://localhost:5173` (dev) or `http://localhost:3000` (built).
 ```
 .
 ├── server.js                # Single-file Express app (auth, REST, sockets, PDF)
-├── schema_v2.sql            # Bootstrap schema (run on a fresh DB)
-├── seed_dive_directory.sql       # World Aquatics dive directory (DDs by code/height/position)
-├── seed_bulk_test_data.sql       # 1000-user / 50-individual-event seed
-├── seed_synchro_team_events.sql  # 20 synchro + 10 team events on top of the bulk seed
-├── migrations/                   # Append-only schema changes
-│   ├── 001_score_audit_log.sql
-│   ├── 002_calc_dive_points.sql
-│   ├── 003_clubs_and_role_audit.sql
-│   ├── 004_event_types_and_synchro.sql
-│   ├── 005_teams.sql
-│   ├── 006_team_synchro_dives.sql
-│   └── 007_team_fk_set_null.sql
+├── init.sql                 # One-shot bootstrap: schema + dive directory + admin user
+├── seed_test_data.sql       # Optional test-data seed (orgs, users, events, scores)
 ├── src/
 │   ├── views/               # One Vue component per route
 │   ├── stores/auth.js       # Pinia auth store (JWT in sessionStorage)
@@ -245,7 +222,13 @@ Open `http://localhost:5173` (dev) or `http://localhost:3000` (built).
 | `org_admin` | federation administrators | Approve role requests, manage members |
 | `system_admin` (boolean flag) | platform operators | Cross-org access |
 
-System admin is set with a SQL `UPDATE` (no UI for it intentionally — it's a powerful flag).
+System admin is set with a SQL `UPDATE` (no UI for it intentionally — it's a powerful flag):
+
+```sql
+UPDATE users SET is_system_admin = true WHERE username = 'your_username';
+```
+
+Sign out and back in for the change to take effect (the JWT carries the flag). The bootstrap `admin` user already has the flag set.
 
 ---
 
