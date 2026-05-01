@@ -7,6 +7,7 @@ const events = ref([])
 const clubsList = ref([])           // distinct clubs that have competed in any archived meet
 const selected = ref(null)
 const results = ref(null)
+const resultsError = ref('')
 const loading = ref(false)
 const loadingResults = ref(false)
 
@@ -127,9 +128,25 @@ async function openEvent(ev) {
   if (selected.value?.id === ev.id) { selected.value = null; results.value = null; return }
   selected.value = ev
   results.value = null
+  resultsError.value = ''
   loadingResults.value = true
   try {
-    results.value = await fetch(`/api/archive/${ev.id}/results`).then(r => r.json())
+    const r = await fetch(`/api/archive/${ev.id}/results`)
+    const body = await r.json().catch(() => null)
+    if (!r.ok) {
+      resultsError.value = body?.error || `Server returned ${r.status}`
+      return
+    }
+    // Coerce to a guaranteed-shape object so v-fors and helpers
+    // never see undefined arrays. Prevents one bad query from
+    // blanking out the whole archive page.
+    results.value = {
+      event:     body?.event     ?? null,
+      standings: Array.isArray(body?.standings) ? body.standings : [],
+      dives:     Array.isArray(body?.dives)     ? body.dives     : [],
+    }
+  } catch (err) {
+    resultsError.value = err.message || 'Failed to load results'
   } finally {
     loadingResults.value = false
   }
@@ -140,8 +157,11 @@ function downloadPdf(ev) {
 }
 
 function byDiver(dives, isTeam) {
-  // Group by diver normally, by team for team events.
+  // Group by diver normally, by team for team events. Guard
+  // against undefined input so a partial / errored response can't
+  // crash the whole page.
   const map = new Map()
+  if (!Array.isArray(dives)) return []
   for (const d of dives) {
     const key = isTeam ? (d.team_name || 'Unattached') : d.full_name
     if (!map.has(key)) {
@@ -245,6 +265,12 @@ function fmtDate(iso) {
 
         <div v-if="selected?.id === ev.id" class="results-panel">
           <div v-if="loadingResults" class="empty">Loading results…</div>
+          <div v-else-if="resultsError" class="msg msg-error" style="margin:0">
+            Couldn't load results: {{ resultsError }}.
+            <span style="display:block;margin-top:0.4rem;font-size:11px">
+              If this is a fresh upgrade, double-check the migrations under <code>migrations/</code> have all been applied.
+            </span>
+          </div>
           <template v-else-if="results">
             <!-- Standings -->
             <div class="section-label">Final Standings</div>
