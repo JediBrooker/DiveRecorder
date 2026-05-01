@@ -1751,6 +1751,144 @@ app.get("/api/events", async (req, res) => {
 });
 
 // =============================================================
+// PRELIMS → FINALS — advance top-N divers from a preliminary
+// event to its linked final. The final's roster is built from
+// scratch (carry-over rules can be added later); existing rows
+// are wiped to make the action idempotent.
+//
+// Manager-initiated; can be re-run after a score correction
+// changes the cutoff.
+// =============================================================
+
+app.post(
+  "/api/events/:id/advance",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    const client = await pool.connect();
+    try {
+      // Source event must exist, be in the caller's org (or
+      // sysadmin), and be flagged 'preliminary'.
+      const evRes = await client.query(
+        `SELECT id, org_id, event_format, advance_count
+         FROM events
+         WHERE id = $1 AND ($2::boolean OR org_id = $3)`,
+        [req.params.id, !!req.user.is_system_admin, req.user.org_id],
+      );
+      if (!evRes.rows.length) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const prelim = evRes.rows[0];
+      if (prelim.event_format !== "preliminary") {
+        return res
+          .status(400)
+          .json({ error: "Only preliminary events can advance to a final" });
+      }
+
+      // Find the linked final — exactly one event must reference
+      // this prelim via parent_event_id.
+      const finalRes = await client.query(
+        "SELECT id FROM events WHERE parent_event_id = $1 LIMIT 1",
+        [prelim.id],
+      );
+      if (!finalRes.rows.length) {
+        return res
+          .status(400)
+          .json({ error: "No final event is linked to this preliminary yet" });
+      }
+      const finalId = finalRes.rows[0].id;
+
+      // Pull standings using the same dispatcher that drives the
+      // live scoreboard — keeps "top N" identical to what the
+      // audience saw at the end of the prelim.
+      const standingsRes = await client.query(
+        `WITH per_dive AS (
+           SELECT s.competitor_id, s.round_number,
+                  calc_event_dive_points(
+                    array_agg(ej.judge_number ORDER BY ej.judge_number),
+                    array_agg(s.score ORDER BY ej.judge_number),
+                    e.number_of_judges, MAX(d.dd), e.event_type,
+                    BOOL_OR(cdl.partner_id IS NOT NULL)
+                  ) AS dive_points
+           FROM scores s
+           JOIN events e ON e.id = s.event_id
+           LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+           LEFT JOIN competitor_dive_lists cdl
+             ON cdl.event_id = s.event_id
+            AND cdl.competitor_id = s.competitor_id
+            AND cdl.round_number = s.round_number
+           LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+           WHERE s.event_id = $1
+           GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+         )
+         SELECT competitor_id, SUM(dive_points) AS total
+         FROM per_dive
+         GROUP BY competitor_id
+         ORDER BY total DESC
+         LIMIT $2`,
+        [prelim.id, prelim.advance_count || 12],
+      );
+
+      const advancing = standingsRes.rows;
+      if (!advancing.length) {
+        return res.status(400).json({
+          error: "Preliminary has no scored dives yet — nothing to advance",
+        });
+      }
+
+      // Pull each advancing diver's prelim dive list so we can
+      // seed the final with the same dives by default. The
+      // manager / divers can edit them before the final starts.
+      const diveListRes = await client.query(
+        `SELECT competitor_id, partner_id, team_id, dive_id, round_number
+         FROM competitor_dive_lists
+         WHERE event_id = $1 AND competitor_id = ANY($2::uuid[])
+           AND withdrawn_at IS NULL`,
+        [prelim.id, advancing.map((r) => r.competitor_id)],
+      );
+
+      // Idempotent re-run: wipe the final's existing dive list
+      // rows for these competitors before re-inserting.
+      await client.query("BEGIN");
+      await client.query(
+        `DELETE FROM competitor_dive_lists
+         WHERE event_id = $1 AND competitor_id = ANY($2::uuid[])`,
+        [finalId, advancing.map((r) => r.competitor_id)],
+      );
+      for (const row of diveListRes.rows) {
+        await client.query(
+          `INSERT INTO competitor_dive_lists
+             (event_id, competitor_id, partner_id, team_id, dive_id, round_number)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [
+            finalId,
+            row.competitor_id,
+            row.partner_id,
+            row.team_id,
+            row.dive_id,
+            row.round_number,
+          ],
+        );
+      }
+      await client.query("COMMIT");
+
+      res.json({
+        ok: true,
+        advanced: advancing.length,
+        final_event_id: finalId,
+        // Useful for the UI's confirmation message.
+        leaders: advancing.slice(0, 3).map((r) => r.competitor_id),
+      });
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error("[Advance Error]", err.message);
+      res.status(500).json({ error: err.message });
+    } finally {
+      client.release();
+    }
+  },
+);
+
+// =============================================================
 // EVENT TEMPLATES — saved configurations a manager can apply
 // to a new event. config is the full form state as JSON.
 // =============================================================

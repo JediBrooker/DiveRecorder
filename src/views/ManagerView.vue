@@ -119,6 +119,28 @@ async function deleteEventTemplate(t) {
   }
 }
 
+// True if some other event in the visible list points at `ev`
+// as its parent_event_id. Used to decide whether to render the
+// "Advance to Final" button on a preliminary row.
+function eventHasFinal(ev) {
+  return events.value.some(other => other.parent_event_id === ev.id)
+}
+
+async function advanceToFinal(ev) {
+  if (!confirm(
+    `Advance the top ${ev.advance_count || 12} divers from "${ev.name}" to its final?\n\nThis seeds the final's roster with their dive lists. Re-running after score corrections is safe — existing rows for these divers will be overwritten.`,
+  )) return
+  try {
+    const result = await auth.apiFetch(`/api/events/${ev.id}/advance`, {
+      method: 'POST',
+    })
+    alert(`Advanced ${result.advanced} divers to the final.`)
+    await loadEvents()
+  } catch (err) {
+    alert('Failed to advance: ' + err.message)
+  }
+}
+
 // Meet management — separate from event create/edit. A meet is
 // a bundle of events; org admins create them here so events
 // can be filed under e.g. "2026 National Open".
@@ -796,6 +818,15 @@ onMounted(async () => {
             <button v-if="ev.event_type === 'team'"
                     class="btn btn-ghost btn-sm"
                     @click="openTeamsModal(ev)">Teams</button>
+            <!-- "Advance to Final" — only for preliminary events.
+                 Pulls top-N standings from the prelim and seeds
+                 the linked final's roster. Idempotent — re-run
+                 after a correction. -->
+            <button v-if="ev.event_format === 'preliminary' && eventHasFinal(ev)"
+                    class="btn btn-ghost btn-sm advance-btn"
+                    @click="advanceToFinal(ev)">
+              Advance Top {{ ev.advance_count || 12 }} →
+            </button>
             <button class="btn btn-ghost btn-sm" @click="openRosterImport(ev)">
               Import Roster
             </button>
@@ -1044,6 +1075,18 @@ onMounted(async () => {
   display: flex; gap: 0.5rem; margin-top: 0.5rem;
 }
 .event-template-save .input { flex: 1; font-size: 12px; padding: 0.4rem 0.6rem; }
+
+/* Advance-to-final action — green to suggest "promote".
+   Visible only on preliminary rows whose final exists. */
+.advance-btn {
+  color: var(--green) !important;
+  border-color: rgba(16,185,129,0.4) !important;
+  background: var(--green-dim) !important;
+}
+.advance-btn:hover {
+  background: var(--green) !important;
+  color: var(--bg) !important;
+}
 .actions{display:flex;gap:0.5rem;flex-shrink:0;}
 .events-list{display:flex;flex-direction:column;gap:0.75rem;}
 .empty{color:var(--text-3);font-size:12px;text-align:center;padding:2rem;}
