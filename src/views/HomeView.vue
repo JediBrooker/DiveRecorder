@@ -139,7 +139,7 @@ onMounted(() => {
   <!-- Footer -->
   <footer style="border-top:1px solid var(--border);padding:2rem;">
     <div style="max-width:1200px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
-      <RouterLink to="/" class="footer-logo">DIVE<span>MEET</span></RouterLink>
+      <RouterLink to="/" class="footer-logo">DIVE<span>RECORDER</span></RouterLink>
       <div class="footer-links">
         <RouterLink to="/login">Sign In</RouterLink>
         <RouterLink to="/register">Register</RouterLink>
@@ -415,4 +415,43 @@ onMounted(() => {
   transition: color 0.15s;
 }
 .footer-links a:hover { color: var(--cyan); }
+
+/* ── Phone & small-tablet ───────────────────────────────────── */
+@media (max-width: 720px) {
+  .hero { padding: 4rem 1rem 2.5rem; min-height: auto; }
+  .hero-glow { width: 100%; height: 400px; }
+  .hero-mark { font-size: 10px; letter-spacing: 0.3em; margin-bottom: 1.25rem; gap: 0.6rem; }
+  .hero-mark::before, .hero-mark::after { width: 24px; }
+  .hero-logo  { margin-bottom: 1.25rem; }
+  .hero-tagline { font-size: 13px; line-height: 1.65; margin-bottom: 1.75rem; padding: 0 0.5rem; }
+
+  /* 4 buttons stacked at full padding push content off the
+     fold — shrink them so two fit per row. */
+  .hero-actions { gap: 0.5rem; }
+  .hero-btn-primary,
+  .hero-btn-ghost {
+    font-size: 12px;
+    padding: 0.7rem 1.1rem;
+    border-radius: var(--radius);
+  }
+
+  .live-strip { padding: 1rem 1rem; gap: 0.75rem; }
+  .live-text  { font-size: 13px; text-align: center; }
+
+  .features { padding: 3rem 1rem 2.5rem; }
+  .section-label { font-size: 10px; letter-spacing: 0.25em; margin-bottom: 1.5rem; }
+  .feature-grid { grid-template-columns: 1fr; gap: 0.875rem; }
+  .feat { padding: 1.25rem; border-radius: var(--radius-lg); }
+  .feat-icon { width: 36px; height: 36px; margin-bottom: 1rem; }
+  .feat-title { font-size: 20px; }
+  .feat-desc  { font-size: 11.5px; line-height: 1.65; }
+
+  .how { padding: 2.5rem 1rem 3rem; }
+  .how-steps { grid-template-columns: 1fr; gap: 1.25rem; margin-top: 1.75rem; }
+  .step-num { font-size: 36px; }
+  .step-title { font-size: 16px; }
+
+  .footer-links { gap: 0.875rem; }
+  .footer-links a { font-size: 10px; letter-spacing: 0.12em; }
+}
 </style>

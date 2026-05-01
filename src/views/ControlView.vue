@@ -593,4 +593,51 @@ onMounted(async () => {
 .lb-name { font-family: var(--font-display); font-size: 20px; font-weight: 700; color: var(--text); flex: 1; }
 .lb-score { font-family: var(--font-mono); font-size: 22px; font-weight: 500; color: var(--cyan); flex-shrink: 0; }
 .lb-winner { background: linear-gradient(135deg, rgba(245,158,11,0.08), rgba(245,158,11,0.03)); border-radius: var(--radius); padding: 0 0.75rem; margin: 0 -0.75rem; }
+
+/* ── Tablet & phone ─────────────────────────────────────────
+   The control room is primarily a desktop view, but a meet
+   manager occasionally needs to advance the queue from a tablet
+   or phone — collapse the 3-column layout onto a single
+   scrolling column so it stays usable. */
+@media (max-width: 900px) {
+  .ctrl-body {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+  .ctrl-panel {
+    overflow: visible;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .ctrl-panel:last-child {
+    border-left: none;
+    border-bottom: none;
+  }
+  .panel-body { overflow-y: visible; }
+}
+
+@media (max-width: 720px) {
+  .active-zone { padding: 1rem; }
+  .active-name { font-size: clamp(28px, 8vw, 44px); margin-bottom: 0.75rem; }
+  .active-code { font-size: 20px; padding: 0.4rem 0.75rem; }
+  .active-dd   { font-size: 16px; padding: 0.4rem 0.75rem; }
+
+  /* Judge-tile grid: 60×60 tiles wrap fine but reducing them
+     a touch lets a 7- or 11-judge panel land on one row. */
+  .judge-tile { width: 52px; height: 52px; }
+
+  /* Referee actions: 3 buttons → 2-up + 1 below to fit narrow widths. */
+  .ref-actions { grid-template-columns: 1fr 1fr; }
+  .ref-actions > :nth-child(3) { grid-column: span 2; }
+
+  /* Leaderboard modal */
+  .lb-modal   { max-height: 95vh; border-radius: var(--radius-lg); }
+  .lb-header  { padding: 1.25rem 1.25rem 1rem; }
+  .lb-event   { font-size: 22px; }
+  .lb-body    { padding: 1rem 1.25rem 1.5rem; }
+  .lb-row     { padding: 0.75rem 0; gap: 0.75rem; }
+  .lb-rank    { font-size: 22px; width: 32px; }
+  .lb-name    { font-size: 16px; }
+  .lb-score   { font-size: 18px; }
+}
 </style>

@@ -943,4 +943,43 @@ onMounted(async () => {
   .completed-col:first-child { border-right: none; border-bottom: 1px solid var(--border); }
   .dive-row { grid-template-columns: 32px 1fr 44px 1fr 52px; }
 }
+
+/* Phone — collapse the live 3-column layout (history / centre /
+   standings) into a single scrolling stack so the active diver
+   stays the hero, with history above and standings below. */
+@media (max-width: 720px) {
+  .sb-body {
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+  }
+  .sb-col {
+    overflow: visible;
+    border-right: none !important;
+    border-bottom: 1px solid var(--border);
+  }
+  .sb-col:last-child { border-bottom: none; }
+  .col-body { padding: 0.75rem 1rem; max-height: 360px; }
+  .active-centre { padding: 1.5rem 1rem; }
+
+  /* Big "current diver" name dominates the centre column on
+     desktop, but on a phone it has to fit a 320–414px width.
+     The clamp() already handles it, but tighten the floor. */
+  .sb-name { font-size: clamp(28px, 9vw, 48px); margin-bottom: 1rem; }
+  .sb-badges { gap: 1rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+
+  /* Picker grid for "no live event" state */
+  .event-grid { grid-template-columns: 1fr; }
+  .event-card { padding: 1.1rem; }
+
+  /* Score overlay — keep it dramatic but stop the score from
+     overflowing on tiny viewports. */
+  .overlay-score { font-size: clamp(72px, 28vw, 140px); }
+  .overlay-label { font-size: 11px; letter-spacing: 0.35em; }
+
+  /* Standings rows: pack tighter so they don't wrap awkwardly */
+  .standing { padding: 0.6rem 0; gap: 0.5rem; }
+  .standing-name { font-size: 14px; }
+  .standing-score { font-size: 14px; }
+}
 </style>
