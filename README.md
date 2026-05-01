@@ -2,10 +2,11 @@
 
 A multi-tenant diving competition scoring app. Real-time judge scoring over WebSockets, World Aquatics-compliant point calculations, and a results archive that goes from "live broadcast" to "PDF export" without leaving the app.
 
-Built around three audiences:
+Built around four audiences:
 
-- **Meet operators** — control room view advances divers, broadcasts state to judges and the public scoreboard, finalises events.
-- **Judges** — single-purpose phone-friendly view that submits scores back to the server in real time.
+- **Divers** — Diver Portal for building and submitting dive lists per event (with World Aquatics DD lookup, height filter, synchro partner picker), plus a personal profile with PBs, score-trend sparkline, average DD, best single dive, and a single click to change clubs.
+- **Meet operators** — control room view advances divers, broadcasts state to judges and the public scoreboard, finalises events. Aware of synchro pairs and team affiliations on the active-diver card.
+- **Judges** — single-purpose phone-friendly view that submits scores back to the server in real time. Synchro panels see role hints (Exec A / Exec B / Sync) so they know which judging slot they're filling.
 - **Spectators** — public scoreboard with current performer, live standings, per-round leaderboard with movement arrows, and an archive of completed meets.
 
 ---
@@ -65,24 +66,46 @@ The project intentionally avoids a build-time framework like Nuxt or Next — th
 
 ### World Aquatics scoring
 
-The PostgreSQL function `calc_dive_points(scores numeric[], num_judges int, dd numeric)` applies the official trim-and-multiply rules across panel sizes (3 / 5 / 7 / 9 / 11 judges) and normalises 9- and 11-judge totals so dive points stay comparable across panel sizes. Used by every standings, leaderboard, archive, and PDF query so totals are consistent across the app.
+A small set of PostgreSQL functions does all the scoring so totals are consistent across every standings, leaderboard, archive, and PDF query:
+
+- `calc_dive_points(scores, num_judges, dd)` — official trim-and-multiply rules across panel sizes (3 / 5 / 7 / 9 / 11 judges); 9- and 11-judge totals are normalised so dive points stay comparable.
+- `calc_synchro_dive_points(judge_numbers, scores, num_judges, dd)` — World Aquatics synchronised rule: judges 1–2 (or 1–3 on an 11-panel) score Diver A execution, the next group score Diver B execution, the rest score sync. Trimmed and multiplied by `× DD × 0.6` to keep magnitude comparable to individual dives.
+- `calc_event_dive_points(...)` — dispatches to the right rule per dive, including the FINA Team Event case where a single event mixes individual and synchro dives.
+
+### Synchronised pairs
+
+- Event type `synchro_pair` with appropriate panel sizes (typically 9 or 11 judges).
+- Divers pick a partner from their organisation in the Diver Portal — both members are linked via `partner_id` on a single dive list, so one diver submits for the pair.
+- Scoreboard, archive, and PDF all show the partner alongside the primary diver.
+- Per-judge scores in the Scoreboard and Archive are grouped by role (Exec A / Exec B / Sync) so the audience can read the panel at a glance.
+
+### Team events
+
+- Event type `team` with a teams registry per organisation (`/teams`) — create, rename, set short codes, manage rosters, see which events each team is in.
+- A team event's dive list is built per-team in [TeamDiveListView.vue](src/views/TeamDiveListView.vue): each round is either an individual dive (one team member) or a synchro dive (two team members). Mixed individual + synchro within the same event is the FINA Team Event format.
+- Standings aggregate by team for team events; for individual / synchro events, scoring stays per-competitor.
+- Deleting a team is non-destructive — historical dive list rows survive with `team_id = NULL` so meet results remain intact.
+- The Control Room shows the team name on the active-diver card during a team event.
 
 ### Results archive
 
 - Browse completed meets with filters: search, country, year, height, club.
 - Each event card shows competitor and club counts derived from a `LATERAL` aggregate.
-- Per-event detail view with podium spotlight, full standings, dive-by-dive breakdown grouped by diver (each dive showing per-judge scores with FINA-category colour coding and trim-rule indication).
+- Per-event detail view with podium spotlight, full standings, dive-by-dive breakdown grouped by diver (each dive showing per-judge scores with FINA-category colour coding and trim-rule indication; synchro events show role-grouped panels).
 - One-click PDF export with the same standings + dive breakdown.
+- Resilient detail loading — a backend error on a single event no longer blanks the page.
 
 ### Diver profile
 
 - Headline stats: meets entered, dives performed, average DD attempted, best single dive.
 - SVG sparkline of score progression across meets.
 - Personal best per (dive code + position + height) with attempts and "first set at" meet.
+- Inline "Change Club" editor so divers can correct their own club affiliation without bothering an admin.
 
 ### Multi-tenant model
 
 - Two levels of organisational nesting: **organisations** (country federations) → **clubs** (within an org).
+- Teams sit alongside clubs as a separate grouping for FINA Team Event entries (a diver can belong to multiple teams over time).
 - Users belong to one org and optionally one club within it.
 - System admins see across all orgs; org admins / meet managers manage their own.
 
@@ -90,6 +113,7 @@ The PostgreSQL function `calc_dive_points(scores numeric[], num_judges int, dd n
 
 - **User Manager** (`/users`): search, role filter chips, org filter, group-by-org, bulk role apply, paginated table, click-row-to-edit drawer with role audit history.
 - **Clubs** (`/clubs`): list, create, rename, delete with member counts.
+- **Teams** (`/teams`): list, create, rename, delete (non-destructive), inline member drawer, see which events each team is enrolled in.
 - **Score Audit Log** (`/events/:id/audit`): per-event timeline of every score insert/update/delete with actor, IP, user agent.
 - Role grants/revokes write to a `role_audit_log` table; the User Manager drawer surfaces the per-user history.
 - CSV export of any current Member Manager filter.
