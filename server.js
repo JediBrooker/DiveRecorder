@@ -3502,25 +3502,55 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
 
     const queries = await Promise.all([
       // RECENT FORM — last 5 meets the diver competed in, with
-      // their final placing in each. Computed by ranking every
-      // competitor in each event, filtering to this diver.
+      // their final placing AGAINST THE FULL FIELD. The previous
+      // version ranked over event_totals built from a CTE that
+      // was already filtered to just this diver, so rank came out
+      // 1 every time and field_size was always 1. We now build a
+      // separate per_dive that includes every competitor in the
+      // diver's events, rank within that, then filter to the
+      // diver at the very end. Same fix applied to year_over_year.
       runQuery("recent_form",
-        `WITH per_dive AS (${PER_DIVE}),
+        `WITH diver_events AS (
+           SELECT DISTINCT s.event_id
+           FROM scores s
+           JOIN events e ON e.id = s.event_id
+           WHERE s.competitor_id = $1
+             AND ($2::date IS NULL OR e.created_at >= $2::date)
+             AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')
+         ),
+         all_per_dive AS (
+           SELECT s.event_id, s.competitor_id, s.round_number,
+                  calc_event_dive_points(
+                    array_agg(ej.judge_number ORDER BY ej.judge_number),
+                    array_agg(s.score ORDER BY ej.judge_number),
+                    e.number_of_judges, MAX(d.dd), e.event_type,
+                    BOOL_OR(cdl.partner_id IS NOT NULL)
+                  ) AS dive_points
+           FROM scores s
+           JOIN events e ON e.id = s.event_id
+           LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+           LEFT JOIN competitor_dive_lists cdl
+             ON cdl.event_id = s.event_id
+            AND cdl.competitor_id = s.competitor_id
+            AND cdl.round_number = s.round_number
+           LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+           WHERE s.event_id IN (SELECT event_id FROM diver_events)
+           GROUP BY s.event_id, s.competitor_id, s.round_number,
+                    e.number_of_judges, e.event_type
+         ),
          event_totals AS (
-           SELECT event_id, competitor_id, SUM(dive_total) AS total
-           FROM per_dive GROUP BY event_id, competitor_id
+           SELECT event_id, competitor_id, SUM(dive_points) AS total
+           FROM all_per_dive
+           GROUP BY event_id, competitor_id
          ),
          ranked AS (
            SELECT et.*, RANK() OVER (PARTITION BY event_id ORDER BY total DESC) AS rank
            FROM event_totals et
-           JOIN (
-             /* every event THIS diver was in */
-             SELECT DISTINCT event_id FROM per_dive WHERE competitor_id = $1
-           ) own ON own.event_id = et.event_id
          )
          SELECT e.id AS event_id, e.name AS event_name, e.created_at,
                 r.total, r.rank,
-                (SELECT COUNT(DISTINCT competitor_id) FROM event_totals et2 WHERE et2.event_id = e.id) AS field_size
+                (SELECT COUNT(DISTINCT competitor_id) FROM event_totals et2
+                 WHERE et2.event_id = e.id) AS field_size
          FROM ranked r
          JOIN events e ON e.id = r.event_id
          WHERE r.competitor_id = $1
@@ -3529,12 +3559,42 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
         [id, fromDate, toDate],
       ),
 
-      // PLACINGS — counts of medals + finalist + further-back results
+      // PLACINGS — counts of medals + finalist + further-back
+      // results. As with recent_form, must rank against the full
+      // field, not the diver's own pre-filtered totals. Otherwise
+      // every meet ranks the diver 1st and we report perfect golds.
       runQuery("placings",
-        `WITH per_dive AS (${PER_DIVE}),
+        `WITH diver_events AS (
+           SELECT DISTINCT s.event_id
+           FROM scores s
+           JOIN events e ON e.id = s.event_id
+           WHERE s.competitor_id = $1
+             AND ($2::date IS NULL OR e.created_at >= $2::date)
+             AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')
+         ),
+         all_per_dive AS (
+           SELECT s.event_id, s.competitor_id, s.round_number,
+                  calc_event_dive_points(
+                    array_agg(ej.judge_number ORDER BY ej.judge_number),
+                    array_agg(s.score ORDER BY ej.judge_number),
+                    e.number_of_judges, MAX(d.dd), e.event_type,
+                    BOOL_OR(cdl.partner_id IS NOT NULL)
+                  ) AS dive_points
+           FROM scores s
+           JOIN events e ON e.id = s.event_id
+           LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+           LEFT JOIN competitor_dive_lists cdl
+             ON cdl.event_id = s.event_id
+            AND cdl.competitor_id = s.competitor_id
+            AND cdl.round_number = s.round_number
+           LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+           WHERE s.event_id IN (SELECT event_id FROM diver_events)
+           GROUP BY s.event_id, s.competitor_id, s.round_number,
+                    e.number_of_judges, e.event_type
+         ),
          event_totals AS (
-           SELECT event_id, competitor_id, SUM(dive_total) AS total
-           FROM per_dive GROUP BY event_id, competitor_id
+           SELECT event_id, competitor_id, SUM(dive_points) AS total
+           FROM all_per_dive GROUP BY event_id, competitor_id
          ),
          ranked AS (
            SELECT event_id, competitor_id,
@@ -3637,13 +3697,41 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
       ),
 
       // STREAK — current run of consecutive top-3 / top-1 finishes
-      // (looking back from the most recent meet). Returns the
-      // medal kind + the run length.
+      // (looking back from the most recent meet). Same full-field
+      // ranking pattern as recent_form/placings — otherwise every
+      // meet ranks the diver 1st and the streak is meaningless.
       runQuery("streak",
-        `WITH per_dive AS (${PER_DIVE}),
+        `WITH diver_events AS (
+           SELECT DISTINCT s.event_id
+           FROM scores s
+           JOIN events e ON e.id = s.event_id
+           WHERE s.competitor_id = $1
+             AND ($2::date IS NULL OR e.created_at >= $2::date)
+             AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')
+         ),
+         all_per_dive AS (
+           SELECT s.event_id, s.competitor_id, s.round_number,
+                  calc_event_dive_points(
+                    array_agg(ej.judge_number ORDER BY ej.judge_number),
+                    array_agg(s.score ORDER BY ej.judge_number),
+                    e.number_of_judges, MAX(d.dd), e.event_type,
+                    BOOL_OR(cdl.partner_id IS NOT NULL)
+                  ) AS dive_points
+           FROM scores s
+           JOIN events e ON e.id = s.event_id
+           LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+           LEFT JOIN competitor_dive_lists cdl
+             ON cdl.event_id = s.event_id
+            AND cdl.competitor_id = s.competitor_id
+            AND cdl.round_number = s.round_number
+           LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+           WHERE s.event_id IN (SELECT event_id FROM diver_events)
+           GROUP BY s.event_id, s.competitor_id, s.round_number,
+                    e.number_of_judges, e.event_type
+         ),
          event_totals AS (
-           SELECT event_id, competitor_id, SUM(dive_total) AS total
-           FROM per_dive GROUP BY event_id, competitor_id
+           SELECT event_id, competitor_id, SUM(dive_points) AS total
+           FROM all_per_dive GROUP BY event_id, competitor_id
          ),
          ranked AS (
            SELECT et.event_id, et.competitor_id, e.created_at,
