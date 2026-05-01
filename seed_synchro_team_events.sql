@@ -187,7 +187,7 @@ WHERE judge_number <= 5;
 -- =============================================================
 INSERT INTO teams (id, org_id, name, short_code, created_at)
 SELECT
-    ('t0000000-0000-0000-0000-' || lpad((3000 + (event_n - 1) * 3 + team_n)::text, 12, '0'))::uuid,
+    ('90000000-0000-0000-0000-' || lpad((3000 + (event_n - 1) * 3 + team_n)::text, 12, '0'))::uuid,
     ('c0000000-0000-0000-0000-' || lpad(event_n::text, 12, '0'))::uuid,
     (ARRAY['USA','GBR','CAN','AUS','NZL','JPN','CHN','KOR','DEU','FRA'])[event_n] ||
         ' Team ' || (ARRAY['Alpha','Bravo','Charlie'])[team_n],
@@ -201,7 +201,7 @@ CROSS JOIN generate_series(1, 3) AS team_n;
 -- 14 + (team_n - 1) * 4 + member_n - 1 within their org
 INSERT INTO team_members (team_id, user_id)
 SELECT
-    ('t0000000-0000-0000-0000-' || lpad((3000 + (event_n - 1) * 3 + team_n)::text, 12, '0'))::uuid,
+    ('90000000-0000-0000-0000-' || lpad((3000 + (event_n - 1) * 3 + team_n)::text, 12, '0'))::uuid,
     ('d0000000-0000-0000-0000-' || lpad(
         (50 * (event_n - 1) + 14 + (team_n - 1) * 4 + member_n - 1)::text, 12, '0'
     ))::uuid
@@ -213,7 +213,7 @@ CROSS JOIN generate_series(1, 4) AS member_n;
 INSERT INTO event_teams (event_id, team_id)
 SELECT
     ('e0000000-0000-0000-0000-' || lpad((3020 + event_n)::text, 12, '0'))::uuid,
-    ('t0000000-0000-0000-0000-' || lpad((3000 + (event_n - 1) * 3 + team_n)::text, 12, '0'))::uuid
+    ('90000000-0000-0000-0000-' || lpad((3000 + (event_n - 1) * 3 + team_n)::text, 12, '0'))::uuid
 FROM generate_series(1, 10) AS event_n
 CROSS JOIN generate_series(1, 3) AS team_n;
 
@@ -302,7 +302,7 @@ BEGIN
     SELECT created_at INTO ev_created FROM events WHERE id = ev_id;
 
     FOR team_n IN 1..3 LOOP
-      team_id_val := ('t0000000-0000-0000-0000-' ||
+      team_id_val := ('90000000-0000-0000-0000-' ||
         lpad((3000 + (event_n - 1) * 3 + team_n)::text, 12, '0'))::uuid;
 
       FOR r IN 1..5 LOOP
