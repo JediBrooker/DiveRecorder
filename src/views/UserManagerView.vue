@@ -1,0 +1,1315 @@
+<script setup>
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { RouterLink } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
+
+const auth = useAuthStore()
+
+const requests = ref([])
+const allUsers = ref([])
+
+// View state
+const activeTab = ref('members')      // 'members' | 'requests'
+const searchTerm = ref('')
+const orgFilter = ref('')              // org_id (system admin only)
+const roleFilters = ref(new Set())     // OR-combined role chips
+const userRoles = ref({})              // { userId: Set<role> }
+const currentPage = ref(1)
+const PAGE_SIZE = 50
+
+// Per-row save state machine: 'dirty' | 'saving' | 'saved' | 'error'
+const rowState = ref({})
+const saveTimers = {}                  // userId → debounce handle
+
+// Bulk selection
+const selectedIds = ref(new Set())
+const bulkRole = ref('judge')
+const bulkBusy = ref(false)
+const bulkSummary = ref('')            // last operation result, shown briefly
+
+// Group by org (system admin only — collapsible org sections in
+// place of the flat paged list)
+const groupByOrg = ref(false)
+const collapsedOrgs = ref(new Set())
+
+// Primary roles drive the stats strip and the role-filter chips
+// (filtering by "spectator" is useless because everyone has it).
+const PRIMARY_ROLES = ['org_admin', 'meet_manager', 'referee', 'judge', 'diver']
+// Full role set is editable inside the per-user drawer and
+// rendered as a pill in the table summary.
+const ALL_ROLES = [...PRIMARY_ROLES, 'spectator']
+
+// Visual ordering — primary roles by responsibility, spectator last
+const ROLE_ORDER = { org_admin: 0, meet_manager: 1, referee: 2, judge: 3, diver: 4, spectator: 5 }
+
+// Per-user edit drawer
+const drawerUserId = ref(null)
+const drawerUser = computed(() =>
+  drawerUserId.value
+    ? allUsers.value.find(u => u.id === drawerUserId.value) || null
+    : null
+)
+
+const isSysAdmin = computed(() => !!auth.user?.is_system_admin)
+
+const orgs = computed(() => {
+  const seen = new Map()
+  for (const u of allUsers.value) {
+    if (!u.org_id) continue
+    if (!seen.has(u.org_id)) {
+      seen.set(u.org_id, {
+        id: u.org_id,
+        name: u.org_name || '—',
+        country_code: u.country_code || '',
+      })
+    }
+  }
+  return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
+})
+
+// Top-of-page stats — instant sense of scale and where to look.
+// We deliberately don't count spectator: every user has it, so a
+// "1,012 spectators" pill is just total membership restated.
+const stats = computed(() => {
+  const counts = { total: allUsers.value.length, pending: requests.value.length }
+  PRIMARY_ROLES.forEach(r => { counts[r] = 0 })
+  for (const u of allUsers.value) {
+    for (const r of (u.org_roles || [])) {
+      if (counts[r] != null) counts[r]++
+    }
+  }
+  return counts
+})
+
+// Roles a user holds, sorted for display as pills
+function userPills(userId) {
+  const set = userRoles.value[userId]
+  if (!set) return []
+  return [...set].sort((a, b) => (ROLE_ORDER[a] ?? 99) - (ROLE_ORDER[b] ?? 99))
+}
+
+// Per-user role audit log loaded lazily when the drawer opens.
+const auditEntries = ref([])
+const auditLoading = ref(false)
+
+// Club editor state (drawer-scoped)
+const drawerClubs = ref([])             // clubs in target user's org
+const drawerClubChoice = ref('')        // selected club_id or '' (none)
+const drawerClubSaving = ref(false)
+const drawerClubStatus = ref('')        // 'saved' | 'error' | ''
+const drawerCreatingClub = ref(false)   // toggles inline new-club form
+const drawerNewClubName = ref('')
+const drawerNewClubCode = ref('')
+
+async function loadAudit(userId) {
+  auditLoading.value = true
+  auditEntries.value = []
+  try {
+    auditEntries.value = await auth.apiFetch(`/api/users/${userId}/role-audit`)
+  } catch {
+    auditEntries.value = []
+  } finally {
+    auditLoading.value = false
+  }
+}
+
+async function loadClubs(orgId, currentClubId) {
+  drawerClubs.value = []
+  drawerClubChoice.value = currentClubId ?? ''
+  drawerCreatingClub.value = false
+  drawerNewClubName.value = ''
+  drawerNewClubCode.value = ''
+  if (!orgId) return
+  try {
+    const r = await fetch(`/api/orgs/${orgId}/clubs`)
+    const body = await r.json()
+    drawerClubs.value = Array.isArray(body) ? body : []
+  } catch {
+    drawerClubs.value = []
+  }
+}
+
+function openDrawer(userId) {
+  drawerUserId.value = userId
+  loadAudit(userId)
+  const u = allUsers.value.find(x => x.id === userId)
+  loadClubs(u?.org_id, u?.club_id)
+  drawerClubStatus.value = ''
+}
+function closeDrawer() {
+  drawerUserId.value = null
+  auditEntries.value = []
+  drawerClubs.value = []
+  drawerClubStatus.value = ''
+}
+
+async function saveDrawerClub() {
+  if (!drawerUserId.value) return
+  drawerClubSaving.value = true
+  drawerClubStatus.value = ''
+  try {
+    await auth.apiFetch(`/api/users/${drawerUserId.value}/club`, {
+      method: 'PUT',
+      body: JSON.stringify({ club_id: drawerClubChoice.value || null }),
+    })
+    // Mirror change into the table row so the org cell updates
+    const u = allUsers.value.find(x => x.id === drawerUserId.value)
+    if (u) {
+      const c = drawerClubs.value.find(c => c.id === drawerClubChoice.value)
+      u.club_id   = drawerClubChoice.value || null
+      u.club_name = c?.name ?? null
+      u.club_code = c?.short_code ?? null
+    }
+    drawerClubStatus.value = 'saved'
+    setTimeout(() => { drawerClubStatus.value = '' }, 1500)
+  } catch (err) {
+    drawerClubStatus.value = 'error'
+  } finally {
+    drawerClubSaving.value = false
+  }
+}
+
+async function createDrawerClub() {
+  const u = allUsers.value.find(x => x.id === drawerUserId.value)
+  if (!u?.org_id || !drawerNewClubName.value.trim()) return
+  drawerClubSaving.value = true
+  try {
+    const club = await auth.apiFetch(`/api/orgs/${u.org_id}/clubs`, {
+      method: 'POST',
+      body: JSON.stringify({
+        name: drawerNewClubName.value.trim(),
+        short_code: drawerNewClubCode.value.trim() || null,
+      }),
+    })
+    drawerClubs.value = [...drawerClubs.value, club].sort(
+      (a, b) => a.name.localeCompare(b.name),
+    )
+    drawerClubChoice.value = club.id
+    drawerCreatingClub.value = false
+    drawerNewClubName.value = ''
+    drawerNewClubCode.value = ''
+    // Auto-save the freshly-created club to the user
+    await saveDrawerClub()
+  } catch (err) {
+    drawerClubStatus.value = 'error'
+  } finally {
+    drawerClubSaving.value = false
+  }
+}
+
+function fmtAuditTime(iso) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
+
+function onKeyDown(e) {
+  if (e.key === 'Escape' && drawerUserId.value) closeDrawer()
+}
+
+const ROLE_LABELS = {
+  org_admin: 'Org Admin',
+  meet_manager: 'Meet Manager',
+  referee: 'Referee',
+  judge: 'Judge',
+  diver: 'Diver',
+  spectator: 'Spectator',
+}
+
+const filteredUsers = computed(() => {
+  const term = searchTerm.value.trim().toLowerCase()
+  const roles = roleFilters.value
+  return allUsers.value.filter(u => {
+    if (orgFilter.value && u.org_id !== orgFilter.value) return false
+    if (roles.size > 0) {
+      const userRoles = u.org_roles || []
+      // OR semantics: user must have at least one selected role
+      if (!userRoles.some(r => roles.has(r))) return false
+    }
+    if (!term) return true
+    return (
+      u.full_name.toLowerCase().includes(term) ||
+      u.username.toLowerCase().includes(term) ||
+      (u.org_name || '').toLowerCase().includes(term) ||
+      (u.country_code || '').toLowerCase().includes(term) ||
+      (u.club_name || '').toLowerCase().includes(term) ||
+      (u.club_code || '').toLowerCase().includes(term)
+    )
+  })
+})
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredUsers.value.length / PAGE_SIZE)))
+const pagedUsers = computed(() => {
+  const start = (currentPage.value - 1) * PAGE_SIZE
+  return filteredUsers.value.slice(start, start + PAGE_SIZE)
+})
+
+// Reset to page 1 whenever the filter changes underneath us
+watch([searchTerm, orgFilter, roleFilters], () => { currentPage.value = 1 }, { deep: true })
+
+async function loadRequests() {
+  try { requests.value = await auth.apiFetch('/api/role-requests') }
+  catch { requests.value = [] }
+}
+
+async function loadUsers() {
+  try {
+    const users = await auth.apiFetch('/api/users')
+    allUsers.value = users
+    userRoles.value = {}
+    users.forEach(u => { userRoles.value[u.id] = new Set(u.org_roles || []) })
+  } catch { allUsers.value = [] }
+}
+
+async function reviewRequest(id, decision) {
+  try {
+    await auth.apiFetch(`/api/role-requests/${id}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ decision }),
+    })
+    await Promise.all([loadRequests(), loadUsers()])
+  } catch (err) {
+    alert(err.message)
+  }
+}
+
+function toggleRoleFilter(role) {
+  const next = new Set(roleFilters.value)
+  if (next.has(role)) next.delete(role)
+  else next.add(role)
+  roleFilters.value = next
+}
+
+function clearRoleFilters() { roleFilters.value = new Set() }
+
+function hasRole(userId, role) {
+  return userRoles.value[userId]?.has(role) || false
+}
+
+// Toggle a role and schedule a debounced save. Rapid clicks on
+// multiple checkboxes only fire one save per ~400ms of quiet.
+function toggleRole(userId, role) {
+  const set = userRoles.value[userId]
+  if (!set) return
+  if (set.has(role)) set.delete(role)
+  else set.add(role)
+  // Force reactivity (Set mutation is reactive, but the wrapping
+  // ref won't re-emit unless the assignment is replaced)
+  userRoles.value[userId] = new Set(set)
+  rowState.value[userId] = 'dirty'
+  clearTimeout(saveTimers[userId])
+  saveTimers[userId] = setTimeout(() => saveUserRoles(userId), 400)
+}
+
+async function saveUserRoles(userId) {
+  rowState.value[userId] = 'saving'
+  try {
+    const roles = [...(userRoles.value[userId] || [])]
+    await auth.apiFetch(`/api/users/${userId}/roles`, {
+      method: 'PUT',
+      body: JSON.stringify({ roles }),
+    })
+    // Mirror the saved state back into the source-of-truth list
+    // so the stats strip and filter chips stay accurate.
+    const u = allUsers.value.find(x => x.id === userId)
+    if (u) u.org_roles = roles
+    rowState.value[userId] = 'saved'
+    setTimeout(() => {
+      if (rowState.value[userId] === 'saved') rowState.value[userId] = null
+    }, 1500)
+    // If the drawer is currently showing this user, refresh the
+    // audit log so the new grant/revoke entries appear immediately.
+    if (drawerUserId.value === userId) loadAudit(userId)
+  } catch {
+    rowState.value[userId] = 'error'
+  }
+}
+
+function rowStatusLabel(userId) {
+  const s = rowState.value[userId]
+  if (s === 'saving') return 'Saving…'
+  if (s === 'saved')  return 'Saved'
+  if (s === 'dirty')  return 'Pending…'
+  if (s === 'error')  return 'Failed — retry'
+  return ''
+}
+
+function retrySave(userId) {
+  if (rowState.value[userId] === 'error') saveUserRoles(userId)
+}
+
+// Group filteredUsers by org for the system-admin grouped view.
+// Sorted by org name; users inside each group preserve the
+// alphabetical order from the API.
+const groupedUsers = computed(() => {
+  if (!groupByOrg.value) return []
+  const map = new Map()
+  for (const u of filteredUsers.value) {
+    const key = u.org_id || 'no-org'
+    if (!map.has(key)) {
+      map.set(key, {
+        org_id: u.org_id,
+        org_name: u.org_name || 'No Organisation',
+        country_code: u.country_code || '',
+        users: [],
+      })
+    }
+    map.get(key).users.push(u)
+  }
+  return [...map.values()].sort((a, b) => a.org_name.localeCompare(b.org_name))
+})
+
+// IDs visible right now — depends on whether we're paged or grouped.
+const visibleIds = computed(() => {
+  if (groupByOrg.value) {
+    return groupedUsers.value.flatMap(g =>
+      collapsedOrgs.value.has(g.org_id) ? [] : g.users.map(u => u.id),
+    )
+  }
+  return pagedUsers.value.map(u => u.id)
+})
+
+const allVisibleSelected = computed(() => {
+  const ids = visibleIds.value
+  return ids.length > 0 && ids.every(id => selectedIds.value.has(id))
+})
+
+function toggleSelect(userId) {
+  const next = new Set(selectedIds.value)
+  if (next.has(userId)) next.delete(userId)
+  else next.add(userId)
+  selectedIds.value = next
+}
+
+function toggleSelectAllVisible() {
+  const ids = visibleIds.value
+  const next = new Set(selectedIds.value)
+  if (allVisibleSelected.value) ids.forEach(id => next.delete(id))
+  else ids.forEach(id => next.add(id))
+  selectedIds.value = next
+}
+
+function clearSelection() { selectedIds.value = new Set() }
+
+function toggleOrgCollapsed(orgId) {
+  const next = new Set(collapsedOrgs.value)
+  if (next.has(orgId)) next.delete(orgId)
+  else next.add(orgId)
+  collapsedOrgs.value = next
+}
+
+function expandAllOrgs()   { collapsedOrgs.value = new Set() }
+function collapseAllOrgs() {
+  collapsedOrgs.value = new Set(groupedUsers.value.map(g => g.org_id))
+}
+
+// Run an async function over a list with a concurrency cap so we
+// don't fire 1000 simultaneous PUTs at the server during a bulk
+// operation.
+async function runWithConcurrency(items, fn, concurrency = 8) {
+  const queue = [...items]
+  const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+    while (queue.length) {
+      const item = queue.shift()
+      if (item != null) await fn(item)
+    }
+  })
+  await Promise.all(workers)
+}
+
+async function applyBulkRole(action) {
+  if (bulkBusy.value) return
+  const role = bulkRole.value
+  const ids = [...selectedIds.value]
+  if (!ids.length) return
+  bulkBusy.value = true
+  bulkSummary.value = ''
+  let ok = 0, skipped = 0, failed = 0
+
+  await runWithConcurrency(ids, async (id) => {
+    const set = userRoles.value[id]
+    if (!set) { skipped++; return }
+    if (action === 'add' && set.has(role))    { skipped++; return }
+    if (action === 'remove' && !set.has(role)){ skipped++; return }
+
+    if (action === 'add') set.add(role)
+    else set.delete(role)
+    userRoles.value[id] = new Set(set)
+    rowState.value[id] = 'saving'
+
+    try {
+      const roles = [...set]
+      await auth.apiFetch(`/api/users/${id}/roles`, {
+        method: 'PUT',
+        body: JSON.stringify({ roles }),
+      })
+      const u = allUsers.value.find(x => x.id === id)
+      if (u) u.org_roles = roles
+      rowState.value[id] = 'saved'
+      ok++
+      setTimeout(() => {
+        if (rowState.value[id] === 'saved') rowState.value[id] = null
+      }, 1500)
+    } catch {
+      // Revert local state so the UI matches the server
+      if (action === 'add') set.delete(role)
+      else set.add(role)
+      userRoles.value[id] = new Set(set)
+      rowState.value[id] = 'error'
+      failed++
+    }
+  })
+
+  bulkBusy.value = false
+  selectedIds.value = new Set()
+  const verb = action === 'add' ? 'Added' : 'Removed'
+  bulkSummary.value = `${verb} ${ROLE_LABELS[role] || role} — ${ok} updated${skipped ? `, ${skipped} skipped` : ''}${failed ? `, ${failed} failed` : ''}`
+  setTimeout(() => { bulkSummary.value = '' }, 4000)
+}
+
+// CSV export of the *currently filtered* users — respects search,
+// role chips and org filter. Useful for offline triage and for
+// onboarding emails.
+function exportCsv() {
+  const rows = filteredUsers.value
+  const headers = ['Name', 'Username', 'Organisation', 'Country', 'Club', 'Club Code', 'Roles', 'System Admin']
+  const lines = [headers.join(',')]
+  const esc = v => `"${String(v ?? '').replace(/"/g, '""').replace(/[\r\n]+/g, ' ')}"`
+  for (const u of rows) {
+    lines.push([
+      esc(u.full_name),
+      esc(u.username),
+      esc(u.org_name),
+      esc(u.country_code),
+      esc(u.club_name),
+      esc(u.club_code),
+      esc((u.org_roles || []).join('; ')),
+      esc(u.is_system_admin ? 'yes' : 'no'),
+    ].join(','))
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `members_${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+function pageNums() {
+  // Compact page list: first, last, current ± 2, with ellipses
+  const total = totalPages.value
+  const cur = currentPage.value
+  const set = new Set([1, total, cur - 1, cur, cur + 1])
+  const nums = [...set].filter(n => n >= 1 && n <= total).sort((a, b) => a - b)
+  const out = []
+  let prev = 0
+  for (const n of nums) {
+    if (n - prev > 1) out.push('…')
+    out.push(n)
+    prev = n
+  }
+  return out
+}
+
+onMounted(async () => {
+  window.addEventListener('keydown', onKeyDown)
+  await Promise.all([loadRequests(), loadUsers()])
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeyDown)
+})
+</script>
+
+<template>
+  <div class="page-header">
+    <h1 class="page-title">User Manager</h1>
+    <RouterLink to="/dashboard" class="btn btn-ghost">← Dashboard</RouterLink>
+  </div>
+
+  <div class="main">
+
+    <!-- Stats strip -->
+    <div class="stats-strip">
+      <div class="stat">
+        <div class="stat-num">{{ stats.total.toLocaleString() }}</div>
+        <div class="stat-label">Members</div>
+      </div>
+      <div :class="['stat', stats.pending ? 'stat-cyan' : '']">
+        <div class="stat-num">{{ stats.pending }}</div>
+        <div class="stat-label">Pending</div>
+      </div>
+      <div class="stat-sep"></div>
+      <div v-for="r in PRIMARY_ROLES" :key="r" class="stat stat-mini">
+        <div class="stat-num">{{ stats[r].toLocaleString() }}</div>
+        <div class="stat-label">{{ ROLE_LABELS[r] }}</div>
+      </div>
+      <span v-if="isSysAdmin" class="sys-badge" style="margin-left:auto">System Admin · all orgs</span>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button :class="['tab', activeTab === 'members' ? 'tab-active' : '']"
+              @click="activeTab = 'members'">
+        Members <span class="tab-count">{{ stats.total.toLocaleString() }}</span>
+      </button>
+      <button :class="['tab', activeTab === 'requests' ? 'tab-active' : '']"
+              @click="activeTab = 'requests'">
+        Requests <span :class="['tab-count', stats.pending ? 'tab-count-active' : '']">{{ stats.pending }}</span>
+      </button>
+    </div>
+
+    <!-- Requests tab -->
+    <div v-if="activeTab === 'requests'" class="card">
+      <div v-if="!requests.length" class="empty-state">No pending requests</div>
+      <div v-else class="requests-grid">
+        <div v-for="rq in requests" :key="rq.id" class="request-card">
+          <div style="flex:1;min-width:0">
+            <div class="request-name">{{ rq.full_name }}</div>
+            <div class="request-meta">
+              @{{ rq.username }} · Requesting
+              <span class="badge">{{ rq.requested_role.replace('_', ' ') }}</span>
+              <span v-if="isSysAdmin && rq.org_name" class="org-country">
+                {{ rq.org_name }}{{ rq.country_code ? ' · ' + rq.country_code : '' }}
+              </span>
+            </div>
+            <div v-if="rq.note" class="request-note">"{{ rq.note }}"</div>
+          </div>
+          <div class="request-actions">
+            <button class="btn btn-sm btn-approve" @click="reviewRequest(rq.id, 'approved')">Approve</button>
+            <button class="btn btn-danger btn-sm" @click="reviewRequest(rq.id, 'rejected')">Reject</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Members tab -->
+    <div v-else>
+      <!-- Filters -->
+      <div class="filters">
+        <input class="input" type="text" v-model="searchTerm" placeholder="Search by name, username, org…">
+        <select v-if="isSysAdmin" class="select" v-model="orgFilter">
+          <option value="">All organisations ({{ orgs.length }})</option>
+          <option v-for="o in orgs" :key="o.id" :value="o.id">
+            {{ o.name }}{{ o.country_code ? ' · ' + o.country_code : '' }}
+          </option>
+        </select>
+        <label v-if="isSysAdmin" class="toggle">
+          <input type="checkbox" v-model="groupByOrg">
+          Group by org
+        </label>
+        <button class="btn btn-ghost btn-sm" @click="exportCsv" :disabled="!filteredUsers.length">
+          Export CSV
+        </button>
+        <span class="result-count">{{ filteredUsers.length.toLocaleString() }} of {{ allUsers.length.toLocaleString() }}</span>
+      </div>
+
+      <!-- Role chip filter — primary roles only; filtering by
+           spectator would just show every member -->
+      <div class="chip-row">
+        <span class="chip-label">Role:</span>
+        <button v-for="r in PRIMARY_ROLES" :key="r"
+                :class="['chip', roleFilters.has(r) ? 'chip-active' : '']"
+                @click="toggleRoleFilter(r)">
+          {{ ROLE_LABELS[r] }}
+        </button>
+        <button v-if="roleFilters.size" class="chip chip-clear" @click="clearRoleFilters">Clear</button>
+      </div>
+
+      <!-- Bulk action bar — only visible while at least one row is selected -->
+      <div v-if="selectedIds.size" class="bulk-bar">
+        <div class="bulk-count">{{ selectedIds.size }} selected</div>
+        <select class="select bulk-select" v-model="bulkRole">
+          <option v-for="r in ALL_ROLES" :key="r" :value="r">{{ ROLE_LABELS[r] }}</option>
+        </select>
+        <button class="btn btn-sm bulk-add" :disabled="bulkBusy" @click="applyBulkRole('add')">Add role</button>
+        <button class="btn btn-sm bulk-remove" :disabled="bulkBusy" @click="applyBulkRole('remove')">Remove role</button>
+        <button class="btn btn-ghost btn-sm" @click="clearSelection">Clear selection</button>
+        <span v-if="bulkBusy" class="bulk-status">Working…</span>
+      </div>
+      <div v-if="bulkSummary" class="bulk-summary">{{ bulkSummary }}</div>
+
+      <!-- Grouped-by-org controls -->
+      <div v-if="groupByOrg" class="group-controls">
+        <button class="btn btn-ghost btn-sm" @click="expandAllOrgs">Expand all</button>
+        <button class="btn btn-ghost btn-sm" @click="collapseAllOrgs">Collapse all</button>
+      </div>
+
+      <!-- Users table -->
+      <div class="card" style="padding:0;overflow:hidden">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th class="select-col">
+                <input type="checkbox"
+                       :checked="allVisibleSelected"
+                       :disabled="!visibleIds.length"
+                       @change="toggleSelectAllVisible">
+              </th>
+              <th>Name</th>
+              <th>Username</th>
+              <th v-if="isSysAdmin && !groupByOrg">Organisation</th>
+              <th>Roles</th>
+              <th class="status-col">Status</th>
+            </tr>
+          </thead>
+
+          <!-- Flat (paged) view -->
+          <tbody v-if="!groupByOrg">
+            <tr v-if="!filteredUsers.length">
+              <td :colspan="isSysAdmin ? 6 : 5" class="empty-state">No users found</td>
+            </tr>
+            <tr v-for="user in pagedUsers" :key="user.id"
+                :class="['user-row', 'clickable', rowState[user.id] || '', selectedIds.has(user.id) ? 'selected' : '']"
+                @click="openDrawer(user.id)">
+              <td class="select-col" @click.stop>
+                <input type="checkbox"
+                       :checked="selectedIds.has(user.id)"
+                       @change="toggleSelect(user.id)">
+              </td>
+              <td>
+                <span class="user-name">{{ user.full_name }}</span>
+                <span v-if="user.is_system_admin" class="sys-badge sys-badge-inline">SYS</span>
+              </td>
+              <td class="dim">@{{ user.username }}</td>
+              <td v-if="isSysAdmin" class="org-cell">
+                <div class="org-stack">
+                  <span class="org-name">
+                    {{ user.org_name }}
+                    <span v-if="user.country_code" class="org-country">{{ user.country_code }}</span>
+                  </span>
+                  <span v-if="user.club_name" class="club-line">{{ user.club_name }}</span>
+                  <span v-else class="club-line club-line-empty">No club</span>
+                </div>
+              </td>
+              <td>
+                <div class="role-pills">
+                  <span v-for="role in userPills(user.id)" :key="role"
+                        :class="['role-pill', `role-pill-${role}`]">
+                    {{ ROLE_LABELS[role] }}
+                  </span>
+                  <span v-if="!userPills(user.id).length" class="role-pill role-pill-empty">
+                    No roles
+                  </span>
+                  <span class="role-edit-hint">Edit ›</span>
+                </div>
+              </td>
+              <td class="status-col" @click.stop>
+                <span v-if="rowState[user.id]"
+                      :class="['status-pill', `status-${rowState[user.id]}`]"
+                      @click="retrySave(user.id)">
+                  {{ rowStatusLabel(user.id) }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+
+          <!-- Grouped-by-org view (system admin) -->
+          <template v-else>
+            <tbody v-if="!groupedUsers.length">
+              <tr><td colspan="5" class="empty-state">No users found</td></tr>
+            </tbody>
+            <template v-for="g in groupedUsers" :key="g.org_id">
+              <tbody>
+                <tr class="group-head" @click="toggleOrgCollapsed(g.org_id)">
+                  <td colspan="5">
+                    <span class="group-caret">{{ collapsedOrgs.has(g.org_id) ? '▸' : '▾' }}</span>
+                    <span class="group-name">{{ g.org_name }}</span>
+                    <span v-if="g.country_code" class="org-country">{{ g.country_code }}</span>
+                    <span class="group-count">{{ g.users.length }} member{{ g.users.length === 1 ? '' : 's' }}</span>
+                  </td>
+                </tr>
+                <template v-if="!collapsedOrgs.has(g.org_id)">
+                  <tr v-for="user in g.users" :key="user.id"
+                      :class="['user-row', 'clickable', rowState[user.id] || '', selectedIds.has(user.id) ? 'selected' : '']"
+                      @click="openDrawer(user.id)">
+                    <td class="select-col" @click.stop>
+                      <input type="checkbox"
+                             :checked="selectedIds.has(user.id)"
+                             @change="toggleSelect(user.id)">
+                    </td>
+                    <td>
+                      <span class="user-name">{{ user.full_name }}</span>
+                      <span v-if="user.is_system_admin" class="sys-badge sys-badge-inline">SYS</span>
+                    </td>
+                    <td class="dim">@{{ user.username }}</td>
+                    <td>
+                      <div class="roles-checkboxes">
+                        <label v-for="role in ALL_ROLES" :key="role" class="role-label">
+                          <input type="checkbox"
+                                 :checked="hasRole(user.id, role)"
+                                 @change="toggleRole(user.id, role)">
+                          {{ ROLE_LABELS[role] }}
+                        </label>
+                      </div>
+                    </td>
+                    <td class="status-col" @click.stop>
+                      <span v-if="rowState[user.id]"
+                            :class="['status-pill', `status-${rowState[user.id]}`]"
+                            @click="retrySave(user.id)">
+                        {{ rowStatusLabel(user.id) }}
+                      </span>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </template>
+          </template>
+        </table>
+      </div>
+
+      <!-- Pagination — only meaningful in flat (non-grouped) mode -->
+      <div v-if="!groupByOrg && totalPages > 1" class="pagination">
+        <button class="page-btn" :disabled="currentPage === 1" @click="currentPage--">← Prev</button>
+        <button v-for="(n, i) in pageNums()" :key="i"
+                :class="['page-btn', n === currentPage ? 'page-btn-active' : '']"
+                :disabled="n === '…'"
+                @click="typeof n === 'number' && (currentPage = n)">
+          {{ n }}
+        </button>
+        <button class="page-btn" :disabled="currentPage === totalPages" @click="currentPage++">Next →</button>
+        <span class="page-info">
+          {{ ((currentPage - 1) * PAGE_SIZE + 1).toLocaleString() }}–{{ Math.min(currentPage * PAGE_SIZE, filteredUsers.length).toLocaleString() }}
+          of {{ filteredUsers.length.toLocaleString() }}
+        </span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Per-user edit drawer. Renders when a row is clicked.
+       Backdrop click and Escape both close it. -->
+  <Transition name="drawer">
+    <div v-if="drawerUserId" class="drawer-backdrop" @click="closeDrawer"></div>
+  </Transition>
+  <Transition name="drawer-panel">
+    <aside v-if="drawerUserId && drawerUser" class="drawer">
+      <div class="drawer-head">
+        <div class="drawer-id">
+          <div class="drawer-name">
+            {{ drawerUser.full_name }}
+            <span v-if="drawerUser.is_system_admin" class="sys-badge sys-badge-inline">SYS</span>
+          </div>
+          <div class="drawer-meta">
+            @{{ drawerUser.username }}
+          </div>
+          <div class="drawer-org">
+            <span v-if="drawerUser.org_name" class="drawer-org-name">{{ drawerUser.org_name }}</span>
+            <span v-if="drawerUser.country_code" class="org-country">{{ drawerUser.country_code }}</span>
+            <span v-if="drawerUser.club_name" class="drawer-club">
+              {{ drawerUser.club_name }}<span v-if="drawerUser.club_code" class="club-code">{{ drawerUser.club_code }}</span>
+            </span>
+            <span v-else class="club-line club-line-empty">No club</span>
+          </div>
+        </div>
+        <button class="btn btn-ghost btn-sm" @click="closeDrawer" aria-label="Close drawer">Close ✕</button>
+      </div>
+
+      <div class="drawer-body">
+        <!-- Club editor — assign or create a club within the
+             target user's org. Only orgs they belong to are
+             selectable; cross-org assignment isn't a real flow. -->
+        <div class="drawer-section-label">Club</div>
+        <div class="club-editor">
+          <select v-if="!drawerCreatingClub"
+                  class="select"
+                  v-model="drawerClubChoice"
+                  @change="saveDrawerClub">
+            <option value="">— No club —</option>
+            <option v-for="c in drawerClubs" :key="c.id" :value="c.id">
+              {{ c.name }}<template v-if="c.short_code"> ({{ c.short_code }})</template>
+            </option>
+          </select>
+          <button v-if="!drawerCreatingClub"
+                  class="btn btn-ghost btn-sm"
+                  @click="drawerCreatingClub = true">
+            + New
+          </button>
+
+          <!-- Inline create form -->
+          <div v-if="drawerCreatingClub" class="club-create-block">
+            <div class="field">
+              <label class="label">New club name</label>
+              <input class="input" type="text" v-model="drawerNewClubName"
+                     placeholder="e.g. Sydney Springboard">
+            </div>
+            <div class="field">
+              <label class="label">Short code (optional)</label>
+              <input class="input" type="text" v-model="drawerNewClubCode"
+                     placeholder="e.g. SYD" maxlength="20">
+            </div>
+            <div style="display:flex;gap:0.4rem;justify-content:flex-end">
+              <button class="btn btn-ghost btn-sm"
+                      @click="drawerCreatingClub = false">Cancel</button>
+              <button class="btn btn-primary btn-sm"
+                      :disabled="drawerClubSaving || !drawerNewClubName.trim()"
+                      @click="createDrawerClub">
+                {{ drawerClubSaving ? 'Creating…' : 'Create & assign' }}
+              </button>
+            </div>
+          </div>
+
+          <span v-if="drawerClubStatus === 'saved'" class="club-status-saved">Saved</span>
+          <span v-else-if="drawerClubStatus === 'error'" class="club-status-error">Save failed</span>
+        </div>
+
+        <div class="drawer-section-label" style="margin-top:1.25rem">Roles</div>
+        <div class="drawer-roles">
+          <label v-for="role in ALL_ROLES" :key="role"
+                 :class="['drawer-role', hasRole(drawerUserId, role) ? 'drawer-role-on' : '']">
+            <input type="checkbox"
+                   :checked="hasRole(drawerUserId, role)"
+                   @change="toggleRole(drawerUserId, role)">
+            <span class="drawer-role-name">{{ ROLE_LABELS[role] }}</span>
+            <span :class="['role-pill', `role-pill-${role}`, 'role-pill-inline']">{{ ROLE_LABELS[role] }}</span>
+          </label>
+        </div>
+
+        <div v-if="rowState[drawerUserId]" class="drawer-status">
+          <span :class="['status-pill', `status-${rowState[drawerUserId]}`]">
+            {{ rowStatusLabel(drawerUserId) }}
+          </span>
+        </div>
+
+        <!-- Audit history — every grant / revoke event for this user
+             across the lifetime of their account. Updates after each
+             role toggle saves successfully. -->
+        <div class="drawer-section-label" style="margin-top:1.5rem">Audit History</div>
+        <div v-if="auditLoading" class="audit-empty">Loading…</div>
+        <div v-else-if="!auditEntries.length" class="audit-empty">
+          No role changes recorded for this account.
+        </div>
+        <ol v-else class="audit-list">
+          <li v-for="a in auditEntries" :key="a.id" class="audit-item">
+            <span :class="['audit-action', `audit-action-${a.action}`]">
+              {{ a.action === 'granted' ? '+' : '−' }}
+            </span>
+            <span class="audit-role">{{ ROLE_LABELS[a.role] || a.role }}</span>
+            <span class="audit-meta">
+              <span class="audit-time">{{ fmtAuditTime(a.created_at) }}</span>
+              <span v-if="a.actor_name" class="audit-actor">by {{ a.actor_name }}</span>
+              <span v-else class="audit-actor audit-actor-system">system</span>
+              <span v-if="a.note" class="audit-note">· {{ a.note }}</span>
+            </span>
+          </li>
+        </ol>
+
+        <div class="drawer-hint">
+          Changes save automatically. Press <kbd>Esc</kbd> or click outside to close.
+        </div>
+      </div>
+    </aside>
+  </Transition>
+</template>
+
+<style scoped>
+.page-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1.5rem 2rem; border-bottom: 1px solid var(--border);
+  max-width: 1400px; margin: 0 auto;
+}
+.page-title { font-size: 36px; font-style: italic; }
+.main { max-width: 1400px; margin: 0 auto; padding: 1.5rem 2rem; display: flex; flex-direction: column; gap: 1.25rem; }
+
+/* Stats strip */
+.stats-strip {
+  display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap;
+  padding: 1rem 1.25rem;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.stat { min-width: 70px; }
+.stat-num { font-family: var(--font-display); font-size: 24px; font-weight: 900; font-style: italic; color: var(--text); line-height: 1; }
+.stat-mini .stat-num { font-size: 20px; color: var(--text-2); }
+.stat-cyan .stat-num { color: var(--cyan); }
+.stat-label { font-family: var(--font-display); font-size: 9px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3); margin-top: 0.25rem; }
+.stat-sep { width: 1px; height: 32px; background: var(--border); margin: 0 0.25rem; }
+
+/* Tabs */
+.tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border); }
+.tab {
+  font-family: var(--font-display); font-size: 12px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  padding: 0.6rem 1rem; cursor: pointer;
+  background: transparent; border: none; color: var(--text-3);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.tab:hover { color: var(--text-2); }
+.tab-active { color: var(--cyan); border-bottom-color: var(--cyan); }
+.tab-count {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  letter-spacing: 0; padding: 0.1rem 0.4rem; border-radius: 3px;
+  background: var(--bg-3); border: 1px solid var(--border); color: var(--text-3);
+  margin-left: 0.4rem; vertical-align: middle;
+}
+.tab-count-active { background: var(--cyan-dim); border-color: rgba(6,182,212,0.4); color: var(--cyan); }
+
+/* Filters row */
+.filters { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.filters .input  { max-width: 360px; flex: 1 1 220px; }
+.filters .select { max-width: 360px; flex: 1 1 240px; }
+.result-count { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-left: auto; }
+
+/* Role chips */
+.chip-row { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.875rem; }
+.chip-label { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3); margin-right: 0.25rem; }
+.chip {
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 0.3rem 0.7rem; border-radius: 999px; cursor: pointer;
+  background: var(--bg-3); border: 1px solid var(--border); color: var(--text-2);
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+.chip:hover { color: var(--text); border-color: var(--border-2); }
+.chip-active { background: var(--cyan-dim); border-color: var(--cyan); color: var(--cyan); }
+.chip-clear { color: var(--text-3); border-style: dashed; }
+.chip-clear:hover { color: var(--red); border-color: var(--red); }
+
+/* Requests grid (unchanged behaviour, restyled card) */
+.requests-grid { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.5rem; }
+.request-card {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 0.875rem 1.125rem; gap: 1rem;
+}
+.request-name  { font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--text); }
+.request-meta  { font-size: 11px; color: var(--text-3); margin-top: 0.2rem; }
+.request-note  { font-size: 11px; color: var(--text-2); margin-top: 0.35rem; font-style: italic; }
+.request-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+.btn-approve { background: var(--green-dim); color: var(--green); border: 1px solid rgba(16,185,129,0.3); }
+
+/* Members table */
+.user-row { transition: background 0.15s; }
+.user-row.dirty  { background: rgba(245,158,11,0.06); }
+.user-row.saving { background: rgba(6,182,212,0.05); }
+.user-row.saved  { background: rgba(16,185,129,0.05); }
+.user-row.error  { background: rgba(239,68,68,0.06); }
+
+.user-name { font-family: var(--font-display); font-size: 16px; font-weight: 700; }
+.dim { color: var(--text-3); }
+
+.roles-checkboxes { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.role-label {
+  display: flex; align-items: center; gap: 0.35rem; cursor: pointer;
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-2);
+}
+.role-label input { accent-color: var(--cyan); width: 14px; height: 14px; }
+.role-label:has(input:checked) { color: var(--cyan); }
+.empty-state { color: var(--text-3); font-size: 12px; padding: 1.5rem 0; text-align: center; }
+
+.status-col { width: 110px; text-align: right; }
+.status-pill {
+  display: inline-block;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  padding: 0.2rem 0.5rem; border-radius: 3px;
+  border: 1px solid var(--border); background: var(--bg-3); color: var(--text-3);
+}
+.status-pill.status-dirty  { color: var(--amber); border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.08); }
+.status-pill.status-saving { color: var(--cyan);  border-color: rgba(6,182,212,0.4);  background: var(--cyan-dim); }
+.status-pill.status-saved  { color: var(--green); border-color: rgba(16,185,129,0.4); background: rgba(16,185,129,0.08); }
+.status-pill.status-error  { color: var(--red);   border-color: rgba(239,68,68,0.4);  background: rgba(239,68,68,0.08); cursor: pointer; }
+
+/* Pagination */
+.pagination { display: flex; align-items: center; gap: 0.4rem; margin-top: 1rem; flex-wrap: wrap; }
+.page-btn {
+  font-family: var(--font-mono); font-size: 12px;
+  padding: 0.35rem 0.6rem; border-radius: var(--radius-sm); cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text-2);
+  min-width: 32px;
+}
+.page-btn:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); }
+.page-btn:disabled { opacity: 0.4; cursor: default; }
+.page-btn-active { background: var(--cyan-dim); border-color: var(--cyan); color: var(--cyan); }
+.page-info { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-left: auto; }
+
+/* Group-by-org toggle and CSV export sit alongside the filters */
+.toggle {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-2);
+  padding: 0.4rem 0.7rem;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); cursor: pointer;
+}
+.toggle input { accent-color: var(--cyan); width: 14px; height: 14px; }
+.toggle:has(input:checked) { color: var(--cyan); border-color: var(--cyan); background: var(--cyan-dim); }
+
+/* Bulk action bar — sticky-feeling band that appears above the
+   table whenever a row is selected */
+.bulk-bar {
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  padding: 0.7rem 1rem; margin-bottom: 0.5rem;
+  background: var(--cyan-dim); border: 1px solid var(--cyan);
+  border-radius: var(--radius-lg);
+  animation: slideDown 0.15s ease;
+}
+@keyframes slideDown { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.bulk-count {
+  font-family: var(--font-display); font-size: 12px; font-weight: 900;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--cyan);
+  padding-right: 0.5rem; border-right: 1px solid rgba(6,182,212,0.3);
+}
+.bulk-select { max-width: 180px; padding: 0.35rem 0.55rem; font-size: 12px; }
+.bulk-add    { background: var(--green-dim); color: var(--green); border: 1px solid rgba(16,185,129,0.4); }
+.bulk-remove { background: rgba(239,68,68,0.08); color: var(--red); border: 1px solid rgba(239,68,68,0.4); }
+.bulk-add:disabled, .bulk-remove:disabled { opacity: 0.5; cursor: default; }
+.bulk-status {
+  margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--cyan);
+}
+.bulk-summary {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
+  padding: 0.4rem 0.6rem; margin-bottom: 0.5rem;
+  background: var(--bg-3); border-left: 3px solid var(--cyan); border-radius: 3px;
+}
+
+/* Group controls row */
+.group-controls { display: flex; gap: 0.4rem; margin-bottom: 0.6rem; }
+
+/* Org group header row (system admin grouped view) */
+.group-head {
+  background: var(--bg-2); cursor: pointer;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.group-head:hover { background: var(--bg-3); }
+.group-head td {
+  padding: 0.6rem 1rem;
+  font-family: var(--font-display); font-size: 13px; font-weight: 700;
+  color: var(--text);
+}
+.group-caret { font-size: 10px; color: var(--text-3); margin-right: 0.5rem; display: inline-block; width: 10px; }
+.group-name { color: var(--text); font-weight: 700; }
+.group-count {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 400;
+  color: var(--text-3); margin-left: 0.6rem;
+  text-transform: none; letter-spacing: 0;
+}
+
+/* Selection */
+.select-col { width: 32px; text-align: center; }
+.select-col input { accent-color: var(--cyan); width: 14px; height: 14px; cursor: pointer; }
+.user-row.selected { background: rgba(6,182,212,0.06); }
+.user-row.selected.dirty  { background: rgba(245,158,11,0.10); }
+.user-row.selected.saving { background: rgba(6,182,212,0.10); }
+.user-row.selected.saved  { background: rgba(16,185,129,0.10); }
+
+/* Role pills — read-only summary in the table.
+   Click anywhere on the row to open the drawer for editing. */
+.role-pills {
+  display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center;
+}
+.role-pill {
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 0.2rem 0.5rem; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--bg-3); color: var(--text-2);
+  white-space: nowrap;
+}
+.role-pill-org_admin    { color: #c4b5fd; border-color: rgba(139,92,246,0.45); background: rgba(139,92,246,0.10); }
+.role-pill-meet_manager { color: #fbbf24; border-color: rgba(245,158,11,0.45); background: rgba(245,158,11,0.10); }
+.role-pill-referee      { color: #fb923c; border-color: rgba(249,115,22,0.45); background: rgba(249,115,22,0.10); }
+.role-pill-judge        { color: #67e8f9; border-color: rgba(6,182,212,0.45);  background: rgba(6,182,212,0.10); }
+.role-pill-diver        { color: #34d399; border-color: rgba(16,185,129,0.45); background: rgba(16,185,129,0.10); }
+.role-pill-spectator    { color: var(--text-3); border-color: var(--border); background: var(--bg-2); opacity: 0.7; }
+.role-pill-empty        { color: var(--text-3); font-style: italic; border-style: dashed; }
+
+.role-edit-hint {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+  opacity: 0; transition: opacity 0.12s;
+  margin-left: 0.4rem;
+}
+.user-row.clickable { cursor: pointer; }
+.user-row.clickable:hover { background: var(--bg-2); }
+.user-row.clickable:hover .role-edit-hint { opacity: 1; color: var(--cyan); }
+.user-row.clickable.selected:hover  { background: rgba(6,182,212,0.10); }
+
+/* Drawer */
+.drawer-backdrop {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(3, 7, 18, 0.55);
+  backdrop-filter: blur(2px);
+}
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 100;
+  width: min(420px, 100vw);
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -10px 0 30px rgba(0,0,0,0.35);
+}
+.drawer-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 0.75rem; padding: 1.25rem 1.25rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.drawer-id { min-width: 0; }
+.drawer-name {
+  font-family: var(--font-display); font-size: 22px; font-weight: 900;
+  font-style: italic; color: var(--text); line-height: 1.1;
+}
+.drawer-meta {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+  margin-top: 0.4rem; word-break: break-word;
+}
+.drawer-body { padding: 1rem 1.25rem; overflow-y: auto; }
+.drawer-section-label {
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.25em; text-transform: uppercase; color: var(--text-3);
+  margin-bottom: 0.5rem;
+}
+.club-editor {
+  display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center;
+  margin-bottom: 0.25rem;
+}
+.club-editor .select { flex: 1 1 200px; }
+.club-create-block {
+  flex-basis: 100%;
+  display: flex; flex-direction: column; gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px dashed var(--cyan); border-radius: var(--radius-sm);
+  background: var(--cyan-dim);
+}
+.club-status-saved {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  color: var(--green);
+  padding: 0.15rem 0.5rem; border-radius: 3px;
+  background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.4);
+}
+.club-status-error {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  color: var(--red);
+  padding: 0.15rem 0.5rem; border-radius: 3px;
+  background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.4);
+}
+
+.drawer-roles { display: flex; flex-direction: column; gap: 0.3rem; }
+.drawer-role {
+  display: grid; grid-template-columns: 18px 1fr auto;
+  align-items: center; gap: 0.6rem;
+  padding: 0.5rem 0.6rem; border-radius: var(--radius-sm);
+  background: var(--bg-3); border: 1px solid var(--border); cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.drawer-role:hover { background: var(--bg-2); border-color: var(--border-2); }
+.drawer-role-on    { border-color: var(--cyan); background: var(--cyan-dim); }
+.drawer-role input { accent-color: var(--cyan); width: 14px; height: 14px; }
+.drawer-role-name {
+  font-family: var(--font-display); font-size: 12px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-2);
+}
+.drawer-role-on .drawer-role-name { color: var(--text); }
+.role-pill-inline { opacity: 0.6; }
+.drawer-role-on .role-pill-inline { opacity: 1; }
+
+.drawer-status { margin-top: 0.75rem; }
+.drawer-hint {
+  margin-top: 1rem; padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+}
+.drawer-hint kbd {
+  font-family: var(--font-mono); font-size: 10px;
+  padding: 0.1rem 0.35rem; border-radius: 3px;
+  background: var(--bg-2); border: 1px solid var(--border); color: var(--text-2);
+}
+
+/* Drawer transitions */
+.drawer-enter-active, .drawer-leave-active { transition: opacity 0.15s; }
+.drawer-enter-from, .drawer-leave-to { opacity: 0; }
+.drawer-panel-enter-active, .drawer-panel-leave-active { transition: transform 0.18s ease-out; }
+.drawer-panel-enter-from, .drawer-panel-leave-to { transform: translateX(100%); }
+
+/* Existing badges */
+.sys-badge {
+  display: inline-block;
+  font-family: var(--font-display); font-size: 10px; font-weight: 900;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--bg); background: var(--cyan);
+  padding: 0.15rem 0.5rem; border-radius: 3px;
+  vertical-align: middle;
+}
+.sys-badge-inline { font-size: 9px; padding: 0.1rem 0.35rem; margin-left: 0.5rem; }
+
+.org-cell { white-space: nowrap; }
+.org-stack { display: flex; flex-direction: column; gap: 0.15rem; }
+.org-name { font-family: var(--font-display); font-size: 13px; font-weight: 600; color: var(--text-2); }
+.org-country {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.05em; color: var(--text-3);
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 3px; padding: 0.1rem 0.35rem;
+  margin-left: 0.4rem; vertical-align: middle;
+}
+.club-line {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+}
+.club-line-empty { font-style: italic; opacity: 0.7; }
+.club-code {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.05em; color: var(--cyan);
+  background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.3);
+  border-radius: 3px; padding: 0.1rem 0.35rem;
+  margin-left: 0.4rem; vertical-align: middle;
+}
+
+/* Drawer org/club block */
+.drawer-org {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+.drawer-org-name {
+  font-family: var(--font-display); font-size: 13px; font-weight: 700;
+  color: var(--text-2);
+}
+.drawer-club {
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-3);
+  flex-basis: 100%;
+}
+
+/* Audit history list */
+.audit-empty {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+  padding: 0.75rem 0; font-style: italic;
+}
+.audit-list {
+  list-style: none; padding: 0; margin: 0;
+  max-height: 280px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-3);
+}
+.audit-item {
+  display: flex; align-items: flex-start; gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.audit-item:last-child { border-bottom: none; }
+.audit-action {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  font-family: var(--font-display); font-weight: 900; font-size: 12px;
+  flex-shrink: 0; margin-top: 0.05rem;
+}
+.audit-action-granted { background: rgba(16,185,129,0.15); color: var(--green); border: 1px solid rgba(16,185,129,0.4); }
+.audit-action-revoked { background: rgba(239,68,68,0.15);  color: var(--red);   border: 1px solid rgba(239,68,68,0.4); }
+.audit-role {
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text);
+  margin-right: 0.4rem;
+}
+.audit-meta {
+  display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: baseline;
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+  flex: 1; min-width: 0;
+}
+.audit-time { color: var(--text-2); }
+.audit-actor { color: var(--text-3); }
+.audit-actor-system { font-style: italic; }
+.audit-note { color: var(--text-3); }
+</style>
