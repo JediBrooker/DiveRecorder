@@ -34,13 +34,13 @@ const collapsedOrgs = ref(new Set())
 
 // Primary roles drive the stats strip and the role-filter chips
 // (filtering by "spectator" is useless because everyone has it).
-const PRIMARY_ROLES = ['org_admin', 'meet_manager', 'referee', 'judge', 'diver']
+const PRIMARY_ROLES = ['org_admin', 'meet_manager', 'referee', 'judge', 'coach', 'diver']
 // Full role set is editable inside the per-user drawer and
 // rendered as a pill in the table summary.
 const ALL_ROLES = [...PRIMARY_ROLES, 'spectator']
 
 // Visual ordering — primary roles by responsibility, spectator last
-const ROLE_ORDER = { org_admin: 0, meet_manager: 1, referee: 2, judge: 3, diver: 4, spectator: 5 }
+const ROLE_ORDER = { org_admin: 0, meet_manager: 1, referee: 2, judge: 3, coach: 4, diver: 5, spectator: 6 }
 
 // Per-user edit drawer
 const drawerUserId = ref(null)
@@ -101,6 +101,40 @@ const drawerCreatingClub = ref(false)   // toggles inline new-club form
 const drawerNewClubName = ref('')
 const drawerNewClubCode = ref('')
 
+// Coach-link state (drawer-scoped). The User Manager admin
+// manages coach ↔ diver links from this drawer; the section
+// shows every link involving the open user (whether they're the
+// coach or the diver) and lets the admin add or remove links.
+const drawerCoachLinks = ref([])        // links in this user's org
+const drawerOrgUsers = ref([])          // candidates for the "other side" picker
+const drawerLinkOtherId = ref('')       // selected partner user
+const drawerLinkRole = ref('coach')     // 'coach' | 'diver' — which side this user plays
+const drawerLinkNote  = ref('')
+const drawerLinkSaving = ref(false)
+const drawerLinkError  = ref('')
+
+// Filter the org's full link list down to those involving the
+// open user. Lets us reuse the org-level GET endpoint without a
+// per-user backend round trip.
+const drawerLinks = computed(() => {
+  if (!drawerUserId.value) return []
+  return drawerCoachLinks.value.filter(
+    l => l.coach_id === drawerUserId.value || l.diver_id === drawerUserId.value,
+  )
+})
+
+// Shorthand: which role does the open user have inside a given
+// link? Lets the template render "as Coach of …" vs "as Diver of …"
+// without exposing column names.
+function linkSideForUser(link) {
+  if (!drawerUserId.value) return ''
+  return link.coach_id === drawerUserId.value ? 'coach' : 'diver'
+}
+function linkOtherName(link) {
+  if (!drawerUserId.value) return ''
+  return link.coach_id === drawerUserId.value ? link.diver_name : link.coach_name
+}
+
 async function loadAudit(userId) {
   auditLoading.value = true
   auditEntries.value = []
@@ -129,17 +163,100 @@ async function loadClubs(orgId, currentClubId) {
   }
 }
 
+// Pull every coach link in the user's org. The candidate picker
+// for "the other user in the link" comes from allUsers, already
+// loaded by the User Manager — saves a second round trip and
+// guarantees the picker only contains org-mates the admin has
+// permission to manage.
+async function loadCoachLinks(orgId, currentUserId) {
+  drawerCoachLinks.value = []
+  drawerOrgUsers.value = []
+  drawerLinkOtherId.value = ''
+  drawerLinkRole.value = 'coach'
+  drawerLinkNote.value = ''
+  drawerLinkError.value = ''
+  if (!orgId) return
+  // Pick the candidate list from the cached users straight away
+  // so the dropdown is responsive while the link list loads.
+  drawerOrgUsers.value = allUsers.value
+    .filter(u => u.org_id === orgId && u.id !== currentUserId)
+    .sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''))
+  try {
+    const links = await auth.apiFetch(`/api/orgs/${orgId}/coach-links`)
+    drawerCoachLinks.value = Array.isArray(links) ? links : []
+  } catch {
+    drawerCoachLinks.value = []
+  }
+}
+
+async function addCoachLink() {
+  drawerLinkError.value = ''
+  if (!drawerLinkOtherId.value) {
+    drawerLinkError.value = 'Pick the other user'
+    return
+  }
+  const me = drawerUserId.value
+  const other = drawerLinkOtherId.value
+  const coach_id = drawerLinkRole.value === 'coach' ? me : other
+  const diver_id = drawerLinkRole.value === 'coach' ? other : me
+  const u = allUsers.value.find(x => x.id === me)
+  if (!u?.org_id) return
+  drawerLinkSaving.value = true
+  try {
+    const link = await auth.apiFetch(`/api/orgs/${u.org_id}/coach-links`, {
+      method: 'POST',
+      body: JSON.stringify({
+        coach_id,
+        diver_id,
+        note: drawerLinkNote.value.trim() || null,
+      }),
+    })
+    // Server returns the link minus the names; resolve them
+    // locally so the row renders immediately.
+    const coach = allUsers.value.find(x => x.id === coach_id)
+    const diver = allUsers.value.find(x => x.id === diver_id)
+    drawerCoachLinks.value = [
+      ...drawerCoachLinks.value,
+      {
+        ...link,
+        coach_name: coach?.full_name || '',
+        diver_name: diver?.full_name || '',
+      },
+    ]
+    drawerLinkOtherId.value = ''
+    drawerLinkNote.value = ''
+  } catch (err) {
+    drawerLinkError.value = err.message || 'Failed to add link'
+  } finally {
+    drawerLinkSaving.value = false
+  }
+}
+
+async function removeCoachLink(id) {
+  if (!confirm('Remove this coach link?')) return
+  try {
+    await auth.apiFetch(`/api/coach-links/${id}`, { method: 'DELETE' })
+    drawerCoachLinks.value = drawerCoachLinks.value.filter(l => l.id !== id)
+  } catch (err) {
+    alert('Failed to remove link: ' + err.message)
+  }
+}
+
 function openDrawer(userId) {
   drawerUserId.value = userId
   loadAudit(userId)
   const u = allUsers.value.find(x => x.id === userId)
   loadClubs(u?.org_id, u?.club_id)
+  loadCoachLinks(u?.org_id, userId)
   drawerClubStatus.value = ''
 }
 function closeDrawer() {
   drawerUserId.value = null
   auditEntries.value = []
   drawerClubs.value = []
+  drawerCoachLinks.value = []
+  drawerOrgUsers.value = []
+  drawerLinkError.value = ''
   drawerClubStatus.value = ''
 }
 
@@ -214,6 +331,7 @@ const ROLE_LABELS = {
   meet_manager: 'Meet Manager',
   referee: 'Referee',
   judge: 'Judge',
+  coach: 'Coach',
   diver: 'Diver',
   spectator: 'Spectator',
 }
@@ -876,6 +994,52 @@ onUnmounted(() => {
           </span>
         </div>
 
+        <!-- Coach ↔ Diver links. Org admins curate them here;
+             the linked-side user sees them on their /coach
+             dashboard. -->
+        <div class="drawer-section-label" style="margin-top:1.5rem">Coach Links</div>
+        <div class="coach-links">
+          <div v-if="!drawerLinks.length" class="coach-empty">
+            No coach links for this user yet.
+          </div>
+          <div v-for="link in drawerLinks" :key="link.id" class="coach-link-row">
+            <span :class="['coach-side', `coach-side-${linkSideForUser(link)}`]">
+              {{ linkSideForUser(link) === 'coach' ? 'Coach of' : 'Diver of' }}
+            </span>
+            <span class="coach-other">{{ linkOtherName(link) }}</span>
+            <span v-if="link.note" class="coach-note">{{ link.note }}</span>
+            <button class="btn btn-ghost btn-sm coach-remove"
+                    @click="removeCoachLink(link.id)"
+                    title="Remove this link">✕</button>
+          </div>
+        </div>
+
+        <div class="coach-add">
+          <div class="coach-add-row">
+            <span class="coach-add-label">Add link — this user is the</span>
+            <select class="select coach-add-role" v-model="drawerLinkRole">
+              <option value="coach">Coach</option>
+              <option value="diver">Diver</option>
+            </select>
+            <span class="coach-add-label">of</span>
+            <select class="select coach-add-other" v-model="drawerLinkOtherId">
+              <option value="">— pick a user —</option>
+              <option v-for="u in drawerOrgUsers" :key="u.id" :value="u.id">
+                {{ u.full_name }}
+              </option>
+            </select>
+          </div>
+          <input class="input coach-add-note" type="text"
+                 v-model="drawerLinkNote"
+                 placeholder="Note (optional, e.g. 'springboard squad')">
+          <div v-if="drawerLinkError" class="msg msg-error">{{ drawerLinkError }}</div>
+          <button class="btn btn-primary btn-sm coach-add-btn"
+                  :disabled="drawerLinkSaving || !drawerLinkOtherId"
+                  @click="addCoachLink">
+            {{ drawerLinkSaving ? 'Saving…' : 'Add Link' }}
+          </button>
+        </div>
+
         <!-- Audit history — every grant / revoke event for this user
              across the lifetime of their account. Updates after each
              role toggle saves successfully. -->
@@ -1115,6 +1279,7 @@ onUnmounted(() => {
 .role-pill-meet_manager { color: #fbbf24; border-color: rgba(245,158,11,0.45); background: rgba(245,158,11,0.10); }
 .role-pill-referee      { color: #fb923c; border-color: rgba(249,115,22,0.45); background: rgba(249,115,22,0.10); }
 .role-pill-judge        { color: #67e8f9; border-color: rgba(6,182,212,0.45);  background: rgba(6,182,212,0.10); }
+.role-pill-coach        { color: #f472b6; border-color: rgba(236,72,153,0.45); background: rgba(236,72,153,0.10); }
 .role-pill-diver        { color: #34d399; border-color: rgba(16,185,129,0.45); background: rgba(16,185,129,0.10); }
 .role-pill-spectator    { color: var(--text-3); border-color: var(--border); background: var(--bg-2); opacity: 0.7; }
 .role-pill-empty        { color: var(--text-3); font-style: italic; border-style: dashed; }
@@ -1271,6 +1436,68 @@ onUnmounted(() => {
   font-family: var(--font-mono); font-size: 12px; color: var(--text-3);
   flex-basis: 100%;
 }
+
+/* Coach link section */
+.coach-links { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem; }
+.coach-empty {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+  padding: 0.5rem 0; font-style: italic;
+}
+.coach-link-row {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+.coach-side {
+  font-family: var(--font-display); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  padding: 0.1rem 0.4rem; border-radius: 3px;
+  flex-shrink: 0;
+}
+.coach-side-coach {
+  color: #f472b6; background: rgba(236,72,153,0.10);
+  border: 1px solid rgba(236,72,153,0.45);
+}
+.coach-side-diver {
+  color: #34d399; background: rgba(16,185,129,0.10);
+  border: 1px solid rgba(16,185,129,0.45);
+}
+.coach-other {
+  font-family: var(--font-display); font-size: 13px; font-weight: 700;
+  color: var(--text); flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.coach-note {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+  font-style: italic; flex-shrink: 0;
+}
+.coach-remove {
+  padding: 0.2rem 0.5rem; min-width: auto;
+  color: var(--text-3); border-color: var(--border);
+}
+.coach-remove:hover { color: var(--red); border-color: var(--red); }
+
+/* Add-link form */
+.coach-add {
+  display: flex; flex-direction: column; gap: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.coach-add-row {
+  display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
+}
+.coach-add-label {
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.15em; text-transform: uppercase; color: var(--text-3);
+  white-space: nowrap;
+}
+.coach-add-role  { flex: 0 0 90px;  font-size: 11px; padding: 0.35rem 0.5rem; }
+.coach-add-other { flex: 1 1 140px; font-size: 11px; padding: 0.35rem 0.5rem; min-width: 0; }
+.coach-add-note  { font-size: 11px; padding: 0.4rem 0.55rem; }
+.coach-add-btn   { align-self: flex-start; }
 
 /* Audit history list */
 .audit-empty {

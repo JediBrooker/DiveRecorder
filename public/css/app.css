@@ -39,6 +39,7 @@
   --role-manager:  #f59e0b;
   --role-referee:  #ef4444;
   --role-judge:    #06b6d4;
+  --role-coach:    #ec4899;
   --role-diver:    #10b981;
   --role-spectator:#64748b;
 
@@ -290,6 +291,7 @@ h1, h2, h3, h4 {
 .badge-meet_manager { background: var(--amber-dim); color: var(--amber); border-color: rgba(245,158,11,0.3); }
 .badge-referee      { background: var(--red-dim); color: var(--red); border-color: rgba(239,68,68,0.3); }
 .badge-judge        { background: var(--cyan-dim); color: var(--cyan); border-color: rgba(6,182,212,0.3); }
+.badge-coach        { background: rgba(236,72,153,0.10); color: #f472b6; border-color: rgba(236,72,153,0.35); }
 .badge-diver        { background: var(--green-dim); color: var(--green); border-color: rgba(16,185,129,0.3); }
 .badge-spectator    { background: rgba(61,95,122,0.15); color: var(--text-3); border-color: var(--border); }
 
