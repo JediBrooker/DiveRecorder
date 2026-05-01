@@ -28,6 +28,35 @@ const meetForm = ref({
 })
 const meetFormErr = ref('')
 
+// Sysadmin-only org filter for the events list. The /api/events
+// endpoint returns every org's events when called with a
+// sysadmin token; this filter narrows the displayed view
+// without re-fetching.
+const orgFilter = ref('')
+
+const uniqueOrgs = computed(() => {
+  const map = new Map()
+  for (const ev of events.value) {
+    if (!ev.org_id) continue
+    if (!map.has(ev.org_id)) {
+      map.set(ev.org_id, {
+        id: ev.org_id,
+        name: ev.org_name || 'Unknown',
+        country_code: ev.country_code || null,
+        count: 0,
+      })
+    }
+    map.get(ev.org_id).count++
+  }
+  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
+})
+const uniqueOrgCount = computed(() => uniqueOrgs.value.length)
+
+const filteredManagerEvents = computed(() => {
+  if (!orgFilter.value) return events.value
+  return events.value.filter(ev => ev.org_id === orgFilter.value)
+})
+
 // Edit form
 const editId = ref('')
 const editName = ref('')
@@ -467,13 +496,36 @@ onMounted(async () => { await Promise.all([loadEvents(), loadMeets()]) })
 
     <!-- Events list -->
     <div>
-      <h2 style="font-size:20px;font-style:italic;margin-bottom:1rem">Your Events</h2>
+      <h2 style="font-size:20px;font-style:italic;margin-bottom:1rem">
+        {{ auth.user?.is_system_admin ? 'All Events' : 'Your Events' }}
+        <span v-if="auth.user?.is_system_admin && events.length" class="events-subcount">
+          · {{ events.length }} across {{ uniqueOrgCount }} org{{ uniqueOrgCount === 1 ? '' : 's' }}
+        </span>
+      </h2>
+      <!-- Org filter — only useful for sysadmin who sees every
+           org's events. Default 'all' shows the full list. -->
+      <div v-if="auth.user?.is_system_admin && uniqueOrgs.length > 1" class="org-filter">
+        <label class="label">Filter by org</label>
+        <select class="select" v-model="orgFilter">
+          <option value="">All organisations ({{ events.length }})</option>
+          <option v-for="o in uniqueOrgs" :key="o.id" :value="o.id">
+            {{ o.name }}{{ o.country_code ? ` (${o.country_code})` : '' }} ({{ o.count }})
+          </option>
+        </select>
+      </div>
       <div class="events-list">
-        <div v-if="!events.length" class="empty">No events yet. Create one to get started.</div>
-        <div v-for="ev in events" :key="ev.id" class="event-item">
+        <div v-if="!filteredManagerEvents.length" class="empty">
+          {{ events.length ? 'No events match the filter.' : 'No events yet. Create one to get started.' }}
+        </div>
+        <div v-for="ev in filteredManagerEvents" :key="ev.id" class="event-item">
           <div style="flex:1;min-width:0">
             <div class="event-name">{{ ev.name }}</div>
             <div class="event-meta">
+              <!-- Org badge — visible to sysadmin so they know
+                   which federation each event belongs to. -->
+              <span v-if="auth.user?.is_system_admin && ev.org_name" class="org-badge">
+                {{ ev.org_name }}<span v-if="ev.country_code" class="org-badge-ctry">{{ ev.country_code }}</span>
+              </span>
               <span v-if="ev.event_type === 'synchro_pair'" class="event-type-pill">Synchro</span>
               <span v-else-if="ev.event_type === 'team'" class="event-type-pill team">Team</span>
               <span>{{ ev.gender }}</span><span>·</span>
@@ -682,7 +734,28 @@ onMounted(async () => { await Promise.all([loadEvents(), loadMeets()]) })
 .event-item{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.25rem;background:var(--bg-3);border:1px solid var(--border);border-radius:var(--radius);transition:border-color 0.2s;animation:fadeUp 0.25s ease;}
 .event-item:hover{border-color:var(--border-2);}
 .event-name{font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--text);}
-.event-meta{font-size:11px;color:var(--text-3);margin-top:0.25rem;display:flex;gap:0.75rem;flex-wrap:wrap;}
+.event-meta{font-size:11px;color:var(--text-3);margin-top:0.25rem;display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;}
+.org-badge {
+  font-family: var(--font-display); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.15em; text-transform: uppercase;
+  color: #c4b5fd;
+  background: rgba(139,92,246,0.10); border: 1px solid rgba(139,92,246,0.4);
+  border-radius: 3px; padding: 0.15rem 0.5rem;
+}
+.org-badge-ctry {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  color: var(--text-3); margin-left: 0.4rem;
+}
+.events-subcount {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 400;
+  color: var(--text-3); font-style: normal;
+}
+.org-filter {
+  display: flex; align-items: center; gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+.org-filter .label { margin: 0; flex-shrink: 0; }
+.org-filter .select { max-width: 320px; }
 .actions{display:flex;gap:0.5rem;flex-shrink:0;}
 .events-list{display:flex;flex-direction:column;gap:0.75rem;}
 .empty{color:var(--text-3);font-size:12px;text-align:center;padding:2rem;}

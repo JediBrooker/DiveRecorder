@@ -1674,20 +1674,25 @@ app.put(
   async (req, res) => {
     const { meet_id } = req.body || {};
     try {
+      // For non-sysadmin the meet must live in their own org.
+      // sysadmin can move events between meets across any org.
       if (meet_id) {
         const m = await pool.query(
-          "SELECT id FROM meets WHERE id = $1 AND org_id = $2",
-          [meet_id, req.user.org_id],
+          "SELECT id, org_id FROM meets WHERE id = $1",
+          [meet_id],
         );
         if (!m.rows.length) {
+          return res.status(400).json({ error: "Meet not found" });
+        }
+        if (!req.user.is_system_admin && m.rows[0].org_id !== req.user.org_id) {
           return res
             .status(400)
             .json({ error: "Meet not found in this organisation" });
         }
       }
       const r = await pool.query(
-        "UPDATE events SET meet_id = $1 WHERE id = $2 AND org_id = $3 RETURNING *",
-        [meet_id || null, req.params.id, req.user.org_id],
+        "UPDATE events SET meet_id = $1 WHERE id = $2 AND ($3::boolean OR org_id = $4) RETURNING *",
+        [meet_id || null, req.params.id, !!req.user.is_system_admin, req.user.org_id],
       );
       if (!r.rows.length) return res.status(404).json({ error: "Event not found" });
       res.json(r.rows[0]);
@@ -1707,21 +1712,36 @@ app.get("/api/events", async (req, res) => {
     const authHeader = req.headers["authorization"];
     const token = authHeader && authHeader.split(" ")[1];
     let result;
+    // Joined to organisations so sysadmin context can see which
+    // event belongs to which org. Non-sysadmin views ignore those
+    // columns; anonymous users get the same shape minus the
+    // restriction that they only see Live/Completed.
+    const SELECT = `
+      SELECT e.*, o.name AS org_name, o.country_code, o.slug AS org_slug
+      FROM events e
+      JOIN organisations o ON o.id = e.org_id
+    `;
     if (token) {
       try {
         const decoded = jwt.verify(token, JWT_SECRET);
-        result = await pool.query(
-          "SELECT * FROM events WHERE org_id = $1 ORDER BY created_at DESC",
-          [decoded.org_id],
-        );
+        if (decoded.is_system_admin) {
+          // System admin sees every event across every org. The
+          // frontend can group/filter by org_name.
+          result = await pool.query(`${SELECT} ORDER BY e.created_at DESC`);
+        } else {
+          result = await pool.query(
+            `${SELECT} WHERE e.org_id = $1 ORDER BY e.created_at DESC`,
+            [decoded.org_id],
+          );
+        }
       } catch {
         result = await pool.query(
-          "SELECT * FROM events WHERE status IN ('Live','Completed') ORDER BY created_at DESC",
+          `${SELECT} WHERE e.status IN ('Live','Completed') ORDER BY e.created_at DESC`,
         );
       }
     } else {
       result = await pool.query(
-        "SELECT * FROM events WHERE status IN ('Live','Completed') ORDER BY created_at DESC",
+        `${SELECT} WHERE e.status IN ('Live','Completed') ORDER BY e.created_at DESC`,
       );
     }
     res.json(result.rows);
@@ -1799,10 +1819,13 @@ app.put("/api/events/:id", requireEventManager(), async (req, res) => {
     });
   }
   try {
+    // System admins can edit events in any org — the boolean
+     // short-circuits the org filter without losing the index
+     // on org_id for normal traffic.
     const r = await pool.query(
       `UPDATE events SET name=$1, gender=$2, number_of_judges=$3, total_rounds=$4,
                          height=$5, event_type=COALESCE($6, event_type)
-       WHERE id=$7 AND org_id=$8 RETURNING *`,
+       WHERE id=$7 AND ($8::boolean OR org_id=$9) RETURNING *`,
       [
         name,
         gender,
@@ -1811,6 +1834,7 @@ app.put("/api/events/:id", requireEventManager(), async (req, res) => {
         height || null,
         event_type || null,
         req.params.id,
+        !!req.user.is_system_admin,
         req.user.org_id,
       ],
     );
@@ -1828,10 +1852,11 @@ app.delete(
   requireOrgRole(["org_admin"]),
   async (req, res) => {
     try {
-      await pool.query("DELETE FROM events WHERE id=$1 AND org_id=$2", [
-        req.params.id,
-        req.user.org_id,
-      ]);
+      // sysadmin bypasses the org filter; org_admin scoped to own org
+      await pool.query(
+        "DELETE FROM events WHERE id=$1 AND ($2::boolean OR org_id=$3)",
+        [req.params.id, !!req.user.is_system_admin, req.user.org_id],
+      );
       res.json({ message: "Event deleted" });
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -1850,16 +1875,16 @@ app.put("/api/events/:id/status", requireEventManager(), async (req, res) => {
   }
   try {
     // Read the previous status before the update so we know which
-    // notification (if any) to fire.
+    // notification (if any) to fire. sysadmin sees every org's events.
     const prior = await pool.query(
-      "SELECT status FROM events WHERE id = $1 AND org_id = $2",
-      [req.params.id, req.user.org_id],
+      "SELECT status FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)",
+      [req.params.id, !!req.user.is_system_admin, req.user.org_id],
     );
     const previousStatus = prior.rows[0]?.status;
 
     const r = await pool.query(
-      "UPDATE events SET status = $1 WHERE id = $2 AND org_id = $3 RETURNING *",
-      [status, req.params.id, req.user.org_id],
+      "UPDATE events SET status = $1 WHERE id = $2 AND ($3::boolean OR org_id = $4) RETURNING *",
+      [status, req.params.id, !!req.user.is_system_admin, req.user.org_id],
     );
     if (!r.rows.length)
       return res.status(404).json({ error: "Event not found" });
@@ -2085,9 +2110,10 @@ app.put(
         `UPDATE competitor_dive_lists cdl
          SET display_order = $1
          FROM events e
-         WHERE cdl.id = $2 AND cdl.event_id = e.id AND e.org_id = $3
+         WHERE cdl.id = $2 AND cdl.event_id = e.id
+           AND ($3::boolean OR e.org_id = $4)
          RETURNING cdl.id, cdl.display_order`,
-        [display_order ?? null, req.params.id, req.user.org_id],
+        [display_order ?? null, req.params.id, !!req.user.is_system_admin, req.user.org_id],
       );
       if (!r.rows.length) return res.status(404).json({ error: "Dive list row not found" });
       res.json({ ok: true, ...r.rows[0] });
@@ -2111,9 +2137,10 @@ app.put(
         `UPDATE competitor_dive_lists cdl
          SET withdrawn_at = CASE WHEN $1::boolean THEN now() ELSE NULL END
          FROM events e
-         WHERE cdl.id = $2 AND cdl.event_id = e.id AND e.org_id = $3
+         WHERE cdl.id = $2 AND cdl.event_id = e.id
+           AND ($3::boolean OR e.org_id = $4)
          RETURNING cdl.id, cdl.withdrawn_at`,
-        [!!withdrawn, req.params.id, req.user.org_id],
+        [!!withdrawn, req.params.id, !!req.user.is_system_admin, req.user.org_id],
       );
       if (!r.rows.length) return res.status(404).json({ error: "Dive list row not found" });
       res.json({ ok: true, ...r.rows[0] });
@@ -2139,19 +2166,22 @@ app.post(
       });
     }
     try {
-      // Org guard: event must be in the caller's org, competitor
-      // must be in the same org.
+      // Org guard: event must be in the caller's org (or any org
+      // for sysadmin). Competitor must belong to the event's org
+      // — sysadmin still has to keep divers org-scoped to keep
+      // standings sane.
       const ev = await pool.query(
-        "SELECT id, org_id FROM events WHERE id = $1 AND org_id = $2",
-        [req.params.id, req.user.org_id],
+        "SELECT id, org_id FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)",
+        [req.params.id, !!req.user.is_system_admin, req.user.org_id],
       );
       if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
+      const eventOrgId = ev.rows[0].org_id;
 
       const u = await pool.query(
         "SELECT id, org_id FROM users WHERE id = $1",
         [competitor_id],
       );
-      if (!u.rows.length || u.rows[0].org_id !== req.user.org_id) {
+      if (!u.rows.length || u.rows[0].org_id !== eventOrgId) {
         return res.status(400).json({ error: "Competitor must belong to this organisation" });
       }
 
@@ -2196,10 +2226,11 @@ app.post(
     const client = await pool.connect();
     try {
       // Look up the event so we know its height + total_rounds
-      // before parsing — both feed into dive lookup.
+      // before parsing — both feed into dive lookup. sysadmin
+      // can import rosters into any org's event.
       const ev = await client.query(
-        "SELECT id, org_id, height, total_rounds, event_type FROM events WHERE id = $1 AND org_id = $2",
-        [req.params.id, req.user.org_id],
+        "SELECT id, org_id, height, total_rounds, event_type FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)",
+        [req.params.id, !!req.user.is_system_admin, req.user.org_id],
       );
       if (!ev.rows.length) {
         return res.status(404).json({ error: "Event not found" });
@@ -2430,12 +2461,15 @@ app.put(
       const existing = prior.rows[0];
 
       // Org guard: the score must belong to an event in the
-      // caller's org. Cross-org corrections are rejected.
+      // caller's org. sysadmin can correct scores in any org.
       const ev = await pool.query(
         "SELECT org_id FROM events WHERE id = $1",
         [existing.event_id],
       );
-      if (!ev.rows.length || ev.rows[0].org_id !== req.user.org_id) {
+      if (!ev.rows.length) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      if (!req.user.is_system_admin && ev.rows[0].org_id !== req.user.org_id) {
         return res.status(403).json({ error: "Cannot correct scores in other organisations" });
       }
 
