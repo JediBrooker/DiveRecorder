@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { RouterLink } from 'vue-router'
-import { annotatedScores } from '@/composables/useScoreCategories'
+import { annotatedScores, groupedSynchroScoresForDisplay } from '@/composables/useScoreCategories'
 
 const events = ref([])
 const clubsList = ref([])           // distinct clubs that have competed in any archived meet
@@ -314,11 +314,25 @@ function fmtDate(iso) {
                 <span class="dive-code">{{ [d.dive_code, d.position].filter(Boolean).join(' ') }}</span>
                 <span v-if="d.dd" class="dd-pill">DD {{ Number(d.dd).toFixed(1) }}</span>
                 <span class="judge-scores">
-                  <span v-for="(j, si) in annotatedScores(d.judge_scores, results.event?.number_of_judges)" :key="si"
-                        :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                        :title="j.dropped ? 'Dropped by trim rule' : ''">
-                    {{ j.value.toFixed(1) }}
-                  </span>
+                  <template v-if="results.event?.event_type === 'synchro_pair'">
+                    <div v-for="g in (groupedSynchroScoresForDisplay(d.judge_scores, results.event.number_of_judges) || [])"
+                         :key="g.role"
+                         :class="['judge-group', `judge-group-${g.role}`]">
+                      <span class="judge-group-label">{{ g.label }}</span>
+                      <span v-for="(j, si) in g.scores" :key="si"
+                            :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                            :title="j.dropped ? 'Dropped by trim rule' : ''">
+                        {{ j.value.toFixed(1) }}
+                      </span>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <span v-for="(j, si) in annotatedScores(d.judge_scores, results.event?.number_of_judges)" :key="si"
+                          :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                          :title="j.dropped ? 'Dropped by trim rule' : ''">
+                      {{ j.value.toFixed(1) }}
+                    </span>
+                  </template>
                 </span>
                 <span class="dive-total">{{ Number(d.total_dive_score).toFixed(2) }}</span>
               </div>

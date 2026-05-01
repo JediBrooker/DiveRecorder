@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useSocket } from '@/composables/useSocket'
-import { annotatedScores } from '@/composables/useScoreCategories'
+import { annotatedScores, groupedSynchroScoresForDisplay } from '@/composables/useScoreCategories'
 
 const socket = useSocket({ spectator: true })
 
@@ -280,11 +280,25 @@ onMounted(async () => {
             </div>
             <div v-if="h.description" class="hist-desc">{{ h.description }}</div>
             <div v-if="h.judge_array" class="hist-scores">
-              <span v-for="(j, si) in annotatedScores(h.judge_array, currentEvent?.number_of_judges)" :key="si"
-                    :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                    :title="j.dropped ? 'Dropped by trim rule' : ''">
-                {{ j.value.toFixed(1) }}
-              </span>
+              <template v-if="currentEvent?.event_type === 'synchro_pair'">
+                <div v-for="g in (groupedSynchroScoresForDisplay(h.judge_array, currentEvent.number_of_judges) || [])"
+                     :key="g.role"
+                     :class="['judge-group', `judge-group-${g.role}`]">
+                  <span class="judge-group-label">{{ g.label }}</span>
+                  <span v-for="(j, si) in g.scores" :key="si"
+                        :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                        :title="j.dropped ? 'Dropped by trim rule' : ''">
+                    {{ j.value.toFixed(1) }}
+                  </span>
+                </div>
+              </template>
+              <template v-else>
+                <span v-for="(j, si) in annotatedScores(h.judge_array, currentEvent?.number_of_judges)" :key="si"
+                      :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                      :title="j.dropped ? 'Dropped by trim rule' : ''">
+                  {{ j.value.toFixed(1) }}
+                </span>
+              </template>
             </div>
           </div>
         </div>
@@ -580,11 +594,25 @@ onMounted(async () => {
                   </div>
                   <div class="dr-dd">{{ d.dd != null ? parseFloat(d.dd).toFixed(1) : '—' }}</div>
                   <div class="dr-judges">
-                    <span v-for="(j, si) in annotatedScores(d.judge_scores, currentEvent?.number_of_judges)" :key="si"
-                          :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                          :title="j.dropped ? 'Dropped by trim rule' : ''">
-                      {{ j.value.toFixed(1) }}
-                    </span>
+                    <template v-if="currentEvent?.event_type === 'synchro_pair'">
+                      <div v-for="g in (groupedSynchroScoresForDisplay(d.judge_scores, currentEvent.number_of_judges) || [])"
+                           :key="g.role"
+                           :class="['judge-group', `judge-group-${g.role}`]">
+                        <span class="judge-group-label">{{ g.label }}</span>
+                        <span v-for="(j, si) in g.scores" :key="si"
+                              :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                              :title="j.dropped ? 'Dropped by trim rule' : ''">
+                          {{ j.value.toFixed(1) }}
+                        </span>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <span v-for="(j, si) in annotatedScores(d.judge_scores, currentEvent?.number_of_judges)" :key="si"
+                            :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                            :title="j.dropped ? 'Dropped by trim rule' : ''">
+                        {{ j.value.toFixed(1) }}
+                      </span>
+                    </template>
                   </div>
                   <div class="dr-total">{{ parseFloat(d.total_dive_score).toFixed(1) }}</div>
                 </div>

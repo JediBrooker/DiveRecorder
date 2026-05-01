@@ -445,3 +445,34 @@ h1, h2, h3, h4 {
   text-decoration: line-through;
   text-decoration-color: rgba(255,255,255,0.35);
 }
+
+/* =========================================================
+   Synchro judge-group blocks
+   Shown only on synchro_pair events to surface the WA grouping
+   (Exec A / Exec B / Sync). Each group renders as a small
+   labelled cluster of chips; the .judge-group itself wraps as
+   a unit so the whole block stays readable on narrow rows.
+   ========================================================= */
+.judge-groups {
+  display: flex; flex-wrap: wrap; gap: 0.5rem;
+  align-items: flex-start;
+  min-width: 0;
+}
+.judge-group {
+  display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0.25rem;
+  padding: 0.25rem 0.45rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-2);
+}
+.judge-group-label {
+  font-family: var(--font-display); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  margin-right: 0.3rem;
+  white-space: nowrap;
+}
+.judge-group.judge-group-a    .judge-group-label { color: #c4b5fd; }
+.judge-group.judge-group-b    .judge-group-label { color: #fbbf24; }
+.judge-group.judge-group-sync .judge-group-label { color: #34d399; }
+.judge-group.judge-group-a    { border-color: rgba(139,92,246,0.35); }
+.judge-group.judge-group-b    { border-color: rgba(245,158,11,0.35); }
+.judge-group.judge-group-sync { border-color: rgba(16,185,129,0.35); }

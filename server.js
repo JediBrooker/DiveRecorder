@@ -2571,7 +2571,7 @@ app.get("/api/events/:id/results.pdf", async (req, res) => {
   try {
     const [ev, standings, dives] = await Promise.all([
       pool.query(
-        "SELECT e.name, e.gender, e.height, e.total_rounds, e.number_of_judges, o.name AS org_name FROM events e JOIN organisations o ON e.org_id = o.id WHERE e.id = $1",
+        "SELECT e.name, e.gender, e.height, e.total_rounds, e.number_of_judges, e.event_type, o.name AS org_name FROM events e JOIN organisations o ON e.org_id = o.id WHERE e.id = $1",
         [req.params.id],
       ),
       pool.query(
@@ -2687,6 +2687,24 @@ app.get("/api/events/:id/results.pdf", async (req, res) => {
       byDiver.get(row.full_name).rows.push(row);
     });
 
+    // For synchro events, regroup judge scores into A / B / Sync
+    // blocks so the PDF reflects the same grouping the web UI does.
+    const isSynchro = event.event_type === "synchro_pair";
+    const numJudges = event.number_of_judges;
+    const formatSynchroScores = (scoresStr) => {
+      const parts = (scoresStr || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (numJudges === 9 && parts.length === 9) {
+        return `A: ${parts.slice(0, 2).join(",")}  B: ${parts.slice(2, 4).join(",")}  Sync: ${parts.slice(4, 9).join(",")}`;
+      }
+      if (numJudges === 11 && parts.length === 11) {
+        return `A: ${parts.slice(0, 3).join(",")}  B: ${parts.slice(3, 6).join(",")}  Sync: ${parts.slice(6, 11).join(",")}`;
+      }
+      return scoresStr;
+    };
+
     for (const [diver, group] of byDiver) {
       if (doc.y > 680) doc.addPage();
       doc.fontSize(11).font("Helvetica-Bold").fillColor("#000").text(diver);
@@ -2697,7 +2715,9 @@ app.get("/api/events/:id/results.pdf", async (req, res) => {
       group.rows.forEach((r) => {
         const code = [r.dive_code, r.position].filter(Boolean).join(" ");
         const dd = r.dd ? `DD ${Number(r.dd).toFixed(1)}` : "";
-        const scores = r.judge_scores || "";
+        const scores = isSynchro
+          ? formatSynchroScores(r.judge_scores)
+          : (r.judge_scores || "");
         const total = Number(r.total_dive_score).toFixed(2);
         doc.fontSize(9).font("Helvetica")
           .text(`  R${r.round_number}  ${code}  ${dd}    Judges: ${scores}    Total: ${total}`);
