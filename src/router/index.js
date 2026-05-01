@@ -69,6 +69,11 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['org_admin', 'meet_manager'] },
   },
   {
+    path: '/teams/:teamId/events/:eventId/dive-list',
+    component: () => import('@/views/TeamDiveListView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['org_admin', 'meet_manager'] },
+  },
+  {
     path: '/assign-judges',
     component: () => import('@/views/AssignJudgesView.vue'),
     meta: { requiresAuth: true, requiresRole: ['org_admin', 'meet_manager'] },

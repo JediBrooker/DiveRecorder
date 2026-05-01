@@ -430,6 +430,231 @@ app.post(
   },
 );
 
+app.put(
+  "/api/teams/:id",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    const { name, short_code } = req.body;
+    if (!name || !name.trim())
+      return res.status(400).json({ error: "Team name is required" });
+    try {
+      const target = await pool.query(
+        "SELECT org_id FROM teams WHERE id = $1",
+        [req.params.id],
+      );
+      if (!target.rows.length)
+        return res.status(404).json({ error: "Team not found" });
+      if (
+        !req.user.is_system_admin &&
+        target.rows[0].org_id !== req.user.org_id
+      ) {
+        return res
+          .status(403)
+          .json({ error: "Cannot edit teams in other organisations" });
+      }
+      const r = await pool.query(
+        `UPDATE teams SET name = $1, short_code = $2 WHERE id = $3
+         RETURNING id, name, short_code`,
+        [name.trim(), short_code?.trim() || null, req.params.id],
+      );
+      res.json(r.rows[0]);
+    } catch (err) {
+      console.error("[Update Team Error]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+app.delete(
+  "/api/teams/:id",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    try {
+      const target = await pool.query(
+        "SELECT org_id FROM teams WHERE id = $1",
+        [req.params.id],
+      );
+      if (!target.rows.length)
+        return res.status(404).json({ error: "Team not found" });
+      if (
+        !req.user.is_system_admin &&
+        target.rows[0].org_id !== req.user.org_id
+      ) {
+        return res
+          .status(403)
+          .json({ error: "Cannot delete teams in other organisations" });
+      }
+      // Impact summary before deletion so the client can show
+      // what it just severed.
+      const impact = await pool.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM team_members WHERE team_id = $1) AS members,
+           (SELECT COUNT(*)::int FROM event_teams  WHERE team_id = $1) AS events,
+           (SELECT COUNT(*)::int FROM competitor_dive_lists WHERE team_id = $1) AS dives`,
+        [req.params.id],
+      );
+      await pool.query("DELETE FROM teams WHERE id = $1", [req.params.id]);
+      res.json({
+        message: "Team deleted",
+        ...impact.rows[0],
+      });
+    } catch (err) {
+      console.error("[Delete Team Error]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+// Events the team is currently entered in — drives the "Edit
+// dive list" links inside the TeamsView drawer.
+app.get(
+  "/api/teams/:id/events",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    try {
+      const r = await pool.query(
+        `SELECT e.id, e.name, e.gender, e.height, e.event_type::text AS event_type,
+                e.total_rounds, e.number_of_judges, e.status,
+                et.added_at
+         FROM event_teams et
+         JOIN events e ON e.id = et.event_id
+         WHERE et.team_id = $1
+         ORDER BY e.created_at DESC`,
+        [req.params.id],
+      );
+      res.json(r.rows);
+    } catch (err) {
+      res.status(500).json([]);
+    }
+  },
+);
+
+// Bulk-set a team's dive list for one event. Each row can be
+// individual (no partner_id) or synchro (partner_id pointing at
+// another team member). Replaces any existing rows for that
+// (team, event) pair.
+app.post(
+  "/api/teams/:teamId/dive-lists",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    const { event_id, dives } = req.body;
+    if (!event_id || !Array.isArray(dives) || !dives.length) {
+      return res.status(400).json({ error: "event_id and dives[] required" });
+    }
+    const client = await pool.connect();
+    try {
+      const target = await client.query(
+        "SELECT org_id FROM teams WHERE id = $1",
+        [req.params.teamId],
+      );
+      if (!target.rows.length)
+        return res.status(404).json({ error: "Team not found" });
+      if (
+        !req.user.is_system_admin &&
+        target.rows[0].org_id !== req.user.org_id
+      ) {
+        return res
+          .status(403)
+          .json({ error: "Cannot manage teams in other organisations" });
+      }
+
+      // All competitor_id and partner_id values must belong to
+      // this team. Pull the membership once.
+      const m = await client.query(
+        "SELECT user_id FROM team_members WHERE team_id = $1",
+        [req.params.teamId],
+      );
+      const memberIds = new Set(m.rows.map((row) => row.user_id));
+      for (const d of dives) {
+        if (!d.competitor_id || !memberIds.has(d.competitor_id)) {
+          return res
+            .status(400)
+            .json({ error: "Every dive must be assigned to a team member" });
+        }
+        if (d.partner_id && !memberIds.has(d.partner_id)) {
+          return res
+            .status(400)
+            .json({ error: "Synchro partners must also be team members" });
+        }
+        if (d.partner_id && d.partner_id === d.competitor_id) {
+          return res
+            .status(400)
+            .json({ error: "A diver can't pair with themselves" });
+        }
+        if (!d.dive_id || !d.round_number) {
+          return res
+            .status(400)
+            .json({ error: "Each dive needs a dive_id and round_number" });
+        }
+      }
+
+      await client.query("BEGIN");
+      // Replace existing rows for this (team, event)
+      await client.query(
+        `DELETE FROM competitor_dive_lists
+         WHERE team_id = $1 AND event_id = $2`,
+        [req.params.teamId, event_id],
+      );
+      for (const d of dives) {
+        await client.query(
+          `INSERT INTO competitor_dive_lists
+             (event_id, competitor_id, partner_id, team_id, dive_id, round_number)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [
+            event_id,
+            d.competitor_id,
+            d.partner_id || null,
+            req.params.teamId,
+            d.dive_id,
+            d.round_number,
+          ],
+        );
+      }
+      // Make sure the team is enrolled in the event
+      await client.query(
+        `INSERT INTO event_teams (event_id, team_id) VALUES ($1, $2)
+         ON CONFLICT DO NOTHING`,
+        [event_id, req.params.teamId],
+      );
+      await client.query("COMMIT");
+      res.json({ message: "Team dive list saved", count: dives.length });
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error("[Team Dive List Error]", err.message);
+      res.status(500).json({ error: err.detail || err.message });
+    } finally {
+      client.release();
+    }
+  },
+);
+
+// Read the current team dive list for one event so the editor
+// can pre-populate.
+app.get(
+  "/api/teams/:teamId/events/:eventId/dive-list",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    try {
+      const r = await pool.query(
+        `SELECT cdl.round_number, cdl.competitor_id, cdl.partner_id, cdl.dive_id,
+                u.full_name AS competitor_name,
+                pu.full_name AS partner_name,
+                d.dive_code, d.position, d.height, d.dd, d.description
+         FROM competitor_dive_lists cdl
+         JOIN users u ON u.id = cdl.competitor_id
+         LEFT JOIN users pu ON pu.id = cdl.partner_id
+         LEFT JOIN dive_directory d ON d.id = cdl.dive_id
+         WHERE cdl.team_id = $1 AND cdl.event_id = $2
+         ORDER BY cdl.round_number ASC`,
+        [req.params.teamId, req.params.eventId],
+      );
+      res.json(r.rows);
+    } catch (err) {
+      res.status(500).json([]);
+    }
+  },
+);
+
 app.get(
   "/api/teams/:id/members",
   requireOrgRole(["org_admin", "meet_manager"]),

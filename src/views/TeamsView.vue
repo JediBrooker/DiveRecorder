@@ -30,6 +30,7 @@ const editBusy = ref(false)
 // Member drawer
 const drawerTeam = ref(null)         // team object
 const drawerMembers = ref([])
+const drawerEvents = ref([])         // events the team is in
 const drawerBusy = ref(false)
 const memberToAdd = ref('')
 
@@ -151,32 +152,56 @@ async function submitEdit() {
   if (!editing.value || !editing.value.name.trim()) return
   editBusy.value = true
   try {
-    // No PUT endpoint yet for teams — display-only; fall back to
-    // create+migrate if we ever need rename. For now alert.
-    alert('Team rename via UI is not yet implemented — coming soon.')
+    await auth.apiFetch(`/api/teams/${editing.value.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        name: editing.value.name.trim(),
+        short_code: editing.value.short_code.trim() || null,
+      }),
+    })
     editing.value = null
+    await loadTeams()
+  } catch (err) {
+    alert(err.message)
   } finally {
     editBusy.value = false
   }
 }
 
 async function deleteTeam(team) {
-  alert('Team delete via UI is not yet implemented — coming soon.')
+  const summary = team.member_count
+    ? `Delete team "${team.name}"? ${team.member_count} member${team.member_count === 1 ? ' is' : 's are'} currently in this team — they will be unassigned (their accounts stay). Any historical dive list rows lose their team attribution but the dive results are preserved.`
+    : `Delete team "${team.name}"? Any historical dive list rows lose their team attribution but the dive results are preserved.`
+  if (!confirm(summary)) return
+  try {
+    const res = await auth.apiFetch(`/api/teams/${team.id}`, { method: 'DELETE' })
+    await loadTeams()
+    if (res.dives) {
+      // Light follow-up so the admin sees what happened
+      console.info(`[Teams] Deleted ${team.name} — ${res.members} members detached, ${res.dives} historical dives unbound, ${res.events} event entries removed.`)
+    }
+  } catch (err) {
+    alert(err.message)
+  }
 }
 
 async function openMembers(team) {
   drawerTeam.value = team
   drawerMembers.value = []
+  drawerEvents.value = []
   drawerBusy.value = true
   memberToAdd.value = ''
   try {
-    const [members] = await Promise.all([
+    const [members, events] = await Promise.all([
       auth.apiFetch(`/api/teams/${team.id}/members`),
+      auth.apiFetch(`/api/teams/${team.id}/events`),
       loadOrgDivers(team.org_id),
     ])
     drawerMembers.value = members
+    drawerEvents.value = events
   } catch (err) {
     drawerMembers.value = []
+    drawerEvents.value = []
   } finally {
     drawerBusy.value = false
   }
@@ -185,7 +210,14 @@ async function openMembers(team) {
 function closeMembers() {
   drawerTeam.value = null
   drawerMembers.value = []
+  drawerEvents.value = []
   orgDivers.value = []
+}
+
+function fmtEventStatus(s) {
+  if (s === 'Completed') return 'completed'
+  if (s === 'Live')      return 'live'
+  return 'upcoming'
 }
 
 const addableDivers = computed(() => {
@@ -344,22 +376,47 @@ watch(() => drawerTeam.value, (val) => {
               {{ teams.length ? 'No teams match the current filter.' : 'No teams yet — create your first one above.' }}
             </td>
           </tr>
-          <tr v-for="t in filteredTeams" :key="t.id" class="team-row">
-            <td><span class="team-name">{{ t.name }}</span></td>
-            <td>
-              <span v-if="t.short_code" class="team-code">{{ t.short_code }}</span>
-              <span v-else class="dim">—</span>
-            </td>
-            <td v-if="isSysAdmin" class="dim">{{ t.org_name || '—' }}</td>
-            <td class="num-col">
-              <span v-if="t.member_count" class="member-count">{{ t.member_count }}</span>
-              <span v-else class="empty-pill">empty</span>
-            </td>
-            <td class="dim">{{ fmtDate(t.created_at) }}</td>
-            <td class="actions-col">
-              <button class="btn btn-ghost btn-sm" @click="openMembers(t)">Members</button>
-            </td>
-          </tr>
+          <template v-for="t in filteredTeams" :key="t.id">
+            <tr v-if="editing?.id !== t.id" class="team-row">
+              <td><span class="team-name">{{ t.name }}</span></td>
+              <td>
+                <span v-if="t.short_code" class="team-code">{{ t.short_code }}</span>
+                <span v-else class="dim">—</span>
+              </td>
+              <td v-if="isSysAdmin" class="dim">{{ t.org_name || '—' }}</td>
+              <td class="num-col">
+                <span v-if="t.member_count" class="member-count">{{ t.member_count }}</span>
+                <span v-else class="empty-pill">empty</span>
+              </td>
+              <td class="dim">{{ fmtDate(t.created_at) }}</td>
+              <td class="actions-col">
+                <button class="btn btn-ghost btn-sm" @click="openMembers(t)">Members</button>
+                <button class="btn btn-ghost btn-sm" @click="openEdit(t)">Rename</button>
+                <button class="btn btn-danger btn-sm" @click="deleteTeam(t)">Delete</button>
+              </td>
+            </tr>
+            <tr v-else class="team-row team-row-editing">
+              <td>
+                <input class="input input-sm" type="text" v-model="editing.name"
+                       placeholder="Team name" autofocus>
+              </td>
+              <td>
+                <input class="input input-sm" type="text" v-model="editing.short_code"
+                       placeholder="Code" maxlength="20" style="max-width:90px">
+              </td>
+              <td v-if="isSysAdmin" class="dim">{{ t.org_name || '—' }}</td>
+              <td class="num-col dim">{{ t.member_count }}</td>
+              <td class="dim">{{ fmtDate(t.created_at) }}</td>
+              <td class="actions-col">
+                <button class="btn btn-ghost btn-sm" @click="cancelEdit">Cancel</button>
+                <button class="btn btn-primary btn-sm"
+                        :disabled="editBusy || !editing.name.trim()"
+                        @click="submitEdit">
+                  {{ editBusy ? 'Saving…' : 'Save' }}
+                </button>
+              </td>
+            </tr>
+          </template>
         </tbody>
       </table>
     </div>
@@ -383,7 +440,25 @@ watch(() => drawerTeam.value, (val) => {
       </div>
 
       <div class="drawer-body">
-        <div class="drawer-section-label">Members ({{ drawerMembers.length }})</div>
+        <!-- Events the team is in — links to per-event dive list editor -->
+        <div class="drawer-section-label">Events ({{ drawerEvents.length }})</div>
+        <ul v-if="drawerEvents.length" class="event-list">
+          <li v-for="e in drawerEvents" :key="e.id" class="event-list-row">
+            <div class="event-list-name">
+              {{ e.name }}
+              <span :class="['event-list-status', `status-${fmtEventStatus(e.status)}`]">{{ e.status }}</span>
+            </div>
+            <RouterLink :to="`/teams/${drawerTeam.id}/events/${e.id}/dive-list`"
+                        class="btn btn-ghost btn-sm">
+              Edit dive list
+            </RouterLink>
+          </li>
+        </ul>
+        <div v-else class="audit-empty">
+          This team isn't entered in any event yet.
+        </div>
+
+        <div class="drawer-section-label" style="margin-top:1.25rem">Members ({{ drawerMembers.length }})</div>
 
         <div v-if="drawerBusy && !drawerMembers.length" class="audit-empty">Loading…</div>
         <ul v-else-if="drawerMembers.length" class="member-list">
@@ -464,7 +539,27 @@ watch(() => drawerTeam.value, (val) => {
 }
 .dim { color: var(--text-3); }
 .num-col { text-align: right; width: 110px; }
-.actions-col { text-align: right; width: 160px; white-space: nowrap; }
+.actions-col { text-align: right; width: 280px; white-space: nowrap; }
+.actions-col .btn + .btn { margin-left: 0.4rem; }
+.team-row-editing { background: var(--cyan-dim); }
+.input-sm { padding: 0.3rem 0.5rem; font-size: 13px; }
+
+.event-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.event-list-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.event-list-name { font-family: var(--font-display); font-size: 13px; font-weight: 700; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.event-list-status {
+  font-family: var(--font-display); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.15em; text-transform: uppercase;
+  margin-left: 0.4rem; padding: 0.1rem 0.4rem; border-radius: 3px;
+  border: 1px solid var(--border); color: var(--text-3); background: var(--bg-2);
+}
+.event-list-status.status-live { color: var(--green); border-color: rgba(16,185,129,0.4); background: rgba(16,185,129,0.08); }
+.event-list-status.status-completed { color: var(--text-3); }
+.event-list-status.status-upcoming { color: var(--amber); border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.08); }
 
 .member-count { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--text); }
 .empty-pill { font-family: var(--font-mono); font-size: 10px; font-weight: 700; color: var(--text-3); font-style: italic; }

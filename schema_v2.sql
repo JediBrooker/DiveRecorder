@@ -255,7 +255,7 @@ CREATE TABLE public.competitor_dive_lists (
     event_id      uuid REFERENCES public.events(id) ON DELETE CASCADE,
     competitor_id uuid REFERENCES public.users(id) ON DELETE CASCADE,
     partner_id    uuid REFERENCES public.users(id) ON DELETE CASCADE,
-    team_id       uuid REFERENCES public.teams(id) ON DELETE CASCADE,
+    team_id       uuid REFERENCES public.teams(id) ON DELETE SET NULL,
     dive_id       uuid REFERENCES public.dive_directory(id) ON DELETE RESTRICT,
     round_number  integer NOT NULL,
     UNIQUE (event_id, competitor_id, round_number),
