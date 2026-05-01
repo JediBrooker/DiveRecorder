@@ -1451,5 +1451,52 @@ onMounted(async () => {
   .diver-name  { font-size: 14px; }
   .diver-total { font-size: 12px; }
   .diver-rank-badge { width: 24px; height: 24px; font-size: 11px; }
+
+  /* Recap dive table — same root cause as the Archive view's
+     vertical-stacking: the desktop 5-column grid (round / code /
+     DD / judges / total) gives judges only ~75px on a phone, so
+     synchro groups (and even flat j-score chips) fall into a
+     vertical column.
+
+     Restructure into a 4-column, 2-row grid: the meta line keeps
+     round/code/DD/total on row 1, judges drop onto row 2 with the
+     full row width to lay out horizontally. */
+  .dive-row {
+    grid-template-columns: 28px minmax(0, 1fr) 36px 50px;
+    grid-template-rows: auto auto;
+    gap: 0.3rem 0.5rem;
+    padding: 0.55rem 0.25rem;
+    align-items: baseline;
+  }
+  .dr-round  { grid-column: 1; grid-row: 1; }
+  .dr-code   { grid-column: 2; grid-row: 1; min-width: 0; overflow: hidden; }
+  .dr-dd     { grid-column: 3; grid-row: 1; }
+  .dr-total  { grid-column: 4; grid-row: 1; }
+  .dr-judges {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    /* Indent under the dive code so the chip strip lines up
+       visually with what scored, not with the round number. */
+    padding-left: 32px;
+    gap: 0.3rem;
+  }
+  /* Hide the column-header row entirely — its labels (especially
+     "Judge Scores") don't map onto a 2-row layout, and the
+     colour-coded chips below speak for themselves. */
+  .dive-head-row { display: none; }
+
+  /* Dive description ("Forward Dive Pike") was inline next to
+     the code on desktop; let it sit under the code on a phone
+     so a long description doesn't push DD off-row. */
+  .dr-code-desc {
+    display: block;
+    margin-left: 0;
+    margin-top: 0.15rem;
+  }
+  .dr-team-member { display: block; margin-right: 0; margin-bottom: 0.1rem; }
+
+  /* Synchro group blocks within dr-judges: pad tighter so two
+     fit per row instead of one. */
+  .dr-judges .judge-group { padding: 0.2rem 0.35rem; gap: 0.2rem; }
 }
 </style>
