@@ -799,6 +799,25 @@ app.post(
   },
 );
 
+// Remove a team from an event. Doesn't touch competitor_dive_lists
+// — the FK is ON DELETE SET NULL so historical dives stay; the
+// team just isn't an active enrolment any more.
+app.delete(
+  "/api/events/:id/teams/:teamId",
+  requireEventManager(),
+  async (req, res) => {
+    try {
+      await pool.query(
+        "DELETE FROM event_teams WHERE event_id = $1 AND team_id = $2",
+        [req.params.id, req.params.teamId],
+      );
+      res.json({ message: "Team removed from event" });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
 // Divers in an organisation. Authenticated and scoped to the
 // caller's own org (system admins see any). Used by the
 // CompetitorView's synchro partner picker.

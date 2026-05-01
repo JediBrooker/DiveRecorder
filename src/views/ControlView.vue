@@ -127,6 +127,10 @@ function setActive(idx) {
     code: `${currentActive.value.dive_code}${currentActive.value.position}`,
     dd: `DD ${currentActive.value.dd}`,
     desc: currentActive.value.description || '—',
+    team_name: currentActive.value.team_name || null,
+    partner_name: currentActive.value.partner_name || null,
+    partner_country: currentActive.value.partner_country || null,
+    round_number: currentActive.value.round_number,
   }
   socket.emit('set_active_diver', {
     ...currentActive.value,
@@ -336,8 +340,20 @@ onMounted(async () => {
       <!-- Centre: Active diver -->
       <div style="display:flex;flex-direction:column;overflow:hidden">
         <div class="active-zone" style="flex:1;overflow-y:auto">
-          <div class="active-label">Currently on Board</div>
-          <div class="active-name">{{ activeInfo.name }}<span v-if="activeInfo.country" class="active-country">{{ activeInfo.country }}</span></div>
+          <div class="active-label">
+            Currently on Board<span v-if="activeInfo.round_number" class="active-round">— Round {{ activeInfo.round_number }}</span>
+          </div>
+          <div class="active-name">
+            <template v-if="activeInfo.partner_name">
+              {{ activeInfo.name }}<span v-if="activeInfo.country" class="active-country">{{ activeInfo.country }}</span>
+              <span class="active-amp">&amp;</span>
+              {{ activeInfo.partner_name }}<span v-if="activeInfo.partner_country" class="active-country">{{ activeInfo.partner_country }}</span>
+            </template>
+            <template v-else>
+              {{ activeInfo.name }}<span v-if="activeInfo.country" class="active-country">{{ activeInfo.country }}</span>
+            </template>
+          </div>
+          <div v-if="activeInfo.team_name" class="active-team">{{ activeInfo.team_name }}</div>
           <div class="active-badges">
             <div class="active-code">{{ activeInfo.code }}</div>
             <div class="active-dd">{{ activeInfo.dd }}</div>
@@ -382,18 +398,30 @@ onMounted(async () => {
           <span class="roster-count">{{ roster.length ? currentIndex + 1 : 0 }}/{{ roster.length }}</span>
         </div>
         <div class="panel-body">
-          <div
-            v-for="(item, idx) in roster"
-            :key="idx"
-            :class="['roster-item', idx === currentIndex ? 'active' : '']"
-            @click="setActive(idx)"
-          >
-            <div class="roster-name">{{ item.full_name }}<span v-if="item.country_code" class="roster-country">{{ item.country_code }}</span></div>
-            <div class="roster-meta">
-              <span>{{ item.dive_code }}{{ item.position }}</span>
-              <span>DD {{ item.dd }}</span>
+          <template v-for="(item, idx) in roster" :key="idx">
+            <!-- Round divider when round_number changes -->
+            <div v-if="idx === 0 || roster[idx - 1].round_number !== item.round_number"
+                 class="round-divider">
+              Round {{ item.round_number }}
             </div>
-          </div>
+            <div
+              :class="['roster-item', idx === currentIndex ? 'active' : '']"
+              @click="setActive(idx)"
+            >
+              <div class="roster-name">
+                {{ item.full_name }}<span v-if="item.country_code" class="roster-country">{{ item.country_code }}</span>
+                <template v-if="item.partner_name">
+                  <span class="roster-amp">&amp;</span>
+                  {{ item.partner_name }}
+                </template>
+              </div>
+              <div v-if="item.team_name" class="roster-team">{{ item.team_name }}</div>
+              <div class="roster-meta">
+                <span>{{ item.dive_code }}{{ item.position }}</span>
+                <span>DD {{ item.dd }}</span>
+              </div>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -502,6 +530,27 @@ onMounted(async () => {
 .roster-name { font-family: var(--font-display); font-size: 14px; font-weight: 700; color: var(--text); }
 .roster-item.active .roster-name { color: var(--cyan); }
 .roster-meta { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-3); margin-top: 0.2rem; font-family: var(--font-mono); }
+.roster-team {
+  font-family: var(--font-mono); font-size: 10px; color: #c4b5fd;
+  margin-top: 0.2rem; font-weight: 700; letter-spacing: 0.05em;
+}
+.roster-amp { color: var(--cyan); margin: 0 0.35em; font-weight: 400; }
+.round-divider {
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.3em; text-transform: uppercase; color: var(--cyan);
+  margin: 0.75rem 0 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid var(--border);
+}
+.round-divider:first-child { margin-top: 0; }
+
+.active-round { color: var(--text-3); margin-left: 0.5rem; letter-spacing: 0.15em; }
+.active-amp { color: var(--cyan); margin: 0 0.4em; font-weight: 400; }
+.active-team {
+  display: inline-block; margin-bottom: 1rem;
+  font-family: var(--font-display); font-size: 13px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase; color: #c4b5fd;
+  background: rgba(139,92,246,0.10); border: 1px solid rgba(139,92,246,0.45);
+  border-radius: 4px; padding: 0.3rem 0.7rem;
+}
 
 .country-badge { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); background: var(--bg-3); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; margin-left: 0.5rem; vertical-align: middle; }
 .hist-country { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; margin-left: 0.5rem; vertical-align: middle; }

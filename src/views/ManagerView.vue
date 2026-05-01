@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -26,6 +26,14 @@ const editHeight = ref('')
 const editJudges = ref(5)
 const editRounds = ref(6)
 const editType = ref('individual')
+
+// Team enrolment modal — open when "Teams" clicked on a team-event row
+const teamsModalOpen = ref(false)
+const teamsModalEvent = ref(null)
+const teamsInEvent = ref([])
+const orgTeams = ref([])
+const teamToAdd = ref('')
+const teamsBusy = ref(false)
 
 const HEIGHT_LABELS = {
   '1m': '1m Springboard',
@@ -133,6 +141,72 @@ async function deleteEvent(id) {
   }
 }
 
+// ---- Team enrolment ----------------------------------------
+
+async function openTeamsModal(ev) {
+  teamsModalEvent.value = ev
+  teamsModalOpen.value = true
+  teamToAdd.value = ''
+  teamsBusy.value = true
+  try {
+    const [entered, available] = await Promise.all([
+      auth.apiFetch(`/api/events/${ev.id}/teams`),
+      auth.apiFetch(`/api/orgs/${ev.org_id || auth.user?.org_id}/teams`),
+    ])
+    teamsInEvent.value = entered
+    orgTeams.value = available
+  } catch (err) {
+    teamsInEvent.value = []
+    orgTeams.value = []
+  } finally {
+    teamsBusy.value = false
+  }
+}
+
+function closeTeamsModal() {
+  teamsModalOpen.value = false
+  teamsModalEvent.value = null
+  teamsInEvent.value = []
+  orgTeams.value = []
+}
+
+const addableTeams = computed(() => {
+  const have = new Set(teamsInEvent.value.map(t => t.id))
+  return orgTeams.value.filter(t => !have.has(t.id))
+})
+
+async function addTeamToEvent() {
+  if (!teamToAdd.value || !teamsModalEvent.value) return
+  teamsBusy.value = true
+  try {
+    await auth.apiFetch(`/api/events/${teamsModalEvent.value.id}/teams`, {
+      method: 'POST',
+      body: JSON.stringify({ team_id: teamToAdd.value }),
+    })
+    teamsInEvent.value = await auth.apiFetch(`/api/events/${teamsModalEvent.value.id}/teams`)
+    teamToAdd.value = ''
+  } catch (err) {
+    alert(err.message)
+  } finally {
+    teamsBusy.value = false
+  }
+}
+
+async function removeTeamFromEvent(team) {
+  if (!confirm(`Remove "${team.name}" from this event? Their dive list (if any) will lose its team attribution but the dive results stay intact.`)) return
+  teamsBusy.value = true
+  try {
+    await auth.apiFetch(`/api/events/${teamsModalEvent.value.id}/teams/${team.id}`, {
+      method: 'DELETE',
+    })
+    teamsInEvent.value = teamsInEvent.value.filter(t => t.id !== team.id)
+  } catch (err) {
+    alert(err.message)
+  } finally {
+    teamsBusy.value = false
+  }
+}
+
 onMounted(loadEvents)
 </script>
 
@@ -224,6 +298,9 @@ onMounted(loadEvents)
             </div>
           </div>
           <div class="actions">
+            <button v-if="ev.event_type === 'team'"
+                    class="btn btn-ghost btn-sm"
+                    @click="openTeamsModal(ev)">Teams</button>
             <RouterLink :to="`/events/${ev.id}/audit`" class="btn btn-ghost btn-sm">Audit Log</RouterLink>
             <button class="btn btn-ghost btn-sm" @click="openEdit(ev)">Edit</button>
             <button class="btn btn-danger btn-sm" @click="deleteEvent(ev.id)">Delete</button>
@@ -293,6 +370,46 @@ onMounted(loadEvents)
       </form>
     </div>
   </div>
+
+  <!-- Team enrolment modal -->
+  <div v-if="teamsModalOpen" class="modal-backdrop" @click="closeTeamsModal"></div>
+  <div v-if="teamsModalOpen" class="modal teams-modal" @click.stop>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
+      <h2 style="font-size:20px;font-style:italic">
+        Teams in <span style="color:var(--cyan)">{{ teamsModalEvent?.name }}</span>
+      </h2>
+      <button class="btn btn-ghost btn-sm" @click="closeTeamsModal">Close ✕</button>
+    </div>
+
+    <div class="teams-section-label">Currently enrolled ({{ teamsInEvent.length }})</div>
+    <ul v-if="teamsInEvent.length" class="enrolled-list">
+      <li v-for="t in teamsInEvent" :key="t.id" class="enrolled-row">
+        <span class="enrolled-name">
+          {{ t.name }}<span v-if="t.short_code" class="enrolled-code">{{ t.short_code }}</span>
+        </span>
+        <button class="btn btn-danger btn-sm" :disabled="teamsBusy"
+                @click="removeTeamFromEvent(t)">Remove</button>
+      </li>
+    </ul>
+    <div v-else class="enrolled-empty">No teams enrolled yet.</div>
+
+    <div class="teams-section-label" style="margin-top:1.25rem">Add a team</div>
+    <div class="add-team-row">
+      <select class="select" v-model="teamToAdd">
+        <option value="">— Select a team —</option>
+        <option v-for="t in addableTeams" :key="t.id" :value="t.id">
+          {{ t.name }}{{ t.short_code ? ' (' + t.short_code + ')' : '' }}{{ t.member_count != null ? ' · ' + t.member_count + ' members' : '' }}
+        </option>
+      </select>
+      <button class="btn btn-primary btn-sm"
+              :disabled="!teamToAdd || teamsBusy"
+              @click="addTeamToEvent">Add</button>
+    </div>
+    <p v-if="!addableTeams.length && !teamsBusy" class="hint-line">
+      No more teams available — every team in the org is already enrolled, or the org has no teams. Create teams from
+      <RouterLink to="/teams" style="color:var(--cyan)">/teams</RouterLink>.
+    </p>
+  </div>
 </template>
 
 <style scoped>
@@ -320,4 +437,28 @@ onMounted(loadEvents)
   padding: 0.6rem 0.75rem; margin-top: 0.4rem;
   background: var(--bg-3); border-left: 3px solid var(--cyan); border-radius: 3px;
 }
+.hint-line { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-top: 0.5rem; }
+
+.teams-modal { max-width: 560px; }
+.teams-section-label {
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.25em; text-transform: uppercase; color: var(--text-3);
+  margin-bottom: 0.6rem;
+}
+.enrolled-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.enrolled-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.enrolled-name { font-family: var(--font-display); font-size: 13px; font-weight: 700; color: var(--text); }
+.enrolled-code {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.05em; color: var(--cyan);
+  background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.3);
+  border-radius: 3px; padding: 0.1rem 0.4rem; margin-left: 0.5rem;
+}
+.enrolled-empty { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); padding: 0.4rem 0; font-style: italic; }
+.add-team-row { display: flex; gap: 0.5rem; align-items: center; }
+.add-team-row .select { flex: 1; }
 </style>
