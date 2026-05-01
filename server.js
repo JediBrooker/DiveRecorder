@@ -3476,11 +3476,27 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
                e.number_of_judges, e.event_type, e.created_at
     `;
 
+    // Wrap each rollup so one bad query doesn't take down the whole
+    // payload. Anything that throws is logged with its label and
+    // returns []; the response then renders empty for that widget
+    // and the rest of the dashboard still works. This used to be a
+    // straight Promise.all which meant a syntax issue in any one
+    // query produced a 500 with all 10 widgets stuck on "Loading…".
+    const runQuery = async (label, sql, params) => {
+      try {
+        const r = await pool.query(sql, params);
+        return r.rows;
+      } catch (err) {
+        console.error(`[Analytics ${label}]`, err.message);
+        return [];
+      }
+    };
+
     const queries = await Promise.all([
       // RECENT FORM — last 5 meets the diver competed in, with
       // their final placing in each. Computed by ranking every
       // competitor in each event, filtering to this diver.
-      pool.query(
+      runQuery("recent_form",
         `WITH per_dive AS (${PER_DIVE}),
          event_totals AS (
            SELECT event_id, competitor_id, SUM(dive_total) AS total
@@ -3506,7 +3522,7 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
       ),
 
       // PLACINGS — counts of medals + finalist + further-back results
-      pool.query(
+      runQuery("placings",
         `WITH per_dive AS (${PER_DIVE}),
          event_totals AS (
            SELECT event_id, competitor_id, SUM(dive_total) AS total
@@ -3529,7 +3545,7 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
       ),
 
       // HEIGHT BREAKDOWN — avg + best dive total per board height
-      pool.query(
+      runQuery("height_breakdown",
         `WITH per_dive AS (${PER_DIVE})
          SELECT height,
                 COUNT(*)::int                    AS dive_count,
@@ -3544,7 +3560,7 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
 
       // ROUND STAMINA — average dive total by round number.
       // Tells the diver whether they fade in later rounds.
-      pool.query(
+      runQuery("round_stamina",
         `WITH per_dive AS (${PER_DIVE})
          SELECT round_number,
                 COUNT(*)::int                  AS dive_count,
@@ -3560,7 +3576,7 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
       // bucketed into FINA categories. Mirrors the colour
       // categories used on the live scoreboard chips. Joined to
       // events so the date-range filter applies the same way.
-      pool.query(
+      runQuery("quality_mix",
         `SELECT
            COUNT(*) FILTER (WHERE s.score = 0)::int                       AS failed,
            COUNT(*) FILTER (WHERE s.score > 0   AND s.score <= 2.0)::int AS deficient,
@@ -3581,7 +3597,7 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
       // DD RISK PROFILE — average DD attempted, max DD, average
       // dive total at the highest-DD bucket. Helps a diver gauge
       // whether bigger-DD dives pay off vs. lower-DD safer ones.
-      pool.query(
+      runQuery("dd_risk",
         `WITH per_dive AS (${PER_DIVE})
          SELECT
            AVG(dd)::numeric(4,2)         AS avg_dd,
@@ -3598,7 +3614,7 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
 
       // FREQUENT DIVES — the diver's go-to dives, ordered by
       // attempt count. Ties broken by avg score (better first).
-      pool.query(
+      runQuery("frequent_dives",
         `WITH per_dive AS (${PER_DIVE})
          SELECT dive_code, position, height,
                 COUNT(*)::int                    AS attempts,
@@ -3615,7 +3631,7 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
       // STREAK — current run of consecutive top-3 / top-1 finishes
       // (looking back from the most recent meet). Returns the
       // medal kind + the run length.
-      pool.query(
+      runQuery("streak",
         `WITH per_dive AS (${PER_DIVE}),
          event_totals AS (
            SELECT event_id, competitor_id, SUM(dive_total) AS total
@@ -3633,14 +3649,17 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
         [id, fromDate, toDate],
       ),
 
-      // COMPARE TO PEERS — diver's avg DD + avg dive total vs. the
-      // rest of their organisation over the same date window.
-      // Excludes the diver themselves from the peer pool. Cost
-      // scales with org size; acceptable for analytics as it's
-      // not a hot path. Date filter applies to the org pool too.
-      pool.query(
-        `WITH org_dives AS (
-           SELECT (s.competitor_id = $1) AS is_me, d.dd,
+      // COMPARE TO PEERS — diver vs. org-wide stats over the same
+      // date window. Two simple sub-queries combined at the SELECT
+      // level: cleaner than a single aggregate with a boolean
+      // partition expression in GROUP BY (which we found to be
+      // brittle in some pg versions). Each sub-query reuses the
+      // existing PER_DIVE shape, just with a different competitor
+      // filter — `=` for "me", `<>` joined on org for "peers".
+      runQuery("compare_peers",
+        `WITH me_dives AS (${PER_DIVE}),
+         peer_dives AS (
+           SELECT s.event_id, s.competitor_id, s.round_number, d.dd,
                   calc_event_dive_points(
                     array_agg(ej.judge_number ORDER BY ej.judge_number),
                     array_agg(s.score ORDER BY ej.judge_number),
@@ -3657,88 +3676,133 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
             AND cdl.round_number = s.round_number
            LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
            WHERE u.org_id = $4
+             AND s.competitor_id <> $1
              AND ($2::date IS NULL OR e.created_at >= $2::date)
              AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')
-           GROUP BY (s.competitor_id = $1), s.event_id, s.competitor_id, s.round_number,
+           GROUP BY s.event_id, s.competitor_id, s.round_number,
                     d.dd, e.number_of_judges, e.event_type
          )
          SELECT
-           AVG(dd)         FILTER (WHERE is_me)::numeric(4,2)         AS my_avg_dd,
-           AVG(dd)         FILTER (WHERE NOT is_me)::numeric(4,2)     AS peer_avg_dd,
-           MAX(dd)         FILTER (WHERE is_me)::numeric(4,2)         AS my_max_dd,
-           MAX(dd)         FILTER (WHERE NOT is_me)::numeric(4,2)     AS peer_max_dd,
-           AVG(dive_total) FILTER (WHERE is_me)::numeric(6,2)         AS my_avg_score,
-           AVG(dive_total) FILTER (WHERE NOT is_me)::numeric(6,2)     AS peer_avg_score,
-           COUNT(*)        FILTER (WHERE is_me)::int                  AS my_dives,
-           COUNT(*)        FILTER (WHERE NOT is_me)::int              AS peer_dives
-         FROM org_dives`,
+           (SELECT AVG(dd)::numeric(4,2)         FROM me_dives)   AS my_avg_dd,
+           (SELECT AVG(dd)::numeric(4,2)         FROM peer_dives) AS peer_avg_dd,
+           (SELECT MAX(dd)::numeric(4,2)         FROM me_dives)   AS my_max_dd,
+           (SELECT MAX(dd)::numeric(4,2)         FROM peer_dives) AS peer_max_dd,
+           (SELECT AVG(dive_total)::numeric(6,2) FROM me_dives)   AS my_avg_score,
+           (SELECT AVG(dive_total)::numeric(6,2) FROM peer_dives) AS peer_avg_score,
+           (SELECT COUNT(*)::int                 FROM me_dives)   AS my_dives,
+           (SELECT COUNT(*)::int                 FROM peer_dives) AS peer_dives`,
         [id, fromDate, toDate, orgId],
       ),
 
       // EVENT TYPE SPLITS — meets, dives, avg + best dive total
-      // per event_type (individual / synchro_pair / team). Lets a
-      // diver see at a glance whether synchro pulls down their
-      // average or vice versa.
-      pool.query(
+      // per event_type (individual / synchro_pair / team). Computed
+      // in two stages so the meet-level averages aren't weighted by
+      // the number of dives in each meet. The dive-level numbers
+      // come from per_dive directly; the meet-level numbers come
+      // from event_totals where each meet contributes once.
+      runQuery("event_type_splits",
         `WITH per_dive AS (${PER_DIVE}),
          event_totals AS (
            SELECT event_id, competitor_id, event_type,
                   SUM(dive_total) AS total
-           FROM per_dive GROUP BY event_id, competitor_id, event_type
+           FROM per_dive
+           GROUP BY event_id, competitor_id, event_type
+         ),
+         dive_stats AS (
+           SELECT event_type,
+                  COUNT(*)::int                  AS dives,
+                  AVG(dive_total)::numeric(6,2)  AS avg_dive_score,
+                  MAX(dive_total)::numeric(6,2)  AS best_single_dive
+           FROM per_dive
+           GROUP BY event_type
+         ),
+         meet_stats AS (
+           SELECT event_type,
+                  COUNT(*)::int                  AS meets,
+                  AVG(total)::numeric(8,2)       AS avg_meet_total,
+                  MAX(total)::numeric(8,2)       AS best_meet_total
+           FROM event_totals
+           GROUP BY event_type
          )
-         SELECT pd.event_type,
-                COUNT(DISTINCT pd.event_id)::int           AS meets,
-                COUNT(*)::int                              AS dives,
-                AVG(pd.dive_total)::numeric(6,2)           AS avg_dive_score,
-                MAX(pd.dive_total)::numeric(6,2)           AS best_single_dive,
-                AVG(et.total)::numeric(8,2)                AS avg_meet_total,
-                MAX(et.total)::numeric(8,2)                AS best_meet_total
-         FROM per_dive pd
-         LEFT JOIN event_totals et
-           ON et.event_id = pd.event_id AND et.competitor_id = pd.competitor_id
-         WHERE pd.competitor_id = $1
-         GROUP BY pd.event_type
-         ORDER BY meets DESC`,
+         SELECT m.event_type,
+                m.meets, d.dives,
+                d.avg_dive_score, d.best_single_dive,
+                m.avg_meet_total, m.best_meet_total
+         FROM meet_stats m
+         LEFT JOIN dive_stats d USING (event_type)
+         ORDER BY m.meets DESC`,
         [id, fromDate, toDate],
       ),
 
       // YEAR-OVER-YEAR — per calendar year (of e.created_at) headline
-      // numbers + ranks, so the diver can see their own deltas
-      // year over year. We compute placings inside the same query
-      // so a single rollup answers "did I progress this year vs last".
-      pool.query(
-        `WITH per_dive AS (${PER_DIVE}),
+      // numbers, plus this diver's rank in each meet so we can count
+      // wins and podiums. The previous version partitioned RANK on
+      // a CTE that was already pre-filtered to the diver, so every
+      // rank came out 1; now we rank against ALL competitors in
+      // those events and then filter to the diver in `my_events`.
+      // GROUP BY uses the full EXTRACT expression rather than the
+      // alias `year` to dodge any keyword-resolution oddities.
+      runQuery("year_over_year",
+        `WITH diver_events AS (
+           SELECT DISTINCT s.event_id
+           FROM scores s
+           JOIN events e ON e.id = s.event_id
+           WHERE s.competitor_id = $1
+             AND ($2::date IS NULL OR e.created_at >= $2::date)
+             AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')
+         ),
+         all_per_dive AS (
+           SELECT s.event_id, s.competitor_id, s.round_number,
+                  calc_event_dive_points(
+                    array_agg(ej.judge_number ORDER BY ej.judge_number),
+                    array_agg(s.score ORDER BY ej.judge_number),
+                    e.number_of_judges, MAX(d.dd), e.event_type,
+                    BOOL_OR(cdl.partner_id IS NOT NULL)
+                  ) AS dive_points
+           FROM scores s
+           JOIN events e ON e.id = s.event_id
+           LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+           LEFT JOIN competitor_dive_lists cdl
+             ON cdl.event_id = s.event_id
+            AND cdl.competitor_id = s.competitor_id
+            AND cdl.round_number = s.round_number
+           LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+           WHERE s.event_id IN (SELECT event_id FROM diver_events)
+           GROUP BY s.event_id, s.competitor_id, s.round_number,
+                    e.number_of_judges, e.event_type
+         ),
          event_totals AS (
-           SELECT event_id, competitor_id, SUM(dive_total) AS total
-           FROM per_dive GROUP BY event_id, competitor_id
+           SELECT event_id, competitor_id, SUM(dive_points) AS total
+           FROM all_per_dive
+           GROUP BY event_id, competitor_id
          ),
          ranked AS (
-           SELECT et.event_id, et.competitor_id, et.total,
-                  RANK() OVER (PARTITION BY et.event_id ORDER BY et.total DESC) AS rank
+           SELECT et.*, RANK() OVER (PARTITION BY et.event_id ORDER BY et.total DESC) AS rnk
            FROM event_totals et
          ),
          my_events AS (
-           SELECT r.*, e.created_at
+           SELECT r.event_id, r.total, r.rnk, e.created_at
            FROM ranked r
            JOIN events e ON e.id = r.event_id
            WHERE r.competitor_id = $1
          )
-         SELECT EXTRACT(YEAR FROM created_at)::int     AS year,
-                COUNT(DISTINCT event_id)::int          AS meets,
-                AVG(total)::numeric(8,2)               AS avg_meet_total,
-                MAX(total)::numeric(8,2)               AS best_meet_total,
-                COUNT(*) FILTER (WHERE rank = 1)::int  AS wins,
-                COUNT(*) FILTER (WHERE rank <= 3)::int AS podiums
+         SELECT EXTRACT(YEAR FROM created_at)::int    AS year,
+                COUNT(DISTINCT event_id)::int         AS meets,
+                AVG(total)::numeric(8,2)              AS avg_meet_total,
+                MAX(total)::numeric(8,2)              AS best_meet_total,
+                COUNT(*) FILTER (WHERE rnk = 1)::int  AS wins,
+                COUNT(*) FILTER (WHERE rnk <= 3)::int AS podiums
          FROM my_events
-         GROUP BY year
+         GROUP BY EXTRACT(YEAR FROM created_at)
          ORDER BY year DESC`,
         [id, fromDate, toDate],
       ),
     ]);
 
+    // runQuery already unpacks .rows, so the array of arrays
+    // destructures cleanly without an extra .map().
     const [recent, placings, heights, rounds, quality, ddRisk, frequent, streak,
-           comparePeers, eventTypeSplits, yearOverYear] =
-      queries.map((q) => q.rows);
+           comparePeers, eventTypeSplits, yearOverYear] = queries;
 
     // Streak post-processing — count consecutive top-3 from the
     // most recent meet backwards.
