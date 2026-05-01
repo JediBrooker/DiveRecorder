@@ -118,6 +118,130 @@ async function sendPasswordChangedEmail(userId) {
   }
 }
 
+// "Welcome to Dive Recorder" email. Fires once on registration.
+async function sendWelcomeEmail(userId) {
+  if (!mailer) return;
+  try {
+    const u = await pool.query(
+      `SELECT u.email, u.full_name, o.name AS org_name
+       FROM users u JOIN organisations o ON o.id = u.org_id
+       WHERE u.id = $1`,
+      [userId],
+    );
+    const user = u.rows[0];
+    if (!user?.email) return;
+    const base = process.env.APP_BASE_URL || "";
+    await mailer.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: user.email,
+      subject: `Welcome to Dive Recorder — ${user.org_name}`,
+      text: `Hi ${user.full_name},\n\nThanks for registering with ${user.org_name} on Dive Recorder. You can sign in at ${base || "your Dive Recorder instance"} with your username and password.\n\nIf you requested a role (diver, judge, etc.), your organisation admin will review and approve it. Until then your account has spectator access — you can already browse meets and watch live broadcasts.\n\nDive Recorder`,
+    });
+  } catch (err) {
+    console.error("[Welcome Email Error]", err.message);
+  }
+}
+
+// "A new role request landed" email to every org_admin in the
+// target org. Helps admins act on requests promptly without
+// polling the User Manager queue.
+async function sendNewRoleRequestEmail(userId, orgId, role, note) {
+  if (!mailer) return;
+  try {
+    const userRes = await pool.query(
+      "SELECT full_name FROM users WHERE id = $1",
+      [userId],
+    );
+    const requester = userRes.rows[0];
+    if (!requester) return;
+
+    const adminRes = await pool.query(
+      `SELECT u.email, u.full_name
+       FROM users u
+       JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id
+       WHERE u.org_id = $1 AND r.role = 'org_admin' AND u.email IS NOT NULL`,
+      [orgId],
+    );
+    if (!adminRes.rows.length) return;
+
+    const base = process.env.APP_BASE_URL || "";
+    const subject = `New ${role} role request from ${requester.full_name}`;
+    const text = `${requester.full_name} requested the "${role}" role.${note ? `\n\nNote: ${note}` : ""}\n\nReview pending requests in the User Manager: ${base}/users\n\nDive Recorder`;
+
+    await Promise.all(
+      adminRes.rows.map((admin) =>
+        mailer.sendMail({
+          from: process.env.SMTP_FROM || process.env.SMTP_USER,
+          to: admin.email,
+          subject,
+          text,
+        }),
+      ),
+    );
+  } catch (err) {
+    console.error("[Role Request Notify Error]", err.message);
+  }
+}
+
+// "The meet you registered for just went live" email. Sends to
+// every diver with a dive list in the event (including synchro
+// partners — they're flagged via partner_id on the dive list).
+async function sendEventStartedEmails(event) {
+  if (!mailer || !event) return;
+  try {
+    const audience = await pool.query(
+      `SELECT DISTINCT u.email, u.full_name
+       FROM competitor_dive_lists cdl
+       JOIN users u ON u.id IN (cdl.competitor_id, cdl.partner_id)
+       WHERE cdl.event_id = $1 AND u.email IS NOT NULL`,
+      [event.id],
+    );
+    const base = process.env.APP_BASE_URL || "";
+    const link = `${base}/scoreboard/${event.id}`;
+    await Promise.all(
+      audience.rows.map((u) =>
+        mailer.sendMail({
+          from: process.env.SMTP_FROM || process.env.SMTP_USER,
+          to: u.email,
+          subject: `${event.name} is live — good luck!`,
+          text: `Hi ${u.full_name},\n\n"${event.name}" has just started. Watch the live scoreboard or check in for your turn:\n\n${link}\n\nDive Recorder`,
+        }),
+      ),
+    );
+  } catch (err) {
+    console.error("[Event Live Notify Error]", err.message);
+  }
+}
+
+// "Results are posted" email — fires when a meet flips to
+// Completed. Same audience as the live notification.
+async function sendEventResultsEmails(event) {
+  if (!mailer || !event) return;
+  try {
+    const audience = await pool.query(
+      `SELECT DISTINCT u.email, u.full_name
+       FROM competitor_dive_lists cdl
+       JOIN users u ON u.id IN (cdl.competitor_id, cdl.partner_id)
+       WHERE cdl.event_id = $1 AND u.email IS NOT NULL`,
+      [event.id],
+    );
+    const base = process.env.APP_BASE_URL || "";
+    const link = `${base}/scoreboard/${event.id}`;
+    await Promise.all(
+      audience.rows.map((u) =>
+        mailer.sendMail({
+          from: process.env.SMTP_FROM || process.env.SMTP_USER,
+          to: u.email,
+          subject: `Results posted — ${event.name}`,
+          text: `Hi ${u.full_name},\n\nResults for "${event.name}" are now available. View the full recap and dive breakdown:\n\n${link}\n\nDive Recorder`,
+        }),
+      ),
+    );
+  } catch (err) {
+    console.error("[Event Results Notify Error]", err.message);
+  }
+}
+
 // Serve the built Vue app (run `npm run build` before starting the server)
 app.use(express.static(path.join(__dirname, 'dist')))
 
@@ -248,10 +372,14 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
 // Self-register as a user within an existing org
 app.post("/api/auth/register", authLimiter, async (req, res) => {
   const {
-    username, password, full_name, org_id, requested_role, note,
+    username, password, full_name, email, org_id, requested_role, note,
     club_id, new_club_name, new_club_short_code,
   } = req.body;
   const client = await pool.connect();
+  // Track post-commit work — these emails fire only if the
+  // transaction succeeds, so we collect them inside and dispatch
+  // after COMMIT.
+  let postCommit = { newUserId: null, requestedRole: null };
   try {
     await client.query("BEGIN");
 
@@ -294,10 +422,11 @@ app.post("/api/auth/register", authLimiter, async (req, res) => {
 
     const hash = await bcrypt.hash(password, 12);
     const uRes = await client.query(
-      "INSERT INTO users (username, password, full_name, org_id, club_id) VALUES ($1,$2,$3,$4,$5) RETURNING id",
-      [username, hash, full_name, org_id, resolvedClubId],
+      "INSERT INTO users (username, password, full_name, email, org_id, club_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
+      [username, hash, full_name, email || null, org_id, resolvedClubId],
     );
     const userId = uRes.rows[0].id;
+    postCommit.newUserId = userId;
 
     // Everyone starts as spectator
     await client.query(
@@ -305,16 +434,28 @@ app.post("/api/auth/register", authLimiter, async (req, res) => {
       [userId, org_id],
     );
 
-    // Optional role request
+    // Optional role request — note that since the diver dropdown
+    // now defaults to "Diver" on the registration form, most
+    // sign-ups will land here with requested_role = 'diver',
+    // immediately surfacing in the org admin's review queue.
     const validRoles = ["meet_manager", "referee", "judge", "diver"];
     if (requested_role && validRoles.includes(requested_role)) {
       await client.query(
         "INSERT INTO role_requests (user_id, org_id, requested_role, note) VALUES ($1,$2,$3,$4)",
         [userId, org_id, requested_role, note || null],
       );
+      postCommit.requestedRole = requested_role;
     }
 
     await client.query("COMMIT");
+
+    // Best-effort post-commit emails — failure here doesn't undo
+    // the registration; we just log and move on.
+    sendWelcomeEmail(userId).catch(() => {});
+    if (postCommit.requestedRole) {
+      sendNewRoleRequestEmail(userId, org_id, postCommit.requestedRole, note).catch(() => {});
+    }
+
     res
       .status(201)
       .json({
@@ -1642,12 +1783,30 @@ app.put("/api/events/:id/status", requireEventManager(), async (req, res) => {
       .json({ error: `Status must be one of: ${validStatuses.join(", ")}` });
   }
   try {
+    // Read the previous status before the update so we know which
+    // notification (if any) to fire.
+    const prior = await pool.query(
+      "SELECT status FROM events WHERE id = $1 AND org_id = $2",
+      [req.params.id, req.user.org_id],
+    );
+    const previousStatus = prior.rows[0]?.status;
+
     const r = await pool.query(
       "UPDATE events SET status = $1 WHERE id = $2 AND org_id = $3 RETURNING *",
       [status, req.params.id, req.user.org_id],
     );
     if (!r.rows.length)
       return res.status(404).json({ error: "Event not found" });
+
+    // Notify competitors on the meaningful transitions:
+    //   * → Live      = "your meet just started"
+    //   * → Completed = "results are posted"
+    // Best-effort, so they never block the response.
+    if (previousStatus !== status) {
+      if (status === "Live")      sendEventStartedEmails(r.rows[0]).catch(() => {});
+      if (status === "Completed") sendEventResultsEmails(r.rows[0]).catch(() => {});
+    }
+
     res.json(r.rows[0]);
   } catch (err) {
     console.error("[Status Update Error]", err.message);

@@ -6,9 +6,12 @@ const router = useRouter()
 
 const fullName = ref('')
 const username = ref('')
+const email = ref('')
 const password = ref('')
 const orgId = ref('')
-const requestedRole = ref('')
+// Default to "diver" — the most common public-registration use
+// case. Spectator-only sign-ups will pick "Spectator" explicitly.
+const requestedRole = ref('diver')
 const note = ref('')
 const orgs = ref([])
 
@@ -55,8 +58,9 @@ async function handleSubmit() {
     const body = {
       full_name: fullName.value,
       username: username.value,
+      email:    email.value || undefined,
       password: password.value,
-      org_id: orgId.value,
+      org_id:   orgId.value,
     }
     if (requestedRole.value) body.requested_role = requestedRole.value
     if (note.value) body.note = note.value
@@ -100,6 +104,18 @@ async function handleSubmit() {
       <div class="field">
         <label class="label">Username</label>
         <input class="input" type="text" v-model="username" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label class="label">Email</label>
+        <input
+          class="input"
+          type="email"
+          v-model="email"
+          autocomplete="email"
+          placeholder="you@example.com"
+          required
+        >
+        <span class="hint-line">Used for password reset and meet notifications.</span>
       </div>
       <div class="field">
         <label class="label">Password</label>
@@ -146,11 +162,11 @@ async function handleSubmit() {
       <div class="field">
         <label class="label">I want to register as</label>
         <select class="select" v-model="requestedRole">
-          <option value="">Spectator (default)</option>
-          <option value="diver">Diver</option>
+          <option value="diver">Diver (default)</option>
           <option value="judge">Judge</option>
           <option value="referee">Referee</option>
           <option value="meet_manager">Meet Manager</option>
+          <option value="">Spectator only</option>
         </select>
       </div>
       <div class="field" v-if="requestedRole">
