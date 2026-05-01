@@ -2018,8 +2018,17 @@ app.get(
   requireOrgRole(["org_admin", "meet_manager", "referee"]),
   async (req, res) => {
     try {
+      // Returns the dive list rows with each row's id (so the
+      // operator can target it for reorder / withdraw),
+      // display_order (used for sort), and withdrawn_at (so the
+      // UI can render scratched divers separately).
+      // Withdrawn rows are returned but flagged — Control Room
+      // hides them from the active queue while the manager can
+      // still see + reinstate them.
       const r = await pool.query(
-        `SELECT u.id AS competitor_id, u.full_name, o.country_code,
+        `SELECT cdl.id AS dive_list_id,
+                cdl.display_order, cdl.withdrawn_at,
+                u.id AS competitor_id, u.full_name, o.country_code,
                 cl.name AS club_name, cl.short_code AS club_code,
                 cdl.partner_id, pu.full_name AS partner_name, po.country_code AS partner_country,
                 cdl.team_id, t.name AS team_name, t.short_code AS team_code,
@@ -2036,13 +2045,124 @@ app.get(
          LEFT JOIN organisations po ON po.id = pu.org_id
          LEFT JOIN teams t ON t.id = cdl.team_id
          WHERE cdl.event_id = $1
-         ORDER BY cdl.round_number ASC, t.name ASC NULLS LAST, u.full_name ASC`,
+         ORDER BY cdl.round_number ASC,
+                  t.name ASC NULLS LAST,
+                  cdl.display_order ASC NULLS LAST,
+                  u.full_name ASC`,
         [req.params.id],
       );
       res.json(r.rows);
     } catch (err) {
       console.error("[Roster Error]", err.message);
       res.status(500).json([]);
+    }
+  },
+);
+
+// Reorder a dive list row within its round. Body: { display_order: int }
+// The operator either nudges with arrows (compute next/prev) or
+// drags. We don't normalise the whole round on every move — the
+// roster query orders by display_order NULLS LAST so non-reordered
+// rows just float to the bottom of the round in name order.
+app.put(
+  "/api/dive-lists/:id/order",
+  requireOrgRole(["org_admin", "meet_manager", "referee"]),
+  async (req, res) => {
+    const { display_order } = req.body || {};
+    if (display_order != null && !Number.isInteger(display_order)) {
+      return res.status(400).json({ error: "display_order must be an integer or null" });
+    }
+    try {
+      const r = await pool.query(
+        `UPDATE competitor_dive_lists cdl
+         SET display_order = $1
+         FROM events e
+         WHERE cdl.id = $2 AND cdl.event_id = e.id AND e.org_id = $3
+         RETURNING cdl.id, cdl.display_order`,
+        [display_order ?? null, req.params.id, req.user.org_id],
+      );
+      if (!r.rows.length) return res.status(404).json({ error: "Dive list row not found" });
+      res.json({ ok: true, ...r.rows[0] });
+    } catch (err) {
+      console.error("[Reorder Error]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+// Withdraw / reinstate a dive list row. Sets withdrawn_at = now()
+// or NULL. Standings still attribute prior dives to the diver,
+// but the active queue excludes them from upcoming rounds.
+app.put(
+  "/api/dive-lists/:id/withdraw",
+  requireOrgRole(["org_admin", "meet_manager", "referee"]),
+  async (req, res) => {
+    const { withdrawn } = req.body || {};
+    try {
+      const r = await pool.query(
+        `UPDATE competitor_dive_lists cdl
+         SET withdrawn_at = CASE WHEN $1::boolean THEN now() ELSE NULL END
+         FROM events e
+         WHERE cdl.id = $2 AND cdl.event_id = e.id AND e.org_id = $3
+         RETURNING cdl.id, cdl.withdrawn_at`,
+        [!!withdrawn, req.params.id, req.user.org_id],
+      );
+      if (!r.rows.length) return res.status(404).json({ error: "Dive list row not found" });
+      res.json({ ok: true, ...r.rows[0] });
+    } catch (err) {
+      console.error("[Withdraw Error]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+// Late-entry: add a dive list row from the Control Room. Used
+// when a diver shows up but didn't pre-submit. Single-row
+// version of the existing CSV import — pick competitor + dive
+// + round, server inserts.
+app.post(
+  "/api/events/:id/roster",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    const { competitor_id, dive_id, round_number, partner_id, team_id } = req.body || {};
+    if (!competitor_id || !dive_id || !round_number) {
+      return res.status(400).json({
+        error: "competitor_id, dive_id, and round_number are required",
+      });
+    }
+    try {
+      // Org guard: event must be in the caller's org, competitor
+      // must be in the same org.
+      const ev = await pool.query(
+        "SELECT id, org_id FROM events WHERE id = $1 AND org_id = $2",
+        [req.params.id, req.user.org_id],
+      );
+      if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
+
+      const u = await pool.query(
+        "SELECT id, org_id FROM users WHERE id = $1",
+        [competitor_id],
+      );
+      if (!u.rows.length || u.rows[0].org_id !== req.user.org_id) {
+        return res.status(400).json({ error: "Competitor must belong to this organisation" });
+      }
+
+      const r = await pool.query(
+        `INSERT INTO competitor_dive_lists
+           (event_id, competitor_id, dive_id, round_number, partner_id, team_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (event_id, competitor_id, round_number)
+         DO UPDATE SET dive_id = EXCLUDED.dive_id,
+                       partner_id = EXCLUDED.partner_id,
+                       team_id = EXCLUDED.team_id,
+                       withdrawn_at = NULL
+         RETURNING id`,
+        [req.params.id, competitor_id, dive_id, round_number, partner_id || null, team_id || null],
+      );
+      res.status(201).json({ ok: true, dive_list_id: r.rows[0].id });
+    } catch (err) {
+      console.error("[Late Entry Error]", err.message);
+      res.status(500).json({ error: err.message });
     }
   },
 );

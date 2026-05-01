@@ -210,6 +210,142 @@ async function announceRoundEnd() {
   roundEndPromptOpen.value = false
 }
 
+// =============================================================
+// QUEUE MANAGEMENT — reorder, withdraw, late entry
+// =============================================================
+
+// Move a roster entry up or down within its round. Recomputes
+// display_order locally first (optimistic) then persists. We
+// pick a value halfway between the new neighbours so subsequent
+// drags don't have to renumber the whole round.
+async function reorderRosterRow(idx, dir) {
+  const cur = roster.value[idx]
+  if (!cur) return
+  // Find the previous / next row in the SAME round
+  const targetIdx = dir === 'up' ? idx - 1 : idx + 1
+  const target = roster.value[targetIdx]
+  if (!target || target.round_number !== cur.round_number) return
+
+  // Swap their positions in the local array (optimistic)
+  roster.value[idx] = target
+  roster.value[targetIdx] = cur
+  // currentIndex needs to follow the moved active diver
+  if (currentIndex.value === idx)        currentIndex.value = targetIdx
+  else if (currentIndex.value === targetIdx) currentIndex.value = idx
+
+  // Persist by giving each row an explicit display_order value
+  // (use array index — simple, monotonic, lets future moves
+  // continue to compare correctly).
+  try {
+    await Promise.all([
+      auth.apiFetch(`/api/dive-lists/${cur.dive_list_id}/order`, {
+        method: 'PUT', body: JSON.stringify({ display_order: targetIdx }),
+      }),
+      auth.apiFetch(`/api/dive-lists/${target.dive_list_id}/order`, {
+        method: 'PUT', body: JSON.stringify({ display_order: idx }),
+      }),
+    ])
+  } catch (err) {
+    alert('Failed to save order: ' + err.message)
+    // Revert local swap on failure
+    roster.value[idx] = cur
+    roster.value[targetIdx] = target
+  }
+}
+
+async function withdrawRosterRow(idx) {
+  const row = roster.value[idx]
+  if (!row) return
+  const willWithdraw = !row.withdrawn_at
+  const verb = willWithdraw ? 'Withdraw' : 'Reinstate'
+  if (!confirm(`${verb} ${row.full_name} from round ${row.round_number}?`)) return
+  try {
+    await auth.apiFetch(`/api/dive-lists/${row.dive_list_id}/withdraw`, {
+      method: 'PUT', body: JSON.stringify({ withdrawn: willWithdraw }),
+    })
+    row.withdrawn_at = willWithdraw ? new Date().toISOString() : null
+    // If the active diver got withdrawn, advance past them
+    if (willWithdraw && currentIndex.value === idx) {
+      const next = roster.value.findIndex((r, i) => i > idx && !r.withdrawn_at)
+      if (next >= 0) setActive(next)
+    }
+  } catch (err) {
+    alert('Failed: ' + err.message)
+  }
+}
+
+// =============================================================
+// LATE ENTRY — manager adds a diver from the Control Room
+// =============================================================
+const lateOpen = ref(false)
+const lateBusy = ref(false)
+const lateErr = ref('')
+const lateDivers = ref([])           // candidate divers in the org
+const lateDiveDir = ref([])          // dive directory at the event's height
+const lateForm = ref({ competitor_id: '', round_number: 1, dive_code: '', position: '' })
+
+async function openLateEntry() {
+  lateErr.value = ''
+  lateBusy.value = false
+  lateForm.value = { competitor_id: '', round_number: 1, dive_code: '', position: '' }
+  lateOpen.value = true
+  // Lazy-load org divers + dive directory once per session
+  if (!lateDivers.value.length) {
+    try {
+      lateDivers.value = await auth.apiFetch(`/api/orgs/${auth.user.org_id}/divers`)
+    } catch { lateDivers.value = [] }
+  }
+  if (!lateDiveDir.value.length) {
+    try {
+      lateDiveDir.value = await auth.apiFetch('/api/dive-directory')
+    } catch { lateDiveDir.value = [] }
+  }
+}
+
+const lateDiveOptions = computed(() => {
+  const eventHeight = currentEvent.value?.height
+  const heightNumeric = eventHeight ? parseFloat(eventHeight) : null
+  return lateDiveDir.value.filter(d =>
+    heightNumeric === null || parseFloat(d.height) === heightNumeric,
+  )
+})
+
+async function submitLateEntry() {
+  lateErr.value = ''
+  if (!lateForm.value.competitor_id) { lateErr.value = 'Pick a diver'; return }
+  if (!lateForm.value.dive_code || !lateForm.value.position) {
+    lateErr.value = 'Pick a dive'
+    return
+  }
+  // Resolve dive_code + position to a dive_directory id
+  const dive = lateDiveDir.value.find(d =>
+    d.dive_code === lateForm.value.dive_code &&
+    d.position === lateForm.value.position &&
+    (!currentEvent.value?.height || parseFloat(d.height) === parseFloat(currentEvent.value.height)),
+  )
+  if (!dive) { lateErr.value = 'Dive not found in the directory at this height'; return }
+  lateBusy.value = true
+  try {
+    await auth.apiFetch(`/api/events/${currentEvent.value.id}/roster`, {
+      method: 'POST',
+      body: JSON.stringify({
+        competitor_id: lateForm.value.competitor_id,
+        dive_id: dive.id,
+        round_number: parseInt(lateForm.value.round_number, 10) || 1,
+      }),
+    })
+    // Re-pull roster so the new row appears in the queue with
+    // its dive_list_id.
+    const fresh = await auth.apiFetch(`/api/events/${currentEvent.value.id}/roster`)
+    roster.value = fresh
+    lateOpen.value = false
+  } catch (err) {
+    lateErr.value = err.message
+  } finally {
+    lateBusy.value = false
+  }
+}
+
 // Socket connection
 socket.on('connect', () => { connStatus.value = true })
 socket.on('disconnect', () => { connStatus.value = false })
@@ -704,32 +840,66 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
       <!-- Right: Queue -->
       <div class="ctrl-panel">
-        <div class="panel-head" style="display:flex;justify-content:space-between">
+        <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center">
           <span>Diver Queue</span>
-          <span class="roster-count">{{ roster.length ? currentIndex + 1 : 0 }}/{{ roster.length }}</span>
+          <div style="display:flex;align-items:center;gap:0.5rem">
+            <span class="roster-count">{{ roster.length ? currentIndex + 1 : 0 }}/{{ roster.length }}</span>
+            <button v-if="currentEvent" class="btn btn-ghost btn-sm" @click="openLateEntry"
+                    title="Add a late-arriving diver">+ Add</button>
+          </div>
         </div>
         <div class="panel-body">
-          <template v-for="(item, idx) in roster" :key="idx">
+          <template v-for="(item, idx) in roster" :key="item.dive_list_id || idx">
             <!-- Round divider when round_number changes -->
             <div v-if="idx === 0 || roster[idx - 1].round_number !== item.round_number"
                  class="round-divider">
               Round {{ item.round_number }}
             </div>
             <div
-              :class="['roster-item', idx === currentIndex ? 'active' : '']"
-              @click="setActive(idx)"
+              :class="[
+                'roster-item',
+                idx === currentIndex ? 'active' : '',
+                item.withdrawn_at ? 'withdrawn' : '',
+              ]"
             >
-              <div class="roster-name">
-                {{ item.full_name }}<span v-if="item.country_code" class="roster-country">{{ item.country_code }}</span>
-                <template v-if="item.partner_name">
-                  <span class="roster-amp">&amp;</span>
-                  {{ item.partner_name }}
-                </template>
-              </div>
-              <div v-if="item.team_name" class="roster-team">{{ item.team_name }}</div>
-              <div class="roster-meta">
-                <span>{{ item.dive_code }}{{ item.position }}</span>
-                <span>DD {{ item.dd }}</span>
+              <div class="roster-row-head">
+                <button
+                  class="roster-jump"
+                  :disabled="!!item.withdrawn_at"
+                  @click="setActive(idx)"
+                >
+                  <div class="roster-name">
+                    {{ item.full_name }}<span v-if="item.country_code" class="roster-country">{{ item.country_code }}</span>
+                    <template v-if="item.partner_name">
+                      <span class="roster-amp">&amp;</span>
+                      {{ item.partner_name }}
+                    </template>
+                    <span v-if="item.withdrawn_at" class="roster-wd-badge">WITHDRAWN</span>
+                  </div>
+                  <div v-if="item.team_name" class="roster-team">{{ item.team_name }}</div>
+                  <div class="roster-meta">
+                    <span>{{ item.dive_code }}{{ item.position }}</span>
+                    <span>DD {{ item.dd }}</span>
+                  </div>
+                </button>
+                <!-- Reorder + withdraw controls. Hidden for the
+                     last row in a round when "down" doesn't apply
+                     etc. — disabled state makes intent clear. -->
+                <div class="roster-controls">
+                  <button class="roster-ctrl"
+                          :disabled="idx === 0 || roster[idx - 1].round_number !== item.round_number"
+                          @click.stop="reorderRosterRow(idx, 'up')"
+                          title="Move up within round">▲</button>
+                  <button class="roster-ctrl"
+                          :disabled="idx >= roster.length - 1 || roster[idx + 1].round_number !== item.round_number"
+                          @click.stop="reorderRosterRow(idx, 'down')"
+                          title="Move down within round">▼</button>
+                  <button :class="['roster-ctrl', item.withdrawn_at ? 'roster-reinstate' : 'roster-withdraw']"
+                          @click.stop="withdrawRosterRow(idx)"
+                          :title="item.withdrawn_at ? 'Reinstate' : 'Withdraw / scratch'">
+                    {{ item.withdrawn_at ? '↻' : '✕' }}
+                  </button>
+                </div>
               </div>
             </div>
           </template>
@@ -797,6 +967,62 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         <button class="btn btn-ghost btn-sm" @click="closeCorrection">Cancel</button>
         <button class="btn btn-primary btn-sm" :disabled="correctBusy" @click="submitCorrection">
           {{ correctBusy ? 'Saving…' : 'Save correction' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Late-entry modal -->
+  <div v-if="lateOpen" class="lb-backdrop" @click="lateOpen = false"></div>
+  <div v-if="lateOpen" class="lb-modal late-modal" @click.stop>
+    <div class="lb-header">
+      <div>
+        <div class="lb-title">Add Late Diver</div>
+        <div class="lb-event">{{ currentEvent?.name }}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" @click="lateOpen = false">Cancel</button>
+    </div>
+    <div class="lb-body">
+      <div class="field">
+        <label class="label">Diver</label>
+        <select class="select" v-model="lateForm.competitor_id">
+          <option value="">— Pick a diver —</option>
+          <option v-for="d in lateDivers" :key="d.id" :value="d.id">{{ d.full_name }}</option>
+        </select>
+      </div>
+      <div class="field" style="display:flex;gap:0.5rem">
+        <div style="flex:1">
+          <label class="label">Round</label>
+          <select class="select" v-model="lateForm.round_number">
+            <option v-for="n in (currentEvent?.total_rounds || 6)" :key="n" :value="n">
+              Round {{ n }}
+            </option>
+          </select>
+        </div>
+        <div style="flex:1">
+          <label class="label">Dive code</label>
+          <input class="input" type="text" v-model="lateForm.dive_code"
+                 placeholder="e.g. 5132" maxlength="10">
+        </div>
+        <div style="flex:0 0 80px">
+          <label class="label">Position</label>
+          <select class="select" v-model="lateForm.position">
+            <option value="">—</option>
+            <option value="A">A</option>
+            <option value="B">B</option>
+            <option value="C">C</option>
+            <option value="D">D</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint" v-if="lateDiveOptions.length">
+        {{ lateDiveOptions.length }} dives available at {{ currentEvent?.height }}.
+      </p>
+      <div v-if="lateErr" class="msg msg-error">{{ lateErr }}</div>
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:1rem">
+        <button class="btn btn-ghost btn-sm" @click="lateOpen = false">Cancel</button>
+        <button class="btn btn-primary btn-sm" :disabled="lateBusy" @click="submitLateEntry">
+          {{ lateBusy ? 'Adding…' : 'Add to queue' }}
         </button>
       </div>
     </div>
@@ -1075,6 +1301,55 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 /* Make completed-dive cards visually clickable when correctable. */
 .hist-card-correctable { cursor: pointer; transition: border-color 0.15s; }
 .hist-card-correctable:hover { border-color: var(--cyan); }
+
+/* =========================================================
+   Queue rows — reorder + withdraw controls
+   ========================================================= */
+.roster-row-head {
+  display: flex; align-items: stretch;
+}
+.roster-jump {
+  flex: 1; min-width: 0; text-align: left;
+  background: transparent; border: none; padding: 0; cursor: pointer;
+  color: inherit; font-family: inherit;
+}
+.roster-jump:disabled { cursor: default; opacity: 0.5; }
+.roster-controls {
+  display: flex; flex-direction: column; gap: 0.15rem;
+  margin-left: 0.4rem; flex-shrink: 0;
+}
+.roster-ctrl {
+  background: transparent; border: 1px solid var(--border);
+  border-radius: 3px; cursor: pointer;
+  font-size: 10px; padding: 0.05rem 0.4rem; line-height: 1.2;
+  color: var(--text-3); transition: all 0.1s;
+  min-width: 22px;
+}
+.roster-ctrl:hover:not(:disabled) {
+  border-color: var(--cyan); color: var(--cyan);
+}
+.roster-ctrl:disabled { opacity: 0.3; cursor: default; }
+.roster-withdraw:hover { border-color: var(--red); color: var(--red); }
+.roster-reinstate {
+  border-color: rgba(245,158,11,0.4); color: var(--amber);
+}
+
+.roster-item.withdrawn { opacity: 0.45; }
+.roster-item.withdrawn .roster-name { text-decoration: line-through; }
+.roster-wd-badge {
+  font-family: var(--font-display); font-size: 8px; font-weight: 900;
+  letter-spacing: 0.2em; color: var(--red);
+  background: var(--red-dim); border: 1px solid rgba(239,68,68,0.4);
+  border-radius: 3px; padding: 0.05rem 0.35rem;
+  margin-left: 0.4rem; vertical-align: middle;
+}
+
+.late-modal { max-width: 480px; }
+.late-modal .hint {
+  font-size: 11px; color: var(--text-3); line-height: 1.5;
+  padding: 0.5rem 0.7rem; margin-top: 0.4rem;
+  background: var(--bg-3); border-left: 3px solid var(--cyan); border-radius: 3px;
+}
 
 .kbd-hints {
   display: flex; gap: 1rem; flex-wrap: wrap;

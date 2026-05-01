@@ -315,6 +315,13 @@ CREATE TABLE public.competitor_dive_lists (
     team_id       uuid REFERENCES public.teams(id) ON DELETE SET NULL,
     dive_id       uuid REFERENCES public.dive_directory(id) ON DELETE RESTRICT,
     round_number  integer NOT NULL,
+    -- Control Room queue management (migration 012):
+    --   display_order overrides the default name-sort within a
+    --     round so the operator can re-sequence divers on the fly.
+    --   withdrawn_at marks a row as scratched / DNS / DNF; the
+    --     roster endpoint excludes them from the active queue.
+    display_order integer,
+    withdrawn_at  timestamptz,
     UNIQUE (event_id, competitor_id, round_number),
     CONSTRAINT competitor_dive_lists_round_number_check
         CHECK (round_number > 0)
@@ -600,6 +607,9 @@ CREATE INDEX idx_meets_org                 ON public.meets (org_id);
 CREATE INDEX idx_meets_dates               ON public.meets (start_date DESC NULLS LAST);
 CREATE INDEX idx_events_meet               ON public.events (meet_id);
 CREATE INDEX idx_dive_list_templates_user  ON public.dive_list_templates (user_id);
+CREATE INDEX idx_dive_lists_event_round_order
+    ON public.competitor_dive_lists (event_id, round_number, display_order)
+    WHERE withdrawn_at IS NULL;
 
 
 -- =============================================================
@@ -617,7 +627,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 11);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 12);
 
 
 -- =============================================================
