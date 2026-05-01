@@ -23,6 +23,103 @@ const orgDivers = ref([])      // potential partners — fellow divers in your o
 const partnerId = ref('')       // selected partner's user id, '' = none
 const isSynchro = computed(() => currentEvent.value?.event_type === 'synchro_pair')
 
+// Partner autocomplete state. Keeps the rendering simple — no
+// dependency, no popper. The dropdown overlays absolutely
+// beneath the input and re-uses the same option labels the old
+// <select> used.
+const partnerSearch = ref('')      // what's currently in the input
+const partnerOpen   = ref(false)   // dropdown visible?
+const partnerActive = ref(0)       // keyboard-highlighted index in matches
+
+// Filter the org's divers by the search term — case-insensitive
+// against the full name + club_code. Empty term returns the
+// whole list (capped at 30 to avoid drawing 1000 rows).
+const partnerMatches = computed(() => {
+  const term = partnerSearch.value.trim().toLowerCase()
+  const list = orgDivers.value.filter((d) => {
+    if (!term) return true
+    const haystack = [d.full_name, d.club_code, d.club_name]
+      .filter(Boolean).join(' ').toLowerCase()
+    return haystack.includes(term)
+  })
+  return list.slice(0, 30)
+})
+
+// Selected partner's display name — shown in the input when
+// closed. Looks up by id so re-selecting from the list shows
+// the canonical name even if the user typed only a fragment.
+const selectedPartnerLabel = computed(() => {
+  if (!partnerId.value) return ''
+  const p = orgDivers.value.find((d) => d.id === partnerId.value)
+  if (!p) return ''
+  return p.club_code ? `${p.full_name} (${p.club_code})` : p.full_name
+})
+
+function partnerLabel(d) {
+  return d.club_code ? `${d.full_name} (${d.club_code})` : d.full_name
+}
+
+function focusPartner() {
+  partnerOpen.value = true
+  partnerActive.value = 0
+  // If a partner is already chosen, clear the input on focus so
+  // the user can search again. Re-selecting reverts the label.
+  if (partnerId.value && partnerSearch.value === selectedPartnerLabel.value) {
+    partnerSearch.value = ''
+  }
+}
+
+function blurPartner() {
+  // Delay close so a click on a list item registers before the
+  // dropdown un-mounts.
+  setTimeout(() => {
+    partnerOpen.value = false
+    if (!partnerId.value) {
+      // No selection made — reset typed text
+      partnerSearch.value = ''
+    } else if (!partnerSearch.value.trim()) {
+      // Restore the canonical label if the user blanked it
+      partnerSearch.value = selectedPartnerLabel.value
+    }
+  }, 150)
+}
+
+function pickPartner(d) {
+  partnerId.value = d.id
+  partnerSearch.value = partnerLabel(d)
+  partnerOpen.value = false
+}
+
+function clearPartner() {
+  partnerId.value = ''
+  partnerSearch.value = ''
+  partnerActive.value = 0
+}
+
+function partnerKey(e) {
+  if (!partnerOpen.value) {
+    if (e.key === 'ArrowDown' || e.key === 'Enter') {
+      partnerOpen.value = true
+      partnerActive.value = 0
+    }
+    return
+  }
+  const n = partnerMatches.value.length
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    partnerActive.value = (partnerActive.value + 1) % Math.max(n, 1)
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    partnerActive.value = (partnerActive.value - 1 + n) % Math.max(n, 1)
+  } else if (e.key === 'Enter') {
+    e.preventDefault()
+    const pick = partnerMatches.value[partnerActive.value]
+    if (pick) pickPartner(pick)
+  } else if (e.key === 'Escape') {
+    partnerOpen.value = false
+  }
+}
+
 // Saved dive list templates. Persists per-diver across meets so
 // a 6-dive 3m optionals list doesn't have to be retyped every
 // month. Filtered to the active event's height when one is
@@ -148,6 +245,8 @@ const searchResults = computed(() => {
 
 function onEventChange() {
   partnerId.value = ''
+  partnerSearch.value = ''
+  partnerOpen.value = false
   if (!selectedEventId.value) {
     currentEvent.value = null
     selectedDives.value = []
@@ -256,17 +355,45 @@ watch(currentEvent, async (ev) => {
       </select>
     </div>
 
-    <!-- Synchro partner picker -->
+    <!-- Synchro partner picker — autocomplete typeahead. Replaces
+         a flat <select> that became unwieldy in orgs with 100+
+         divers. Filters as the user types; arrow keys + enter
+         navigate the dropdown. -->
     <div v-if="isSynchro" class="card">
       <label class="label" style="margin-bottom:0.75rem;display:block">
         Step 1.5 — Pick Your Synchro Partner
       </label>
-      <select class="select" v-model="partnerId">
-        <option value="">— Select a partner —</option>
-        <option v-for="d in orgDivers" :key="d.id" :value="d.id">
-          {{ d.full_name }}{{ d.club_code ? ' (' + d.club_code + ')' : '' }}
-        </option>
-      </select>
+      <div class="partner-typeahead">
+        <input
+          class="input"
+          type="text"
+          autocomplete="off"
+          :placeholder="orgDivers.length ? 'Search by name…' : 'No other divers in your org yet'"
+          :disabled="!orgDivers.length"
+          v-model="partnerSearch"
+          @focus="focusPartner"
+          @blur="blurPartner"
+          @keydown="partnerKey"
+        >
+        <button v-if="partnerId || partnerSearch"
+                type="button"
+                class="partner-clear"
+                @mousedown.prevent="clearPartner"
+                title="Clear">✕</button>
+        <ul v-if="partnerOpen && partnerMatches.length" class="partner-dropdown">
+          <li v-for="(d, i) in partnerMatches" :key="d.id"
+              :class="['partner-row', i === partnerActive ? 'partner-row-active' : '', d.id === partnerId ? 'partner-row-selected' : '']"
+              @mousedown.prevent="pickPartner(d)"
+              @mouseenter="partnerActive = i">
+            <span class="partner-name">{{ d.full_name }}</span>
+            <span v-if="d.club_code" class="partner-club">{{ d.club_code }}</span>
+          </li>
+        </ul>
+        <div v-else-if="partnerOpen && !partnerMatches.length && partnerSearch.trim()"
+             class="partner-dropdown partner-empty">
+          No divers match "{{ partnerSearch }}".
+        </div>
+      </div>
       <p v-if="!orgDivers.length" class="hint-line" style="margin-top:0.5rem">
         No other divers found in your organisation yet. Ask your partner to register first.
       </p>
@@ -501,4 +628,53 @@ watch(currentEvent, async (ev) => {
   display: flex; gap: 0.5rem; margin-top: 0.5rem;
 }
 .template-save-form .input { flex: 1; }
+
+/* =========================================================
+   Synchro partner typeahead
+   ========================================================= */
+.partner-typeahead { position: relative; }
+.partner-typeahead .input { padding-right: 2.4rem; }
+.partner-clear {
+  position: absolute; top: 50%; right: 0.5rem;
+  transform: translateY(-50%);
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none; cursor: pointer;
+  color: var(--text-3); font-size: 14px;
+  border-radius: 50%; transition: all 0.1s;
+}
+.partner-clear:hover { color: var(--red); background: var(--bg-3); }
+
+.partner-dropdown {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+  z-index: 50; max-height: 280px; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  list-style: none; padding: 0.25rem; margin: 0;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+}
+.partner-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.5rem; padding: 0.5rem 0.7rem;
+  border-radius: var(--radius-sm); cursor: pointer;
+}
+.partner-row + .partner-row { margin-top: 0.1rem; }
+.partner-row-active { background: var(--cyan-dim); }
+.partner-row-selected .partner-name { color: var(--cyan); }
+.partner-name {
+  font-family: var(--font-display); font-size: 14px; font-weight: 700;
+  color: var(--text);
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.partner-club {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  color: var(--cyan); background: var(--cyan-dim);
+  border: 1px solid rgba(6,182,212,0.3); border-radius: 3px;
+  padding: 0.1rem 0.4rem;
+}
+.partner-empty {
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-3);
+  padding: 0.7rem 0.8rem; font-style: italic;
+}
 </style>
