@@ -310,6 +310,76 @@ const lateDiveOptions = computed(() => {
   )
 })
 
+// =============================================================
+// JUDGE PANEL — names + ids loaded once per event so the tile
+// in the centre column can show "J3 — Sarah Chen" instead of a
+// faceless number when scores are missing.
+// =============================================================
+const judgePanel = ref([])         // [{ judge_id, judge_number, full_name }]
+const judgeNameByNumber = computed(() => {
+  const m = {}
+  for (const j of judgePanel.value) m[j.judge_number] = j.full_name
+  return m
+})
+
+// =============================================================
+// STANDINGS PREVIEW — top 5 visible inline so the meet referee
+// always knows the running state without opening the modal.
+// =============================================================
+const standingsPreview = ref([])
+async function refreshStandingsPreview() {
+  if (!currentEvent.value) return
+  try {
+    const data = await auth.apiFetch(`/api/scoreboard/${currentEvent.value.id}`)
+    standingsPreview.value = (data.standings || []).slice(0, 5)
+  } catch { standingsPreview.value = [] }
+}
+
+// =============================================================
+// QUEUE SEARCH + JUMP-TO-ROUND
+// =============================================================
+const queueSearch = ref('')
+const queueRoundFilter = ref(null)   // null = all rounds
+
+const filteredRoster = computed(() => {
+  const term = queueSearch.value.trim().toLowerCase()
+  return roster.value
+    .map((r, originalIdx) => ({ ...r, originalIdx }))
+    .filter(r => {
+      if (queueRoundFilter.value && r.round_number !== queueRoundFilter.value) return false
+      if (!term) return true
+      const haystack = [
+        r.full_name, r.partner_name, r.team_name, r.club_name,
+        r.dive_code, `${r.dive_code}${r.position}`,
+      ].filter(Boolean).join(' ').toLowerCase()
+      return haystack.includes(term)
+    })
+})
+
+const availableRounds = computed(() => {
+  const set = new Set(roster.value.map(r => r.round_number))
+  return [...set].sort((a, b) => a - b)
+})
+
+// =============================================================
+// HISTORY FILTER — by diver, by round
+// =============================================================
+const historyDiverFilter = ref('')   // full_name, '' = all
+const historyRoundFilter = ref(null) // round, null = all
+
+const filteredHistory = computed(() => {
+  return historyCards.value.filter(h => {
+    if (historyDiverFilter.value && h.name !== historyDiverFilter.value) return false
+    if (historyRoundFilter.value && h.round !== historyRoundFilter.value) return false
+    return true
+  })
+})
+
+const historyDivers = computed(() => {
+  const set = new Set(historyCards.value.map(h => h.name))
+  return [...set].sort()
+})
+
 async function submitLateEntry() {
   lateErr.value = ''
   if (!lateForm.value.competitor_id) { lateErr.value = 'Pick a diver'; return }
@@ -407,6 +477,9 @@ socket.on('score_received', (data) => {
     // Round-end detection: this might have been the final dive
     // of the round. detectRoundEnd surfaces a prompt if so.
     detectRoundEnd(currentActive.value.round_number)
+    // Refresh the inline standings preview so the operator
+    // sees totals shift as dives complete.
+    refreshStandingsPreview()
   }
 })
 
@@ -611,11 +684,15 @@ async function onEventChange() {
   historyCards.value = []
   initJudgeTiles(currentEvent.value.number_of_judges)
 
-  const [rosterData, histData] = await Promise.all([
+  const [rosterData, histData, judgesData] = await Promise.all([
     auth.apiFetch(`/api/events/${selectedEventId.value}/roster`),
     auth.apiFetch(`/api/events/${selectedEventId.value}/history`),
+    auth.apiFetch(`/api/events/${selectedEventId.value}/judges`).catch(() => []),
   ])
   roster.value = rosterData
+  judgePanel.value = Array.isArray(judgesData) ? judgesData : []
+  // Top-5 standings preview alongside the queue.
+  refreshStandingsPreview()
 
   ;[...histData].reverse().forEach(h => {
     addHistoryCard({
@@ -739,9 +816,19 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <!-- Left: History -->
       <div class="ctrl-panel">
         <div class="panel-head">Completed Dives</div>
+        <div v-if="historyCards.length" class="hist-filters">
+          <select class="select hist-filter-select" v-model="historyDiverFilter">
+            <option value="">All divers</option>
+            <option v-for="n in historyDivers" :key="n" :value="n">{{ n }}</option>
+          </select>
+          <select class="select hist-filter-select" v-model="historyRoundFilter">
+            <option :value="null">All rounds</option>
+            <option v-for="n in availableRounds" :key="n" :value="n">Round {{ n }}</option>
+          </select>
+        </div>
         <div class="panel-body">
           <div
-            v-for="(card, idx) in historyCards"
+            v-for="(card, idx) in filteredHistory"
             :key="idx"
             :class="['hist-card', card.score_ids?.length ? 'hist-card-correctable' : '']"
             :title="card.score_ids?.length ? 'Click to amend a score' : ''"
@@ -806,9 +893,15 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                 v-for="tile in judgeTiles"
                 :key="tile.judgeIndex"
                 :class="['judge-tile', tile.scored ? 'scored' : '']"
+                :title="judgeNameByNumber[tile.judgeIndex] || `Judge ${tile.judgeIndex}`"
               >
                 <div class="judge-tile-label">J{{ tile.judgeIndex }}</div>
                 <div class="judge-tile-score">{{ tile.score }}</div>
+                <!-- Judge name surfaces under the tile so a slow
+                     submitter is identifiable at a glance. -->
+                <div v-if="judgeNameByNumber[tile.judgeIndex]" class="judge-tile-name">
+                  {{ judgeNameByNumber[tile.judgeIndex].split(' ').slice(-1)[0] }}
+                </div>
               </div>
             </div>
           </div>
@@ -848,17 +941,54 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                     title="Add a late-arriving diver">+ Add</button>
           </div>
         </div>
+
+        <!-- Standings preview — top 5 inline so the meet referee
+             always knows the running state. -->
+        <div v-if="standingsPreview.length" class="standings-preview">
+          <div class="standings-preview-label">Top 5 right now</div>
+          <div v-for="(s, i) in standingsPreview" :key="i" class="sp-row">
+            <span :class="['sp-rank', i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '']">
+              {{ i + 1 }}
+            </span>
+            <span class="sp-name">{{ s.full_name }}</span>
+            <span class="sp-total">{{ parseFloat(s.total).toFixed(1) }}</span>
+          </div>
+        </div>
+
+        <!-- Search + jump-to-round chips -->
+        <div v-if="roster.length" class="queue-filters">
+          <input
+            class="input queue-search"
+            type="text"
+            v-model="queueSearch"
+            placeholder="Search name, dive code…"
+          >
+          <div class="round-chips">
+            <button :class="['round-chip', queueRoundFilter === null ? 'active' : '']"
+                    @click="queueRoundFilter = null">All</button>
+            <button v-for="n in availableRounds" :key="n"
+                    :class="['round-chip', queueRoundFilter === n ? 'active' : '']"
+                    @click="queueRoundFilter = n">R{{ n }}</button>
+          </div>
+        </div>
+
         <div class="panel-body">
-          <template v-for="(item, idx) in roster" :key="item.dive_list_id || idx">
-            <!-- Round divider when round_number changes -->
-            <div v-if="idx === 0 || roster[idx - 1].round_number !== item.round_number"
+          <!-- filteredRoster is the search-filtered view of the
+               full roster, but each item carries originalIdx so
+               clicking still maps back to the right slot in
+               roster[] — keeps reorder/withdraw logic correct. -->
+          <template v-for="(item, listIdx) in filteredRoster" :key="item.dive_list_id || listIdx">
+            <!-- Round divider when round_number changes between
+                 visible rows. Compare to the previous filtered
+                 row, not the unfiltered roster. -->
+            <div v-if="listIdx === 0 || filteredRoster[listIdx - 1].round_number !== item.round_number"
                  class="round-divider">
               Round {{ item.round_number }}
             </div>
             <div
               :class="[
                 'roster-item',
-                idx === currentIndex ? 'active' : '',
+                item.originalIdx === currentIndex ? 'active' : '',
                 item.withdrawn_at ? 'withdrawn' : '',
               ]"
             >
@@ -866,7 +996,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                 <button
                   class="roster-jump"
                   :disabled="!!item.withdrawn_at"
-                  @click="setActive(idx)"
+                  @click="setActive(item.originalIdx)"
                 >
                   <div class="roster-name">
                     {{ item.full_name }}<span v-if="item.country_code" class="roster-country">{{ item.country_code }}</span>
@@ -882,20 +1012,19 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                     <span>DD {{ item.dd }}</span>
                   </div>
                 </button>
-                <!-- Reorder + withdraw controls. Hidden for the
-                     last row in a round when "down" doesn't apply
-                     etc. — disabled state makes intent clear. -->
+                <!-- Reorder + withdraw controls. Use originalIdx
+                     so reorder targets the correct unfiltered slot. -->
                 <div class="roster-controls">
                   <button class="roster-ctrl"
-                          :disabled="idx === 0 || roster[idx - 1].round_number !== item.round_number"
-                          @click.stop="reorderRosterRow(idx, 'up')"
+                          :disabled="item.originalIdx === 0 || roster[item.originalIdx - 1].round_number !== item.round_number"
+                          @click.stop="reorderRosterRow(item.originalIdx, 'up')"
                           title="Move up within round">▲</button>
                   <button class="roster-ctrl"
-                          :disabled="idx >= roster.length - 1 || roster[idx + 1].round_number !== item.round_number"
-                          @click.stop="reorderRosterRow(idx, 'down')"
+                          :disabled="item.originalIdx >= roster.length - 1 || roster[item.originalIdx + 1].round_number !== item.round_number"
+                          @click.stop="reorderRosterRow(item.originalIdx, 'down')"
                           title="Move down within round">▼</button>
                   <button :class="['roster-ctrl', item.withdrawn_at ? 'roster-reinstate' : 'roster-withdraw']"
-                          @click.stop="withdrawRosterRow(idx)"
+                          @click.stop="withdrawRosterRow(item.originalIdx)"
                           :title="item.withdrawn_at ? 'Reinstate' : 'Withdraw / scratch'">
                     {{ item.withdrawn_at ? '↻' : '✕' }}
                   </button>
@@ -1349,6 +1478,105 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   font-size: 11px; color: var(--text-3); line-height: 1.5;
   padding: 0.5rem 0.7rem; margin-top: 0.4rem;
   background: var(--bg-3); border-left: 3px solid var(--cyan); border-radius: 3px;
+}
+
+/* =========================================================
+   Standings preview — top 5 inline above the diver queue
+   ========================================================= */
+.standings-preview {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-3);
+  flex-shrink: 0;
+}
+.standings-preview-label {
+  font-family: var(--font-display); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.25em; text-transform: uppercase; color: var(--text-3);
+  margin-bottom: 0.5rem;
+}
+.sp-row {
+  display: flex; align-items: baseline; gap: 0.5rem;
+  padding: 0.2rem 0; font-size: 12px;
+}
+.sp-rank {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+  color: var(--text-3); width: 16px; text-align: right; flex-shrink: 0;
+}
+.sp-rank.gold   { color: #f59e0b; }
+.sp-rank.silver { color: #94a3b8; }
+.sp-rank.bronze { color: #b45309; }
+.sp-name {
+  font-family: var(--font-display); font-weight: 700; color: var(--text);
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sp-total {
+  font-family: var(--font-mono); font-weight: 700; color: var(--cyan);
+  flex-shrink: 0;
+}
+
+/* =========================================================
+   Queue search + jump-to-round chips
+   ========================================================= */
+.queue-filters {
+  padding: 0.625rem 0.875rem; border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 0.5rem; flex-shrink: 0;
+  background: var(--bg-2);
+}
+.queue-search {
+  font-size: 12px; padding: 0.4rem 0.6rem;
+}
+.round-chips {
+  display: flex; gap: 0.25rem; flex-wrap: wrap;
+}
+.round-chip {
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 0.2rem 0.45rem; border-radius: 3px;
+  background: var(--bg-3); border: 1px solid var(--border); color: var(--text-3);
+  cursor: pointer; transition: all 0.1s;
+}
+.round-chip:hover { border-color: var(--cyan); color: var(--cyan); }
+.round-chip.active {
+  background: var(--cyan-dim); border-color: var(--cyan); color: var(--cyan);
+}
+
+/* =========================================================
+   History pane filters
+   ========================================================= */
+.hist-filters {
+  display: flex; gap: 0.4rem; padding: 0.625rem 0.875rem;
+  border-bottom: 1px solid var(--border); background: var(--bg-2);
+  flex-shrink: 0;
+}
+.hist-filter-select {
+  flex: 1; font-size: 11px; padding: 0.35rem 0.5rem;
+}
+
+/* =========================================================
+   Bigger judge tiles + name labels under each
+   ========================================================= */
+.judge-tile {
+  width: 76px; height: 76px;                             /* up from 60×60 */
+  position: relative;
+}
+.judge-tile-score { font-size: 20px; }                   /* bigger score */
+.judge-tile-name {
+  font-family: var(--font-mono); font-size: 9px;
+  color: var(--text-3); margin-top: 0.1rem;
+  max-width: 70px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.judge-tile.scored .judge-tile-name { color: var(--green); }
+/* When a score lands, briefly pulse the tile so the operator
+   sees incoming submissions even from across the deck. */
+.judge-tile.scored {
+  animation: tilePulse 0.4s ease-out;
+}
+@keyframes tilePulse {
+  0%   { transform: scale(1); box-shadow: 0 0 0 rgba(16,185,129,0); }
+  50%  { transform: scale(1.06); box-shadow: 0 0 18px rgba(16,185,129,0.5); }
+  100% { transform: scale(1); box-shadow: 0 0 12px rgba(16,185,129,0.2); }
 }
 
 .kbd-hints {

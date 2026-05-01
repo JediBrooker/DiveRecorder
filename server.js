@@ -1938,14 +1938,22 @@ app.delete(
 
 app.get(
   "/api/events/:eventId/judges",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireOrgRole(["org_admin", "meet_manager", "referee"]),
   async (req, res) => {
     try {
+      // Joined to users so the Control Room can label each judge
+      // tile with the actual person's name (helps the meet
+      // referee chase a slow submitter without checking the
+      // org panel separately).
       const r = await pool.query(
-        "SELECT judge_id, judge_number FROM event_judges WHERE event_id = $1 ORDER BY judge_number ASC",
+        `SELECT ej.judge_id, ej.judge_number, u.full_name
+         FROM event_judges ej
+         JOIN users u ON u.id = ej.judge_id
+         WHERE ej.event_id = $1
+         ORDER BY ej.judge_number ASC`,
         [req.params.eventId],
       );
-      res.json(r.rows); // [{ judge_id, judge_number }, ...]
+      res.json(r.rows); // [{ judge_id, judge_number, full_name }, ...]
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
