@@ -20,14 +20,14 @@
     "express": "^5.2.1",
     "express-rate-limit": "^7.5.0",
     "jsonwebtoken": "^9.0.3",
-    "nodemailer": "^6.10.1",
+    "nodemailer": "^8.0.7",
     "pdfkit": "^0.15.2",
     "pg": "^8.20.0",
+    "pinia": "^2.3.1",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
     "vue": "^3.5.13",
-    "vue-router": "^4.5.0",
-    "pinia": "^2.3.1"
+    "vue-router": "^4.5.0"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.3",
