@@ -16,9 +16,7 @@ const loadingList = ref(false)
 const currentEventId = ref(null)
 const currentEvent = computed(() => events.value.find(e => String(e.id) === String(currentEventId.value)) || null)
 
-// Filters drive the meets list when no event is selected. They
-// match the old ArchiveView so anyone bookmarked /archive sees
-// the same controls in the merged page.
+// Filters drive the meets list when no event is selected.
 const searchTerm    = ref('')
 const countryFilter = ref('')
 const yearFilter    = ref('')
@@ -883,7 +881,7 @@ onMounted(async () => {
 }
 
 /* =========================================================
-   List mode (browsable meets) — replaces the old ArchiveView.
+   List mode (browsable meets).
    The .sb-layout above is height:100vh + overflow:hidden for
    the live-broadcast layout; we need natural page-scroll here. */
 .sb-layout:has(.meets-mode) { height: auto; overflow: visible; }
@@ -958,8 +956,7 @@ onMounted(async () => {
   margin-top: 0.1rem;
 }
 
-/* Filter bar — same shape as the old ArchiveView so muscle
-   memory carries over for anyone who used /archive. */
+/* Filter bar */
 .filter-bar {
   display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
   padding: 0.75rem 1rem;

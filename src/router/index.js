@@ -46,10 +46,10 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['judge'] },
   },
   {
-    // Unified live + archive surface. /archive is kept as an
-    // alias so old links and the Dashboard tile don't 404.
+    // Unified live + archive surface — the old /archive route
+    // was retired once this view absorbed both browse-completed-
+    // meets and live-broadcast modes.
     path: '/scoreboard',
-    alias: '/archive',
     component: () => import('@/views/ScoreboardView.vue'),
   },
   {
