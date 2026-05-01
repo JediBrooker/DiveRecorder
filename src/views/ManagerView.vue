@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 const auth = useAuthStore()
 
 const events = ref([])
+const meets = ref([])
 const formErr = ref('')
 const editErr = ref('')
 const showEditModal = ref(false)
@@ -17,6 +18,15 @@ const createHeight = ref('')
 const createJudges = ref(5)
 const createRounds = ref(6)
 const createType = ref('individual')
+const createMeetId = ref('')           // optional — bundle this event into a meet
+
+// Meet management — separate from event create/edit. A meet is
+// a bundle of events; org admins create them here so events
+// can be filed under e.g. "2026 National Open".
+const meetForm = ref({
+  name: '', venue: '', start_date: '', end_date: '',
+})
+const meetFormErr = ref('')
 
 // Edit form
 const editId = ref('')
@@ -63,6 +73,66 @@ async function loadEvents() {
   }
 }
 
+async function loadMeets() {
+  if (!auth.user?.org_id) return
+  try {
+    const r = await fetch(`/api/orgs/${auth.user.org_id}/meets`)
+    const body = await r.json()
+    meets.value = Array.isArray(body) ? body : []
+  } catch {
+    meets.value = []
+  }
+}
+
+async function createMeet() {
+  meetFormErr.value = ''
+  if (!meetForm.value.name.trim()) {
+    meetFormErr.value = 'Meet name is required'
+    return
+  }
+  try {
+    await auth.apiFetch('/api/meets', {
+      method: 'POST',
+      body: JSON.stringify({
+        name:       meetForm.value.name.trim(),
+        venue:      meetForm.value.venue.trim() || null,
+        start_date: meetForm.value.start_date || null,
+        end_date:   meetForm.value.end_date   || null,
+      }),
+    })
+    meetForm.value = { name: '', venue: '', start_date: '', end_date: '' }
+    await loadMeets()
+  } catch (err) {
+    meetFormErr.value = err.message
+  }
+}
+
+async function deleteMeet(meet) {
+  if (!confirm(
+    `Delete meet "${meet.name}"?\n\nIts ${meet.event_count} event(s) will become standalone — they're not deleted.`,
+  )) return
+  try {
+    await auth.apiFetch(`/api/meets/${meet.id}`, { method: 'DELETE' })
+    await Promise.all([loadMeets(), loadEvents()])
+  } catch (err) {
+    alert('Failed to delete meet: ' + err.message)
+  }
+}
+
+async function assignEventToMeet(event, meetId) {
+  try {
+    await auth.apiFetch(`/api/events/${event.id}/meet`, {
+      method: 'PUT',
+      body: JSON.stringify({ meet_id: meetId || null }),
+    })
+    event.meet_id = meetId || null
+    // Refresh meet event-counts
+    await loadMeets()
+  } catch (err) {
+    alert('Failed: ' + err.message)
+  }
+}
+
 async function createEvent() {
   formErr.value = ''
   // Synchro panels must be 9 or 11 — preempt the server error
@@ -80,6 +150,7 @@ async function createEvent() {
         number_of_judges: parseInt(createJudges.value),
         total_rounds: parseInt(createRounds.value),
         event_type: createType.value,
+        meet_id: createMeetId.value || null,
       }),
     })
     createName.value = ''
@@ -88,7 +159,8 @@ async function createEvent() {
     createJudges.value = 5
     createRounds.value = 6
     createType.value = 'individual'
-    await loadEvents()
+    createMeetId.value = ''
+    await Promise.all([loadEvents(), loadMeets()])
   } catch (err) {
     formErr.value = err.message
   }
@@ -207,7 +279,7 @@ async function removeTeamFromEvent(team) {
   }
 }
 
-onMounted(loadEvents)
+onMounted(async () => { await Promise.all([loadEvents(), loadMeets()]) })
 </script>
 
 <template>
@@ -271,8 +343,67 @@ onMounted(loadEvents)
             <option v-for="n in 12" :key="n" :value="n">{{ n }} Round{{ n > 1 ? 's' : '' }}</option>
           </select>
         </div>
+        <!-- Optional meet bundle. Defaults to standalone; pick a
+             meet to file this event under "2026 National Open"
+             etc. so the public meet page surfaces it. -->
+        <div class="field">
+          <label class="label">Meet (optional)</label>
+          <select class="select" v-model="createMeetId">
+            <option value="">— Standalone (no meet) —</option>
+            <option v-for="m in meets" :key="m.id" :value="m.id">{{ m.name }}</option>
+          </select>
+          <p class="hint">
+            Bundle this event into a multi-event meet. Manage meets below.
+          </p>
+        </div>
         <div v-if="formErr" class="msg msg-error">{{ formErr }}</div>
         <button type="submit" class="btn btn-primary-lg" style="margin-top:0.25rem">Create Event</button>
+      </form>
+
+      <!-- Meet management — separate from event create. Lists
+           existing meets with their event counts plus an inline
+           create form. Sponsor + description fields are
+           managed via the API for now. -->
+      <h2 style="font-size:20px;font-style:italic;margin:2rem 0 0.75rem">Meets</h2>
+      <div class="meet-list">
+        <div v-if="!meets.length" class="hint">
+          No meets yet. Create one below to bundle multiple events.
+        </div>
+        <div v-for="m in meets" :key="m.id" class="meet-row">
+          <div class="meet-row-id">
+            <RouterLink :to="`/meet/${m.id}`" class="meet-row-name">{{ m.name }}</RouterLink>
+            <div class="meet-row-meta">
+              {{ m.event_count }} event{{ m.event_count === 1 ? '' : 's' }}
+              <span v-if="m.live_count" class="meet-live">· {{ m.live_count }} live</span>
+            </div>
+          </div>
+          <button class="btn btn-ghost btn-sm" @click="deleteMeet(m)">Delete</button>
+        </div>
+      </div>
+
+      <form @submit.prevent="createMeet" class="form-stack" style="margin-top:1rem">
+        <div class="field">
+          <label class="label">New Meet Name</label>
+          <input class="input" v-model="meetForm.name" placeholder="e.g. 2026 National Open" required>
+        </div>
+        <div class="field">
+          <label class="label">Venue (optional)</label>
+          <input class="input" v-model="meetForm.venue" placeholder="e.g. Sydney Olympic Aquatic Centre">
+        </div>
+        <div class="field" style="display:flex;gap:0.5rem">
+          <div style="flex:1">
+            <label class="label">Start Date</label>
+            <input class="input" type="date" v-model="meetForm.start_date">
+          </div>
+          <div style="flex:1">
+            <label class="label">End Date</label>
+            <input class="input" type="date" v-model="meetForm.end_date">
+          </div>
+        </div>
+        <div v-if="meetFormErr" class="msg msg-error">{{ meetFormErr }}</div>
+        <button type="submit" class="btn btn-primary btn-sm" style="align-self:flex-start">
+          Create Meet
+        </button>
       </form>
     </div>
 
@@ -438,6 +569,24 @@ onMounted(loadEvents)
   background: var(--bg-3); border-left: 3px solid var(--cyan); border-radius: 3px;
 }
 .hint-line { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-top: 0.5rem; }
+
+.meet-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.meet-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.6rem 0.85rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.meet-row-id   { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.meet-row-name {
+  font-family: var(--font-display); font-size: 14px; font-weight: 700;
+  font-style: italic; color: var(--text); text-decoration: none;
+}
+.meet-row-name:hover { color: var(--cyan); }
+.meet-row-meta {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+}
+.meet-live { color: var(--red); font-weight: 700; margin-left: 0.4rem; }
 
 .teams-modal { max-width: 560px; }
 .teams-section-label {

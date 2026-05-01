@@ -1508,6 +1508,197 @@ app.get(
 );
 
 // =============================================================
+// MEET ROUTES
+// A meet bundles multiple events. Public-readable (any spectator
+// can browse meets) but write-restricted to org_admin /
+// meet_manager.
+// =============================================================
+
+// List meets in an organisation. Public — used by the
+// Scoreboard list to group events by meet.
+app.get("/api/orgs/:id/meets", async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT m.*,
+              COUNT(e.id)::int AS event_count,
+              COUNT(e.id) FILTER (WHERE e.status = 'Live')::int      AS live_count,
+              COUNT(e.id) FILTER (WHERE e.status = 'Completed')::int AS completed_count
+       FROM meets m
+       LEFT JOIN events e ON e.meet_id = m.id
+       WHERE m.org_id = $1
+       GROUP BY m.id
+       ORDER BY COALESCE(m.start_date, m.created_at) DESC`,
+      [req.params.id],
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error("[List Meets Error]", err.message);
+    res.status(500).json([]);
+  }
+});
+
+// Public meet detail — meet metadata + every event nested
+// inside, in a shape suitable for the public landing page.
+app.get("/api/meets/:id", async (req, res) => {
+  try {
+    const meetRes = await pool.query(
+      `SELECT m.*, o.name AS org_name, o.country_code, o.id AS org_id
+       FROM meets m
+       JOIN organisations o ON o.id = m.org_id
+       WHERE m.id = $1`,
+      [req.params.id],
+    );
+    if (!meetRes.rows.length)
+      return res.status(404).json({ error: "Meet not found" });
+    const eventsRes = await pool.query(
+      `SELECT e.id, e.name, e.gender, e.height, e.total_rounds,
+              e.number_of_judges, e.event_type, e.status, e.created_at,
+              COALESCE(stat.competitor_count, 0)::int AS competitor_count
+       FROM events e
+       LEFT JOIN LATERAL (
+         SELECT COUNT(DISTINCT s.competitor_id) AS competitor_count
+         FROM scores s WHERE s.event_id = e.id
+       ) stat ON true
+       WHERE e.meet_id = $1
+       ORDER BY
+         CASE e.status
+           WHEN 'Live'      THEN 0
+           WHEN 'Upcoming'  THEN 1
+           WHEN 'Completed' THEN 2
+         END,
+         e.created_at ASC`,
+      [req.params.id],
+    );
+    res.json({ meet: meetRes.rows[0], events: eventsRes.rows });
+  } catch (err) {
+    console.error("[Meet Detail Error]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post(
+  "/api/meets",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    const {
+      name, venue, start_date, end_date, description,
+      sponsor_name, sponsor_logo_url, sponsor_link_url,
+    } = req.body || {};
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: "Meet name is required" });
+    }
+    try {
+      const r = await pool.query(
+        `INSERT INTO meets
+           (org_id, name, venue, start_date, end_date, description,
+            sponsor_name, sponsor_logo_url, sponsor_link_url)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+        [
+          req.user.org_id, name.trim(), venue || null,
+          start_date || null, end_date || null, description || null,
+          sponsor_name || null, sponsor_logo_url || null, sponsor_link_url || null,
+        ],
+      );
+      res.status(201).json(r.rows[0]);
+    } catch (err) {
+      console.error("[Create Meet Error]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+app.put(
+  "/api/meets/:id",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    const {
+      name, venue, start_date, end_date, description,
+      sponsor_name, sponsor_logo_url, sponsor_link_url,
+    } = req.body || {};
+    try {
+      const r = await pool.query(
+        `UPDATE meets SET
+           name = COALESCE($1, name),
+           venue = $2,
+           start_date = $3,
+           end_date = $4,
+           description = $5,
+           sponsor_name = $6,
+           sponsor_logo_url = $7,
+           sponsor_link_url = $8
+         WHERE id = $9 AND org_id = $10
+         RETURNING *`,
+        [
+          name?.trim() || null, venue || null,
+          start_date || null, end_date || null, description || null,
+          sponsor_name || null, sponsor_logo_url || null, sponsor_link_url || null,
+          req.params.id, req.user.org_id,
+        ],
+      );
+      if (!r.rows.length) return res.status(404).json({ error: "Meet not found" });
+      res.json(r.rows[0]);
+    } catch (err) {
+      console.error("[Update Meet Error]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+app.delete(
+  "/api/meets/:id",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    try {
+      const r = await pool.query(
+        "DELETE FROM meets WHERE id = $1 AND org_id = $2 RETURNING id",
+        [req.params.id, req.user.org_id],
+      );
+      if (!r.rows.length) return res.status(404).json({ error: "Meet not found" });
+      // ON DELETE SET NULL on events.meet_id means the events
+      // survive and become standalone — no separate cleanup
+      // needed.
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[Delete Meet Error]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+// Assign / re-assign an event to a meet (or detach with
+// meet_id = null). Manager-only — both meet and event must
+// already exist in the same org.
+app.put(
+  "/api/events/:id/meet",
+  requireEventManager(),
+  async (req, res) => {
+    const { meet_id } = req.body || {};
+    try {
+      if (meet_id) {
+        const m = await pool.query(
+          "SELECT id FROM meets WHERE id = $1 AND org_id = $2",
+          [meet_id, req.user.org_id],
+        );
+        if (!m.rows.length) {
+          return res
+            .status(400)
+            .json({ error: "Meet not found in this organisation" });
+        }
+      }
+      const r = await pool.query(
+        "UPDATE events SET meet_id = $1 WHERE id = $2 AND org_id = $3 RETURNING *",
+        [meet_id || null, req.params.id, req.user.org_id],
+      );
+      if (!r.rows.length) return res.status(404).json({ error: "Event not found" });
+      res.json(r.rows[0]);
+    } catch (err) {
+      console.error("[Assign Event Meet Error]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+// =============================================================
 // EVENT ROUTES
 // =============================================================
 
@@ -1540,7 +1731,7 @@ app.get("/api/events", async (req, res) => {
 });
 
 app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
-  const { name, gender, number_of_judges, total_rounds, height, event_type } =
+  const { name, gender, number_of_judges, total_rounds, height, event_type, meet_id } =
     req.body;
   // Synchronised pairs require 9 or 11 judges (the only panel
   // sizes World Aquatics defines exec/sync judge groups for).
@@ -1554,9 +1745,23 @@ app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    // Validate meet_id if provided — must belong to the same org.
+    if (meet_id) {
+      const m = await client.query(
+        "SELECT id FROM meets WHERE id = $1 AND org_id = $2",
+        [meet_id, req.user.org_id],
+      );
+      if (!m.rows.length) {
+        await client.query("ROLLBACK");
+        return res
+          .status(400)
+          .json({ error: "Meet not found in this organisation" });
+      }
+    }
     const evRes = await client.query(
-      `INSERT INTO events (name, gender, number_of_judges, total_rounds, height, event_type, org_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      `INSERT INTO events
+         (name, gender, number_of_judges, total_rounds, height, event_type, org_id, meet_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [
         name,
         gender,
@@ -1565,6 +1770,7 @@ app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
         height || null,
         type,
         req.user.org_id,
+        meet_id || null,
       ],
     );
     const event = evRes.rows[0];
@@ -2690,6 +2896,8 @@ app.get("/api/archive", async (req, res) => {
       `SELECT e.id, e.name, e.gender, e.height, e.total_rounds, e.number_of_judges,
               e.event_type, e.status,
               e.created_at, o.id AS org_id, o.name AS org_name, o.country_code,
+              e.meet_id, m.name AS meet_name,
+              m.start_date AS meet_start_date, m.end_date AS meet_end_date,
               COALESCE(stat.competitor_count, 0)::int AS competitor_count,
               COALESCE(stat.club_count, 0)::int       AS club_count,
               COALESCE(stat.club_ids, ARRAY[]::text[]) AS club_ids,
@@ -2697,6 +2905,7 @@ app.get("/api/archive", async (req, res) => {
               live.last_diver_name
        FROM events e
        JOIN organisations o ON e.org_id = o.id
+       LEFT JOIN meets m ON m.id = e.meet_id
        LEFT JOIN LATERAL (
          SELECT
            COUNT(DISTINCT s.competitor_id) AS competitor_count,

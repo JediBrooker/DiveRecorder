@@ -197,12 +197,39 @@ CREATE TABLE public.dive_directory (
 
 
 -- =============================================================
+-- MEETS — bundles of events.
+-- A real diving competition is multiple events ("2026 National
+-- Open" with 1m / 3m / 10m / synchro …). The meet record holds
+-- the venue, dates, sponsor info; events.meet_id is a nullable
+-- backref so an event can also stand alone.
+-- =============================================================
+
+CREATE TABLE public.meets (
+    id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    org_id      uuid NOT NULL REFERENCES public.organisations(id) ON DELETE CASCADE,
+    name        varchar(255) NOT NULL,
+    venue       varchar(255),
+    start_date  date,
+    end_date    date,
+    description text,
+    sponsor_name      varchar(255),
+    sponsor_logo_url  text,
+    sponsor_link_url  text,
+    created_at  timestamptz DEFAULT now() NOT NULL,
+    CONSTRAINT meets_dates_check CHECK (
+        start_date IS NULL OR end_date IS NULL OR end_date >= start_date
+    )
+);
+
+
+-- =============================================================
 -- EVENTS
 -- =============================================================
 
 CREATE TABLE public.events (
     id               uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     org_id           uuid NOT NULL REFERENCES public.organisations(id) ON DELETE CASCADE,
+    meet_id          uuid REFERENCES public.meets(id) ON DELETE SET NULL,
     name             varchar(255) NOT NULL,
     gender           event_gender NOT NULL,
     height           board_height,
@@ -554,6 +581,9 @@ CREATE INDEX idx_role_audit_created_at     ON public.role_audit_log  (created_at
 CREATE INDEX idx_coach_diver_coach         ON public.coach_diver_links (coach_id);
 CREATE INDEX idx_coach_diver_diver         ON public.coach_diver_links (diver_id);
 CREATE INDEX idx_coach_diver_org           ON public.coach_diver_links (org_id);
+CREATE INDEX idx_meets_org                 ON public.meets (org_id);
+CREATE INDEX idx_meets_dates               ON public.meets (start_date DESC NULLS LAST);
+CREATE INDEX idx_events_meet               ON public.events (meet_id);
 
 
 -- =============================================================
@@ -571,7 +601,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 9);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 10);
 
 
 -- =============================================================

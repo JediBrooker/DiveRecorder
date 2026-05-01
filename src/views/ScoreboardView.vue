@@ -588,6 +588,16 @@ onMounted(async () => {
           <div class="meet-card-org">
             {{ ev.org_name }}<span v-if="ev.country_code" class="meet-card-ctry">{{ ev.country_code }}</span>
           </div>
+          <!-- Meet badge — appears for events that belong to a
+               multi-event meet bundle. Tapping the badge stops
+               the card click and opens the meet landing page. -->
+          <RouterLink
+            v-if="ev.meet_id"
+            :to="`/meet/${ev.meet_id}`"
+            class="meet-card-meetlink"
+            @click.stop
+            :title="`Part of ${ev.meet_name}`"
+          >📅 {{ ev.meet_name }}</RouterLink>
           <div class="meet-card-tags">
             <span v-if="ev.gender" class="meet-tag">{{ ev.gender }}</span>
             <span v-if="ev.height" class="meet-tag">{{ ev.height }}</span>
@@ -1234,6 +1244,17 @@ onMounted(async () => {
   display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: baseline;
 }
 .meet-card-date { margin-left: auto; }
+.meet-card-meetlink {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  align-self: flex-start;
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--cyan); background: var(--cyan-dim);
+  border: 1px solid rgba(6,182,212,0.3); border-radius: 3px;
+  padding: 0.15rem 0.5rem; text-decoration: none;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.meet-card-meetlink:hover { background: var(--cyan); color: var(--bg); }
 
 .meets-empty {
   font-family: var(--font-mono); font-size: 13px; color: var(--text-3);

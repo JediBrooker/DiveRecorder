@@ -70,6 +70,12 @@ const routes = [
     component: () => import('@/views/ScoreboardView.vue'),
   },
   {
+    // Public meet landing page — meet metadata + every event
+    // grouped by status. Each event card jumps into /scoreboard.
+    path: '/meet/:id',
+    component: () => import('@/views/MeetView.vue'),
+  },
+  {
     path: '/users',
     component: () => import('@/views/UserManagerView.vue'),
     meta: { requiresAuth: true, requiresRole: ['org_admin'] },
