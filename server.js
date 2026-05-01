@@ -3684,6 +3684,172 @@ app.get("/api/archive/:eventId/results", async (req, res) => {
 // PDF EXPORT
 // =============================================================
 
+// Public meet program PDF — full schedule, every event in
+// the bundle, competitor count per event, sponsor strip on
+// the cover. No auth required (public meet pages already
+// expose this data via /meet/:id).
+app.get("/api/meets/:id/program.pdf", async (req, res) => {
+  try {
+    const [meetRes, eventsRes] = await Promise.all([
+      pool.query(
+        `SELECT m.*, o.name AS org_name, o.country_code
+         FROM meets m
+         JOIN organisations o ON o.id = m.org_id
+         WHERE m.id = $1`,
+        [req.params.id],
+      ),
+      pool.query(
+        `SELECT e.id, e.name, e.gender, e.age_group, e.height,
+                e.total_rounds, e.number_of_judges, e.event_type,
+                e.event_format, e.parent_event_id, e.scheduled_at,
+                e.dd_limit_rounds, e.dd_limit_value, e.status,
+                COALESCE(stat.competitor_count, 0)::int AS competitor_count
+         FROM events e
+         LEFT JOIN LATERAL (
+           SELECT COUNT(DISTINCT cdl.competitor_id) AS competitor_count
+           FROM competitor_dive_lists cdl
+           WHERE cdl.event_id = e.id AND cdl.withdrawn_at IS NULL
+         ) stat ON true
+         WHERE e.meet_id = $1
+         ORDER BY
+           e.scheduled_at NULLS LAST,
+           CASE e.event_format WHEN 'preliminary' THEN 0 ELSE 1 END,
+           e.created_at ASC`,
+        [req.params.id],
+      ),
+    ]);
+
+    if (!meetRes.rows.length) {
+      return res.status(404).json({ error: "Meet not found" });
+    }
+    const meet = meetRes.rows[0];
+    const events = eventsRes.rows;
+
+    const slug = (meet.name || "meet")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    const doc = new PDFDocument({ margin: 50, size: "A4" });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${slug}_program.pdf"`);
+    doc.pipe(res);
+
+    // ---------- Cover ----------
+    doc.font("Helvetica-Bold").fontSize(11)
+      .fillColor("#06b6d4")
+      .text((meet.org_name || "").toUpperCase() +
+            (meet.country_code ? `  ·  ${meet.country_code}` : ""),
+            { align: "center" });
+    doc.moveDown(0.5);
+    doc.font("Helvetica-Bold").fontSize(28).fillColor("#0f172a")
+      .text(meet.name, { align: "center" });
+    doc.moveDown(0.3);
+
+    if (meet.start_date || meet.end_date) {
+      const fmt = (d) => d
+        ? new Date(d).toLocaleDateString(undefined, {
+            year: "numeric", month: "long", day: "numeric",
+          })
+        : "";
+      const range = meet.start_date && meet.end_date && meet.start_date !== meet.end_date
+        ? `${fmt(meet.start_date)} – ${fmt(meet.end_date)}`
+        : fmt(meet.start_date || meet.end_date);
+      doc.font("Helvetica").fontSize(13).fillColor("#334155")
+        .text(range, { align: "center" });
+    }
+    if (meet.venue) {
+      doc.moveDown(0.2);
+      doc.font("Helvetica").fontSize(12).fillColor("#64748b")
+        .text(meet.venue, { align: "center" });
+    }
+    if (meet.description) {
+      doc.moveDown(0.6);
+      doc.font("Helvetica-Oblique").fontSize(10).fillColor("#475569")
+        .text(meet.description, { align: "center", width: 480 });
+    }
+    if (meet.sponsor_name) {
+      doc.moveDown(1.5);
+      doc.font("Helvetica").fontSize(9).fillColor("#94a3b8")
+        .text("POWERED BY", { align: "center", characterSpacing: 3 });
+      doc.font("Helvetica-Bold").fontSize(14).fillColor("#0f172a")
+        .text(meet.sponsor_name, { align: "center" });
+    }
+
+    doc.moveDown(2);
+
+    // ---------- Schedule list ----------
+    doc.font("Helvetica-Bold").fontSize(11)
+      .fillColor("#06b6d4")
+      .text("EVENT SCHEDULE", { characterSpacing: 3 });
+    doc.moveDown(0.4);
+    doc.lineWidth(0.5).strokeColor("#cbd5e1")
+      .moveTo(50, doc.y).lineTo(545, doc.y).stroke();
+    doc.moveDown(0.6);
+
+    if (!events.length) {
+      doc.font("Helvetica-Oblique").fontSize(11).fillColor("#64748b")
+        .text("No events scheduled for this meet yet.");
+    }
+
+    for (const ev of events) {
+      // Page break if we're running off the page
+      if (doc.y > 720) doc.addPage();
+
+      const time = ev.scheduled_at
+        ? new Date(ev.scheduled_at).toLocaleString(undefined, {
+            month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+          })
+        : "TBA";
+
+      doc.font("Helvetica-Bold").fontSize(13).fillColor("#0f172a")
+        .text(ev.name, { continued: false });
+      doc.font("Helvetica").fontSize(10).fillColor("#64748b");
+
+      const tags = [];
+      if (ev.event_type === "synchro_pair") tags.push("SYNCHRO");
+      else if (ev.event_type === "team")    tags.push("TEAM");
+      if (ev.event_format === "preliminary") tags.push("PRELIM");
+      else if (ev.parent_event_id)           tags.push("FINAL");
+      if (ev.age_group) tags.push(ev.age_group);
+      tags.push(ev.gender);
+      if (ev.height) tags.push(ev.height);
+      tags.push(`${ev.total_rounds} rounds`);
+      tags.push(`${ev.number_of_judges} judges`);
+      if (ev.dd_limit_rounds && ev.dd_limit_value) {
+        tags.push(`DD ≤ ${ev.dd_limit_value} for first ${ev.dd_limit_rounds}`);
+      }
+
+      doc.text(tags.join("  ·  "));
+
+      doc.font("Helvetica").fontSize(10).fillColor("#475569");
+      const meta = [];
+      meta.push(time);
+      if (ev.competitor_count) {
+        meta.push(`${ev.competitor_count} ${ev.competitor_count === 1 ? "diver" : "divers"}`);
+      }
+      meta.push(ev.status);
+      doc.text(meta.join("  ·  "));
+
+      doc.moveDown(0.7);
+      // Light divider between events
+      doc.lineWidth(0.3).strokeColor("#e2e8f0")
+        .moveTo(50, doc.y - 4).lineTo(545, doc.y - 4).stroke();
+    }
+
+    doc.moveDown(1);
+    doc.font("Helvetica-Oblique").fontSize(8).fillColor("#94a3b8")
+      .text(
+        `Generated ${new Date().toLocaleString()} via Dive Recorder.`,
+        { align: "center" },
+      );
+
+    doc.end();
+  } catch (err) {
+    console.error("[Meet Program PDF Error]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/api/events/:id/results.pdf", async (req, res) => {
   try {
     const [ev, standings, dives] = await Promise.all([

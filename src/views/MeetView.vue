@@ -63,6 +63,13 @@ onMounted(() => { if (route.params.id) load(route.params.id) })
     <!-- Top nav -->
     <div class="meet-nav">
       <RouterLink to="/scoreboard" class="btn btn-ghost btn-sm">← All Meets</RouterLink>
+      <a v-if="meet"
+         :href="`/api/meets/${meet.id}/program.pdf`"
+         target="_blank" rel="noopener"
+         class="btn btn-ghost btn-sm"
+         title="Download a printable schedule of every event in this meet">
+        📄 Program PDF
+      </a>
     </div>
 
     <div v-if="loading" class="empty">Loading meet…</div>
@@ -183,7 +190,7 @@ onMounted(() => { if (route.params.id) load(route.params.id) })
 
 <style scoped>
 .meet-wrap { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
-.meet-nav  { margin-bottom: 1rem; }
+.meet-nav  { margin-bottom: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
 .empty     { color: var(--text-3); padding: 3rem 0; text-align: center; font-family: var(--font-mono); font-size: 13px; }
 
 /* Hero */
