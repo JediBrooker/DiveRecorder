@@ -1,13 +1,14 @@
 # DiveRecorder
 
-A multi-tenant diving competition scoring app. Real-time judge scoring over WebSockets, World Aquatics-compliant point calculations, and a results archive that goes from "live broadcast" to "PDF export" without leaving the app.
+A multi-tenant diving competition scoring app. Real-time judge scoring over WebSockets, World Aquatics-compliant point calculations, prelim → semi → final progression, role-based dashboards (diver / coach / referee / meet manager), self-serve analytics, and a printable program / results pipeline that goes from "live broadcast" to "PDF export" without leaving the app.
 
-Built around four audiences:
+Built around five audiences:
 
-- **Divers** — Diver Portal for building and submitting dive lists per event (with World Aquatics DD lookup, height filter, synchro partner picker), plus a personal profile with PBs, score-trend sparkline, average DD, best single dive, and a single click to change clubs.
-- **Meet operators** — control room view advances divers, broadcasts state to judges and the public scoreboard, finalises events. Aware of synchro pairs and team affiliations on the active-diver card.
-- **Judges** — single-purpose phone-friendly view that submits scores back to the server in real time. Synchro panels see role hints (Exec A / Exec B / Sync) so they know which judging slot they're filling.
-- **Spectators** — public scoreboard with current performer, live standings, per-round leaderboard with movement arrows, and an archive of completed meets.
+- **Divers** — Diver Portal for building and submitting dive lists per event (with World Aquatics DD lookup, height filter, synchro partner autocomplete), plus a personal profile with PBs, score-trend sparkline, average DD, best single dive, and a customisable analytics dashboard with 10+ widgets.
+- **Coaches** — A `coach` role with a per-coach roster of linked divers and one-click access to each diver's profile.
+- **Meet operators** — Control room view advances divers, broadcasts state to judges and the public scoreboard, finalises events. 30-second shot clock, hold/resume, score correction, queue reorder, late entry, audit-logged referee actions.
+- **Judges** — Single-purpose phone-friendly view that submits scores back to the server in real time. Synchro panels see role hints (Exec A / Exec B / Sync) so they know which judging slot they're filling.
+- **Spectators** — Public scoreboard with current performer, live standings, per-round leaderboard with movement arrows, public meet landing pages, and an archive of completed meets.
 
 ---
 
@@ -21,7 +22,7 @@ The public landing page. Anyone can sign in, create an account, watch a live mee
 
 ### Dashboard
 
-Each user's role-based hub. Tiles surface only the areas the user has access to — divers see "My Profile" and "Diver Portal", admins additionally see User Manager, Clubs, etc.
+Each user's role-based hub. Tiles surface only the areas the user has access to — divers see "My Profile" and "Diver Portal", admins additionally see User Manager, Clubs, Teams, etc.
 
 ![Dashboard](./docs/screenshots/dashboard.png)
 
@@ -31,7 +32,7 @@ When a meet is over, the Scoreboard switches to a recap layout: podium spotlight
 
 ![Scoreboard](./docs/screenshots/scoreboard.png)
 
-### Results Archive
+### Results Archive (now part of the unified Scoreboard)
 
 Browse every completed meet. Filter by country, year, height, club, or just search across event/org/country. Each event card shows competitor and club counts so you can see meet size at a glance, and PDFs are one click away.
 
@@ -39,7 +40,7 @@ Browse every completed meet. Filter by country, year, height, club, or just sear
 
 ### Diver Profile
 
-Per-diver stats: meets entered, dives performed, average DD attempted, best single dive, an SVG sparkline of total scores across meets, and a personal-bests table keyed by dive code + position + height.
+Per-diver stats: meets entered, dives performed, average DD attempted, best single dive, an SVG sparkline of total scores across meets, and a personal-bests table keyed by dive code + position + height. Each diver picks which of 10+ analytics widgets to show via a "Customize" modal — the choices persist per-user.
 
 ![Diver Profile](./docs/screenshots/diver-profile.png)
 
@@ -49,20 +50,26 @@ Per-diver stats: meets entered, dives performed, average DD attempted, best sing
 
 - **Frontend**: Vue 3 (Composition API, `<script setup>`), Vite 6, Vue Router, Pinia
 - **Backend**: Node 18+, Express 5, Socket.IO 4, [`pg`](https://node-postgres.com/), `pdfkit`, `nodemailer`
-- **Auth**: JSON Web Tokens, bcrypt password hashing
-- **Database**: PostgreSQL 14+ with `uuid-ossp`
+- **Auth**: JSON Web Tokens, bcrypt password hashing, password-reset email flow with single-use tokens
+- **Database**: PostgreSQL 14+ with `uuid-ossp` and `pgcrypto`
+- **PWA**: service worker (network-first navigation + cache-first assets), web app manifest, IndexedDB-backed offline caching
 
-The project intentionally avoids a build-time framework like Nuxt or Next — the SPA is plain Vite, and the server is a single `server.js` Express app. Easier to read end-to-end.
+The project intentionally avoids a build-time framework like Nuxt or Next — the SPA is plain Vite, the server is a single Express app split into thin route modules. Easier to read end-to-end.
 
 ---
 
 ## Features
 
-### Live scoring
+### Live scoring & operations
 
 - Operator picks the active diver in the Control Room → judges' phones receive a `state_update` socket event → judges submit scores → control room advances to the next diver.
-- Score persistence + best-effort audit logging on every submission (judge id, IP, user agent).
-- Spectator-only Scoreboard view with no auth, broadcast feed badge, big-display Current Performer panel, and a "round X / Y" pill so audiences know where the meet is at.
+- **30-second shot clock** auto-starts when a diver is set; pause/reset; visual amber/red countdown; audible alert at 0.
+- **Hold / resume** the meet (video review, judge consultation) — broadcasts an amber banner to the spectator scoreboard and disables the judge submit button. Reason text shown publicly.
+- **Score correction** — click any completed dive in the Control Room history; modal lets the manager pick a judge, edit the value, and provide a reason. Audit-logged with old/new values, actor, IP, user agent.
+- **Round-end transition** — when the last diver of a round scores their last judge, the operator gets a prompt to announce standings to the audience.
+- **Referee actions** — failed dive, cap score, redive — broadcast and persisted in the score audit log.
+- **Score persistence + audit logging** on every submission (judge id, IP, user agent). Per-judge socket rate limit (60 submissions/min) blocks abuse.
+- **Connection-lost banners** on Judge + Scoreboard views so a flaky pool-deck wifi is visible immediately.
 
 ### World Aquatics scoring
 
@@ -72,51 +79,106 @@ A small set of PostgreSQL functions does all the scoring so totals are consisten
 - `calc_synchro_dive_points(judge_numbers, scores, num_judges, dd)` — World Aquatics synchronised rule: judges 1–2 (or 1–3 on an 11-panel) score Diver A execution, the next group score Diver B execution, the rest score sync. Trimmed and multiplied by `× DD × 0.6` to keep magnitude comparable to individual dives.
 - `calc_event_dive_points(...)` — dispatches to the right rule per dive, including the FINA Team Event case where a single event mixes individual and synchro dives.
 
-### Synchronised pairs
+### Event configuration
 
-- Event type `synchro_pair` with appropriate panel sizes (typically 9 or 11 judges).
-- Divers pick a partner from their organisation in the Diver Portal — both members are linked via `partner_id` on a single dive list, so one diver submits for the pair.
-- Scoreboard, archive, and PDF all show the partner alongside the primary diver.
-- Per-judge scores in the Scoreboard and Archive are grouped by role (Exec A / Exec B / Sync) so the audience can read the panel at a glance.
+Events flex for almost any meet format:
 
-### Team events
+- **Three-stage progression** — Preliminary (all entrants) → Semi-Final (top 18) → Final (top 12). The chain length is operator-defined per event (synchro and team meets typically skip the semi). One-click "Advance Top N →" pulls top-rank divers and seeds the next stage with their dive lists. Idempotent — safe to re-run after a score correction.
+- **Age groups / divisions** — free text so any federation's naming works (`U14`, `Open`, `Masters 30-34`, `Para`).
+- **Scheduled start time** — feeds the meet schedule view and notifications.
+- **Per-round DD limits** — common in junior events (rounds 1–N capped to a max DD).
+- **Event templates** — save a fully-built event configuration once, apply to a new event with one click. Per-org, name-keyed.
+- **CSV roster import** — paste a roster, server creates all the dive list rows in one transaction; per-row errors reported without failing the whole import.
 
-- Event type `team` with a teams registry per organisation (`/teams`) — create, rename, set short codes, manage rosters, see which events each team is in.
-- A team event's dive list is built per-team in [TeamDiveListView.vue](src/views/TeamDiveListView.vue): each round is either an individual dive (one team member) or a synchro dive (two team members). Mixed individual + synchro within the same event is the FINA Team Event format.
-- Standings aggregate by team for team events; for individual / synchro events, scoring stays per-competitor.
-- Deleting a team is non-destructive — historical dive list rows survive with `team_id = NULL` so meet results remain intact.
-- The Control Room shows the team name on the active-diver card during a team event.
+### Multi-event meets
+
+A meet bundles multiple events ("2026 National Open" → 1m M/F, 3m M/F, 10m M/F, synchro, team).
+
+- Public meet landing page at `/meet/:id` with hero (org, dates, venue, sponsor), live/upcoming/completed status counts, and event grid.
+- One-click **printable program PDF** with the full schedule, format, judges, age group, competitor counts.
+- Optional sponsor branding on the meet record (logo URL + link).
 
 ### Results archive
 
-- Browse completed meets with filters: search, country, year, height, club.
+- Browse completed meets with filters: search, country, year, height, club, status.
 - Each event card shows competitor and club counts derived from a `LATERAL` aggregate.
-- Per-event detail view with podium spotlight, full standings, dive-by-dive breakdown grouped by diver (each dive showing per-judge scores with FINA-category colour coding and trim-rule indication; synchro events show role-grouped panels).
+- Per-event detail view with podium spotlight, full standings, dive-by-dive breakdown grouped by diver. Synchro events show role-grouped panels.
 - One-click PDF export with the same standings + dive breakdown.
-- Resilient detail loading — a backend error on a single event no longer blanks the page.
+- CSV export of the filtered meets list for federation reporting.
 
-### Diver profile
+### Diver profile + analytics
 
 - Headline stats: meets entered, dives performed, average DD attempted, best single dive.
 - SVG sparkline of score progression across meets.
 - Personal best per (dive code + position + height) with attempts and "first set at" meet.
-- Inline "Change Club" editor so divers can correct their own club affiliation without bothering an admin.
+- **Self-serve analytics dashboard** — each diver picks which widgets to show via a "Customize" modal. Catalog includes:
+  - Score Trend, Personal Bests
+  - Recent Form (last 5 meets with rank "/of N")
+  - Medal Counts (gold / silver / bronze / finalist / 9th+)
+  - Height Breakdown (avg + best per board height, with bars)
+  - Round-by-Round Form (with stamina insight: "you finish strong" / "you fade" / "even pacing")
+  - Score Quality Mix (FINA category distribution)
+  - DD Risk Profile (avg / max DD + scoring at top DDs)
+  - Go-To Dives (most-attempted with avg / best)
+  - Current Streak (consecutive podiums / wins, self-hides when none)
+  - Compare-to-Peers (your stats vs the org average)
+  - Event-Type Splits (individual vs synchro vs team performance)
+  - Year-over-Year (this season vs last)
+- **Date range filter** at the top of the dashboard — every widget respects it.
+- **Export Dashboard PDF** — Cmd-P / Ctrl-P opens a print-friendly view that saves to PDF in one step.
+- **Drag-to-reorder** widgets in the Customize modal.
+- **Compare two divers** head-to-head at `/compare?a=&b=` — side-by-side stats and per-dive PB diff.
 
 ### Multi-tenant model
 
 - Two levels of organisational nesting: **organisations** (country federations) → **clubs** (within an org).
-- Teams sit alongside clubs as a separate grouping for FINA Team Event entries (a diver can belong to multiple teams over time).
+- **Teams** sit alongside clubs as a separate grouping for FINA Team Event entries (a diver can belong to multiple teams over time).
+- **Coach ↔ Diver links** — a coach can mentor multiple divers; a diver may have multiple coaches over time. Org admins manage the links from the User Manager drawer.
 - Users belong to one org and optionally one club within it.
 - System admins see across all orgs; org admins / meet managers manage their own.
 
+### Auth & accounts
+
+- JWT auth with bcrypt password hashing.
+- **Self-service password change** with current-password verification.
+- **Forgot-password flow** — email link with 30-min single-use JWT (single-use enforced via a password-hash fingerprint, no nonce table).
+- Hygiene email on every successful password change.
+- Welcome email on registration.
+- Org admin notified by email when a new role request lands.
+
+### Notifications
+
+Email triggers (best-effort, never block the response):
+
+- Welcome on registration
+- Role-request landing → org admins
+- Role-decision (approved / rejected) → applicant
+- Password changed → user
+- Password reset link → user
+- Meet went Live → every competitor
+- Results posted → every competitor
+
 ### Admin tooling
 
-- **User Manager** (`/users`): search, role filter chips, org filter, group-by-org, bulk role apply, paginated table, click-row-to-edit drawer with role audit history.
+- **User Manager** (`/users`): search, role filter chips, org filter, group-by-org, bulk role apply, paginated table, click-row-to-edit drawer with role audit history, club editor, **coach link manager**.
 - **Clubs** (`/clubs`): list, create, rename, delete with member counts.
 - **Teams** (`/teams`): list, create, rename, delete (non-destructive), inline member drawer, see which events each team is enrolled in.
 - **Score Audit Log** (`/events/:id/audit`): per-event timeline of every score insert/update/delete with actor, IP, user agent.
 - Role grants/revokes write to a `role_audit_log` table; the User Manager drawer surfaces the per-user history.
-- CSV export of any current Member Manager filter.
+- 30-day audit log retention via `purge_audit_logs(retention_days)` — runs on server boot, configurable.
+- Schema version stamp logged on boot so an operator can confirm at-a-glance which version is deployed.
+
+### Operator surfaces
+
+- **Broadcast / kiosk mode** — `/scoreboard/:eventId/broadcast` (spectator) and `/control?broadcast=1` (operator) hide page chrome for venue projectors; fonts and tile sizes scale up to read from the back of a pool deck.
+- **Operator keyboard shortcuts** in Control Room — ←/→/Space to advance, 1–9 to jump to roster position, S to cycle status (READY → DIVING → JUDGING), T to reset shot clock, F failed, R redive, H hold, L leaderboard.
+- **Up Next preview** in the live scoreboard centre column.
+
+### PWA / offline
+
+- Web app manifest + 192/512 PNG icons + SVG icon — installs to home screen on iOS / Android / desktop.
+- Service worker: network-first for navigation (deploys reach users immediately), cache-first for hashed assets.
+- IndexedDB-backed stale-while-revalidate caching on the diver profile and meets list — return visits feel instant, the diver profile keeps working when wifi is gone.
 
 ---
 
@@ -126,7 +188,7 @@ A small set of PostgreSQL functions does all the scoring so totals are consisten
 
 - **Node 18 or newer** (Vite 6 requires it)
 - **PostgreSQL 14+** running locally
-- The `uuid-ossp` and `pgcrypto` extensions (PostgreSQL ships with them; the schema enables `uuid-ossp`)
+- The `uuid-ossp` and `pgcrypto` extensions (PostgreSQL ships with them; `init.sql` enables both)
 
 ### 2. Clone and install
 
@@ -143,7 +205,7 @@ createdb diverecorder
 psql -d diverecorder -f init.sql
 ```
 
-`init.sql` is the single bootstrap script — it creates every table, enum, function and index, loads the full World Aquatics dive directory (~830 dives), and creates a system-admin account so you can sign in immediately.
+`init.sql` is the single bootstrap script — it creates every table, enum, function and index, loads the full World Aquatics dive directory (~830 dives), and creates a system-admin account so you can sign in immediately. Schema version is logged on server boot.
 
 ### 4. (Optional) Seed test data
 
@@ -159,6 +221,19 @@ Adds 20 country federations, 80 clubs, 1000 users, 50 individual events, 20 sync
 cp .env.example .env
 # edit .env with your local DB credentials and a JWT secret
 ```
+
+For password-reset and notification emails to actually send, also configure SMTP:
+
+```
+APP_BASE_URL=https://your-domain.example.com
+SMTP_HOST=smtp.your-provider.com
+SMTP_PORT=587
+SMTP_USER=...
+SMTP_PASS=...
+SMTP_FROM="Dive Recorder <noreply@your-domain.example.com>"
+```
+
+Without `SMTP_HOST` set, every email helper silently no-ops — registrations and password changes work, just no email is dispatched. `APP_BASE_URL` is used to build the reset-password link.
 
 ### 6. Sign in
 
@@ -196,16 +271,33 @@ Open `http://localhost:5173` (dev) or `http://localhost:3000` (built).
 
 ```
 .
-├── server.js                # Single-file Express app (auth, REST, sockets, PDF)
+├── server.js                # Express app — auth + REST + sockets + PDF
+├── routes/
+│   ├── auth.js              # /api/auth/* (login, register, password reset)
+│   └── scoreboard.js        # /api/scoreboard/:eventId + /leaderboard
 ├── init.sql                 # One-shot bootstrap: schema + dive directory + admin user
 ├── seed_test_data.sql       # Optional test-data seed (orgs, users, events, scores)
+├── migrations/              # Append-only schema changes since v1
 ├── src/
 │   ├── views/               # One Vue component per route
+│   ├── lib/
+│   │   └── idbCache.js      # IndexedDB stale-while-revalidate helper
 │   ├── stores/auth.js       # Pinia auth store (JWT in sessionStorage)
-│   ├── composables/         # useSocket etc.
+│   ├── composables/         # useSocket, useOfflineApi, useScoreCategories
 │   ├── router/              # vue-router config
 │   └── main.js, App.vue
-└── public/css/app.css       # Shared design tokens (one stylesheet)
+├── public/
+│   ├── css/app.css          # Shared design tokens (one stylesheet)
+│   ├── icon.svg / icon-*.png# PWA icons
+│   ├── manifest.webmanifest # Web app manifest
+│   └── sw.js                # Service worker (network-first nav)
+├── test/
+│   ├── calc.test.js         # World Aquatics scoring tests vs Postgres
+│   └── syntax.test.js       # No-DB sanity (server.js parses, init.sql exists)
+└── .github/
+    ├── workflows/ci.yml     # Lint + build + Postgres test matrix
+    └── ISSUE_TEMPLATE/
+        └── bug_report.md    # Bug report template
 ```
 
 ---
@@ -215,12 +307,13 @@ Open `http://localhost:5173` (dev) or `http://localhost:3000` (built).
 | Role | Granted to | What they can do |
 |---|---|---|
 | `spectator` | every user, by default | Read public events and standings |
-| `diver` | competitors | Submit dive lists, view own profile |
+| `diver` | competitors | Submit dive lists, view own profile + analytics |
+| `coach` | mentors | View linked divers' profiles + analytics, compare divers head-to-head |
 | `judge` | scoring panel members | Submit scores during live events |
 | `referee` | meet officials | Trigger failed-dive / cap / re-dive actions |
-| `meet_manager` | event organisers | Create/edit events, manage panels |
-| `org_admin` | federation administrators | Approve role requests, manage members |
-| `system_admin` (boolean flag) | platform operators | Cross-org access |
+| `meet_manager` | event organisers | Create/edit events, manage panels, run the Control Room |
+| `org_admin` | federation administrators | Approve role requests, manage members + clubs + teams + coach links |
+| `system_admin` (boolean flag) | platform operators | Cross-org access — see and edit every event in every org |
 
 System admin is set with a SQL `UPDATE` (no UI for it intentionally — it's a powerful flag):
 
@@ -229,6 +322,28 @@ UPDATE users SET is_system_admin = true WHERE username = 'your_username';
 ```
 
 Sign out and back in for the change to take effect (the JWT carries the flag). The bootstrap `admin` user already has the flag set.
+
+---
+
+## Reporting a bug
+
+Bug reports go through GitHub Issues. The repo has a template that prompts for the details that actually help debug — please fill in everything you can.
+
+**To file a bug:**
+
+1. Open https://github.com/JediBrooker/DiveRecorder/issues/new/choose
+2. Pick the **Bug report** template.
+3. Fill in the sections (steps to reproduce, expected vs actual, environment).
+4. **Don't paste passwords, JWTs, or other secrets.** If a JWT helps the diagnosis, redact the signature segment.
+
+**Before filing**, a quick triage that solves most issues:
+
+- **White page after a deploy?** Hard refresh (Cmd-Shift-R / Ctrl-Shift-R) once. The service worker is now network-first so subsequent deploys reach you on a normal refresh.
+- **Schema-version errors?** On the server, check the boot log for `📊 Schema version N`. If `N` is lower than the current migration count under `migrations/`, run the missing migrations in order.
+- **Email not sending?** `SMTP_HOST` must be set in the env. Without it, every email helper silently no-ops.
+- **Live scoring not updating?** Check the **Connection-lost banner** at the top of the Judge / Scoreboard view — if it's showing, the socket is disconnected.
+
+If you're a paying customer or running a production federation, urgent issues can be flagged via email — see `SUPPORT.md` (if present) for the escalation path; otherwise the issue tracker is the canonical channel.
 
 ---
 
@@ -241,12 +356,16 @@ Sign out and back in for the change to take effect (the JWT carries the flag). T
 | `npm run build` | Build SPA to `dist/` |
 | `npm run preview` | Vite preview of the built bundle |
 | `npm start` | Run the Express server (serves `dist/` if built; serves the API and WebSocket on :3000) |
+| `npm run lint` | Syntax-check `server.js` |
+| `npm test` | Node's built-in test runner against `test/*.test.js` |
 
 ---
 
 ## Contributing
 
-Fork it, branch from `main`, send a PR. CI builds on push and PR — green build is a precondition for merging.
+Fork it, branch from `main`, send a PR. CI builds + lints + runs the test suite (against a Postgres service container) on push and PR — green CI is a precondition for merging.
+
+Branch protection on `main` is enforced via a ruleset: deletions blocked, force-pushes blocked, status checks required.
 
 ---
 

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question / how-to
+    url: https://github.com/JediBrooker/DiveRecorder/discussions
+    about: For "how do I…" questions, prefer GitHub Discussions so the answer is searchable for the next person.
