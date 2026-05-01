@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
@@ -27,9 +27,208 @@ const nextBtnComplete = ref(false)
 const finaliseBtnShow = ref(false)
 const finaliseBtnText = ref('Finalise Event ✓')
 
+// =============================================================
+// SHOT CLOCK — 30-second WA rule timer.
+// Starts when a new active diver is set; operator can pause /
+// reset / extend. Plays an audible alert at 0 (browser allows
+// once we've had a user gesture, which we always do here).
+// =============================================================
+const SHOT_CLOCK_DEFAULT = 30
+const shotClock = ref(SHOT_CLOCK_DEFAULT)
+const shotClockRunning = ref(false)
+const shotClockExpired = ref(false)
+let shotClockTimer = null
+
+function startShotClock(seconds = SHOT_CLOCK_DEFAULT) {
+  stopShotClock()
+  shotClock.value = seconds
+  shotClockRunning.value = true
+  shotClockExpired.value = false
+  shotClockTimer = setInterval(() => {
+    shotClock.value--
+    if (shotClock.value <= 0) {
+      shotClock.value = 0
+      shotClockExpired.value = true
+      stopShotClock()
+      // Beep — uses Web Audio API so we don't ship an mp3.
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)()
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.connect(gain); gain.connect(ctx.destination)
+        osc.frequency.value = 880
+        gain.gain.value = 0.15
+        osc.start()
+        setTimeout(() => { osc.stop(); ctx.close() }, 600)
+      } catch { /* audio context blocked in some webviews — silent fail */ }
+    }
+  }, 1000)
+}
+function stopShotClock() {
+  if (shotClockTimer) { clearInterval(shotClockTimer); shotClockTimer = null }
+  shotClockRunning.value = false
+}
+function pauseShotClock() {
+  if (shotClockRunning.value) stopShotClock()
+  else if (shotClock.value > 0) {
+    shotClockRunning.value = true
+    shotClockTimer = setInterval(() => {
+      shotClock.value--
+      if (shotClock.value <= 0) { shotClock.value = 0; shotClockExpired.value = true; stopShotClock() }
+    }, 1000)
+  }
+}
+function resetShotClock() {
+  stopShotClock()
+  shotClock.value = SHOT_CLOCK_DEFAULT
+  shotClockExpired.value = false
+}
+const shotClockClass = computed(() => {
+  if (shotClockExpired.value) return 'shot-clock-expired'
+  if (shotClock.value <= 5) return 'shot-clock-warn'
+  if (shotClock.value <= 10) return 'shot-clock-amber'
+  return ''
+})
+
+// =============================================================
+// HOLD / RESUME — broadcast pause state to judges + scoreboard.
+// =============================================================
+const isHeld = ref(false)
+const holdReason = ref('')
+const holdPromptOpen = ref(false)
+const holdReasonInput = ref('')
+
+function openHoldPrompt() {
+  holdReasonInput.value = ''
+  holdPromptOpen.value = true
+}
+function confirmHold() {
+  if (!currentEvent.value) return
+  isHeld.value = true
+  holdReason.value = holdReasonInput.value.trim()
+  socket.emit('meet_hold', {
+    event_id: currentEvent.value.id,
+    reason: holdReason.value || null,
+  })
+  holdPromptOpen.value = false
+  // Pause the shot clock — diver can't be "on the clock" during a hold
+  if (shotClockRunning.value) stopShotClock()
+}
+function resumeMeet() {
+  if (!currentEvent.value) return
+  isHeld.value = false
+  holdReason.value = ''
+  socket.emit('meet_resume', { event_id: currentEvent.value.id })
+}
+
+// =============================================================
+// SCORE CORRECTION — manager-amend on a finalised dive.
+// =============================================================
+const correctOpen = ref(false)
+const correctTarget = ref(null)        // historyCard the operator clicked
+const correctJudgeIdx = ref(0)
+const correctNewScore = ref('')
+const correctReason = ref('')
+const correctBusy = ref(false)
+const correctErr = ref('')
+
+function openCorrection(card) {
+  correctTarget.value = card
+  correctJudgeIdx.value = 0
+  correctNewScore.value = card.scores?.[0]?.toFixed?.(1) || ''
+  correctReason.value = ''
+  correctErr.value = ''
+  correctOpen.value = true
+}
+function closeCorrection() {
+  correctOpen.value = false
+  correctTarget.value = null
+}
+
+async function submitCorrection() {
+  correctErr.value = ''
+  const newVal = parseFloat(correctNewScore.value)
+  if (Number.isNaN(newVal) || newVal < 0 || newVal > 10 || ((newVal * 2) % 1) !== 0) {
+    correctErr.value = 'Score must be 0–10 in 0.5 increments'
+    return
+  }
+  if (!correctTarget.value?.score_ids?.[correctJudgeIdx.value]) {
+    correctErr.value = 'Score id missing — refresh and try again'
+    return
+  }
+  correctBusy.value = true
+  try {
+    await auth.apiFetch(`/api/scores/${correctTarget.value.score_ids[correctJudgeIdx.value]}`, {
+      method: 'PUT',
+      body: JSON.stringify({ score: newVal, reason: correctReason.value || null }),
+    })
+    // Update locally so the history pane reflects the change
+    correctTarget.value.scores[correctJudgeIdx.value] = newVal
+    correctTarget.value.total = correctTarget.value.scores
+      .reduce((a, b) => a + b, 0).toFixed(1)
+    closeCorrection()
+  } catch (err) {
+    correctErr.value = err.message
+  } finally {
+    correctBusy.value = false
+  }
+}
+
+// =============================================================
+// ROUND-END TRANSITION
+// When the last dive of a round scores, prompt the operator to
+// announce the standings. Watches the queue + history to detect
+// "round N just completed".
+// =============================================================
+const roundEndPromptOpen = ref(false)
+const roundEndForRound = ref(0)
+
+function detectRoundEnd(justCompletedRound) {
+  if (!roster.value.length || !justCompletedRound) return
+  const completedInRound = historyCards.value.filter(
+    h => h.round === justCompletedRound,
+  ).length
+  const expectedInRound = roster.value.filter(
+    r => r.round_number === justCompletedRound,
+  ).length
+  if (completedInRound >= expectedInRound && expectedInRound > 0) {
+    roundEndForRound.value = justCompletedRound
+    roundEndPromptOpen.value = true
+  }
+}
+
+async function announceRoundEnd() {
+  if (!currentEvent.value) return
+  try {
+    const data = await auth.apiFetch(`/api/scoreboard/${currentEvent.value.id}`)
+    socket.emit('announce_score', {
+      standings: data.standings,
+      eventId: currentEvent.value.id,
+      round_completed: roundEndForRound.value,
+    })
+  } catch { /* best effort */ }
+  roundEndPromptOpen.value = false
+}
+
 // Socket connection
 socket.on('connect', () => { connStatus.value = true })
 socket.on('disconnect', () => { connStatus.value = false })
+
+// Hold-state sync — for multi-operator setups + late-joining
+// Control Room sessions. The server replays meet_held when we
+// ask for it.
+socket.on('meet_held', (data) => {
+  if (currentEvent.value && data.event_id === currentEvent.value.id) {
+    isHeld.value = true
+    holdReason.value = data.reason || ''
+  }
+})
+socket.on('meet_resumed', (data) => {
+  if (currentEvent.value && data.event_id === currentEvent.value.id) {
+    isHeld.value = false
+    holdReason.value = ''
+  }
+})
 
 socket.on('score_received', (data) => {
   if (!currentActive.value) return
@@ -67,7 +266,11 @@ socket.on('score_received', (data) => {
       judge_scores: scoreValues,
       total_points: scoreValues.reduce((a, b) => a + b, 0),
     })
+    stopShotClock()                                    // dive complete — clock irrelevant
     updateNextButton(true)
+    // Round-end detection: this might have been the final dive
+    // of the round. detectRoundEnd surfaces a prompt if so.
+    detectRoundEnd(currentActive.value.round_number)
   }
 })
 
@@ -112,8 +315,21 @@ function addHistoryCard(data) {
   const dd = data.dd != null ? parseFloat(data.dd) : null
   const desc = data.description || null
   const total_rounds = data.total_rounds || currentEvent.value?.total_rounds || null
+  // Capture score row ids if the source provided them — used by
+  // the correction modal to PUT /api/scores/:id. Live cards
+  // built from socket events don't have ids yet (the upsert
+  // happens server-side); the history endpoint includes them.
+  const score_ids = Array.isArray(data.score_ids) ? data.score_ids : []
+  // Stash event_id + competitor_id so the modal can refetch ids
+  // if needed.
+  const event_id = data.event_id || currentEvent.value?.id || null
+  const competitor_id = data.competitor_id || null
 
-  historyCards.value.unshift({ name, country, dive_code, position, dd, desc, round: data.round_number, total_rounds, scores, total })
+  historyCards.value.unshift({
+    name, country, dive_code, position, dd, desc,
+    round: data.round_number, total_rounds, scores, total,
+    score_ids, event_id, competitor_id,
+  })
 }
 
 function setActive(idx) {
@@ -142,6 +358,9 @@ function setActive(idx) {
   })
   resetJudgeTiles()
   updateNextButton(false)
+  // Reset + auto-start the 30-second shot clock for this diver.
+  // Operator can pause / extend if needed (warm-up, equipment).
+  startShotClock()
 }
 
 function updateNextButton(allScoresIn) {
@@ -273,8 +492,19 @@ async function onEventChange() {
       description: h.description,
       judge_scores: h.judge_scores,
       total_points: h.total_points,
+      // Pass through ids + ownership so the score-correction
+      // modal can target the right rows.
+      score_ids: h.score_ids,
+      event_id: h.event_id,
+      competitor_id: h.competitor_id,
     })
   })
+
+  // Hold state — re-pull on event switch in case a hold was set
+  // from another Control Room instance before we connected.
+  isHeld.value = false
+  holdReason.value = ''
+  socket.emit('get_meet_hold', { event_id: selectedEventId.value })
 
   if (roster.value.length) {
     setActive(0)
@@ -316,6 +546,17 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       </div>
       <span style="font-family:var(--font-display);font-size:16px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-3)">{{ meetName }}</span>
       <div style="display:flex;align-items:center;gap:0.75rem">
+        <!-- Hold / Resume — broadcasts a paused state to judges
+             + spectator scoreboard. Cyan when running, amber
+             when held. -->
+        <button
+          v-if="currentEvent && currentEvent.status !== 'Completed'"
+          :class="['btn-hold', isHeld ? 'btn-hold-active' : '']"
+          @click="isHeld ? resumeMeet() : openHoldPrompt()"
+          title="Pause / resume the meet"
+        >
+          {{ isHeld ? '▶ Resume' : '⏸ Hold' }}
+        </button>
         <RouterLink to="/dashboard" class="btn-back">← Dashboard</RouterLink>
         <button
           v-if="finaliseBtnShow"
@@ -323,6 +564,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           @click="currentEvent?.status === 'Completed' ? showLeaderboard() : finaliseEvent()"
         >{{ finaliseBtnText }}</button>
       </div>
+    </div>
+
+    <!-- Hold banner — visible whenever the meet is on hold. -->
+    <div v-if="isHeld" class="hold-banner">
+      <span class="hold-pulse">⏸ MEET ON HOLD</span>
+      <span v-if="holdReason" class="hold-reason">{{ holdReason }}</span>
     </div>
 
     <!-- Leaderboard modal -->
@@ -357,7 +604,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <div class="ctrl-panel">
         <div class="panel-head">Completed Dives</div>
         <div class="panel-body">
-          <div v-for="(card, idx) in historyCards" :key="idx" class="hist-card">
+          <div
+            v-for="(card, idx) in historyCards"
+            :key="idx"
+            :class="['hist-card', card.score_ids?.length ? 'hist-card-correctable' : '']"
+            :title="card.score_ids?.length ? 'Click to amend a score' : ''"
+            @click="card.score_ids?.length && openCorrection(card)"
+          >
             <div class="hist-round">Round {{ card.round }}{{ card.total_rounds ? ` / ${card.total_rounds}` : '' }}</div>
             <div class="hist-header">
               <div class="hist-name">{{ card.name }}<span v-if="card.country" class="hist-country">{{ card.country }}</span></div>
@@ -378,8 +631,20 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <!-- Centre: Active diver -->
       <div style="display:flex;flex-direction:column;overflow:hidden">
         <div class="active-zone" style="flex:1;overflow-y:auto">
-          <div class="active-label">
-            Currently on Board<span v-if="activeInfo.round_number" class="active-round">— Round {{ activeInfo.round_number }}</span>
+          <div class="active-label-row">
+            <span class="active-label">
+              Currently on Board<span v-if="activeInfo.round_number" class="active-round">— Round {{ activeInfo.round_number }}</span>
+            </span>
+            <!-- Shot clock — 30-second WA rule. Auto-starts when
+                 a new diver is set; click face to pause/resume,
+                 ↻ to reset. -->
+            <div v-if="currentActive" :class="['shot-clock', shotClockClass]">
+              <button class="shot-clock-face" @click="pauseShotClock" title="Pause / resume">
+                <span class="shot-clock-num">{{ shotClock }}</span>
+                <span class="shot-clock-unit">s</span>
+              </button>
+              <button class="shot-clock-reset" @click="resetShotClock" title="Reset to 30s">↻</button>
+            </div>
           </div>
           <div class="active-name">
             <template v-if="activeInfo.partner_name">
@@ -469,6 +734,92 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             </div>
           </template>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hold-reason prompt -->
+  <div v-if="holdPromptOpen" class="lb-backdrop" @click="holdPromptOpen = false"></div>
+  <div v-if="holdPromptOpen" class="lb-modal hold-modal" @click.stop>
+    <div class="lb-header">
+      <div>
+        <div class="lb-title">Pause Meet</div>
+        <div class="lb-event">Spectators + judges will see a "meet on hold" banner</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" @click="holdPromptOpen = false">Cancel</button>
+    </div>
+    <div class="lb-body">
+      <div class="field">
+        <label class="label">Reason (optional, shown publicly)</label>
+        <input class="input" type="text" v-model="holdReasonInput"
+               placeholder='e.g. "Video review" or "Judges deliberating"'
+               @keyup.enter="confirmHold">
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:1rem">
+        <button class="btn btn-ghost btn-sm" @click="holdPromptOpen = false">Cancel</button>
+        <button class="btn btn-primary btn-sm" @click="confirmHold">⏸ Hold meet</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Score correction modal -->
+  <div v-if="correctOpen" class="lb-backdrop" @click="closeCorrection"></div>
+  <div v-if="correctOpen && correctTarget" class="lb-modal correct-modal" @click.stop>
+    <div class="lb-header">
+      <div>
+        <div class="lb-title">Amend Score</div>
+        <div class="lb-event">{{ correctTarget.name }} · Round {{ correctTarget.round }} · {{ correctTarget.dive_code }}{{ correctTarget.position }}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" @click="closeCorrection">Cancel</button>
+    </div>
+    <div class="lb-body">
+      <div class="field">
+        <label class="label">Judge</label>
+        <select class="select" v-model="correctJudgeIdx">
+          <option v-for="(s, i) in correctTarget.scores" :key="i" :value="i">
+            J{{ i + 1 }} — currently {{ s.toFixed(1) }}
+          </option>
+        </select>
+      </div>
+      <div class="field">
+        <label class="label">New score (0–10, 0.5 increments)</label>
+        <input class="input" type="number" min="0" max="10" step="0.5"
+               v-model="correctNewScore"
+               @keyup.enter="submitCorrection">
+      </div>
+      <div class="field">
+        <label class="label">Reason (logged in audit trail)</label>
+        <input class="input" type="text" v-model="correctReason"
+               placeholder='e.g. "Judge typo — verified with video"'>
+      </div>
+      <div v-if="correctErr" class="msg msg-error">{{ correctErr }}</div>
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:1rem">
+        <button class="btn btn-ghost btn-sm" @click="closeCorrection">Cancel</button>
+        <button class="btn btn-primary btn-sm" :disabled="correctBusy" @click="submitCorrection">
+          {{ correctBusy ? 'Saving…' : 'Save correction' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Round-end transition prompt -->
+  <div v-if="roundEndPromptOpen" class="lb-backdrop" @click="roundEndPromptOpen = false"></div>
+  <div v-if="roundEndPromptOpen" class="lb-modal" @click.stop>
+    <div class="lb-header">
+      <div>
+        <div class="lb-title">Round Complete</div>
+        <div class="lb-event">Round {{ roundEndForRound }} of {{ currentEvent?.total_rounds }} finished</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" @click="roundEndPromptOpen = false">Skip</button>
+    </div>
+    <div class="lb-body">
+      <p style="font-family:var(--font-mono);font-size:13px;color:var(--text-2);line-height:1.6;margin-bottom:1rem">
+        Show the running standings to the audience? Triggers the
+        score-reveal overlay on the live scoreboard.
+      </p>
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem">
+        <button class="btn btn-ghost btn-sm" @click="roundEndPromptOpen = false">Skip</button>
+        <button class="btn btn-primary btn-sm" @click="announceRoundEnd">📣 Announce standings</button>
       </div>
     </div>
   </div>
@@ -639,6 +990,91 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .lb-name { font-family: var(--font-display); font-size: 20px; font-weight: 700; color: var(--text); flex: 1; }
 .lb-score { font-family: var(--font-mono); font-size: 22px; font-weight: 500; color: var(--cyan); flex-shrink: 0; }
 .lb-winner { background: linear-gradient(135deg, rgba(245,158,11,0.08), rgba(245,158,11,0.03)); border-radius: var(--radius); padding: 0 0.75rem; margin: 0 -0.75rem; }
+
+/* =========================================================
+   Hold / Resume — header button + persistent banner
+   ========================================================= */
+.btn-hold {
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.15em; text-transform: uppercase;
+  padding: 0.5rem 0.875rem; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--bg-3);
+  color: var(--text-2); cursor: pointer; transition: all 0.15s;
+}
+.btn-hold:hover { border-color: var(--amber); color: var(--amber); }
+.btn-hold-active {
+  background: var(--amber); color: var(--bg); border-color: var(--amber);
+  animation: pulse-amber 2s infinite;
+}
+.btn-hold-active:hover { background: var(--amber); color: var(--bg); }
+@keyframes pulse-amber { 0%,100% { opacity: 1; } 50% { opacity: 0.75; } }
+
+.hold-banner {
+  display: flex; align-items: center; gap: 0.875rem;
+  padding: 0.625rem 1.5rem;
+  background: var(--amber); color: var(--bg);
+  flex-shrink: 0;
+  animation: slideHold 0.18s ease;
+}
+@keyframes slideHold { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+.hold-pulse {
+  font-family: var(--font-display); font-size: 13px; font-weight: 900;
+  letter-spacing: 0.2em;
+}
+.hold-reason {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+  opacity: 0.8;
+}
+
+/* =========================================================
+   Shot clock — counts down from 30s when active diver is set
+   ========================================================= */
+.active-label-row {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 0.75rem; gap: 0.75rem;
+}
+.shot-clock {
+  display: flex; align-items: center; gap: 0.4rem;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 0.25rem 0.4rem 0.25rem 0.6rem;
+  transition: all 0.15s;
+}
+.shot-clock-face {
+  background: transparent; border: none; cursor: pointer;
+  display: flex; align-items: baseline; gap: 0.15rem;
+  font-family: var(--font-display); color: var(--text);
+  padding: 0;
+}
+.shot-clock-num { font-size: 22px; font-weight: 900; font-style: italic; line-height: 1; }
+.shot-clock-unit { font-size: 11px; font-weight: 700; color: var(--text-3); letter-spacing: 0.1em; }
+.shot-clock-reset {
+  background: transparent; border: none; cursor: pointer;
+  font-size: 14px; color: var(--text-3);
+  padding: 0 0.25rem; line-height: 1;
+}
+.shot-clock-reset:hover { color: var(--cyan); }
+
+.shot-clock.shot-clock-amber { border-color: var(--amber); }
+.shot-clock.shot-clock-amber .shot-clock-num { color: var(--amber); }
+.shot-clock.shot-clock-warn { border-color: var(--red); background: rgba(239,68,68,0.06); }
+.shot-clock.shot-clock-warn .shot-clock-num { color: var(--red); animation: shotPulse 0.5s infinite; }
+.shot-clock.shot-clock-expired {
+  border-color: var(--red); background: var(--red);
+}
+.shot-clock.shot-clock-expired .shot-clock-num,
+.shot-clock.shot-clock-expired .shot-clock-unit { color: var(--bg); }
+@keyframes shotPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+/* =========================================================
+   Modals — score correction + hold prompt + round-end
+   Reuses .lb-modal styling but swaps max-width.
+   ========================================================= */
+.hold-modal { max-width: 480px; }
+.correct-modal { max-width: 520px; }
+
+/* Make completed-dive cards visually clickable when correctable. */
+.hist-card-correctable { cursor: pointer; transition: border-color 0.15s; }
+.hist-card-correctable:hover { border-color: var(--cyan); }
 
 .kbd-hints {
   display: flex; gap: 1rem; flex-wrap: wrap;

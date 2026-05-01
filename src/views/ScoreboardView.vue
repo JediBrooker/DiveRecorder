@@ -283,6 +283,12 @@ const eventStats = computed(() => {
   }
 })
 
+// Hold state for the active event — set by Control Room via
+// the meet_hold socket event. Surfaces a banner across the top
+// of the page while in effect.
+const isHeld = ref(false)
+const holdReason = ref('')
+
 function selectEvent(id, { pushUrl = true } = {}) {
   currentEventId.value = id
   expandedRound.value = null
@@ -290,11 +296,16 @@ function selectEvent(id, { pushUrl = true } = {}) {
   // the panel correctly shows "Waiting..." until the server
   // confirms the current performer for this event.
   activeDiver.value = null
+  isHeld.value = false
+  holdReason.value = ''
   refreshData()
   // Pull the current active diver from the server. socket.io
   // buffers the emit until the connection is up, so this works
   // whether the socket has already connected or not.
   socket.emit('get_active_diver', { event_id: id })
+  // Pull the current hold state too — covers the case where the
+  // page loads after a hold has already been set.
+  socket.emit('get_meet_hold', { event_id: id })
   // Reflect the selection in the URL so the meet is shareable
   // and back-button works. pushUrl=false avoids loops when this
   // is being driven *by* a URL change.
@@ -395,7 +406,30 @@ socket.on('state_update', data => {
 socket.on('connect', () => {
   if (currentEventId.value) {
     socket.emit('get_active_diver', { event_id: currentEventId.value })
+    socket.emit('get_meet_hold',    { event_id: currentEventId.value })
   }
+})
+
+// Hold-state propagation. The Control Room dispatches meet_hold
+// + meet_resume; we set a banner accordingly. Per-event check so
+// a hold on a different meet doesn't bleed into this scoreboard.
+socket.on('meet_held', (data) => {
+  if (data.event_id !== currentEventId.value) return
+  isHeld.value = true
+  holdReason.value = data.reason || ''
+})
+socket.on('meet_resumed', (data) => {
+  if (data.event_id !== currentEventId.value) return
+  isHeld.value = false
+  holdReason.value = ''
+})
+
+// Score corrections fired by the Control Room: re-pull the
+// scoreboard so totals reflect the amendment. Cheap full-pull
+// is fine — score corrections are rare events.
+socket.on('score_corrected', (data) => {
+  if (data.event_id !== currentEventId.value) return
+  refreshData()
 })
 
 socket.on('final_score_announced', data => {
@@ -473,6 +507,15 @@ onMounted(async () => {
     <div v-if="!socket.isConnected.value && currentEventId && !isCompleted" class="conn-banner">
       <span class="conn-dot"></span>
       Reconnecting to live feed…
+    </div>
+
+    <!-- Meet-hold banner — surfaces when the Control Room has
+         paused the meet (video review, judge consultation,
+         technical issue). Visible across all spectator devices
+         so the audience knows why nothing's happening. -->
+    <div v-if="isHeld && currentEventId" class="hold-banner">
+      <span class="hold-pulse">⏸ MEET ON HOLD</span>
+      <span v-if="holdReason" class="hold-reason">{{ holdReason }}</span>
     </div>
     <!-- Header — adapts to list mode (browsing) vs detail mode
          (a single event selected). The detail header doubles as a
@@ -1056,6 +1099,26 @@ onMounted(async () => {
   opacity: 0.25; transition: opacity 0.2s;
 }
 .broadcast-exit:hover { opacity: 1; color: var(--cyan); border-color: var(--cyan); }
+
+/* Meet-hold banner — solid amber across the top whenever the
+   Control Room has paused the meet. Same shape on every
+   surface (Scoreboard, Control, Judge). */
+.hold-banner {
+  display: flex; align-items: center; gap: 0.875rem;
+  padding: 0.5rem 1.5rem;
+  background: var(--amber); color: var(--bg);
+  flex-shrink: 0;
+  animation: slideHold 0.18s ease;
+}
+@keyframes slideHold { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+.hold-pulse {
+  font-family: var(--font-display); font-size: 13px; font-weight: 900;
+  letter-spacing: 0.2em;
+}
+.hold-reason {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+  opacity: 0.8;
+}
 
 /* Connection-lost banner — same look as the judge view. */
 .conn-banner {

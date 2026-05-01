@@ -2222,7 +2222,7 @@ app.get("/api/events/:id/history", async (req, res) => {
     const r = await pool.query(
       `SELECT u.full_name AS "diverName", o.country_code, cl.name AS club_name,
               pu.full_name AS partner_name,
-              s.round_number,
+              s.competitor_id, s.event_id, s.round_number,
               d.dive_code, d.position, d.dd, d.description,
               calc_event_dive_points(
                 array_agg(ej.judge_number ORDER BY ej.judge_number),
@@ -2230,7 +2230,9 @@ app.get("/api/events/:id/history", async (req, res) => {
                 e.number_of_judges, d.dd, e.event_type,
                 BOOL_OR(cdl.partner_id IS NOT NULL)
 ) AS total_points,
-              JSON_AGG(s.score ORDER BY s.judge_id) AS judge_scores
+              JSON_AGG(s.score ORDER BY s.judge_id) AS judge_scores,
+              JSON_AGG(s.id    ORDER BY s.judge_id) AS score_ids,
+              JSON_AGG(ej.judge_number ORDER BY s.judge_id) AS judge_numbers
        FROM scores s
        JOIN events e ON e.id = s.event_id
        JOIN users u ON s.competitor_id = u.id
@@ -2245,7 +2247,8 @@ app.get("/api/events/:id/history", async (req, res) => {
        LEFT JOIN users pu ON pu.id = cdl.partner_id
        WHERE s.event_id = $1
        GROUP BY u.full_name, o.country_code, cl.name, pu.full_name,
-                s.round_number, d.dive_code, d.position, d.dd, d.description,
+                s.competitor_id, s.event_id, s.round_number,
+                d.dive_code, d.position, d.dd, d.description,
                 e.number_of_judges, e.event_type
        ORDER BY s.round_number ASC, u.full_name ASC`,
       [req.params.id],
@@ -2266,6 +2269,101 @@ app.get("/api/events/:id/history", async (req, res) => {
 // =============================================================
 
 app.use(require("./routes/scoreboard")({ pool }));
+
+// =============================================================
+// SCORE CORRECTION
+// Manager / referee amends a previously-submitted score (judge
+// typo, scoring dispute resolution). Goes through the same
+// score_audit_log plumbing the live submit path uses, then
+// broadcasts a `score_corrected` socket event so any live
+// scoreboard / Control Room re-fetches the standings.
+// =============================================================
+
+app.put(
+  "/api/scores/:id",
+  requireOrgRole(["org_admin", "meet_manager", "referee"]),
+  async (req, res) => {
+    const { score, reason } = req.body || {};
+    const newScore = Number(score);
+    if (Number.isNaN(newScore) || newScore < 0 || newScore > 10) {
+      return res.status(400).json({ error: "Score must be between 0 and 10" });
+    }
+    if (((newScore * 2) % 1) !== 0) {
+      return res.status(400).json({ error: "Score must be in 0.5 increments" });
+    }
+    try {
+      const prior = await pool.query(
+        "SELECT id, score, event_id, competitor_id, judge_id, round_number FROM scores WHERE id = $1",
+        [req.params.id],
+      );
+      if (!prior.rows.length) {
+        return res.status(404).json({ error: "Score not found" });
+      }
+      const existing = prior.rows[0];
+
+      // Org guard: the score must belong to an event in the
+      // caller's org. Cross-org corrections are rejected.
+      const ev = await pool.query(
+        "SELECT org_id FROM events WHERE id = $1",
+        [existing.event_id],
+      );
+      if (!ev.rows.length || ev.rows[0].org_id !== req.user.org_id) {
+        return res.status(403).json({ error: "Cannot correct scores in other organisations" });
+      }
+
+      const oldScore = Number(existing.score);
+      if (oldScore === newScore) {
+        return res.json({ ok: true, unchanged: true });
+      }
+
+      await pool.query("UPDATE scores SET score = $1 WHERE id = $2", [newScore, existing.id]);
+      try {
+        await pool.query(
+          `INSERT INTO score_audit_log
+             (score_id, event_id, competitor_id, judge_id, round_number,
+              action, old_score, new_score, actor_user_id, ip_address, user_agent)
+           VALUES ($1,$2,$3,$4,$5,'update',$6,$7,$8,$9,$10)`,
+          [
+            existing.id, existing.event_id, existing.competitor_id,
+            existing.judge_id, existing.round_number,
+            oldScore, newScore, req.user.user_id,
+            req.ip, req.headers["user-agent"] || null,
+          ],
+        );
+      } catch (auditErr) {
+        console.error("[Score Correction Audit Skipped]", auditErr.message);
+      }
+
+      // Broadcast so live consumers re-pull standings. Spectators
+      // viewing the recap or live scoreboard will see the
+      // corrected total without a manual refresh.
+      io.emit("score_corrected", {
+        event_id: existing.event_id,
+        competitor_id: existing.competitor_id,
+        round_number: existing.round_number,
+        score_id: existing.id,
+        old_score: oldScore,
+        new_score: newScore,
+        reason: reason || null,
+        actor_user_id: req.user.user_id,
+      });
+
+      res.json({ ok: true, old_score: oldScore, new_score: newScore });
+    } catch (err) {
+      console.error("[Score Correction Error]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+// =============================================================
+// MEET HOLD STATE
+// In-memory map: event_id → { reason, since }. The Control
+// Room toggles it via socket events; the Scoreboard and
+// Judge views render a banner while held. Cleared on
+// 'meet_resume' or when the event finalises.
+// =============================================================
+const meetHolds = {};
 
 
 // =============================================================
@@ -2874,6 +2972,32 @@ io.on("connection", (socket) => {
     io.emit("referee_action_cap", data),
   );
   socket.on("referee_redive", (data) => io.emit("referee_action_redive", data));
+
+  // Hold / resume the meet. The Control Room dispatches these;
+  // judges + scoreboard listen and display a banner while the
+  // hold is active. Per-event so multiple meets can run in
+  // parallel without interfering.
+  socket.on("meet_hold", (data) => {
+    if (!data?.event_id) return;
+    meetHolds[data.event_id] = {
+      reason: data.reason || null,
+      since: Date.now(),
+    };
+    io.emit("meet_held", { event_id: data.event_id, ...meetHolds[data.event_id] });
+  });
+  socket.on("meet_resume", (data) => {
+    if (!data?.event_id) return;
+    delete meetHolds[data.event_id];
+    io.emit("meet_resumed", { event_id: data.event_id });
+  });
+  // Clients that connect after a hold has been set ask for the
+  // current state on demand — same on-demand pull pattern as
+  // get_active_diver.
+  socket.on("get_meet_hold", (data) => {
+    if (!data?.event_id) return;
+    const state = meetHolds[data.event_id];
+    if (state) socket.emit("meet_held", { event_id: data.event_id, ...state });
+  });
   socket.on("disconnect", () =>
     console.log(`[Socket] Disconnected: ${socket.id}`),
   );

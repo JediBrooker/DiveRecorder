@@ -52,8 +52,28 @@ socket.on('connect', () => {
     socket.emit('submit_score', pendingScore.value)
     pendingScore.value = null
   }
+  // Re-pull hold state so a judge who reloads mid-pause sees
+  // the banner.
+  if (activeDiver.value?.event_id) {
+    socket.emit('get_meet_hold', { event_id: activeDiver.value.event_id })
+  }
 })
 socket.on('disconnect', () => { connStatus.value = false })
+
+// Hold-state propagation. A held meet should disable scoring —
+// judges shouldn't accidentally submit during a video review.
+const isHeld = ref(false)
+const holdReason = ref('')
+socket.on('meet_held', (data) => {
+  if (activeDiver.value && data.event_id !== activeDiver.value.event_id) return
+  isHeld.value = true
+  holdReason.value = data.reason || ''
+})
+socket.on('meet_resumed', (data) => {
+  if (activeDiver.value && data.event_id !== activeDiver.value.event_id) return
+  isHeld.value = false
+  holdReason.value = ''
+})
 
 socket.on('state_update', async (data) => {
   activeDiver.value = data
@@ -134,6 +154,12 @@ const submitLabel = computed(() => {
       <span class="conn-dot"></span>
       Reconnecting… your last score may not have sent
     </div>
+    <!-- Meet-hold banner — Control Room paused the meet. Score
+         input is disabled below until the hold lifts. -->
+    <div v-if="isHeld" class="hold-banner">
+      <span class="hold-pulse">⏸ MEET ON HOLD</span>
+      <span v-if="holdReason" class="hold-reason">{{ holdReason }}</span>
+    </div>
     <!-- Header -->
     <div class="judge-header">
       <div class="header-top">
@@ -194,15 +220,32 @@ const submitLabel = computed(() => {
     <!-- Submit -->
     <div class="submit-footer">
       <button
-        :class="['submit-btn', submitted ? 'locked' : '']"
-        :disabled="submitted"
+        :class="['submit-btn', submitted ? 'locked' : '', isHeld ? 'held' : '']"
+        :disabled="submitted || isHeld"
         @click="submitScore"
-      >{{ submitLabel }}</button>
+      >{{ isHeld ? 'Meet on hold — wait for resume' : submitLabel }}</button>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* Meet-hold banner — surfaced when the Control Room pauses
+   the meet. Same shape on Scoreboard + Control. */
+.hold-banner {
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  background: var(--amber); color: var(--bg);
+  flex-shrink: 0;
+}
+.hold-pulse {
+  font-family: var(--font-display); font-size: 12px; font-weight: 900;
+  letter-spacing: 0.2em;
+}
+.hold-reason {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  opacity: 0.85;
+}
+
 /* Connection banner — sticky at top of viewport so a judge
    can't miss it. Animates in from above on disconnect. */
 .conn-banner {
