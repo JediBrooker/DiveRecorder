@@ -142,6 +142,10 @@ CREATE TABLE public.users (
     org_id          uuid NOT NULL REFERENCES public.organisations(id) ON DELETE RESTRICT,
     club_id         uuid REFERENCES public.clubs(id) ON DELETE SET NULL,
     is_system_admin boolean DEFAULT false NOT NULL,
+    -- Diver-customisable analytics dashboard. Array of widget
+    -- IDs (see frontend WIDGET_CATALOG). Defaults to the four
+    -- core widgets so a fresh diver has something to look at.
+    dashboard_widgets jsonb DEFAULT '["score_trend","personal_bests","recent_form","placings"]'::jsonb,
     created_at      timestamptz DEFAULT now()
 );
 
@@ -664,7 +668,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 14);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 15);
 
 
 -- =============================================================
