@@ -1,12 +1,46 @@
 # DiveRecorder
 
-A multi-tenant diving competition scoring app. Real-time judge scoring over WebSockets, World Aquatics-compliant point calculations, and a results archive that goes from "live broadcast" to "PDF export" without leaving the app.
+A multi-tenant diving competition scoring app, branded **DiveMeet** in-product. Real-time judge scoring over WebSockets, World Aquatics-compliant point calculations, and a results archive that goes from "live broadcast" to "PDF export" without leaving the app.
 
 Built around three audiences:
 
 - **Meet operators** — control room view advances divers, broadcasts state to judges and the public scoreboard, finalises events.
 - **Judges** — single-purpose phone-friendly view that submits scores back to the server in real time.
 - **Spectators** — public scoreboard with current performer, live standings, per-round leaderboard with movement arrows, and an archive of completed meets.
+
+---
+
+## Screenshots
+
+### Home
+
+The public landing page. Anyone can sign in, create an account, watch a live meet, or browse the archive without logging in.
+
+![Home](./docs/screenshots/home.png)
+
+### Dashboard
+
+Each user's role-based hub. Tiles surface only the areas the user has access to — divers see "My Profile" and "Diver Portal", admins additionally see User Manager, Clubs, etc.
+
+![Dashboard](./docs/screenshots/dashboard.png)
+
+### Live Scoreboard (completed meet recap)
+
+When a meet is over, the Scoreboard switches to a recap layout: podium spotlight, full standings with club lines, and a per-diver dive-by-dive breakdown. Per-judge scores are colour-coded by FINA category (excellent → failed) with the trim rule visualised by struck-through dimmed scores.
+
+![Scoreboard](./docs/screenshots/scoreboard.png)
+
+### Results Archive
+
+Browse every completed meet. Filter by country, year, height, club, or just search across event/org/country. Each event card shows competitor and club counts so you can see meet size at a glance, and PDFs are one click away.
+
+![Results Archive](./docs/screenshots/results-archive.png)
+
+### Diver Profile
+
+Per-diver stats: meets entered, dives performed, average DD attempted, best single dive, an SVG sparkline of total scores across meets, and a personal-bests table keyed by dive code + position + height.
+
+![Diver Profile](./docs/screenshots/diver-profile.png)
 
 ---
 
