@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Brand mark: a stylised diver on a dark navy background.
+       The figure is built from simple geometry so it renders
+       cleanly at every favicon / app-icon size without
+       rasterising. -->
+  <rect width="512" height="512" rx="96" fill="#030712"/>
+  <!-- Cyan halo / wave -->
+  <path d="M 80 380 Q 256 460 432 380"
+        stroke="#06b6d4" stroke-width="14" fill="none"
+        stroke-linecap="round" opacity="0.55"/>
+  <path d="M 60 410 Q 256 500 452 410"
+        stroke="#06b6d4" stroke-width="10" fill="none"
+        stroke-linecap="round" opacity="0.3"/>
+  <!-- Diver figure: head + body in a tuck position -->
+  <circle cx="256" cy="138" r="36" fill="#06b6d4"/>
+  <path d="M 220 175
+           C 200 200, 180 220, 180 260
+           C 180 300, 220 320, 260 300
+           C 300 280, 330 250, 330 215
+           C 330 195, 312 178, 290 178
+           Z" fill="#06b6d4"/>
+  <!-- Wordmark below figure -->
+  <text x="256" y="478" text-anchor="middle"
+        font-family="Helvetica, Arial, sans-serif"
+        font-size="42" font-weight="900" font-style="italic"
+        letter-spacing="6" fill="#06b6d4">DIVE</text>
+</svg>

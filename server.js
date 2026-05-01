@@ -864,6 +864,134 @@ app.delete(
 // Divers in an organisation. Authenticated and scoped to the
 // caller's own org (system admins see any). Used by the
 // CompetitorView's synchro partner picker.
+// =============================================================
+// COACH ROUTES
+// A coach picks up divers via coach_diver_links (created by an
+// org admin in the User Manager). These endpoints power the
+// coach's dashboard.
+// =============================================================
+
+// Coaches see their own linked divers — minimal fields, enough
+// to build a dashboard tile + click through to each diver's
+// profile (which already exists at /profile/:id).
+app.get("/api/coach/divers", verifyToken, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT u.id, u.full_name, u.username,
+              cl.name AS club_name, cl.short_code AS club_code,
+              o.country_code,
+              link.created_at AS linked_at,
+              link.note
+       FROM coach_diver_links link
+       JOIN users u ON u.id = link.diver_id
+       JOIN organisations o ON o.id = u.org_id
+       LEFT JOIN clubs cl ON cl.id = u.club_id
+       WHERE link.coach_id = $1
+       ORDER BY u.full_name ASC`,
+      [req.user.user_id],
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error("[Coach Divers Error]", err.message);
+    res.status(500).json([]);
+  }
+});
+
+// Org admins manage coach ↔ diver links from the User Manager.
+// GET returns every link in the org (for the admin view).
+app.get(
+  "/api/orgs/:id/coach-links",
+  requireOrgRole(["org_admin"]),
+  async (req, res) => {
+    if (!req.user.is_system_admin && req.params.id !== req.user.org_id) {
+      return res
+        .status(403)
+        .json({ error: "Cannot read coach links in other organisations" });
+    }
+    try {
+      const r = await pool.query(
+        `SELECT link.id, link.coach_id, link.diver_id, link.created_at, link.note,
+                c.full_name AS coach_name, d.full_name AS diver_name
+         FROM coach_diver_links link
+         JOIN users c ON c.id = link.coach_id
+         JOIN users d ON d.id = link.diver_id
+         WHERE link.org_id = $1
+         ORDER BY c.full_name, d.full_name`,
+        [req.params.id],
+      );
+      res.json(r.rows);
+    } catch (err) {
+      console.error("[Coach Links List Error]", err.message);
+      res.status(500).json([]);
+    }
+  },
+);
+
+app.post(
+  "/api/orgs/:id/coach-links",
+  requireOrgRole(["org_admin"]),
+  async (req, res) => {
+    const { coach_id, diver_id, note } = req.body || {};
+    if (!coach_id || !diver_id) {
+      return res.status(400).json({ error: "coach_id and diver_id are required" });
+    }
+    if (coach_id === diver_id) {
+      return res.status(400).json({ error: "Coach and diver must be different users" });
+    }
+    if (!req.user.is_system_admin && req.params.id !== req.user.org_id) {
+      return res
+        .status(403)
+        .json({ error: "Cannot link users in other organisations" });
+    }
+    try {
+      // Sanity check: both users belong to the target org.
+      const usersRes = await pool.query(
+        `SELECT id, org_id FROM users WHERE id = ANY($1)`,
+        [[coach_id, diver_id]],
+      );
+      if (usersRes.rows.length !== 2) {
+        return res.status(400).json({ error: "Coach or diver not found" });
+      }
+      for (const u of usersRes.rows) {
+        if (u.org_id !== req.params.id) {
+          return res
+            .status(400)
+            .json({ error: "Both users must belong to the target organisation" });
+        }
+      }
+      const r = await pool.query(
+        `INSERT INTO coach_diver_links (coach_id, diver_id, org_id, note)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (coach_id, diver_id) DO UPDATE SET note = EXCLUDED.note
+         RETURNING id, coach_id, diver_id, note, created_at`,
+        [coach_id, diver_id, req.params.id, note || null],
+      );
+      res.status(201).json(r.rows[0]);
+    } catch (err) {
+      console.error("[Coach Link Create Error]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+app.delete(
+  "/api/coach-links/:id",
+  requireOrgRole(["org_admin"]),
+  async (req, res) => {
+    try {
+      const r = await pool.query(
+        "DELETE FROM coach_diver_links WHERE id = $1 AND org_id = $2 RETURNING id",
+        [req.params.id, req.user.org_id],
+      );
+      if (!r.rows.length) return res.status(404).json({ error: "Link not found" });
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[Coach Link Delete Error]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
 app.get("/api/orgs/:id/divers", verifyToken, async (req, res) => {
   if (!req.user.is_system_admin && req.params.id !== req.user.org_id) {
     return res

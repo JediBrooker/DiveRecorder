@@ -42,6 +42,7 @@ CREATE TYPE org_role AS ENUM (
     'meet_manager',
     'referee',
     'judge',
+    'coach',
     'diver',
     'spectator'
 );
@@ -342,6 +343,21 @@ CREATE TABLE public.score_audit_log (
     created_at      timestamptz DEFAULT now() NOT NULL
 );
 
+-- Coach ↔ Diver links — many-to-many. A coach can mentor
+-- multiple divers; a diver may have multiple coaches over time.
+-- Cascade on either side's deletion; UNIQUE keeps duplicate
+-- assignments out and implicitly indexes "is X my coach".
+CREATE TABLE public.coach_diver_links (
+    id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    coach_id    uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    diver_id    uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    org_id      uuid NOT NULL REFERENCES public.organisations(id) ON DELETE CASCADE,
+    note        text,
+    created_at  timestamptz DEFAULT now() NOT NULL,
+    UNIQUE (coach_id, diver_id),
+    CONSTRAINT coach_diver_distinct CHECK (coach_id <> diver_id)
+);
+
 CREATE TABLE public.role_audit_log (
     id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     user_id     uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
@@ -535,6 +551,9 @@ CREATE INDEX idx_role_audit_org            ON public.role_audit_log (org_id, cre
 CREATE INDEX idx_role_audit_actor          ON public.role_audit_log (actor_id);
 CREATE INDEX idx_score_audit_created_at    ON public.score_audit_log (created_at);
 CREATE INDEX idx_role_audit_created_at     ON public.role_audit_log  (created_at);
+CREATE INDEX idx_coach_diver_coach         ON public.coach_diver_links (coach_id);
+CREATE INDEX idx_coach_diver_diver         ON public.coach_diver_links (diver_id);
+CREATE INDEX idx_coach_diver_org           ON public.coach_diver_links (org_id);
 
 
 -- =============================================================
@@ -552,7 +571,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 8);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 9);
 
 
 -- =============================================================

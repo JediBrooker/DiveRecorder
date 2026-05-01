@@ -44,6 +44,11 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['diver'] },
   },
   {
+    path: '/coach',
+    component: () => import('@/views/CoachView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['coach'] },
+  },
+  {
     path: '/control',
     component: () => import('@/views/ControlView.vue'),
     meta: { requiresAuth: true, requiresRole: ['org_admin', 'meet_manager', 'referee'] },
@@ -92,6 +97,13 @@ const routes = [
   {
     path: '/profile/:id?',
     component: () => import('@/views/DiverProfileView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    // Side-by-side diver comparison. Diver IDs in the query string
+    // (?a=&b=) so the URL is shareable like the rest of the app.
+    path: '/compare',
+    component: () => import('@/views/CompareView.vue'),
     meta: { requiresAuth: true },
   },
   {
