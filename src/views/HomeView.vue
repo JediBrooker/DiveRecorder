@@ -21,8 +21,7 @@ onMounted(() => {
     <div class="hero-actions">
       <RouterLink to="/login" class="hero-btn-primary">Sign In</RouterLink>
       <RouterLink to="/register" class="hero-btn-ghost">Create Account</RouterLink>
-      <RouterLink to="/scoreboard" class="hero-btn-ghost">Live Scoreboard</RouterLink>
-      <RouterLink to="/archive" class="hero-btn-ghost">Results Archive</RouterLink>
+      <RouterLink to="/scoreboard" class="hero-btn-ghost">Scoreboard &amp; Results</RouterLink>
     </div>
   </section>
 
@@ -76,8 +75,8 @@ onMounted(() => {
         <div class="feat-icon" style="color:var(--red);background:var(--red-dim);border-color:rgba(239,68,68,0.25)">
           <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
         </div>
-        <div class="feat-title">Live Scoreboard</div>
-        <div class="feat-desc">Broadcast-ready display showing the current diver, all judge scores, completed dive history, and running standings.</div>
+        <div class="feat-title">Scoreboard &amp; Results</div>
+        <div class="feat-desc">One browsable surface for every meet — broadcast-ready live view of the current diver and standings, plus full recaps and dive breakdowns for completed meets.</div>
         <div class="feat-tags">
           <span class="feat-tag" style="color:var(--text-2);border-color:var(--border-2);background:var(--bg-3)">Public</span>
         </div>
@@ -144,8 +143,7 @@ onMounted(() => {
         <RouterLink to="/login">Sign In</RouterLink>
         <RouterLink to="/register">Register</RouterLink>
         <RouterLink to="/register-org">Register Federation</RouterLink>
-        <RouterLink to="/scoreboard">Live Scoreboard</RouterLink>
-        <RouterLink to="/archive">Results Archive</RouterLink>
+        <RouterLink to="/scoreboard">Scoreboard &amp; Results</RouterLink>
       </div>
     </div>
   </footer>

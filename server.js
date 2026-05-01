@@ -2412,8 +2412,14 @@ app.get("/api/archive", async (req, res) => {
     // the list of distinct club ids that participated. The list
     // is what powers the client-side "filter by club" dropdown
     // without an extra round trip per filter change.
+    //
+    // Returns Live + Completed events so the unified Scoreboard
+    // page can show both in the same browsable list. The status
+    // column lets the client render a "LIVE NOW" badge / banner
+    // for in-progress meets.
     const events = await pool.query(
       `SELECT e.id, e.name, e.gender, e.height, e.total_rounds, e.number_of_judges,
+              e.event_type, e.status,
               e.created_at, o.id AS org_id, o.name AS org_name, o.country_code,
               COALESCE(stat.competitor_count, 0)::int AS competitor_count,
               COALESCE(stat.club_count, 0)::int       AS club_count,
@@ -2430,8 +2436,10 @@ app.get("/api/archive", async (req, res) => {
          JOIN users u ON u.id = s.competitor_id
          WHERE s.event_id = e.id
        ) stat ON true
-       WHERE e.status = 'Completed'
-       ORDER BY e.created_at DESC`,
+       WHERE e.status IN ('Live', 'Completed')
+       ORDER BY
+         CASE e.status WHEN 'Live' THEN 0 ELSE 1 END,    -- live meets float to the top
+         e.created_at DESC`,
     );
     res.json(events.rows);
   } catch (err) {
@@ -2440,8 +2448,8 @@ app.get("/api/archive", async (req, res) => {
   }
 });
 
-// Distinct clubs that have appeared in any completed meet.
-// Drives the club filter dropdown on the archive view.
+// Distinct clubs that have appeared in any live or completed meet.
+// Drives the club filter dropdown on the unified Scoreboard.
 app.get("/api/archive/clubs", async (req, res) => {
   try {
     const r = await pool.query(
@@ -2450,7 +2458,7 @@ app.get("/api/archive/clubs", async (req, res) => {
        FROM clubs cl
        JOIN users u ON u.club_id = cl.id
        JOIN scores s ON s.competitor_id = u.id
-       JOIN events e ON e.id = s.event_id AND e.status = 'Completed'
+       JOIN events e ON e.id = s.event_id AND e.status IN ('Live', 'Completed')
        JOIN organisations o ON o.id = cl.org_id
        ORDER BY o.country_code ASC, cl.name ASC`,
     );

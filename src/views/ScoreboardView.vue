@@ -1,14 +1,119 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useSocket } from '@/composables/useSocket'
 import { annotatedScores, groupedSynchroScoresForDisplay } from '@/composables/useScoreCategories'
 
 const socket = useSocket({ spectator: true })
 
+// Browsable list of every Live + Completed meet. Used as the
+// landing state of the page; the user picks one and we pivot
+// into either the live broadcast layout or the recap layout.
 const events = ref([])
+const clubsList = ref([])
+const loadingList = ref(false)
+
 const currentEventId = ref(null)
 const currentEvent = computed(() => events.value.find(e => String(e.id) === String(currentEventId.value)) || null)
+
+// Filters drive the meets list when no event is selected. They
+// match the old ArchiveView so anyone bookmarked /archive sees
+// the same controls in the merged page.
+const searchTerm    = ref('')
+const countryFilter = ref('')
+const yearFilter    = ref('')
+const heightFilter  = ref('')
+const clubFilter    = ref('')
+const statusFilter  = ref('')      // '' | 'Live' | 'Completed'
+
+const liveEvents = computed(() => events.value.filter(e => e.status === 'Live'))
+
+const countries = computed(() => {
+  const seen = new Map()
+  for (const e of events.value) {
+    if (!e.country_code) continue
+    if (!seen.has(e.country_code)) {
+      seen.set(e.country_code, { code: e.country_code, org_name: e.org_name })
+    }
+  }
+  return [...seen.values()].sort((a, b) => a.code.localeCompare(b.code))
+})
+
+const years = computed(() => {
+  const set = new Set()
+  for (const e of events.value) if (e.created_at) set.add(new Date(e.created_at).getFullYear())
+  return [...set].sort((a, b) => b - a)
+})
+
+const heights = computed(() => {
+  const set = new Set()
+  for (const e of events.value) if (e.height) set.add(e.height)
+  return [...set]
+})
+
+// Cascade: when a country is picked, only show its clubs in the
+// dropdown. With no country selected we show every club and
+// prefix each name with its country code.
+const visibleClubs = computed(() => {
+  if (!countryFilter.value) return clubsList.value
+  return clubsList.value.filter(c => c.country_code === countryFilter.value)
+})
+
+const filteredEvents = computed(() => {
+  const term = searchTerm.value.trim().toLowerCase()
+  return events.value.filter(e => {
+    if (statusFilter.value && e.status !== statusFilter.value) return false
+    if (countryFilter.value && e.country_code !== countryFilter.value) return false
+    if (yearFilter.value && new Date(e.created_at).getFullYear() !== Number(yearFilter.value)) return false
+    if (heightFilter.value && e.height !== heightFilter.value) return false
+    if (clubFilter.value && !(e.club_ids || []).includes(clubFilter.value)) return false
+    if (!term) return true
+    return (
+      (e.name || '').toLowerCase().includes(term) ||
+      (e.org_name || '').toLowerCase().includes(term) ||
+      (e.country_code || '').toLowerCase().includes(term)
+    )
+  })
+})
+
+const activeFilterCount = computed(() => {
+  let n = 0
+  if (searchTerm.value.trim()) n++
+  if (countryFilter.value)     n++
+  if (yearFilter.value)        n++
+  if (heightFilter.value)      n++
+  if (clubFilter.value)        n++
+  if (statusFilter.value)      n++
+  return n
+})
+
+function clearFilters() {
+  searchTerm.value    = ''
+  countryFilter.value = ''
+  yearFilter.value    = ''
+  heightFilter.value  = ''
+  clubFilter.value    = ''
+  statusFilter.value  = ''
+}
+
+// Drop the club filter if the user picks a country whose clubs
+// don't include the currently-selected club.
+watch(countryFilter, (val) => {
+  if (!val || !clubFilter.value) return
+  const club = clubsList.value.find(c => c.id === clubFilter.value)
+  if (club && club.country_code !== val) clubFilter.value = ''
+})
+
+async function fetchJsonArray(url) {
+  try {
+    const r = await fetch(url)
+    if (!r.ok) return []
+    const body = await r.json()
+    return Array.isArray(body) ? body : []
+  } catch {
+    return []
+  }
+}
 const historyItems = ref([])
 const standings = ref([])
 const leaderboardRounds = ref([])     // [{ round_number, rankings: [...] }]
@@ -233,36 +338,153 @@ function parseScores(judgeArray) {
 }
 
 onMounted(async () => {
+  loadingList.value = true
   try {
-    events.value = await fetch('/api/events').then(r => r.json())
-  } catch { events.value = [] }
+    const [evs, cls] = await Promise.all([
+      fetchJsonArray('/api/archive'),
+      fetchJsonArray('/api/archive/clubs'),
+    ])
+    events.value = evs
+    clubsList.value = cls
+  } finally {
+    loadingList.value = false
+  }
 })
 </script>
 
 <template>
   <div class="sb-layout">
-    <!-- Header -->
+    <!-- Header — adapts to list mode (browsing) vs detail mode
+         (a single event selected). The detail header doubles as a
+         breadcrumb so the user can jump back to the list. -->
     <div class="sb-header">
-      <div style="display:flex;align-items:center;gap:1rem">
-        <div v-if="isCompleted" class="status-badge done-badge">FINAL</div>
-        <div v-else class="status-badge live-badge">LIVE</div>
-        <span style="font-family:var(--font-display);font-size:16px;font-weight:900;font-style:italic;color:var(--text)">
-          {{ isCompleted ? 'Event Recap' : 'Broadcast Feed' }}
-        </span>
-      </div>
-      <select
-        class="event-sel"
-        :value="currentEventId || ''"
-        @change="e => { const v = e.target.value; v ? selectEvent(v) : resetToEventPicker() }"
-      >
-        <option value="">— Select Event —</option>
-        <option v-for="ev in events" :key="ev.id" :value="ev.id">{{ ev.name }}{{ ev.status === 'Completed' ? '  (final)' : '' }}</option>
-      </select>
-      <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">← Dashboard</RouterLink>
+      <template v-if="!currentEventId">
+        <div class="header-left">
+          <span class="sb-page-title">Scoreboard &amp; Results</span>
+          <span v-if="events.length" class="sb-page-sub">
+            <span v-if="liveEvents.length" class="sb-page-sub-live">{{ liveEvents.length }} live now</span>
+            <span v-if="liveEvents.length"> · </span>
+            {{ events.length - liveEvents.length }} archived
+          </span>
+        </div>
+      </template>
+      <template v-else>
+        <div class="header-left">
+          <button @click="resetToEventPicker" class="btn btn-ghost btn-sm" style="margin-right:0.5rem">← All Meets</button>
+          <div v-if="isCompleted" class="status-badge done-badge">FINAL</div>
+          <div v-else class="status-badge live-badge">LIVE</div>
+          <span class="sb-event-name">{{ currentEvent?.name || (isCompleted ? 'Event Recap' : 'Broadcast Feed') }}</span>
+        </div>
+      </template>
+      <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">Dashboard</RouterLink>
     </div>
 
-    <!-- Body — Live or pre-event picker -->
-    <div class="sb-body" v-if="!isCompleted">
+    <!-- =========================================================
+         LIST MODE — no event selected. Browses every Live and
+         Completed meet with the same filter controls the old
+         ArchiveView used.
+         ========================================================= -->
+    <div v-if="!currentEventId" class="meets-mode">
+      <!-- Live banner: only visible when at least one meet is in
+           progress. Each card jumps straight into the live
+           broadcast layout for that event. -->
+      <div v-if="liveEvents.length" class="live-banner">
+        <div class="live-banner-head">
+          <div class="live-pulse">LIVE NOW</div>
+          <span class="live-banner-sub">
+            {{ liveEvents.length }} {{ liveEvents.length === 1 ? 'meet is' : 'meets are' }} broadcasting
+          </span>
+        </div>
+        <div class="live-banner-cards">
+          <button v-for="ev in liveEvents" :key="ev.id" class="live-event-card" @click="selectEvent(ev.id)">
+            <div class="live-event-name">{{ ev.name }}</div>
+            <div class="live-event-meta">
+              {{ ev.org_name }}<span v-if="ev.country_code" class="live-event-ctry">{{ ev.country_code }}</span>
+              <span v-if="ev.height"> · {{ ev.height }}</span>
+              <span> · {{ ev.total_rounds }} rounds</span>
+            </div>
+            <div class="live-event-watch">Watch live →</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Filter bar -->
+      <div v-if="events.length" class="filter-bar">
+        <input class="input" type="text" v-model="searchTerm"
+               placeholder="Search meet, host org, country…">
+        <select class="select" v-model="statusFilter">
+          <option value="">All statuses</option>
+          <option value="Live">Live now</option>
+          <option value="Completed">Completed</option>
+        </select>
+        <select class="select" v-model="countryFilter">
+          <option value="">All countries ({{ countries.length }})</option>
+          <option v-for="c in countries" :key="c.code" :value="c.code">
+            {{ c.code }} — {{ c.org_name }}
+          </option>
+        </select>
+        <select class="select" v-model="yearFilter">
+          <option value="">All years</option>
+          <option v-for="y in years" :key="y" :value="y">{{ y }}</option>
+        </select>
+        <select class="select" v-model="heightFilter">
+          <option value="">All heights</option>
+          <option v-for="h in heights" :key="h" :value="h">{{ h }}</option>
+        </select>
+        <select class="select" v-model="clubFilter">
+          <option value="">All clubs ({{ visibleClubs.length }})</option>
+          <option v-for="c in visibleClubs" :key="c.id" :value="c.id">
+            {{ c.name }}<template v-if="c.short_code"> ({{ c.short_code }})</template><template v-if="!countryFilter"> · {{ c.country_code }}</template>
+          </option>
+        </select>
+        <button v-if="activeFilterCount" class="btn btn-ghost btn-sm" @click="clearFilters">Clear filters</button>
+        <span class="result-count">
+          {{ filteredEvents.length.toLocaleString() }} of {{ events.length.toLocaleString() }} meets
+        </span>
+      </div>
+
+      <!-- Meet cards grid -->
+      <div v-if="loadingList" class="meets-empty">Loading meets…</div>
+      <div v-else-if="!events.length" class="meets-empty">No meets yet — check back when one starts.</div>
+      <div v-else-if="!filteredEvents.length" class="meets-empty">
+        No meets match these filters.
+        <button class="btn btn-ghost btn-sm" style="margin-left:0.5rem" @click="clearFilters">Clear</button>
+      </div>
+      <div v-else class="meets-grid">
+        <button v-for="ev in filteredEvents" :key="ev.id" class="meet-card" @click="selectEvent(ev.id)">
+          <div class="meet-card-head">
+            <span class="meet-card-name">{{ ev.name }}</span>
+            <span v-if="ev.status === 'Live'" class="meet-card-status live">LIVE</span>
+            <span v-else class="meet-card-status final">FINAL</span>
+          </div>
+          <div class="meet-card-org">
+            {{ ev.org_name }}<span v-if="ev.country_code" class="meet-card-ctry">{{ ev.country_code }}</span>
+          </div>
+          <div class="meet-card-tags">
+            <span v-if="ev.gender" class="meet-tag">{{ ev.gender }}</span>
+            <span v-if="ev.height" class="meet-tag">{{ ev.height }}</span>
+            <span class="meet-tag">{{ ev.total_rounds }} rds</span>
+            <span class="meet-tag">{{ ev.number_of_judges }}j</span>
+            <span v-if="ev.event_type === 'synchro_pair'" class="meet-tag meet-tag-cyan">Synchro</span>
+            <span v-else-if="ev.event_type === 'team'" class="meet-tag meet-tag-cyan">Team</span>
+          </div>
+          <div class="meet-card-stats">
+            <span v-if="ev.competitor_count">
+              {{ ev.competitor_count }} {{ ev.competitor_count === 1 ? 'diver' : 'divers' }}
+            </span>
+            <span v-if="ev.club_count">
+              · {{ ev.club_count }} {{ ev.club_count === 1 ? 'club' : 'clubs' }}
+            </span>
+            <span class="meet-card-date">{{ fmtDate(ev.created_at) }}</span>
+          </div>
+        </button>
+      </div>
+    </div>
+
+    <!-- Body — Live broadcast layout (only when an event is selected
+         and it's not completed). The completed branch is handled by
+         the <div class="sb-completed"> below. -->
+    <div class="sb-body" v-else-if="!isCompleted">
       <!-- Left: History -->
       <div class="sb-col">
         <div class="col-head">Completed Dives</div>
@@ -304,27 +526,12 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Centre: Active or event picker -->
+      <!-- Centre: Active diver. The list of meets is now the page's
+           landing state, so we no longer render a separate picker
+           here — by the time we render this branch, currentEventId
+           is guaranteed to be set. -->
       <div class="sb-col active-centre">
-        <!-- No event selected: picker -->
-        <div v-if="!currentEventId" id="no-event-view">
-          <div class="picker-label">Select an Event to Follow</div>
-          <div class="event-grid">
-            <p v-if="!events.length" style="color:var(--text-3);font-size:13px">No events available</p>
-            <div
-              v-for="ev in events"
-              :key="ev.id"
-              class="event-card"
-              @click="selectEvent(ev.id)"
-            >
-              <div class="event-card-name">{{ ev.name }}</div>
-              <div class="event-card-meta">{{ ev.status || 'Active' }}</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Event selected -->
-        <div v-else style="width:100%;text-align:center">
+        <div style="width:100%;text-align:center">
           <div v-if="activeDiver?.round_number" class="sb-round-pill">
             Round {{ activeDiver.round_number }}<span v-if="currentEvent?.total_rounds"> / {{ currentEvent.total_rounds }}</span>
           </div>
@@ -416,8 +623,13 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- Body — Completed event recap -->
-    <div class="sb-completed" v-else>
+    <!-- Body — Completed event recap (only when an event is
+         selected and it has finished). Sits next to the live
+         body branch above; the v-if chain is:
+           !currentEventId  → list mode
+           !isCompleted      → live broadcast
+           else              → recap below -->
+    <div class="sb-completed" v-else-if="isCompleted">
       <!-- Top metadata strip -->
       <div class="meta-strip">
         <div class="meta-left">
@@ -647,6 +859,192 @@ onMounted(async () => {
 .live-badge { background: var(--red); animation: pulse-red 2s infinite; }
 .done-badge { background: var(--text-2); color: var(--bg); }
 @keyframes pulse-red { 0%,100%{opacity:1} 50%{opacity:0.7} }
+
+.header-left {
+  display: flex; align-items: center; gap: 0.75rem;
+  min-width: 0; flex: 1;
+}
+.sb-page-title {
+  font-family: var(--font-display); font-size: 18px; font-weight: 900;
+  font-style: italic; color: var(--text); white-space: nowrap;
+}
+.sb-page-sub {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sb-page-sub-live {
+  color: var(--red); font-weight: 700;
+}
+.sb-event-name {
+  font-family: var(--font-display); font-size: 16px; font-weight: 900;
+  font-style: italic; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* =========================================================
+   List mode (browsable meets) — replaces the old ArchiveView.
+   The .sb-layout above is height:100vh + overflow:hidden for
+   the live-broadcast layout; we need natural page-scroll here. */
+.sb-layout:has(.meets-mode) { height: auto; overflow: visible; }
+.meets-mode {
+  flex: 1;
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 4rem;
+  display: flex; flex-direction: column; gap: 1.25rem;
+}
+
+/* Live banner — only when at least one meet is in progress. */
+.live-banner {
+  background: linear-gradient(135deg, rgba(239,68,68,0.10), rgba(239,68,68,0.02));
+  border: 1px solid rgba(239,68,68,0.35);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.25rem;
+  display: flex; flex-direction: column; gap: 0.75rem;
+}
+.live-banner-head {
+  display: flex; align-items: center; gap: 0.6rem;
+}
+.live-pulse {
+  font-family: var(--font-display); font-size: 10px; font-weight: 900;
+  letter-spacing: 0.2em; padding: 0.25rem 0.75rem;
+  background: var(--red); color: white; border-radius: 4px;
+  animation: pulse-red 2s infinite;
+}
+.live-banner-sub {
+  font-family: var(--font-display); font-size: 12px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-2);
+}
+.live-banner-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+.live-event-card {
+  text-align: left; cursor: pointer;
+  background: var(--surface);
+  border: 1px solid rgba(239,68,68,0.3);
+  border-radius: var(--radius);
+  padding: 0.875rem 1rem;
+  display: flex; flex-direction: column; gap: 0.4rem;
+  transition: all 0.15s; min-width: 0;
+}
+.live-event-card:hover {
+  border-color: var(--red);
+  box-shadow: 0 0 16px rgba(239,68,68,0.2);
+  transform: translateY(-1px);
+}
+.live-event-name {
+  font-family: var(--font-display); font-size: 15px; font-weight: 900;
+  font-style: italic; color: var(--text); line-height: 1.15;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.live-event-meta {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.live-event-ctry {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.05em; color: var(--text-3);
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: 3px; padding: 0.1rem 0.35rem;
+  margin-left: 0.4rem; vertical-align: middle;
+}
+.live-event-watch {
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.15em; text-transform: uppercase; color: var(--red);
+  margin-top: 0.1rem;
+}
+
+/* Filter bar — same shape as the old ArchiveView so muscle
+   memory carries over for anyone who used /archive. */
+.filter-bar {
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+  padding: 0.75rem 1rem;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.filter-bar .input  { flex: 1 1 200px; max-width: 280px; font-size: 13px; padding: 0.55rem 0.75rem; }
+.filter-bar .select { flex: 0 1 160px; max-width: 200px; font-size: 13px; padding: 0.55rem 0.75rem; }
+.result-count {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+  margin-left: auto;
+}
+
+/* Meet card grid — like the live cards but neutral colour. */
+.meets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.875rem;
+}
+.meet-card {
+  text-align: left; cursor: pointer;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1rem 1.125rem;
+  display: flex; flex-direction: column; gap: 0.5rem;
+  transition: all 0.15s; min-width: 0;
+}
+.meet-card:hover {
+  border-color: var(--cyan);
+  background: rgba(6,182,212,0.04);
+  transform: translateY(-1px);
+}
+.meet-card-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 0.5rem;
+}
+.meet-card-name {
+  font-family: var(--font-display); font-size: 16px; font-weight: 900;
+  font-style: italic; color: var(--text); line-height: 1.15;
+  flex: 1; min-width: 0;
+}
+.meet-card-status {
+  font-family: var(--font-display); font-size: 9px; font-weight: 900;
+  letter-spacing: 0.18em; padding: 0.15rem 0.45rem; border-radius: 3px;
+  flex-shrink: 0;
+}
+.meet-card-status.live { background: var(--red); color: white; animation: pulse-red 2s infinite; }
+.meet-card-status.final { background: var(--bg-3); color: var(--text-3); border: 1px solid var(--border); }
+.meet-card-org {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.meet-card-ctry {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.05em; color: var(--text-3);
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: 3px; padding: 0.1rem 0.35rem;
+  margin-left: 0.4rem; vertical-align: middle;
+}
+.meet-card-tags {
+  display: flex; flex-wrap: wrap; gap: 0.3rem;
+}
+.meet-tag {
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--text-3); background: var(--bg-3);
+  border: 1px solid var(--border); border-radius: 3px;
+  padding: 0.1rem 0.4rem;
+}
+.meet-tag-cyan {
+  color: var(--cyan); border-color: rgba(6,182,212,0.3);
+  background: var(--cyan-dim);
+}
+.meet-card-stats {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3);
+  display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: baseline;
+}
+.meet-card-date { margin-left: auto; }
+
+.meets-empty {
+  font-family: var(--font-mono); font-size: 13px; color: var(--text-3);
+  text-align: center; padding: 3rem 1rem;
+  background: var(--bg-2); border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+}
 
 .sb-body { flex: 1; display: grid; grid-template-columns: 380px 1fr 300px; overflow: hidden; }
 .sb-col { display: flex; flex-direction: column; overflow: hidden; }
@@ -948,6 +1346,25 @@ onMounted(async () => {
    standings) into a single scrolling stack so the active diver
    stays the hero, with history above and standings below. */
 @media (max-width: 720px) {
+  /* List mode: tighter outer padding + single-column meet cards */
+  .meets-mode { padding: 1rem 1rem 3rem; gap: 0.875rem; }
+  .live-banner { padding: 0.75rem 0.875rem; }
+  .live-banner-cards { grid-template-columns: 1fr; }
+  .meets-grid { grid-template-columns: 1fr; gap: 0.625rem; }
+  .meet-card { padding: 0.875rem 1rem; }
+  .meet-card-name { font-size: 15px; }
+
+  .filter-bar { padding: 0.625rem 0.75rem; gap: 0.4rem; }
+  .filter-bar .input,
+  .filter-bar .select { max-width: none; flex: 1 1 100%; }
+  .result-count { margin-left: 0; }
+
+  /* Header bits */
+  .sb-page-title { font-size: 15px; }
+  .sb-page-sub   { font-size: 10px; }
+  .sb-event-name { font-size: 14px; }
+  .header-left   { gap: 0.5rem; }
+
   .sb-body {
     display: flex;
     flex-direction: column;

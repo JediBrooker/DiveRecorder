@@ -91,23 +91,15 @@ const allTiles = [
     action: 'Manage Teams',
   },
   {
+    // Unified scoreboard + archive — live broadcasts + completed
+    // meet recaps live in the same browsable surface now.
     id: 'scoreboard',
     roles: null, // always show
     to: '/scoreboard',
     colour: 'tile-red',
     icon: `<svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>`,
-    title: 'Live Scoreboard',
-    desc: 'View real-time standings and completed dive results.',
-    action: 'View Scores',
-  },
-  {
-    id: 'archive',
-    roles: null, // always show
-    to: '/archive',
-    colour: 'tile-amber',
-    icon: `<svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v13a1 1 0 001 1h14a1 1 0 001-1V7M4 7l1-3h14l1 3M4 7h16M9 11h6"/></svg>`,
-    title: 'Results Archive',
-    desc: 'Browse completed meets, view final results and export PDFs.',
+    title: 'Scoreboard & Results',
+    desc: 'Watch live meets in progress or browse completed meet recaps with full dive breakdowns.',
     action: 'Browse Meets',
   },
 ]
