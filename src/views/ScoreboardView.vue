@@ -981,5 +981,61 @@ onMounted(async () => {
   .standing { padding: 0.6rem 0; gap: 0.5rem; }
   .standing-name { font-size: 14px; }
   .standing-score { font-size: 14px; }
+
+  /* =========================================================
+     Completed-event recap — phone-specific fixes
+     ========================================================= */
+
+  /* The header is a single-row flex on desktop. On a phone the
+     event-sel dropdown gets pushed off-screen — let it wrap onto
+     its own full-width row, tighten everything else. */
+  .sb-header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.625rem 0.875rem;
+  }
+  .sb-header > div:first-child { gap: 0.6rem !important; }
+  .sb-header > div:first-child > span {
+    font-size: 13px !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .event-sel {
+    flex: 1 1 100%;
+    min-width: 0;
+    order: 3;            /* drop below the FINAL/LIVE pill row */
+    font-size: 13px;
+    padding: 0.5rem 0.65rem;
+  }
+  .status-badge { padding: 0.2rem 0.55rem; font-size: 9px; }
+
+  /* Meta-strip: tighten event name + reflow tags */
+  .meta-strip { padding: 0.6rem 0.875rem; gap: 0.6rem; flex-wrap: wrap; }
+  .meta-name  { font-size: 17px; line-height: 1.15; }
+  .meta-tag   { font-size: 9.5px; padding: 0.1rem 0.4rem; }
+
+  /* Hide the podium spotlight on mobile. The full standings list
+     immediately below already shows the top three with gold /
+     silver / bronze rank colours, so the podium is pure
+     duplication that eats vertical space. */
+  .podium { display: none; }
+
+  /* Tabs cluster (Final / By Round) needs to fit alongside the
+     "Standings" col-head label without bleeding. */
+  .col-head { padding: 0.65rem 0.875rem; gap: 0.5rem; flex-wrap: wrap; }
+
+  /* Stats panel — keep but compact. It's "nice to have" data
+     that historically pushed the dive breakdown below the fold. */
+  .stats-panel { margin-top: 0.6rem; padding: 0.6rem 0.7rem; }
+  .stats-head  { font-size: 9px; letter-spacing: 0.2em; margin-bottom: 0.35rem; }
+  .stat-row    { font-size: 11px; padding: 0.15rem 0; }
+
+  /* Diver breakdown blocks: pull tighter so more dives fit. */
+  .diver-block { padding: 0.6rem 0; }
+  .diver-name  { font-size: 14px; }
+  .diver-total { font-size: 12px; }
+  .diver-rank-badge { width: 24px; height: 24px; font-size: 11px; }
 }
 </style>
