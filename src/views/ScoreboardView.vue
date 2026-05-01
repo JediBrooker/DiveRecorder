@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useSocket } from '@/composables/useSocket'
+import { annotatedScores } from '@/composables/useScoreCategories'
 
 const socket = useSocket({ spectator: true })
 
@@ -167,57 +168,6 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
-// FINA judge score categories — drives the color band each chip
-// gets in the dive breakdown.
-function scoreCategory(s) {
-  if (s == null || Number.isNaN(s)) return null
-  if (s === 0)          return 'failed'
-  if (s <= 2.0)         return 'deficient'
-  if (s <= 4.5)         return 'unsatisfactory'
-  if (s <= 6.0)         return 'satisfactory'
-  if (s <= 8.0)         return 'good'
-  if (s <= 9.5)         return 'very-good'
-  return 'excellent'    // 10
-}
-
-// Standard FINA trim rules for an individual diving panel:
-//   3 judges  → keep all
-//   5 judges  → drop high + low (1 each)
-//   7 judges  → drop 2 high + 2 low
-//   9 judges  → drop 2 high + 2 low
-//  11 judges  → drop 3 high + 3 low
-function trimCount(numJudges) {
-  if (!numJudges || numJudges <= 3) return 0
-  if (numJudges === 5)  return 1
-  if (numJudges === 7)  return 2
-  if (numJudges === 9)  return 2
-  if (numJudges === 11) return 3
-  return 0
-}
-
-// Annotates a comma-separated score string with each chip's
-// category and whether the trim rule would drop it. Ties are
-// broken by original index, mirroring how the lowest-judge-id
-// is treated as the "first" of a tied pair.
-function annotatedScores(scoresStr, numJudges) {
-  const values = (scoresStr || '')
-    .split(',')
-    .map(s => parseFloat(s))
-    .filter(n => !Number.isNaN(n))
-  const drop = trimCount(numJudges)
-  const dropped = new Set()
-  if (drop > 0 && values.length > drop * 2) {
-    const indexed = values.map((v, i) => ({ v, i }))
-    indexed.sort((a, b) => a.v - b.v || a.i - b.i)
-    indexed.slice(0, drop).forEach(x => dropped.add(x.i))
-    indexed.slice(indexed.length - drop).forEach(x => dropped.add(x.i))
-  }
-  return values.map((v, i) => ({
-    value: v,
-    dropped: dropped.has(i),
-    category: scoreCategory(v),
-  }))
-}
 
 function movementClass(m) {
   if (m == null) return 'mv-new'
@@ -919,33 +869,8 @@ onMounted(async () => {
   color: var(--cyan); text-align: right;
 }
 .dr-judges { display: flex; gap: 0.25rem; flex-wrap: wrap; min-width: 0; }
-
-/* FINA judge-score categories — color bands shared by the live
-   history chips and the completed dive-breakdown chips. */
-.j-score {
-  font-family: var(--font-mono); font-size: 11px;
-  padding: 0.1rem 0.4rem; border-radius: 3px;
-  background: var(--bg-3); border: 1px solid var(--border); color: var(--text-2);
-  transition: opacity 0.15s, filter 0.15s;
-}
-.j-score.j-failed         { color: #fca5a5; border-color: rgba(239,68,68,0.55); background: rgba(239,68,68,0.18); font-weight: 700; }
-.j-score.j-deficient      { color: #fb923c; border-color: rgba(249,115,22,0.45); background: rgba(249,115,22,0.10); }
-.j-score.j-unsatisfactory { color: #fbbf24; border-color: rgba(245,158,11,0.40); background: rgba(245,158,11,0.08); }
-.j-score.j-satisfactory   { color: var(--text-2); border-color: var(--border-2); background: var(--bg-3); }
-.j-score.j-good           { color: #67e8f9; border-color: rgba(6,182,212,0.40); background: rgba(6,182,212,0.10); }
-.j-score.j-very-good      { color: #34d399; border-color: rgba(16,185,129,0.45); background: rgba(16,185,129,0.12); font-weight: 700; }
-.j-score.j-excellent      { color: #f0abfc; border-color: rgba(217,70,239,0.55); background: rgba(217,70,239,0.16); font-weight: 700; }
-
-/* Dropped by the panel's trim rule (e.g. high + low). Keeps the
-   category color but desaturates and dims it so live + counted
-   scores still pop visually. */
-.j-score.j-dropped {
-  opacity: 0.4;
-  filter: saturate(0.4);
-  font-weight: 400;
-  text-decoration: line-through;
-  text-decoration-color: rgba(255,255,255,0.35);
-}
+/* .j-score (FINA category chips) styles are global in
+   public/css/app.css — shared with the Archive view. */
 .dr-total {
   font-family: var(--font-mono); font-size: 13px; font-weight: 700;
   color: var(--text); text-align: right;

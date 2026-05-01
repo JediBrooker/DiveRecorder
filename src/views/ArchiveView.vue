@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { RouterLink } from 'vue-router'
+import { annotatedScores } from '@/composables/useScoreCategories'
 
 const events = ref([])
 const clubsList = ref([])           // distinct clubs that have competed in any archived meet
@@ -276,7 +277,13 @@ function fmtDate(iso) {
                 <span class="round-num">R{{ d.round_number }}</span>
                 <span class="dive-code">{{ [d.dive_code, d.position].filter(Boolean).join(' ') }}</span>
                 <span v-if="d.dd" class="dd-pill">DD {{ Number(d.dd).toFixed(1) }}</span>
-                <span class="judge-scores">{{ d.judge_scores }}</span>
+                <span class="judge-scores">
+                  <span v-for="(j, si) in annotatedScores(d.judge_scores, results.event?.number_of_judges)" :key="si"
+                        :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                        :title="j.dropped ? 'Dropped by trim rule' : ''">
+                    {{ j.value.toFixed(1) }}
+                  </span>
+                </span>
                 <span class="dive-total">{{ Number(d.total_dive_score).toFixed(2) }}</span>
               </div>
             </div>
@@ -409,6 +416,9 @@ function fmtDate(iso) {
   background: var(--cyan-dim); border-radius: 3px;
   padding: 0.1rem 0.4rem; font-size: 10px; flex-shrink: 0;
 }
-.judge-scores { flex: 1; color: var(--text-3); }
+.judge-scores {
+  flex: 1; color: var(--text-3);
+  display: flex; flex-wrap: wrap; gap: 0.25rem; min-width: 0;
+}
 .dive-total { font-weight: 700; color: var(--text); flex-shrink: 0; }
 </style>

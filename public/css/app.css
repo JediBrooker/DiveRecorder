@@ -415,3 +415,33 @@ h1, h2, h3, h4 {
   overflow-y: auto;
   animation: fadeUp 0.2s ease;
 }
+
+/* =========================================================
+   Per-judge score chips (FINA categories)
+   Shared by Scoreboard and Archive — keep in sync with the
+   logic in src/composables/useScoreCategories.js
+   ========================================================= */
+.j-score {
+  font-family: var(--font-mono); font-size: 11px;
+  padding: 0.1rem 0.4rem; border-radius: 3px;
+  background: var(--bg-3); border: 1px solid var(--border); color: var(--text-2);
+  transition: opacity 0.15s, filter 0.15s;
+  white-space: nowrap;
+}
+.j-score.j-failed         { color: #fca5a5; border-color: rgba(239,68,68,0.55); background: rgba(239,68,68,0.18); font-weight: 700; }
+.j-score.j-deficient      { color: #fb923c; border-color: rgba(249,115,22,0.45); background: rgba(249,115,22,0.10); }
+.j-score.j-unsatisfactory { color: #fbbf24; border-color: rgba(245,158,11,0.40); background: rgba(245,158,11,0.08); }
+.j-score.j-satisfactory   { color: var(--text-2); border-color: var(--border-2); background: var(--bg-3); }
+.j-score.j-good           { color: #67e8f9; border-color: rgba(6,182,212,0.40); background: rgba(6,182,212,0.10); }
+.j-score.j-very-good      { color: #34d399; border-color: rgba(16,185,129,0.45); background: rgba(16,185,129,0.12); font-weight: 700; }
+.j-score.j-excellent      { color: #f0abfc; border-color: rgba(217,70,239,0.55); background: rgba(217,70,239,0.16); font-weight: 700; }
+
+/* Dropped by the panel's trim rule — keeps the category colour
+   but desaturates and dims so live + counted scores still pop. */
+.j-score.j-dropped {
+  opacity: 0.4;
+  filter: saturate(0.4);
+  font-weight: 400;
+  text-decoration: line-through;
+  text-decoration-color: rgba(255,255,255,0.35);
+}
