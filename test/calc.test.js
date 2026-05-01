@@ -1,0 +1,158 @@
+// World Aquatics scoring tests — exercises the SQL functions
+// calc_dive_points and calc_synchro_dive_points against a live
+// Postgres connection. The functions are pure and deterministic
+// so we use known FINA-rule examples and assert exact outputs.
+//
+// Connection: uses standard libpq env vars (PGHOST, PGUSER,
+// PGPASSWORD, PGDATABASE) or DATABASE_URL. Tests skip with a
+// console warning if no DB is reachable, so a local dev without
+// Postgres can still `npm test` without failures — CI runs
+// against a Postgres service container.
+
+const { test, before, after } = require("node:test");
+const assert = require("node:assert/strict");
+const { Pool } = require("pg");
+
+const pool = new Pool();
+let dbReachable = true;
+
+before(async () => {
+  try {
+    await pool.query("SELECT 1");
+  } catch (err) {
+    dbReachable = false;
+    console.warn(`[skip] Postgres not reachable: ${err.message}`);
+  }
+});
+
+after(async () => {
+  await pool.end();
+});
+
+// Helper: run a calc query and return the numeric result.
+async function diveValue(scores, numJudges, dd) {
+  const r = await pool.query("SELECT calc_dive_points($1, $2, $3) AS v", [
+    scores,
+    numJudges,
+    dd,
+  ]);
+  return Number(r.rows[0].v);
+}
+
+async function synchroValue(judgeNumbers, scores, numJudges, dd) {
+  const r = await pool.query(
+    "SELECT calc_synchro_dive_points($1, $2, $3, $4) AS v",
+    [judgeNumbers, scores, numJudges, dd],
+  );
+  return Number(r.rows[0].v);
+}
+
+// ─────────────────────────────────────────────────────────────
+// calc_dive_points — individual events
+// ─────────────────────────────────────────────────────────────
+
+test("calc_dive_points: 5 judges, drop high+low", async (t) => {
+  if (!dbReachable) return t.skip("DB not reachable");
+  // Scores [5, 6, 7, 8, 9], drop 5 + 9, keep [6,7,8] = 21, × DD 2.0 = 42
+  const v = await diveValue([5, 6, 7, 8, 9], 5, 2.0);
+  assert.equal(v, 42);
+});
+
+test("calc_dive_points: 7 judges, drop 2 high + 2 low", async (t) => {
+  if (!dbReachable) return t.skip("DB not reachable");
+  // Scores [4,5,6,7,8,9,10], drop 4,5,9,10, keep [6,7,8] = 21, × DD 3.0 = 63
+  const v = await diveValue([4, 5, 6, 7, 8, 9, 10], 7, 3.0);
+  assert.equal(v, 63);
+});
+
+test("calc_dive_points: 9 judges, drop 2+2, × 0.6 normalisation", async (t) => {
+  if (!dbReachable) return t.skip("DB not reachable");
+  // Scores 1..9, drop 1,2,8,9, keep [3,4,5,6,7] = 25, × DD 2.0 = 50, × 0.6 = 30
+  const v = await diveValue([1, 2, 3, 4, 5, 6, 7, 8, 9], 9, 2.0);
+  assert.equal(v, 30);
+});
+
+test("calc_dive_points: 11 judges, drop 3+3, × 0.6", async (t) => {
+  if (!dbReachable) return t.skip("DB not reachable");
+  // All 7s — drop 3 highest + 3 lowest (still 7s), keep middle 5 = 35, × DD 2.0 × 0.6 = 42
+  const v = await diveValue([7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7], 11, 2.0);
+  assert.equal(v, 42);
+});
+
+test("calc_dive_points: 3 judges, no drops", async (t) => {
+  if (!dbReachable) return t.skip("DB not reachable");
+  // Scores [6, 7, 8], keep all = 21, × DD 1.5 = 31.5
+  const v = await diveValue([6, 7, 8], 3, 1.5);
+  assert.equal(v, 31.5);
+});
+
+test("calc_dive_points: empty scores returns 0", async (t) => {
+  if (!dbReachable) return t.skip("DB not reachable");
+  const v = await diveValue([], 5, 2.0);
+  assert.equal(v, 0);
+});
+
+// ─────────────────────────────────────────────────────────────
+// calc_synchro_dive_points — synchronised pairs
+// ─────────────────────────────────────────────────────────────
+
+test("synchro: 9-judge panel, no drops on exec, drop high+low on sync", async (t) => {
+  if (!dbReachable) return t.skip("DB not reachable");
+  // Judges 1-2 score Diver A exec, 3-4 score Diver B, 5-9 sync.
+  // Exec A: 7+8 = 15
+  // Exec B: 7+8 = 15
+  // Sync: [5,6,7,8,9] → drop 5+9 → 6+7+8 = 21
+  // Sum = 51, × DD 2.0 × 0.6 = 61.2
+  const v = await synchroValue(
+    [1, 2, 3, 4, 5, 6, 7, 8, 9],
+    [7, 8, 7, 8, 5, 6, 7, 8, 9],
+    9,
+    2.0,
+  );
+  assert.equal(v, 61.2);
+});
+
+test("synchro: 11-judge panel, middle 1 of 3 exec, middle 3 of 5 sync", async (t) => {
+  if (!dbReachable) return t.skip("DB not reachable");
+  // Judges 1-3 exec A, 4-6 exec B, 7-11 sync.
+  // Exec A: [6,7,8] → middle = 7
+  // Exec B: [5,6,7] → middle = 6
+  // Sync: [4,5,6,7,8] → drop 4+8 → 5+6+7 = 18
+  // Sum = 31, × DD 3.0 × 0.6 = 55.8
+  const v = await synchroValue(
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+    [6, 7, 8, 5, 6, 7, 4, 5, 6, 7, 8],
+    11,
+    3.0,
+  );
+  assert.equal(v, 55.8);
+});
+
+test("synchro: empty scores returns 0", async (t) => {
+  if (!dbReachable) return t.skip("DB not reachable");
+  const v = await synchroValue([], [], 9, 2.0);
+  assert.equal(v, 0);
+});
+
+// ─────────────────────────────────────────────────────────────
+// schema_meta + purge_audit_logs — operational sanity
+// ─────────────────────────────────────────────────────────────
+
+test("schema_meta is populated", async (t) => {
+  if (!dbReachable) return t.skip("DB not reachable");
+  const r = await pool.query("SELECT version FROM schema_meta WHERE id = 1");
+  assert.ok(r.rows[0]?.version >= 8, `expected schema version ≥ 8, got ${r.rows[0]?.version}`);
+});
+
+test("purge_audit_logs returns per-table counts", async (t) => {
+  if (!dbReachable) return t.skip("DB not reachable");
+  const r = await pool.query("SELECT * FROM purge_audit_logs(99999)");
+  // 99999-day window means nothing should be deleted on a typical
+  // test database. We just assert the function returns the
+  // documented shape.
+  const tables = r.rows.map((row) => row.table_name).sort();
+  assert.deepEqual(tables, ["role_audit_log", "score_audit_log"]);
+  for (const row of r.rows) {
+    assert.equal(typeof row.deleted_rows, "string", "row counts come back as bigint strings");
+  }
+});

@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "node server.js"
+    "start": "node server.js",
+    "lint": "node --check server.js",
+    "test": "node --test 'test/*.test.js'"
   },
   "keywords": [],
   "author": "",
