@@ -68,6 +68,56 @@ async function sendRoleDecisionEmail(userId, decision, role) {
   }
 }
 
+// Short, deterministic fingerprint of a bcrypt hash. Used as a
+// "single-use" guard for password-reset JWTs: when the user's
+// password column changes, this fingerprint changes too, which
+// invalidates any in-flight reset token without needing a
+// nonce-tracking table.
+const crypto = require("crypto");
+function hashFingerprint(bcryptHash) {
+  return crypto.createHash("sha256").update(bcryptHash || "").digest("hex").slice(0, 16);
+}
+
+// "We received a password-reset request" email. Includes a
+// 30-min link that hits POST /api/auth/reset-password.
+async function sendPasswordResetEmail(user, token) {
+  if (!mailer || !user?.email) return;
+  const base = process.env.APP_BASE_URL || "";
+  const link = `${base}/reset-password?token=${encodeURIComponent(token)}`;
+  try {
+    await mailer.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: user.email,
+      subject: "Reset your Dive Recorder password",
+      text: `Hi ${user.full_name},\n\nWe received a request to reset your password. Click the link below to choose a new one — it expires in 30 minutes.\n\n${link}\n\nIf you didn't request this, you can ignore this message safely.\n\nDive Recorder`,
+    });
+  } catch (err) {
+    console.error("[Reset Email Error]", err.message);
+  }
+}
+
+// "Your password was just changed" hygiene email. Fires after
+// any successful password change (self-service or via reset).
+async function sendPasswordChangedEmail(userId) {
+  if (!mailer) return;
+  try {
+    const u = await pool.query(
+      "SELECT email, full_name FROM users WHERE id = $1",
+      [userId],
+    );
+    const user = u.rows[0];
+    if (!user?.email) return;
+    await mailer.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: user.email,
+      subject: "Your Dive Recorder password was changed",
+      text: `Hi ${user.full_name},\n\nThis is a confirmation that your password was just changed. If you didn't do this, contact your organisation admin and reset your password immediately.\n\nDive Recorder`,
+    });
+  } catch (err) {
+    console.error("[Hygiene Email Error]", err.message);
+  }
+}
+
 // Serve the built Vue app (run `npm run build` before starting the server)
 app.use(express.static(path.join(__dirname, 'dist')))
 
@@ -325,6 +375,126 @@ app.post("/api/auth/register-org", authLimiter, async (req, res) => {
       .json({ error: err.detail || "Organisation registration failed" });
   } finally {
     client.release();
+  }
+});
+
+// -------------------------------------------------------------
+// SELF-SERVICE PASSWORD CHANGE
+// Logged-in user changes their own password. Requires the
+// current password as a defence against a hijacked session
+// silently rotating the credential.
+// -------------------------------------------------------------
+app.put("/api/users/me/password", verifyToken, async (req, res) => {
+  const { current_password, new_password } = req.body || {};
+  if (!current_password || !new_password) {
+    return res.status(400).json({ error: "Current and new password are required" });
+  }
+  if (typeof new_password !== "string" || new_password.length < 6) {
+    return res.status(400).json({ error: "New password must be at least 6 characters" });
+  }
+  try {
+    const u = await pool.query(
+      "SELECT id, password, full_name, email FROM users WHERE id = $1",
+      [req.user.user_id],
+    );
+    const user = u.rows[0];
+    if (!user) return res.status(404).json({ error: "User not found" });
+    const ok = await bcrypt.compare(current_password, user.password);
+    if (!ok) return res.status(401).json({ error: "Current password is incorrect" });
+    const hash = await bcrypt.hash(new_password, 12);
+    await pool.query("UPDATE users SET password = $1 WHERE id = $2", [hash, user.id]);
+    // Best-effort security-hygiene email so an unexpected
+    // password change is noticed. Never block the response on it.
+    sendPasswordChangedEmail(user.id).catch(() => {});
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[Change Password Error]", err.message);
+    res.status(500).json({ error: "Password change failed" });
+  }
+});
+
+// -------------------------------------------------------------
+// FORGOT / RESET PASSWORD
+//
+// Two-step flow over email. /forgot-password takes an email
+// address, mints a short-lived JWT with type=password_reset
+// scoped to that user, and emails a link. /reset-password
+// accepts the token + a new password.
+//
+// Tokens are stateless JWTs rather than DB-backed nonces:
+// simpler, and the 30-min expiry plus single-use enforcement
+// (we read the user's current password hash into the JWT
+// payload and reject if it has changed) gives us "single use"
+// without an extra table.
+// -------------------------------------------------------------
+app.post("/api/auth/forgot-password", authLimiter, async (req, res) => {
+  const { email } = req.body || {};
+  // Always respond 200 OK regardless of whether the email
+  // matches a user. Prevents account enumeration via this
+  // endpoint.
+  if (!email) return res.json({ ok: true });
+  try {
+    const u = await pool.query(
+      "SELECT id, password, full_name, email FROM users WHERE email = $1",
+      [email],
+    );
+    const user = u.rows[0];
+    if (user && user.email) {
+      // Token includes a hash-of-the-hash so a successful reset
+      // invalidates the token: the user's password column will
+      // change, so the embedded fingerprint won't match on
+      // replay.
+      const fingerprint = jwt.sign(
+        { sub: user.id, type: "password_reset", fp: hashFingerprint(user.password) },
+        JWT_SECRET,
+        { expiresIn: "30m" },
+      );
+      sendPasswordResetEmail(user, fingerprint).catch(() => {});
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[Forgot Password Error]", err.message);
+    res.json({ ok: true });   // still don't leak
+  }
+});
+
+app.post("/api/auth/reset-password", authLimiter, async (req, res) => {
+  const { token, new_password } = req.body || {};
+  if (!token || !new_password) {
+    return res.status(400).json({ error: "Token and new password are required" });
+  }
+  if (typeof new_password !== "string" || new_password.length < 6) {
+    return res.status(400).json({ error: "New password must be at least 6 characters" });
+  }
+  try {
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch {
+      return res.status(400).json({ error: "Reset link is invalid or has expired" });
+    }
+    if (decoded.type !== "password_reset" || !decoded.sub) {
+      return res.status(400).json({ error: "Reset link is invalid" });
+    }
+    const u = await pool.query(
+      "SELECT id, password FROM users WHERE id = $1",
+      [decoded.sub],
+    );
+    const user = u.rows[0];
+    if (!user) return res.status(400).json({ error: "Reset link is invalid" });
+    // Reject if the password has changed since the token was
+    // issued (= token has already been used, or the user has
+    // changed their password through another channel).
+    if (decoded.fp !== hashFingerprint(user.password)) {
+      return res.status(400).json({ error: "Reset link has already been used" });
+    }
+    const hash = await bcrypt.hash(new_password, 12);
+    await pool.query("UPDATE users SET password = $1 WHERE id = $2", [hash, user.id]);
+    sendPasswordChangedEmail(user.id).catch(() => {});
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[Reset Password Error]", err.message);
+    res.status(500).json({ error: "Password reset failed" });
   }
 });
 

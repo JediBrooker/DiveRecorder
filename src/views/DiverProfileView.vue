@@ -21,6 +21,55 @@ const clubChoice = ref('')           // selected club_id or ''
 const savingClub = ref(false)
 const saveError = ref('')
 
+// Password change state
+const pwEditing  = ref(false)
+const pwCurrent  = ref('')
+const pwNew      = ref('')
+const pwConfirm  = ref('')
+const pwSaving   = ref(false)
+const pwError    = ref('')
+const pwSuccess  = ref(false)
+
+function openPasswordEditor() {
+  pwEditing.value = true
+  pwCurrent.value = ''
+  pwNew.value = ''
+  pwConfirm.value = ''
+  pwError.value = ''
+  pwSuccess.value = false
+}
+function closePasswordEditor() {
+  pwEditing.value = false
+  pwError.value = ''
+}
+async function savePassword() {
+  pwError.value = ''
+  if (pwNew.value.length < 6) {
+    pwError.value = 'New password must be at least 6 characters'
+    return
+  }
+  if (pwNew.value !== pwConfirm.value) {
+    pwError.value = 'New passwords don\'t match'
+    return
+  }
+  pwSaving.value = true
+  try {
+    await auth.apiFetch('/api/users/me/password', {
+      method: 'PUT',
+      body: JSON.stringify({
+        current_password: pwCurrent.value,
+        new_password:     pwNew.value,
+      }),
+    })
+    pwSuccess.value = true
+    setTimeout(() => { pwEditing.value = false; pwSuccess.value = false }, 1200)
+  } catch (err) {
+    pwError.value = err.message || 'Password change failed'
+  } finally {
+    pwSaving.value = false
+  }
+}
+
 const trendChart = computed(() => {
   if (!profile.value?.score_trend?.length) return null
   const points = profile.value.score_trend.map(t => Number(t.total_score))
@@ -137,9 +186,12 @@ watch(targetId, load)
           </span>
         </div>
       </div>
-      <div style="display:flex;gap:0.5rem;align-items:center">
+      <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
         <button v-if="profile && isSelf" class="btn btn-ghost btn-sm" @click="openClubEditor">
           Change Club
+        </button>
+        <button v-if="profile && isSelf" class="btn btn-ghost btn-sm" @click="openPasswordEditor">
+          Change Password
         </button>
         <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">← Dashboard</RouterLink>
       </div>
@@ -270,6 +322,39 @@ watch(targetId, load)
           {{ savingClub ? 'Saving…' : 'Save' }}
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- Password change modal -->
+  <div v-if="pwEditing" class="modal-backdrop" @click="closePasswordEditor"></div>
+  <div v-if="pwEditing" class="modal" @click.stop>
+    <div class="modal-head">
+      <div class="modal-title">Change Password</div>
+      <button class="btn btn-ghost btn-sm" @click="closePasswordEditor">Close ✕</button>
+    </div>
+    <div class="modal-body">
+      <div v-if="pwSuccess" class="msg msg-success">Password updated</div>
+      <template v-else>
+        <div class="field">
+          <label class="label">Current password</label>
+          <input class="input" type="password" autocomplete="current-password" v-model="pwCurrent">
+        </div>
+        <div class="field">
+          <label class="label">New password</label>
+          <input class="input" type="password" autocomplete="new-password" v-model="pwNew">
+        </div>
+        <div class="field">
+          <label class="label">Confirm new password</label>
+          <input class="input" type="password" autocomplete="new-password" v-model="pwConfirm">
+        </div>
+        <div v-if="pwError" class="msg msg-error">{{ pwError }}</div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost btn-sm" @click="closePasswordEditor">Cancel</button>
+          <button class="btn btn-primary btn-sm" :disabled="pwSaving" @click="savePassword">
+            {{ pwSaving ? 'Saving…' : 'Save Password' }}
+          </button>
+        </div>
+      </template>
     </div>
   </div>
 </template>

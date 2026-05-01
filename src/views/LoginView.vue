@@ -58,6 +58,7 @@ async function handleSubmit() {
     </form>
 
     <div class="footer-links">
+      <RouterLink to="/forgot-password">Forgot your password? <span>Reset it</span></RouterLink>
       <RouterLink to="/register">No account? <span>Register here</span></RouterLink>
       <RouterLink to="/register-org">Registering a new federation? <span>Register your org</span></RouterLink>
     </div>

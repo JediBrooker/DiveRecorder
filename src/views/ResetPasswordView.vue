@@ -1,0 +1,116 @@
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter, RouterLink } from 'vue-router'
+
+// Step 2 of the password-reset flow. The link in the email is
+// /reset-password?token=<jwt>. We POST that token + the new
+// password to /api/auth/reset-password; the server verifies the
+// JWT, checks the password fingerprint hasn't changed (single-
+// use guard), and updates the password.
+
+const route  = useRoute()
+const router = useRouter()
+
+const token = computed(() => route.query.token || '')
+const newPassword = ref('')
+const confirmPassword = ref('')
+const submitting = ref(false)
+const error = ref('')
+const done = ref(false)
+
+onMounted(() => {
+  if (!token.value) {
+    error.value = "This page needs to be opened from the link in your reset email."
+  }
+})
+
+async function submit() {
+  error.value = ''
+  if (newPassword.value.length < 6) {
+    error.value = 'New password must be at least 6 characters'
+    return
+  }
+  if (newPassword.value !== confirmPassword.value) {
+    error.value = 'Passwords don\'t match'
+    return
+  }
+  submitting.value = true
+  try {
+    const r = await fetch('/api/auth/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: token.value,
+        new_password: newPassword.value,
+      }),
+    })
+    const body = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(body.error || 'Reset failed')
+    done.value = true
+    setTimeout(() => router.push('/login'), 2000)
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    submitting.value = false
+  }
+}
+</script>
+
+<template>
+  <div class="reset-wrap">
+    <div class="reset-mark">Dive Recorder</div>
+    <h1>New Password</h1>
+    <p class="subtitle">Pick something memorable</p>
+
+    <template v-if="done">
+      <div class="msg msg-success">
+        Password updated. Redirecting you to sign in…
+      </div>
+    </template>
+
+    <form v-else-if="token" @submit.prevent="submit" class="form-stack">
+      <div class="field">
+        <label class="label">New password</label>
+        <input class="input" type="password" autocomplete="new-password" v-model="newPassword" required>
+      </div>
+      <div class="field">
+        <label class="label">Confirm new password</label>
+        <input class="input" type="password" autocomplete="new-password" v-model="confirmPassword" required>
+      </div>
+      <div v-if="error" class="msg msg-error">{{ error }}</div>
+      <button type="submit" class="btn btn-primary-lg" :disabled="submitting" style="margin-top:0.5rem">
+        {{ submitting ? 'Saving…' : 'Set New Password' }}
+      </button>
+    </form>
+
+    <template v-else>
+      <div class="msg msg-error">{{ error || 'No reset token found.' }}</div>
+      <RouterLink to="/forgot-password" class="btn btn-ghost btn-sm" style="margin-top:1.25rem">
+        Request a new reset link
+      </RouterLink>
+    </template>
+  </div>
+</template>
+
+<style scoped>
+:global(body) {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh; padding: 1.5rem;
+}
+.reset-wrap { width: 100%; max-width: 420px; animation: fadeUp 0.4s ease; }
+.reset-mark {
+  font-family: var(--font-display); font-size: 13px; font-weight: 700;
+  letter-spacing: 0.3em; text-transform: uppercase; color: var(--cyan);
+  margin-bottom: 2.5rem; display: flex; align-items: center; gap: 0.75rem;
+}
+.reset-mark::before {
+  content: ''; display: block; width: 24px; height: 2px; background: var(--cyan);
+}
+h1 { font-size: 44px; color: var(--text); margin-bottom: 0.25rem; font-style: italic; }
+.subtitle {
+  color: var(--text-3); font-size: 12px; letter-spacing: 0.15em;
+  margin-bottom: 2rem; font-family: var(--font-display);
+  font-weight: 600; text-transform: uppercase;
+}
+.form-stack { display: flex; flex-direction: column; gap: 1rem; }
+</style>

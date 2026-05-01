@@ -21,6 +21,14 @@ const routes = [
     component: () => import('@/views/RegisterOrgView.vue'),
   },
   {
+    path: '/forgot-password',
+    component: () => import('@/views/ForgotPasswordView.vue'),
+  },
+  {
+    path: '/reset-password',
+    component: () => import('@/views/ResetPasswordView.vue'),
+  },
+  {
     path: '/dashboard',
     component: () => import('@/views/DashboardView.vue'),
     meta: { requiresAuth: true },
