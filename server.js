@@ -1751,8 +1751,12 @@ app.get("/api/events", async (req, res) => {
 });
 
 app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
-  const { name, gender, number_of_judges, total_rounds, height, event_type, meet_id } =
-    req.body;
+  const {
+    name, gender, number_of_judges, total_rounds, height, event_type, meet_id,
+    // New fields (migration 013):
+    age_group, scheduled_at, event_format, parent_event_id, advance_count,
+    dd_limit_rounds, dd_limit_value,
+  } = req.body;
   // Synchronised pairs require 9 or 11 judges (the only panel
   // sizes World Aquatics defines exec/sync judge groups for).
   // Reject anything else early so standings later make sense.
@@ -1761,6 +1765,13 @@ app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
     return res.status(400).json({
       error: "Synchronised pair events require 9 or 11 judges",
     });
+  }
+  // Validate event_format. Default 'final' covers the standalone
+  // case; 'preliminary' is a feeder event whose top-N advances
+  // to a 'final' (linked via parent_event_id on the final).
+  const fmt = event_format || "final";
+  if (!["final", "preliminary"].includes(fmt)) {
+    return res.status(400).json({ error: "event_format must be 'final' or 'preliminary'" });
   }
   const client = await pool.connect();
   try {
@@ -1778,17 +1789,46 @@ app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
           .json({ error: "Meet not found in this organisation" });
       }
     }
+    // Validate parent_event_id if this is a final referencing a
+    // preliminary. Must be in the same org and itself flagged
+    // as 'preliminary'.
+    if (parent_event_id) {
+      const p = await client.query(
+        "SELECT id, event_format, org_id FROM events WHERE id = $1",
+        [parent_event_id],
+      );
+      if (!p.rows.length || p.rows[0].org_id !== req.user.org_id) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Preliminary event not found in this org" });
+      }
+      if (p.rows[0].event_format !== "preliminary") {
+        await client.query("ROLLBACK");
+        return res
+          .status(400)
+          .json({ error: "Linked event must be a preliminary" });
+      }
+    }
     const evRes = await client.query(
       `INSERT INTO events
-         (name, gender, number_of_judges, total_rounds, height, event_type, org_id, meet_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+         (name, gender, age_group, number_of_judges, total_rounds, height,
+          event_type, event_format, parent_event_id, advance_count,
+          dd_limit_rounds, dd_limit_value, scheduled_at,
+          org_id, meet_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
       [
         name,
         gender,
+        age_group || null,
         number_of_judges || 5,
         total_rounds || 6,
         height || null,
         type,
+        fmt,
+        parent_event_id || null,
+        advance_count || 12,
+        dd_limit_rounds || 0,
+        dd_limit_value || null,
+        scheduled_at || null,
         req.user.org_id,
         meet_id || null,
       ],
@@ -1811,28 +1851,56 @@ app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
 });
 
 app.put("/api/events/:id", requireEventManager(), async (req, res) => {
-  const { name, gender, number_of_judges, total_rounds, height, event_type } =
-    req.body;
+  const {
+    name, gender, number_of_judges, total_rounds, height, event_type,
+    age_group, scheduled_at, event_format, parent_event_id, advance_count,
+    dd_limit_rounds, dd_limit_value,
+  } = req.body;
   if (event_type === "synchro_pair" && ![9, 11].includes(number_of_judges)) {
     return res.status(400).json({
       error: "Synchronised pair events require 9 or 11 judges",
     });
   }
+  if (event_format && !["final", "preliminary"].includes(event_format)) {
+    return res.status(400).json({ error: "event_format must be 'final' or 'preliminary'" });
+  }
   try {
     // System admins can edit events in any org — the boolean
-     // short-circuits the org filter without losing the index
-     // on org_id for normal traffic.
+    // short-circuits the org filter without losing the index
+    // on org_id for normal traffic.
+    // COALESCE on the new fields means undefined inputs leave
+    // the existing column untouched, so partial PUTs (e.g. just
+    // updating the schedule) keep working.
     const r = await pool.query(
-      `UPDATE events SET name=$1, gender=$2, number_of_judges=$3, total_rounds=$4,
-                         height=$5, event_type=COALESCE($6, event_type)
-       WHERE id=$7 AND ($8::boolean OR org_id=$9) RETURNING *`,
+      `UPDATE events SET
+         name             = COALESCE($1, name),
+         gender           = COALESCE($2, gender),
+         number_of_judges = COALESCE($3, number_of_judges),
+         total_rounds     = COALESCE($4, total_rounds),
+         height           = $5,
+         event_type       = COALESCE($6, event_type),
+         age_group        = $7,
+         event_format     = COALESCE($8, event_format),
+         parent_event_id  = $9,
+         advance_count    = COALESCE($10, advance_count),
+         dd_limit_rounds  = COALESCE($11, dd_limit_rounds),
+         dd_limit_value   = $12,
+         scheduled_at     = $13
+       WHERE id=$14 AND ($15::boolean OR org_id=$16) RETURNING *`,
       [
-        name,
-        gender,
-        number_of_judges,
-        total_rounds,
+        name || null,
+        gender || null,
+        number_of_judges || null,
+        total_rounds || null,
         height || null,
         event_type || null,
+        age_group ?? null,
+        event_format || null,
+        parent_event_id ?? null,
+        advance_count || null,
+        dd_limit_rounds ?? null,
+        dd_limit_value ?? null,
+        scheduled_at ?? null,
         req.params.id,
         !!req.user.is_system_admin,
         req.user.org_id,

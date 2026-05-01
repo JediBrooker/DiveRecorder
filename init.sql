@@ -232,12 +232,22 @@ CREATE TABLE public.events (
     meet_id          uuid REFERENCES public.meets(id) ON DELETE SET NULL,
     name             varchar(255) NOT NULL,
     gender           event_gender NOT NULL,
+    age_group        varchar(40),                  -- 'U14', 'Open', 'Masters 30-34', etc.
     height           board_height,
     number_of_judges integer NOT NULL,
     total_rounds     integer DEFAULT 6 NOT NULL,
     dd_limit_rounds  integer DEFAULT 0,
     dd_limit_value   numeric(3,1),
     event_type       event_type DEFAULT 'individual' NOT NULL,
+    -- 'final' (the default — every standalone event) or
+    -- 'preliminary' (feeds a final via parent_event_id below).
+    event_format     varchar(20) NOT NULL DEFAULT 'final',
+    -- Set on a 'final' event to link back to its 'preliminary'.
+    -- ON DELETE SET NULL so deleting the prelim doesn't cascade
+    -- the final.
+    parent_event_id  uuid REFERENCES public.events(id) ON DELETE SET NULL,
+    advance_count    integer DEFAULT 12,           -- how many top-N advance from prelim → final
+    scheduled_at     timestamptz,                  -- when the event starts (schedules, .ics, notifications)
     status           event_status DEFAULT 'Upcoming' NOT NULL,
     created_at       timestamptz DEFAULT now(),
     CONSTRAINT events_number_of_judges_check
@@ -376,6 +386,24 @@ CREATE TABLE public.score_audit_log (
     user_agent      text,
     created_at      timestamptz DEFAULT now() NOT NULL
 );
+
+-- Saved event configurations. A meet manager builds an event
+-- once ("FINA U16 Women's 3m") then re-applies the template
+-- for future seasons. config jsonb holds the form state — name
+-- pattern, gender, height, judges, rounds, format, dd_limit_*,
+-- age_group, etc. — so adding new event columns later doesn't
+-- require a template-table migration.
+CREATE TABLE public.event_templates (
+    id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    org_id      uuid NOT NULL REFERENCES public.organisations(id) ON DELETE CASCADE,
+    name        varchar(255) NOT NULL,
+    config      jsonb NOT NULL,
+    created_by  uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    updated_at  timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (org_id, name)
+);
+
 
 -- Saved dive lists per diver. Lets a diver carry common 5- or
 -- 6-dive combinations between meets without retyping — pick a
@@ -607,6 +635,9 @@ CREATE INDEX idx_meets_org                 ON public.meets (org_id);
 CREATE INDEX idx_meets_dates               ON public.meets (start_date DESC NULLS LAST);
 CREATE INDEX idx_events_meet               ON public.events (meet_id);
 CREATE INDEX idx_dive_list_templates_user  ON public.dive_list_templates (user_id);
+CREATE INDEX idx_event_templates_org       ON public.event_templates (org_id);
+CREATE INDEX idx_events_scheduled_at       ON public.events (scheduled_at);
+CREATE INDEX idx_events_parent_event       ON public.events (parent_event_id);
 CREATE INDEX idx_dive_lists_event_round_order
     ON public.competitor_dive_lists (event_id, round_number, display_order)
     WHERE withdrawn_at IS NULL;
@@ -627,7 +658,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 12);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 13);
 
 
 -- =============================================================

@@ -20,6 +20,17 @@ const createRounds = ref(6)
 const createType = ref('individual')
 const createMeetId = ref('')           // optional — bundle this event into a meet
 
+// Migration 013 additions: age group, scheduled start, event
+// format (final / preliminary), prelim/final link, advance count,
+// per-round DD limits.
+const createAgeGroup     = ref('')
+const createScheduledAt  = ref('')      // datetime-local string, '' = unscheduled
+const createFormat       = ref('final') // 'final' | 'preliminary'
+const createParentEventId = ref('')     // set on a 'final' to link its prelim
+const createAdvanceCount = ref(12)      // FINA standard
+const createDdLimitRounds = ref(0)      // 0 = no limit
+const createDdLimitValue  = ref('')     // '' = no limit; numeric otherwise
+
 // Meet management — separate from event create/edit. A meet is
 // a bundle of events; org admins create them here so events
 // can be filed under e.g. "2026 National Open".
@@ -56,6 +67,20 @@ const filteredManagerEvents = computed(() => {
   if (!orgFilter.value) return events.value
   return events.value.filter(ev => ev.org_id === orgFilter.value)
 })
+
+// Candidate prelim events when creating a 'final' — pick from
+// all 'preliminary' events in the user's own org. Cross-org
+// prelim/final pairing isn't permitted.
+const preliminaryEvents = computed(() =>
+  events.value
+    .filter(ev =>
+      ev.event_format === 'preliminary' &&
+      (!auth.user?.is_system_admin
+        ? true   // non-sysadmin only sees own org via /api/events
+        : ev.org_id === auth.user?.org_id),
+    )
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+)
 
 // Edit form
 const editId = ref('')
@@ -238,6 +263,17 @@ async function createEvent() {
         total_rounds: parseInt(createRounds.value),
         event_type: createType.value,
         meet_id: createMeetId.value || null,
+        age_group: createAgeGroup.value || null,
+        scheduled_at: createScheduledAt.value || null,
+        event_format: createFormat.value,
+        parent_event_id: createFormat.value === 'final' && createParentEventId.value
+          ? createParentEventId.value
+          : null,
+        advance_count: parseInt(createAdvanceCount.value) || 12,
+        dd_limit_rounds: parseInt(createDdLimitRounds.value) || 0,
+        dd_limit_value: createDdLimitValue.value
+          ? parseFloat(createDdLimitValue.value)
+          : null,
       }),
     })
     createName.value = ''
@@ -247,6 +283,13 @@ async function createEvent() {
     createRounds.value = 6
     createType.value = 'individual'
     createMeetId.value = ''
+    createAgeGroup.value = ''
+    createScheduledAt.value = ''
+    createFormat.value = 'final'
+    createParentEventId.value = ''
+    createAdvanceCount.value = 12
+    createDdLimitRounds.value = 0
+    createDdLimitValue.value = ''
     await Promise.all([loadEvents(), loadMeets()])
   } catch (err) {
     formErr.value = err.message
@@ -443,6 +486,79 @@ onMounted(async () => { await Promise.all([loadEvents(), loadMeets()]) })
             Bundle this event into a multi-event meet. Manage meets below.
           </p>
         </div>
+
+        <!-- Age group / division. Free text so any federation's
+             naming works ("U14", "Open", "Masters 30-34", "Para
+             Class 1"). Empty for un-bracketed events. -->
+        <div class="field">
+          <label class="label">Age Group / Division (optional)</label>
+          <input class="input" v-model="createAgeGroup"
+                 placeholder="e.g. U14, Open, Masters 30-34, Para">
+        </div>
+
+        <!-- Scheduled start. Powers the meet schedule view,
+             notifications, and (later) calendar export. -->
+        <div class="field">
+          <label class="label">Scheduled Start (optional)</label>
+          <input class="input" type="datetime-local" v-model="createScheduledAt">
+          <p class="hint" v-if="createScheduledAt">
+            Notifications will fire 1 hour before this time when a competitor's dive list is in.
+          </p>
+        </div>
+
+        <!-- Event format — 'final' is the default standalone
+             event; 'preliminary' marks this as a feeder whose
+             top-N divers advance to a linked 'final'. -->
+        <div class="field">
+          <label class="label">Event Format</label>
+          <select class="select" v-model="createFormat">
+            <option value="final">Final (standalone)</option>
+            <option value="preliminary">Preliminary (feeds a final)</option>
+          </select>
+          <p class="hint" v-if="createFormat === 'preliminary'">
+            Top divers will advance from this prelim into the linked final via the "Advance to final" action once you've created both.
+          </p>
+        </div>
+
+        <!-- Linked preliminary picker — only meaningful for
+             event_format = 'final'. Listed prelims come from
+             the user's org (cross-org linking is rejected). -->
+        <div class="field" v-if="createFormat === 'final' && preliminaryEvents.length">
+          <label class="label">Feeds From Preliminary (optional)</label>
+          <select class="select" v-model="createParentEventId">
+            <option value="">— Standalone final (no prelim) —</option>
+            <option v-for="ev in preliminaryEvents" :key="ev.id" :value="ev.id">
+              {{ ev.name }}
+            </option>
+          </select>
+        </div>
+
+        <!-- Advance count — only meaningful when this final is
+             linked to a prelim. -->
+        <div class="field" v-if="createFormat === 'final' && createParentEventId">
+          <label class="label">Advance Top N from Prelim</label>
+          <input class="input" type="number" min="1" max="50" v-model="createAdvanceCount">
+          <p class="hint">FINA standard is 12 (springboard) / 18 (platform).</p>
+        </div>
+
+        <!-- Per-round DD limit. Common in junior events: rounds
+             1–N capped to a max DD; later rounds open. Both
+             columns nullable; UI clears them in tandem. -->
+        <div class="field">
+          <label class="label">DD Limit (optional)</label>
+          <div style="display:flex;gap:0.5rem">
+            <input class="input" type="number" min="0" max="12" step="1"
+                   v-model="createDdLimitRounds"
+                   placeholder="Rounds (0 = no limit)" style="flex:1">
+            <input class="input" type="number" min="0" max="5" step="0.1"
+                   v-model="createDdLimitValue"
+                   placeholder="Max DD (e.g. 1.8)" style="flex:1">
+          </div>
+          <p class="hint" v-if="parseInt(createDdLimitRounds) > 0 && createDdLimitValue">
+            First {{ createDdLimitRounds }} round{{ parseInt(createDdLimitRounds) === 1 ? '' : 's' }} capped to DD ≤ {{ createDdLimitValue }}.
+          </p>
+        </div>
+
         <div v-if="formErr" class="msg msg-error">{{ formErr }}</div>
         <button type="submit" class="btn btn-primary-lg" style="margin-top:0.25rem">Create Event</button>
       </form>
@@ -528,11 +644,20 @@ onMounted(async () => { await Promise.all([loadEvents(), loadMeets()]) })
               </span>
               <span v-if="ev.event_type === 'synchro_pair'" class="event-type-pill">Synchro</span>
               <span v-else-if="ev.event_type === 'team'" class="event-type-pill team">Team</span>
+              <!-- Format badges — distinguish prelim/final at a
+                   glance so an operator linking events can find
+                   the right pair. -->
+              <span v-if="ev.event_format === 'preliminary'" class="event-type-pill prelim">Prelim</span>
+              <span v-else-if="ev.parent_event_id" class="event-type-pill final-pill">Final</span>
+              <span v-if="ev.age_group" class="event-type-pill age">{{ ev.age_group }}</span>
               <span>{{ ev.gender }}</span><span>·</span>
               <span>{{ ev.number_of_judges }} Judges</span><span>·</span>
               <span>{{ ev.total_rounds }} Rounds</span>
               <template v-if="ev.height">
                 <span>·</span><span>{{ HEIGHT_LABELS[ev.height] || ev.height }}</span>
+              </template>
+              <template v-if="ev.scheduled_at">
+                <span>·</span><span>{{ new Date(ev.scheduled_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}</span>
               </template>
               <span>·</span>
               <span :style="{ color: statusColor(ev.status) }">{{ ev.status }}</span>
@@ -767,6 +892,15 @@ onMounted(async () => { await Promise.all([loadEvents(), loadMeets()]) })
   padding: 0.1rem 0.4rem; margin-right: 0.2rem;
 }
 .event-type-pill.team { color: var(--amber); background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.4); }
+.event-type-pill.prelim {
+  color: var(--text-2); background: var(--bg-2); border-color: var(--border-2);
+}
+.event-type-pill.final-pill {
+  color: var(--green); background: var(--green-dim); border-color: rgba(16,185,129,0.4);
+}
+.event-type-pill.age {
+  color: #c4b5fd; background: rgba(139,92,246,0.08); border-color: rgba(139,92,246,0.4);
+}
 .hint {
   font-size: 11px; color: var(--text-3); line-height: 1.5;
   padding: 0.6rem 0.75rem; margin-top: 0.4rem;
