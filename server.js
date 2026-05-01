@@ -1751,13 +1751,13 @@ app.get("/api/events", async (req, res) => {
 });
 
 // =============================================================
-// PRELIMS → FINALS — advance top-N divers from a preliminary
-// event to its linked final. The final's roster is built from
-// scratch (carry-over rules can be added later); existing rows
-// are wiped to make the action idempotent.
-//
-// Manager-initiated; can be re-run after a score correction
-// changes the cutoff.
+// STAGE ADVANCEMENT — top-N from one stage to the next
+// (preliminary → semifinal, semifinal → final, or
+// preliminary → final when the meet skips the semi). The
+// downstream event's roster is built from scratch; existing
+// rows for the advancing competitors are wiped first so the
+// action is idempotent and re-runnable after a score
+// correction shifts the cutoff.
 // =============================================================
 
 app.post(
@@ -1767,7 +1767,8 @@ app.post(
     const client = await pool.connect();
     try {
       // Source event must exist, be in the caller's org (or
-      // sysadmin), and be flagged 'preliminary'.
+      // sysadmin), and be a feeder stage ('preliminary' or
+      // 'semifinal' — only 'final' can't advance further).
       const evRes = await client.query(
         `SELECT id, org_id, event_format, advance_count
          FROM events
@@ -1777,29 +1778,35 @@ app.post(
       if (!evRes.rows.length) {
         return res.status(404).json({ error: "Event not found" });
       }
-      const prelim = evRes.rows[0];
-      if (prelim.event_format !== "preliminary") {
+      const source = evRes.rows[0];
+      if (!["preliminary", "semifinal"].includes(source.event_format)) {
         return res
           .status(400)
-          .json({ error: "Only preliminary events can advance to a final" });
+          .json({ error: "Only preliminary or semifinal events can advance to a later stage" });
       }
 
-      // Find the linked final — exactly one event must reference
-      // this prelim via parent_event_id.
-      const finalRes = await client.query(
-        "SELECT id FROM events WHERE parent_event_id = $1 LIMIT 1",
-        [prelim.id],
+      // Find the downstream event — exactly one event must
+      // reference this source via parent_event_id. For a prelim
+      // that's typically a 'semifinal' (or a 'final' if the
+      // meet skips the semi). For a 'semifinal' it'll be a
+      // 'final'.
+      const nextRes = await client.query(
+        "SELECT id, event_format FROM events WHERE parent_event_id = $1 LIMIT 1",
+        [source.id],
       );
-      if (!finalRes.rows.length) {
-        return res
-          .status(400)
-          .json({ error: "No final event is linked to this preliminary yet" });
+      if (!nextRes.rows.length) {
+        const expected = source.event_format === "preliminary"
+          ? "semifinal or final"
+          : "final";
+        return res.status(400).json({
+          error: `No ${expected} event is linked to this ${source.event_format} yet`,
+        });
       }
-      const finalId = finalRes.rows[0].id;
+      const finalId = nextRes.rows[0].id;
 
       // Pull standings using the same dispatcher that drives the
       // live scoreboard — keeps "top N" identical to what the
-      // audience saw at the end of the prelim.
+      // audience saw at the end of the source stage.
       const standingsRes = await client.query(
         `WITH per_dive AS (
            SELECT s.competitor_id, s.round_number,
@@ -1825,25 +1832,26 @@ app.post(
          GROUP BY competitor_id
          ORDER BY total DESC
          LIMIT $2`,
-        [prelim.id, prelim.advance_count || 12],
+        [source.id, source.advance_count || 12],
       );
 
       const advancing = standingsRes.rows;
       if (!advancing.length) {
         return res.status(400).json({
-          error: "Preliminary has no scored dives yet — nothing to advance",
+          error: `${source.event_format} has no scored dives yet — nothing to advance`,
         });
       }
 
-      // Pull each advancing diver's prelim dive list so we can
-      // seed the final with the same dives by default. The
-      // manager / divers can edit them before the final starts.
+      // Pull each advancing diver's source-stage dive list so we
+      // can seed the next stage with the same dives by default.
+      // The manager / divers can edit them before that stage
+      // starts.
       const diveListRes = await client.query(
         `SELECT competitor_id, partner_id, team_id, dive_id, round_number
          FROM competitor_dive_lists
          WHERE event_id = $1 AND competitor_id = ANY($2::uuid[])
            AND withdrawn_at IS NULL`,
-        [prelim.id, advancing.map((r) => r.competitor_id)],
+        [source.id, advancing.map((r) => r.competitor_id)],
       );
 
       // Idempotent re-run: wipe the final's existing dive list
@@ -1980,12 +1988,17 @@ app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
       error: "Synchronised pair events require 9 or 11 judges",
     });
   }
-  // Validate event_format. Default 'final' covers the standalone
-  // case; 'preliminary' is a feeder event whose top-N advances
-  // to a 'final' (linked via parent_event_id on the final).
+  // Validate event_format. Three valid stages, in order:
+  //   preliminary → semifinal → final
+  // 'final' is the default (covers standalone events with no
+  // feeder, plus the terminal stage of any chain). 'semifinal'
+  // is World Aquatics' intermediate top-18 cut for individual
+  // events; synchro and team meets typically skip it.
   const fmt = event_format || "final";
-  if (!["final", "preliminary"].includes(fmt)) {
-    return res.status(400).json({ error: "event_format must be 'final' or 'preliminary'" });
+  if (!["preliminary", "semifinal", "final"].includes(fmt)) {
+    return res
+      .status(400)
+      .json({ error: "event_format must be 'preliminary', 'semifinal' or 'final'" });
   }
   const client = await pool.connect();
   try {
@@ -2003,23 +2016,35 @@ app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
           .json({ error: "Meet not found in this organisation" });
       }
     }
-    // Validate parent_event_id if this is a final referencing a
-    // preliminary. Must be in the same org and itself flagged
-    // as 'preliminary'.
+    // Validate parent_event_id if this event is downstream of
+    // another stage. Allowed parent shapes:
+    //   semifinal → parent must be a 'preliminary'
+    //   final     → parent may be a 'preliminary' OR a 'semifinal'
+    //   preliminary → must NOT have a parent (it's the source)
     if (parent_event_id) {
+      if (fmt === "preliminary") {
+        await client.query("ROLLBACK");
+        return res
+          .status(400)
+          .json({ error: "Preliminary events can't have a parent stage" });
+      }
       const p = await client.query(
         "SELECT id, event_format, org_id FROM events WHERE id = $1",
         [parent_event_id],
       );
       if (!p.rows.length || p.rows[0].org_id !== req.user.org_id) {
         await client.query("ROLLBACK");
-        return res.status(400).json({ error: "Preliminary event not found in this org" });
+        return res.status(400).json({ error: "Parent event not found in this org" });
       }
-      if (p.rows[0].event_format !== "preliminary") {
+      const parentFmt = p.rows[0].event_format;
+      const allowedParents = fmt === "semifinal"
+        ? ["preliminary"]
+        : ["preliminary", "semifinal"];   // final
+      if (!allowedParents.includes(parentFmt)) {
         await client.query("ROLLBACK");
-        return res
-          .status(400)
-          .json({ error: "Linked event must be a preliminary" });
+        return res.status(400).json({
+          error: `A ${fmt} can only feed from ${allowedParents.join(' or ')} (got '${parentFmt}')`,
+        });
       }
     }
     const evRes = await client.query(
@@ -2075,8 +2100,10 @@ app.put("/api/events/:id", requireEventManager(), async (req, res) => {
       error: "Synchronised pair events require 9 or 11 judges",
     });
   }
-  if (event_format && !["final", "preliminary"].includes(event_format)) {
-    return res.status(400).json({ error: "event_format must be 'final' or 'preliminary'" });
+  if (event_format && !["preliminary", "semifinal", "final"].includes(event_format)) {
+    return res
+      .status(400)
+      .json({ error: "event_format must be 'preliminary', 'semifinal' or 'final'" });
   }
   try {
     // System admins can edit events in any org — the boolean

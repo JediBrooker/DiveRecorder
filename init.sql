@@ -239,9 +239,15 @@ CREATE TABLE public.events (
     dd_limit_rounds  integer DEFAULT 0,
     dd_limit_value   numeric(3,1),
     event_type       event_type DEFAULT 'individual' NOT NULL,
-    -- 'final' (the default — every standalone event) or
-    -- 'preliminary' (feeds a final via parent_event_id below).
-    event_format     varchar(20) NOT NULL DEFAULT 'final',
+    -- World Aquatics three-stage chain:
+    --   'preliminary' (all entrants) →
+    --   'semifinal'   (top 18 — optional intermediate) →
+    --   'final'       (top 12 — the default, also covers
+    --                  standalone events with no feeder)
+    -- Synchro and team events typically skip the semi; the
+    -- chain length is operator-defined per event.
+    event_format     varchar(20) NOT NULL DEFAULT 'final'
+                       CHECK (event_format IN ('preliminary','semifinal','final')),
     -- Set on a 'final' event to link back to its 'preliminary'.
     -- ON DELETE SET NULL so deleting the prelim doesn't cascade
     -- the final.
@@ -658,7 +664,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 13);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 14);
 
 
 -- =============================================================

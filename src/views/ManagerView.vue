@@ -121,20 +121,30 @@ async function deleteEventTemplate(t) {
 
 // True if some other event in the visible list points at `ev`
 // as its parent_event_id. Used to decide whether to render the
-// "Advance to Final" button on a preliminary row.
-function eventHasFinal(ev) {
+// "Advance Top N" button on a feeder stage.
+function eventHasNextStage(ev) {
   return events.value.some(other => other.parent_event_id === ev.id)
 }
 
-async function advanceToFinal(ev) {
+async function advanceToNextStage(ev) {
+  // Friendly label for the confirm dialog. Looks up what kind
+  // of event the source feeds into so the operator sees
+  // "advance to semi-final" vs "advance to final" rather than
+  // a generic "next stage."
+  const downstream = events.value.find(other => other.parent_event_id === ev.id)
+  const targetLabel = downstream
+    ? (downstream.event_format === 'semifinal' ? 'semi-final'
+       : downstream.event_format === 'final'   ? 'final'
+       : 'next stage')
+    : 'next stage'
   if (!confirm(
-    `Advance the top ${ev.advance_count || 12} divers from "${ev.name}" to its final?\n\nThis seeds the final's roster with their dive lists. Re-running after score corrections is safe — existing rows for these divers will be overwritten.`,
+    `Advance the top ${ev.advance_count || 12} divers from "${ev.name}" to its ${targetLabel}?\n\nThis seeds the ${targetLabel}'s roster with their dive lists. Re-running after score corrections is safe — existing rows for these divers will be overwritten.`,
   )) return
   try {
     const result = await auth.apiFetch(`/api/events/${ev.id}/advance`, {
       method: 'POST',
     })
-    alert(`Advanced ${result.advanced} divers to the final.`)
+    alert(`Advanced ${result.advanced} divers to the ${targetLabel}.`)
     await loadEvents()
   } catch (err) {
     alert('Failed to advance: ' + err.message)
@@ -178,19 +188,34 @@ const filteredManagerEvents = computed(() => {
   return events.value.filter(ev => ev.org_id === orgFilter.value)
 })
 
-// Candidate prelim events when creating a 'final' — pick from
-// all 'preliminary' events in the user's own org. Cross-org
-// prelim/final pairing isn't permitted.
-const preliminaryEvents = computed(() =>
-  events.value
+// Candidate parent events for the prelim → semi → final chain.
+// A 'semifinal' can only feed from a 'preliminary'; a 'final'
+// can feed from either. Cross-org pairing isn't permitted.
+const parentCandidates = computed(() => {
+  const allowedParentFormats =
+    createFormat.value === 'semifinal' ? ['preliminary']
+    : createFormat.value === 'final'    ? ['preliminary', 'semifinal']
+    : []
+  return events.value
     .filter(ev =>
-      ev.event_format === 'preliminary' &&
+      allowedParentFormats.includes(ev.event_format) &&
       (!auth.user?.is_system_admin
         ? true   // non-sysadmin only sees own org via /api/events
         : ev.org_id === auth.user?.org_id),
     )
-    .sort((a, b) => (a.name || '').localeCompare(b.name || '')),
-)
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+})
+
+// Default advance counts mirroring World Aquatics individual rules.
+// Operators can override per event.
+const defaultAdvanceCount = computed(() => {
+  // prelim → semi (default 18); prelim → final or semi → final (default 12)
+  if (createFormat.value !== 'final' && createFormat.value !== 'semifinal') return 18
+  // For a final, look at what the parent is to suggest a default.
+  const parent = parentCandidates.value.find(p => p.id === createParentEventId.value)
+  if (parent?.event_format === 'preliminary' && createFormat.value === 'semifinal') return 18
+  return 12
+})
 
 // Edit form
 const editId = ref('')
@@ -376,7 +401,10 @@ async function createEvent() {
         age_group: createAgeGroup.value || null,
         scheduled_at: createScheduledAt.value || null,
         event_format: createFormat.value,
-        parent_event_id: createFormat.value === 'final' && createParentEventId.value
+        // Parent link is meaningful for downstream stages —
+        // semifinals always feed from a preliminary; finals may
+        // feed from either (or none, when standalone).
+        parent_event_id: createFormat.value !== 'preliminary' && createParentEventId.value
           ? createParentEventId.value
           : null,
         advance_count: parseInt(createAdvanceCount.value) || 12,
@@ -657,39 +685,55 @@ onMounted(async () => {
           </p>
         </div>
 
-        <!-- Event format — 'final' is the default standalone
-             event; 'preliminary' marks this as a feeder whose
-             top-N divers advance to a linked 'final'. -->
+        <!-- Event format — three stages, in order:
+             preliminary → semifinal → final. World Aquatics
+             individual events use all three; synchro and team
+             events typically skip the semi (or are standalone).
+             The chain is operator-defined per event. -->
         <div class="field">
           <label class="label">Event Format</label>
-          <select class="select" v-model="createFormat">
-            <option value="final">Final (standalone)</option>
-            <option value="preliminary">Preliminary (feeds a final)</option>
+          <select class="select" v-model="createFormat" @change="createParentEventId = ''">
+            <option value="final">Final (standalone or terminal stage)</option>
+            <option value="preliminary">Preliminary (feeds a semi or final)</option>
+            <option value="semifinal">Semi-Final (top N from prelim → final)</option>
           </select>
           <p class="hint" v-if="createFormat === 'preliminary'">
-            Top divers will advance from this prelim into the linked final via the "Advance to final" action once you've created both.
+            Build the prelim, run it, then create a Semi-Final or Final and use "Advance Top N" on this row to seed the next stage.
+          </p>
+          <p class="hint" v-else-if="createFormat === 'semifinal'">
+            Pick the preliminary it feeds from below. After running the semi, "Advance Top N" pushes the leaders into the final.
           </p>
         </div>
 
-        <!-- Linked preliminary picker — only meaningful for
-             event_format = 'final'. Listed prelims come from
-             the user's org (cross-org linking is rejected). -->
-        <div class="field" v-if="createFormat === 'final' && preliminaryEvents.length">
-          <label class="label">Feeds From Preliminary (optional)</label>
+        <!-- Parent picker. For a 'semifinal' the parent must be
+             a 'preliminary'; for a 'final' it may be either.
+             Listed candidates come from the user's org
+             (cross-org linking is rejected). -->
+        <div class="field"
+             v-if="createFormat !== 'preliminary' && parentCandidates.length">
+          <label class="label">
+            {{ createFormat === 'semifinal' ? 'Feeds From Preliminary' : 'Feeds From (optional)' }}
+          </label>
           <select class="select" v-model="createParentEventId">
-            <option value="">— Standalone final (no prelim) —</option>
-            <option v-for="ev in preliminaryEvents" :key="ev.id" :value="ev.id">
-              {{ ev.name }}
+            <option value="">
+              — {{ createFormat === 'semifinal' ? 'Pick the preliminary' : 'Standalone final (no feeder)' }} —
+            </option>
+            <option v-for="ev in parentCandidates" :key="ev.id" :value="ev.id">
+              {{ ev.name }} <template v-if="ev.event_format !== 'preliminary'">({{ ev.event_format }})</template>
             </option>
           </select>
         </div>
 
-        <!-- Advance count — only meaningful when this final is
-             linked to a prelim. -->
-        <div class="field" v-if="createFormat === 'final' && createParentEventId">
-          <label class="label">Advance Top N from Prelim</label>
+        <!-- Advance count — only relevant on a feeder stage
+             (preliminary or semifinal). World Aquatics defaults:
+             prelim → semi = 18, semi → final or prelim → final = 12. -->
+        <div class="field" v-if="createFormat !== 'final'">
+          <label class="label">Advance Top N to Next Stage</label>
           <input class="input" type="number" min="1" max="50" v-model="createAdvanceCount">
-          <p class="hint">FINA standard is 12 (springboard) / 18 (platform).</p>
+          <p class="hint">
+            World Aquatics: prelim → semi = 18, semi → final = 12.
+            Synchro/team meets often use smaller cuts.
+          </p>
         </div>
 
         <!-- Per-round DD limit. Common in junior events: rounds
@@ -795,10 +839,11 @@ onMounted(async () => {
               </span>
               <span v-if="ev.event_type === 'synchro_pair'" class="event-type-pill">Synchro</span>
               <span v-else-if="ev.event_type === 'team'" class="event-type-pill team">Team</span>
-              <!-- Format badges — distinguish prelim/final at a
-                   glance so an operator linking events can find
-                   the right pair. -->
+              <!-- Format badges — distinguish prelim/semi/final
+                   at a glance so an operator linking events can
+                   find the right pair. -->
               <span v-if="ev.event_format === 'preliminary'" class="event-type-pill prelim">Prelim</span>
+              <span v-else-if="ev.event_format === 'semifinal'" class="event-type-pill semi-pill">Semi-Final</span>
               <span v-else-if="ev.parent_event_id" class="event-type-pill final-pill">Final</span>
               <span v-if="ev.age_group" class="event-type-pill age">{{ ev.age_group }}</span>
               <span>{{ ev.gender }}</span><span>·</span>
@@ -818,13 +863,14 @@ onMounted(async () => {
             <button v-if="ev.event_type === 'team'"
                     class="btn btn-ghost btn-sm"
                     @click="openTeamsModal(ev)">Teams</button>
-            <!-- "Advance to Final" — only for preliminary events.
-                 Pulls top-N standings from the prelim and seeds
-                 the linked final's roster. Idempotent — re-run
-                 after a correction. -->
-            <button v-if="ev.event_format === 'preliminary' && eventHasFinal(ev)"
+            <!-- "Advance Top N" — visible on any feeder stage
+                 (preliminary or semifinal) that has a linked
+                 next-stage event. Pulls top-N standings from
+                 the source and seeds the next stage's roster.
+                 Idempotent — re-run after a correction. -->
+            <button v-if="(ev.event_format === 'preliminary' || ev.event_format === 'semifinal') && eventHasNextStage(ev)"
                     class="btn btn-ghost btn-sm advance-btn"
-                    @click="advanceToFinal(ev)">
+                    @click="advanceToNextStage(ev)">
               Advance Top {{ ev.advance_count || 12 }} →
             </button>
             <button class="btn btn-ghost btn-sm" @click="openRosterImport(ev)">
@@ -1100,6 +1146,9 @@ onMounted(async () => {
 .event-type-pill.team { color: var(--amber); background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.4); }
 .event-type-pill.prelim {
   color: var(--text-2); background: var(--bg-2); border-color: var(--border-2);
+}
+.event-type-pill.semi-pill {
+  color: var(--amber); background: var(--amber-dim); border-color: rgba(245,158,11,0.4);
 }
 .event-type-pill.final-pill {
   color: var(--green); background: var(--green-dim); border-color: rgba(16,185,129,0.4);
