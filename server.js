@@ -282,15 +282,23 @@ const pool = new Pool({
   port: process.env.DB_PORT,
 });
 
-// Fail closed if the JWT secret is missing or obviously weak. The old
-// silent-fallback default meant a misconfigured prod box would happily
-// boot and sign forgeable tokens with a public string.
+// Refuse to boot with no JWT secret or the well-known placeholder —
+// either case means tokens are trivially forgeable. We DON'T fail on
+// short-but-unique secrets: existing deployments may have a working
+// 12-20 char string set, and crashing those on upgrade is worse than
+// nudging them to rotate. We do print a loud warning so it shows up
+// in PM2 logs and the operator can fix it on their next pass.
 const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET || JWT_SECRET.length < 32 || JWT_SECRET === "change_this_secret_in_production") {
+if (!JWT_SECRET || JWT_SECRET === "change_this_secret_in_production") {
   console.error(
-    "FATAL: JWT_SECRET must be set to a strong (≥32 char) random value. Refusing to start.",
+    "FATAL: JWT_SECRET must be set in the environment to a strong random value. Refusing to start.",
   );
   process.exit(1);
+}
+if (JWT_SECRET.length < 32) {
+  console.warn(
+    `[security] JWT_SECRET is only ${JWT_SECRET.length} chars. Rotate to ≥32 random chars when convenient — short secrets are easier to brute force.`,
+  );
 }
 const JWT_EXPIRY = process.env.JWT_EXPIRY || "8h";
 
