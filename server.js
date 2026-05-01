@@ -1091,6 +1091,107 @@ app.delete(
   },
 );
 
+// Cross-org diver autocomplete for the Compare page. Any logged-in
+// user can search across every org because the underlying data is
+// already publicly visible on the meet scoreboards and the archive.
+// Returns up to 20 lightweight rows ordered by name match relevance:
+// prefix matches first, then containment. The query is parameterised
+// (no string interpolation) so SQL injection is impossible even
+// though the column refs are dynamic.
+app.get("/api/divers/search", verifyToken, async (req, res) => {
+  const q = (req.query.q || "").trim();
+  if (q.length < 2) return res.json([]);
+  try {
+    const r = await pool.query(
+      `SELECT u.id, u.full_name, u.username,
+              o.id AS org_id, o.name AS org_name, o.country_code,
+              cl.id AS club_id, cl.name AS club_name, cl.short_code AS club_code
+       FROM users u
+       JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id AND r.role = 'diver'
+       JOIN organisations o  ON o.id = u.org_id
+       LEFT JOIN clubs cl    ON cl.id = u.club_id
+       WHERE u.full_name ILIKE $1 OR u.username ILIKE $1
+       ORDER BY
+         /* prefix match wins over contains-anywhere */
+         CASE WHEN u.full_name ILIKE $2 THEN 0 ELSE 1 END,
+         u.full_name ASC
+       LIMIT 20`,
+      [`%${q}%`, `${q}%`],
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error("[Diver Search Error]", err.message);
+    res.status(500).json([]);
+  }
+});
+
+// Browse-all paginated diver list. Powers the "browse" modal on the
+// Compare page. Filters are all optional; an unfiltered call returns
+// the alphabetical first page across every org. q does the same
+// name/username substring match as /search but combined with the
+// other filters. limit clamped to [1, 100].
+app.get("/api/divers", verifyToken, async (req, res) => {
+  const q             = (req.query.q || "").trim();
+  const orgId         = req.query.org_id || null;
+  const clubId        = req.query.club_id || null;
+  const countryCode   = (req.query.country_code || "").trim().toUpperCase() || null;
+  const limit         = Math.min(Math.max(Number(req.query.limit)  || 50, 1), 100);
+  const offset        = Math.max(Number(req.query.offset) || 0, 0);
+  try {
+    const r = await pool.query(
+      `SELECT u.id, u.full_name, u.username,
+              o.id AS org_id, o.name AS org_name, o.country_code,
+              cl.id AS club_id, cl.name AS club_name, cl.short_code AS club_code,
+              COUNT(*) OVER ()::int AS total_count
+       FROM users u
+       JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id AND r.role = 'diver'
+       JOIN organisations o  ON o.id = u.org_id
+       LEFT JOIN clubs cl    ON cl.id = u.club_id
+       WHERE ($1::text IS NULL OR u.full_name ILIKE $1 OR u.username ILIKE $1)
+         AND ($2::uuid IS NULL OR u.org_id  = $2::uuid)
+         AND ($3::uuid IS NULL OR u.club_id = $3::uuid)
+         AND ($4::text IS NULL OR o.country_code = $4::text)
+       ORDER BY u.full_name ASC
+       LIMIT $5 OFFSET $6`,
+      [
+        q ? `%${q}%` : null,
+        orgId,
+        clubId,
+        countryCode,
+        limit,
+        offset,
+      ],
+    );
+    const total = r.rows[0]?.total_count ?? 0;
+    res.json({
+      total,
+      limit,
+      offset,
+      rows: r.rows.map(({ total_count, ...rest }) => rest),
+    });
+  } catch (err) {
+    console.error("[Diver Browse Error]", err.message);
+    res.status(500).json({ total: 0, limit, offset, rows: [] });
+  }
+});
+
+// Lightweight org listing for the browse-all filter dropdowns.
+// Returns id + name + country_code for every active org.
+app.get("/api/orgs/all", verifyToken, async (_req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, name, country_code
+       FROM organisations
+       WHERE status = 'active'
+       ORDER BY name ASC`,
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error("[Orgs List Error]", err.message);
+    res.status(500).json([]);
+  }
+});
+
 app.get("/api/orgs/:id/divers", verifyToken, async (req, res) => {
   if (!req.user.is_system_admin && req.params.id !== req.user.org_id) {
     return res
@@ -3178,12 +3279,25 @@ app.get("/api/dive-directory", verifyToken, async (req, res) => {
 // =============================================================
 
 async function canViewDiverProfile(viewer, diverRow) {
+  // Any authenticated user can view another diver's competitive
+  // profile — the data (per-meet totals, personal bests, dive
+  // history) is already publicly listed on the meet scoreboards
+  // and the archive. Cross-org comparison was the explicit user
+  // request that drove this loosening.
+  return !!viewer;
+}
+
+// True when the viewer can see diver-private fields (UI preferences,
+// dashboard layout, etc.) on top of the public competitive history.
+// This is the OLD canViewDiverProfile rule; we apply it inline in
+// the handler to redact `dashboard_widgets` for outside viewers.
+function canViewDiverPrivate(viewer, diverRow) {
   if (!viewer) return false;
   if (viewer.is_system_admin) return true;
   if (viewer.id === diverRow.id) return true;
   if (viewer.org_id !== diverRow.org_id) return false;
   const roles = viewer.org_roles || [];
-  return roles.includes("org_admin") || roles.includes("meet_manager");
+  return roles.includes("org_admin") || roles.includes("meet_manager") || roles.includes("coach");
 }
 
 // Parse + normalise the optional ?from_date / ?to_date query params
@@ -3413,8 +3527,16 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
       },
       personal_bests: pb.rows,
       score_trend: trend.rows,
-      dashboard_widgets: diver.dashboard_widgets ||
-        ["score_trend", "personal_bests", "recent_form", "placings"],
+      // Only return the diver's saved dashboard layout to viewers
+      // who own it (or sit above them in the same org). To outside
+      // viewers it's irrelevant noise that also leaks a UI
+      // preference, so we omit the key entirely.
+      ...(canViewDiverPrivate(req.user, diver)
+        ? {
+            dashboard_widgets: diver.dashboard_widgets ||
+              ["score_trend", "personal_bests", "recent_form", "placings"],
+          }
+        : {}),
     });
   } catch (err) {
     console.error("[Diver Profile Error]", err.message);

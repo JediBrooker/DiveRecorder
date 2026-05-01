@@ -3,10 +3,12 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
-// Side-by-side comparison of two divers. Reuses
-// /api/divers/:id/profile for each side, so no new backend
-// endpoint is needed — the view's value is purely in the layout
-// and the diff calculation.
+// Side-by-side comparison of two divers across ANY organisation.
+// Each side uses an autocomplete typeahead OR a "Browse" modal that
+// lists every diver with org/club/country filters. Reuses the
+// existing /api/divers/:id/profile endpoint, which now allows any
+// authenticated user to view a diver's competitive history (the
+// data was already public via the meet scoreboards).
 
 const route  = useRoute()
 const router = useRouter()
@@ -18,11 +20,6 @@ const loadingA = ref(false)
 const loadingB = ref(false)
 const errorA = ref('')
 const errorB = ref('')
-
-// Org divers for the picker. Logged-in user's own org by default;
-// system admins see across all orgs. Reuses the existing endpoint
-// the user manager already calls.
-const orgDivers = ref([])
 
 const idA = computed(() => route.query.a || '')
 const idB = computed(() => route.query.b || '')
@@ -50,11 +47,15 @@ async function loadOne(id, side) {
   }
 }
 
-function pickDiver(side, e) {
-  const id = e.target.value
+function selectDiver(side, diver) {
+  // Accepts a diver object or just an id. Persists into the URL
+  // so the comparison can be deep-linked or shared.
+  const id = diver?.id || diver || ''
   const params = { ...route.query, [side]: id || undefined }
   if (!id) delete params[side]
   router.replace({ query: params })
+  closeAutocomplete(side)
+  closeBrowse()
 }
 
 function fmtDate(iso) {
@@ -113,19 +114,164 @@ const pbCompare = computed(() => {
 watch(idA, (v) => loadOne(v, 'a'), { immediate: true })
 watch(idB, (v) => loadOne(v, 'b'), { immediate: true })
 
-onMounted(async () => {
-  // Load divers from the user's org so the picker has options.
-  // System admins could pick across orgs but for v1 we keep the
-  // picker to just the user's own org — comparing across orgs is
-  // a less common case.
-  try {
-    const orgId = auth.user?.org_id
-    if (!orgId) return
-    const list = await auth.apiFetch(`/api/orgs/${orgId}/divers`)
-    orgDivers.value = Array.isArray(list) ? list : []
-  } catch {
-    orgDivers.value = []
+// =========================================================
+// Autocomplete state per side. The text the user typed lives in
+// queryA/queryB; a debounced watch fires the search and writes the
+// results into resultsA/resultsB. The dropdown is shown when the
+// input is focused AND there are >= 2 typed chars.
+// =========================================================
+const queryA   = ref('')
+const queryB   = ref('')
+const resultsA = ref([])
+const resultsB = ref([])
+const openA    = ref(false)
+const openB    = ref(false)
+let debounceA = null
+let debounceB = null
+
+function onInput(side) {
+  const q = side === 'a' ? queryA.value : queryB.value
+  const setOpen = (v) => side === 'a' ? openA.value = v : openB.value = v
+  setOpen(true)
+  if (side === 'a') clearTimeout(debounceA)
+  else              clearTimeout(debounceB)
+  // Empty query just clears; <2 chars doesn't fire a request.
+  if (q.trim().length < 2) {
+    if (side === 'a') resultsA.value = []
+    else              resultsB.value = []
+    return
   }
+  const fire = () => runSearch(side, q.trim())
+  if (side === 'a') debounceA = setTimeout(fire, 200)
+  else              debounceB = setTimeout(fire, 200)
+}
+
+async function runSearch(side, q) {
+  try {
+    const rows = await auth.apiFetch(`/api/divers/search?q=${encodeURIComponent(q)}`)
+    if (side === 'a') resultsA.value = Array.isArray(rows) ? rows : []
+    else              resultsB.value = Array.isArray(rows) ? rows : []
+  } catch {
+    if (side === 'a') resultsA.value = []
+    else              resultsB.value = []
+  }
+}
+
+function closeAutocomplete(side) {
+  // setTimeout so a click on a result row registers before blur
+  // tears down the dropdown.
+  setTimeout(() => {
+    if (side === 'a') openA.value = false
+    else              openB.value = false
+  }, 150)
+}
+
+function clearSide(side) {
+  if (side === 'a') queryA.value = ''
+  else              queryB.value = ''
+  selectDiver(side, null)
+}
+
+// =========================================================
+// Browse modal — list every diver with org / country / club
+// filters and a search box. Selecting a row resolves to that
+// side and closes the modal.
+// =========================================================
+const browseOpen   = ref(false)
+const browseSide   = ref('a')         // which side the modal will set
+const browseRows   = ref([])
+const browseTotal  = ref(0)
+const browseLimit  = 50
+const browseOffset = ref(0)
+const browseLoading = ref(false)
+const browseQ        = ref('')
+const browseOrgId    = ref('')
+const browseCountry  = ref('')
+let   browseDebounce = null
+const orgs           = ref([])
+const countryCodes   = computed(() => {
+  const set = new Set()
+  for (const o of orgs.value) if (o.country_code) set.add(o.country_code)
+  return [...set].sort()
+})
+
+async function openBrowse(side) {
+  browseSide.value   = side
+  browseOpen.value   = true
+  browseOffset.value = 0
+  if (!orgs.value.length) {
+    try { orgs.value = await auth.apiFetch('/api/orgs/all') }
+    catch { orgs.value = [] }
+  }
+  await runBrowse()
+}
+
+function closeBrowse() { browseOpen.value = false }
+
+async function runBrowse() {
+  browseLoading.value = true
+  try {
+    const params = new URLSearchParams()
+    if (browseQ.value.trim())   params.set('q', browseQ.value.trim())
+    if (browseOrgId.value)      params.set('org_id', browseOrgId.value)
+    if (browseCountry.value)    params.set('country_code', browseCountry.value)
+    params.set('limit',  String(browseLimit))
+    params.set('offset', String(browseOffset.value))
+    const data = await auth.apiFetch(`/api/divers?${params.toString()}`)
+    browseRows.value  = data.rows || []
+    browseTotal.value = data.total || 0
+  } catch {
+    browseRows.value  = []
+    browseTotal.value = 0
+  } finally {
+    browseLoading.value = false
+  }
+}
+
+// Debounced re-search whenever a filter changes.
+watch([browseQ, browseOrgId, browseCountry], () => {
+  if (!browseOpen.value) return
+  clearTimeout(browseDebounce)
+  browseDebounce = setTimeout(() => {
+    browseOffset.value = 0
+    runBrowse()
+  }, 200)
+})
+
+function nextPage() {
+  if (browseOffset.value + browseLimit >= browseTotal.value) return
+  browseOffset.value += browseLimit
+  runBrowse()
+}
+function prevPage() {
+  if (browseOffset.value === 0) return
+  browseOffset.value = Math.max(0, browseOffset.value - browseLimit)
+  runBrowse()
+}
+
+// Pre-populate the typed name when arriving with a query param so
+// the user sees the picked diver's name in the input box.
+async function syncDisplayName(id, side) {
+  if (!id) {
+    if (side === 'a') queryA.value = ''
+    else              queryB.value = ''
+    return
+  }
+  // The /profile call has already populated profileA/profileB;
+  // mirror that name into the input so the user sees who's loaded.
+  const which = side === 'a' ? profileA.value : profileB.value
+  if (which?.diver?.full_name) {
+    if (side === 'a') queryA.value = which.diver.full_name
+    else              queryB.value = which.diver.full_name
+  }
+}
+watch(profileA, () => syncDisplayName(idA.value, 'a'))
+watch(profileB, () => syncDisplayName(idB.value, 'b'))
+
+onMounted(async () => {
+  // Pre-load the orgs list so the browse-modal filters open instantly.
+  try { orgs.value = await auth.apiFetch('/api/orgs/all') }
+  catch { orgs.value = [] }
 })
 </script>
 
@@ -135,27 +281,84 @@ onMounted(async () => {
       <div>
         <div class="page-label">Diver Comparison</div>
         <h1 class="page-title">Head-to-Head</h1>
-        <div class="page-sub">Pick two divers in your organisation to compare stats and personal bests side by side.</div>
+        <div class="page-sub">
+          Pick two divers — from any organisation — to compare stats and personal bests side by side.
+          Type a name to autocomplete, or click <strong>Browse</strong> for the full filterable list.
+        </div>
       </div>
       <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">← Dashboard</RouterLink>
     </div>
 
-    <!-- Pickers -->
+    <!-- Pickers — autocomplete + browse, one per side -->
     <div class="picker-row">
       <div class="picker-side">
         <div class="picker-label-a">Diver A</div>
-        <select class="select" :value="idA" @change="pickDiver('a', $event)">
-          <option value="">— Choose a diver —</option>
-          <option v-for="d in orgDivers" :key="d.id" :value="d.id">{{ d.full_name }}</option>
-        </select>
+        <div class="picker-input-wrap">
+          <input
+            class="input"
+            type="text"
+            placeholder="Type a name…"
+            v-model="queryA"
+            @input="onInput('a')"
+            @focus="openA = true"
+            @blur="closeAutocomplete('a')"
+          >
+          <button v-if="queryA" class="picker-clear" @click="clearSide('a')" title="Clear">✕</button>
+          <button class="btn btn-ghost btn-sm picker-browse" @click="openBrowse('a')">Browse</button>
+          <ul v-if="openA && resultsA.length" class="autocomplete-list">
+            <li
+              v-for="d in resultsA"
+              :key="d.id"
+              class="autocomplete-item"
+              @mousedown.prevent="selectDiver('a', d)"
+            >
+              <span class="ac-name">{{ d.full_name }}</span>
+              <span class="ac-meta">
+                {{ d.org_name }}<span v-if="d.country_code"> · {{ d.country_code }}</span>
+                <span v-if="d.club_name"> · {{ d.club_name }}</span>
+              </span>
+            </li>
+          </ul>
+          <div v-else-if="openA && queryA.trim().length >= 2 && !resultsA.length"
+               class="autocomplete-empty">
+            No matches for "{{ queryA }}"
+          </div>
+        </div>
       </div>
       <div class="picker-vs">VS</div>
       <div class="picker-side">
         <div class="picker-label-b">Diver B</div>
-        <select class="select" :value="idB" @change="pickDiver('b', $event)">
-          <option value="">— Choose a diver —</option>
-          <option v-for="d in orgDivers" :key="d.id" :value="d.id">{{ d.full_name }}</option>
-        </select>
+        <div class="picker-input-wrap">
+          <input
+            class="input"
+            type="text"
+            placeholder="Type a name…"
+            v-model="queryB"
+            @input="onInput('b')"
+            @focus="openB = true"
+            @blur="closeAutocomplete('b')"
+          >
+          <button v-if="queryB" class="picker-clear" @click="clearSide('b')" title="Clear">✕</button>
+          <button class="btn btn-ghost btn-sm picker-browse" @click="openBrowse('b')">Browse</button>
+          <ul v-if="openB && resultsB.length" class="autocomplete-list">
+            <li
+              v-for="d in resultsB"
+              :key="d.id"
+              class="autocomplete-item"
+              @mousedown.prevent="selectDiver('b', d)"
+            >
+              <span class="ac-name">{{ d.full_name }}</span>
+              <span class="ac-meta">
+                {{ d.org_name }}<span v-if="d.country_code"> · {{ d.country_code }}</span>
+                <span v-if="d.club_name"> · {{ d.club_name }}</span>
+              </span>
+            </li>
+          </ul>
+          <div v-else-if="openB && queryB.trim().length >= 2 && !resultsB.length"
+               class="autocomplete-empty">
+            No matches for "{{ queryB }}"
+          </div>
+        </div>
       </div>
     </div>
 
@@ -244,6 +447,75 @@ onMounted(async () => {
     <div v-if="errorA" class="msg msg-error">Diver A: {{ errorA }}</div>
     <div v-if="errorB" class="msg msg-error">Diver B: {{ errorB }}</div>
   </div>
+
+  <!-- Browse modal — full filterable list of divers -->
+  <div v-if="browseOpen" class="browse-backdrop" @click="closeBrowse"></div>
+  <div v-if="browseOpen" class="browse-modal" @click.stop>
+    <div class="browse-head">
+      <div class="browse-title">
+        Browse Divers
+        <span class="browse-target">picking <strong>Diver {{ browseSide.toUpperCase() }}</strong></span>
+      </div>
+      <button class="btn btn-ghost btn-sm" @click="closeBrowse">Close ✕</button>
+    </div>
+    <div class="browse-filters">
+      <input
+        class="input"
+        type="text"
+        placeholder="Search name…"
+        v-model="browseQ"
+      >
+      <select class="select" v-model="browseCountry">
+        <option value="">All countries</option>
+        <option v-for="c in countryCodes" :key="c" :value="c">{{ c }}</option>
+      </select>
+      <select class="select" v-model="browseOrgId">
+        <option value="">All organisations</option>
+        <option v-for="o in orgs" :key="o.id" :value="o.id">{{ o.name }}</option>
+      </select>
+    </div>
+    <div class="browse-body">
+      <div v-if="browseLoading" class="empty-mini">Loading…</div>
+      <div v-else-if="!browseRows.length" class="empty-mini">No divers match those filters.</div>
+      <table v-else class="browse-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Organisation</th>
+            <th>Club</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="d in browseRows" :key="d.id">
+            <td class="strong">{{ d.full_name }}</td>
+            <td>
+              {{ d.org_name }}
+              <span v-if="d.country_code" class="dim"> · {{ d.country_code }}</span>
+            </td>
+            <td>
+              <span v-if="d.club_name">{{ d.club_name }}</span>
+              <span v-else class="dim">—</span>
+            </td>
+            <td class="cell-action">
+              <button class="btn btn-primary btn-sm" @click="selectDiver(browseSide, d)">
+                Pick
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="browse-pager">
+      <button class="btn btn-ghost btn-sm" :disabled="browseOffset === 0" @click="prevPage">← Prev</button>
+      <span class="pager-info">
+        {{ browseTotal === 0 ? '0' : `${browseOffset + 1}–${Math.min(browseOffset + browseLimit, browseTotal)} of ${browseTotal}` }}
+      </span>
+      <button class="btn btn-ghost btn-sm"
+              :disabled="browseOffset + browseLimit >= browseTotal"
+              @click="nextPage">Next →</button>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -257,6 +529,7 @@ onMounted(async () => {
 .page-label { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: var(--cyan); margin-bottom: 0.5rem; }
 .page-title { font-family: var(--font-display); font-size: 36px; font-weight: 900; font-style: italic; color: var(--text); line-height: 1; }
 .page-sub   { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); margin-top: 0.5rem; max-width: 600px; }
+.page-sub strong { color: var(--text-2); }
 
 .picker-row {
   display: grid; grid-template-columns: 1fr auto 1fr;
@@ -271,13 +544,54 @@ onMounted(async () => {
   letter-spacing: 0.25em; text-transform: uppercase;
 }
 .picker-label-a { color: var(--cyan); }
-.picker-label-b { color: var(--green); }
+.picker-label-b { color: var(--green, #10b981); }
 .picker-vs {
   font-family: var(--font-display); font-size: 22px; font-weight: 900;
   font-style: italic; color: var(--text-3); padding-bottom: 0.5rem;
 }
 
+/* Picker input + autocomplete */
+.picker-input-wrap {
+  position: relative;
+  display: flex; align-items: center; gap: 0.4rem;
+}
+.picker-input-wrap > .input { flex: 1; padding-right: 2rem; }
+.picker-clear {
+  position: absolute; right: 5.5rem; top: 50%; transform: translateY(-50%);
+  background: transparent; border: none;
+  color: var(--text-3); cursor: pointer;
+  font-size: 12px; padding: 0.2rem 0.4rem;
+}
+.picker-clear:hover { color: var(--text); }
+.picker-browse { flex-shrink: 0; }
+.autocomplete-list {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 10;
+  margin-top: 0.3rem; padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.4);
+  max-height: 320px; overflow-y: auto; list-style: none;
+}
+.autocomplete-item {
+  padding: 0.55rem 0.875rem;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  display: flex; flex-direction: column; gap: 0.15rem;
+}
+.autocomplete-item:last-child { border-bottom: none; }
+.autocomplete-item:hover { background: var(--bg-3); }
+.ac-name { font-family: var(--font-display); font-weight: 700; color: var(--text); font-size: 13px; }
+.ac-meta { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3); }
+.autocomplete-empty {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 10;
+  margin-top: 0.3rem; padding: 0.6rem 0.875rem;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+}
+
 .empty { color: var(--text-3); padding: 3rem 0; text-align: center; font-family: var(--font-mono); font-size: 13px; }
+.empty-mini { color: var(--text-3); padding: 1rem 0; font-family: var(--font-mono); font-size: 12px; text-align: center; }
 
 .names-row {
   display: grid; grid-template-columns: 1fr auto 1fr;
@@ -342,6 +656,69 @@ onMounted(async () => {
 
 .dim { color: var(--text-3); }
 
+/* =========================================================
+   Browse modal
+   ========================================================= */
+.browse-backdrop {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(3, 7, 18, 0.55);
+  backdrop-filter: blur(2px);
+}
+.browse-modal {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  z-index: 100;
+  width: min(900px, calc(100vw - 2rem));
+  height: min(640px, calc(100vh - 2rem));
+  background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.browse-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1rem 1.25rem; border-bottom: 1px solid var(--border);
+}
+.browse-title {
+  font-family: var(--font-display); font-size: 18px; font-weight: 900;
+  font-style: italic; color: var(--text);
+}
+.browse-target {
+  font-family: var(--font-mono); font-size: 11px; font-style: normal;
+  font-weight: 400; color: var(--text-3); margin-left: 0.6rem;
+}
+.browse-target strong { color: var(--cyan); }
+.browse-filters {
+  display: grid; grid-template-columns: 2fr 1fr 1.5fr;
+  gap: 0.6rem; padding: 0.875rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+.browse-body { flex: 1; overflow-y: auto; padding: 0; }
+.browse-table {
+  width: 100%; border-collapse: collapse;
+}
+.browse-table th {
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3);
+  text-align: left; padding: 0.6rem 1.25rem;
+  background: var(--bg-3); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 1;
+}
+.browse-table td {
+  padding: 0.55rem 1.25rem; border-bottom: 1px solid var(--border);
+  font-size: 13px; vertical-align: middle;
+}
+.browse-table td.strong { color: var(--text); font-weight: 700; }
+.browse-table td.dim    { color: var(--text-3); }
+.browse-table tr:hover td { background: var(--bg-3); }
+.cell-action { text-align: right; width: 80px; }
+
+.browse-pager {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.75rem 1.25rem; border-top: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+}
+.pager-info { letter-spacing: 0.05em; }
+
 @media (max-width: 720px) {
   .compare-wrap { padding: 1rem; }
   .picker-row, .names-row, .stat-row, .pb-row {
@@ -352,5 +729,9 @@ onMounted(async () => {
   .stat-val { font-size: 22px; text-align: left; }
   .pb-cell-a, .pb-cell-b { justify-content: flex-start; }
   .pb-mid { text-align: left; }
+
+  .picker-clear { right: 5rem; }
+  .browse-filters { grid-template-columns: 1fr; }
+  .browse-modal { height: 92vh; }
 }
 </style>
