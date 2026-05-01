@@ -41,6 +41,22 @@ CREATE INDEX IF NOT EXISTS idx_coach_diver_diver ON public.coach_diver_links (di
 CREATE INDEX IF NOT EXISTS idx_coach_diver_org   ON public.coach_diver_links (org_id);
 
 -- 3. Bump schema version.
-UPDATE public.schema_meta SET version = 9, applied_at = now() WHERE id = 1;
+--    Defensive: schema_meta is introduced in migration 008. If
+--    that hasn't been applied yet (e.g. an older deployment
+--    that started from schema_v2 + migrations 001..007), create
+--    the table inline rather than failing the whole migration.
+--    We mirror 008's definition so the two stay consistent.
+CREATE TABLE IF NOT EXISTS public.schema_meta (
+    id           integer PRIMARY KEY DEFAULT 1,
+    version      integer NOT NULL,
+    applied_at   timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT schema_meta_singleton CHECK (id = 1)
+);
+
+INSERT INTO public.schema_meta (id, version, applied_at)
+VALUES (1, 9, now())
+ON CONFLICT (id) DO UPDATE
+    SET version    = EXCLUDED.version,
+        applied_at = EXCLUDED.applied_at;
 
 COMMIT;
