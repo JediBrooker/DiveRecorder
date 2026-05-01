@@ -1,11 +1,37 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
 
 const auth = useAuthStore()
 const socket = useSocket()
+const route = useRoute()
+
+// Operator broadcast mode: /control?broadcast=1 hides the
+// chrome (header buttons, queue controls) and renders a
+// projection-friendly view of just the active diver, judge
+// tiles, and current standings. Toggled via URL so an operator
+// can flip a back-of-house screen without leaving the page.
+const opsBroadcast = computed(() => route.query.broadcast === '1')
+
+// Active diver status: the operator advances through three
+// phases for each dive. READY = announced & on the board,
+// DIVING = actively performing, JUDGING = mid-score. Surfaces
+// in the spectator scoreboard via the existing state_update
+// event so the audience sees what's happening.
+const activeStatus = ref('ready')      // 'ready' | 'diving' | 'judging'
+function cycleStatus() {
+  if (activeStatus.value === 'ready') activeStatus.value = 'diving'
+  else if (activeStatus.value === 'diving') activeStatus.value = 'judging'
+  else activeStatus.value = 'ready'
+  if (currentActive.value) {
+    socket.emit('set_active_diver', {
+      ...currentActive.value,
+      status: activeStatus.value,
+    })
+  }
+}
 
 const events = ref([])
 const selectedEventId = ref('')
@@ -570,6 +596,8 @@ function setActive(idx) {
   // Reset + auto-start the 30-second shot clock for this diver.
   // Operator can pause / extend if needed (warm-up, equipment).
   startShotClock()
+  // New diver = back to "ready" state.
+  activeStatus.value = 'ready'
 }
 
 function updateNextButton(allScoresIn) {
@@ -604,6 +632,17 @@ function refAction(type) {
 }
 
 function nextDiver() {
+  // Guard against accidental skip when scores are partial. Once
+  // a referee action (cap, redive, failed) has fired, the next
+  // button leaves "disabled" state — but the score map can be
+  // incomplete. Require a confirm so a fat-fingered space-bar
+  // doesn't lose data.
+  const totalJudges = parseInt(currentEvent.value?.number_of_judges) || 0
+  const scoresIn = Object.keys(scoresThisRound.value).length
+  const partial = totalJudges > 0 && scoresIn > 0 && scoresIn < totalJudges
+  if (!nextBtnComplete.value && partial) {
+    if (!confirm(`Move on with only ${scoresIn} of ${totalJudges} scores in?`)) return
+  }
   if (nextBtnComplete.value) {
     finaliseEvent()
   } else {
@@ -629,7 +668,7 @@ function onKeydown(e) {
 
   switch (e.key) {
     case 'ArrowRight':
-    case ' ':           // space = advance — same muscle memory as a remote
+    case ' ':                 // space = advance — same muscle memory as a remote
       e.preventDefault()
       nextDiver()
       break
@@ -644,6 +683,42 @@ function onKeydown(e) {
       e.preventDefault()
       showLeaderboard()
       break
+    case 'h':
+    case 'H':                 // hold / resume
+      e.preventDefault()
+      isHeld.value ? resumeMeet() : openHoldPrompt()
+      break
+    case 'r':
+    case 'R':                 // re-dive
+      e.preventDefault()
+      refAction('redive')
+      break
+    case 'f':
+    case 'F':                 // failed dive
+      e.preventDefault()
+      refAction('failed')
+      break
+    case 's':
+    case 'S':                 // cycle active status (Ready→Diving→Judging)
+      e.preventDefault()
+      cycleStatus()
+      break
+    case 't':
+    case 'T':                 // reset shot clock
+      e.preventDefault()
+      resetShotClock()
+      break
+    default:
+      // Number keys 1-9 jump to roster position N (within
+      // visible filtered roster, so search + jump compose).
+      if (/^[1-9]$/.test(e.key)) {
+        const n = parseInt(e.key, 10) - 1
+        const target = filteredRoster.value[n]
+        if (target) {
+          e.preventDefault()
+          setActive(target.originalIdx)
+        }
+      }
   }
 }
 
@@ -743,7 +818,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
-  <div class="ctrl-layout">
+  <div :class="['ctrl-layout', opsBroadcast ? 'ctrl-broadcast' : '']">
+    <!-- Floating exit out of operator broadcast mode. -->
+    <RouterLink
+      v-if="opsBroadcast"
+      to="/control"
+      class="ops-broadcast-exit"
+      title="Exit broadcast mode"
+    >✕</RouterLink>
     <!-- Header -->
     <div class="ctrl-header">
       <div style="display:flex;align-items:center;gap:1.5rem">
@@ -757,7 +839,17 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <span>{{ connStatus ? 'Connected' : 'Connecting' }}</span>
         </span>
       </div>
-      <span style="font-family:var(--font-display);font-size:16px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-3)">{{ meetName }}</span>
+      <!-- Header context — meet name + at-a-glance round/diver
+           position so the operator never has to glance away. -->
+      <div class="ctrl-header-ctx">
+        <span class="ctx-meet">{{ meetName }}</span>
+        <span v-if="activeInfo.round_number" class="ctx-badge">
+          ROUND {{ activeInfo.round_number }} / {{ currentEvent?.total_rounds || '?' }}
+        </span>
+        <span v-if="roster.length" class="ctx-badge">
+          DIVER {{ currentIndex + 1 }} / {{ roster.length }}
+        </span>
+      </div>
       <div style="display:flex;align-items:center;gap:0.75rem">
         <!-- Hold / Resume — broadcasts a paused state to judges
              + spectator scoreboard. Cyan when running, amber
@@ -766,10 +858,18 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           v-if="currentEvent && currentEvent.status !== 'Completed'"
           :class="['btn-hold', isHeld ? 'btn-hold-active' : '']"
           @click="isHeld ? resumeMeet() : openHoldPrompt()"
-          title="Pause / resume the meet"
+          title="Pause / resume the meet (H)"
         >
           {{ isHeld ? '▶ Resume' : '⏸ Hold' }}
         </button>
+        <!-- Operator broadcast mode — back-of-house projector
+             view of just the active diver + judges + standings. -->
+        <RouterLink
+          v-if="currentEvent && !opsBroadcast"
+          to="/control?broadcast=1"
+          class="btn-back"
+          title="Open in operator broadcast mode (no controls)"
+        >📺 Broadcast</RouterLink>
         <RouterLink to="/dashboard" class="btn-back">← Dashboard</RouterLink>
         <button
           v-if="finaliseBtnShow"
@@ -858,15 +958,29 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <span class="active-label">
               Currently on Board<span v-if="activeInfo.round_number" class="active-round">— Round {{ activeInfo.round_number }}</span>
             </span>
-            <!-- Shot clock — 30-second WA rule. Auto-starts when
-                 a new diver is set; click face to pause/resume,
-                 ↻ to reset. -->
-            <div v-if="currentActive" :class="['shot-clock', shotClockClass]">
-              <button class="shot-clock-face" @click="pauseShotClock" title="Pause / resume">
-                <span class="shot-clock-num">{{ shotClock }}</span>
-                <span class="shot-clock-unit">s</span>
+            <div style="display:flex;align-items:center;gap:0.5rem">
+              <!-- Active diver status (#10): READY / DIVING / JUDGING.
+                   Cycles on click; broadcasts to scoreboard via
+                   set_active_diver so the audience sees what's
+                   happening in real time. -->
+              <button
+                v-if="currentActive"
+                :class="['status-pill', `status-${activeStatus}`]"
+                @click="cycleStatus"
+                title="Cycle status (S)"
+              >
+                {{ activeStatus.toUpperCase() }}
               </button>
-              <button class="shot-clock-reset" @click="resetShotClock" title="Reset to 30s">↻</button>
+              <!-- Shot clock — 30-second WA rule. Auto-starts when
+                   a new diver is set; click face to pause/resume,
+                   ↻ to reset. -->
+              <div v-if="currentActive" :class="['shot-clock', shotClockClass]">
+                <button class="shot-clock-face" @click="pauseShotClock" title="Pause / resume">
+                  <span class="shot-clock-num">{{ shotClock }}</span>
+                  <span class="shot-clock-unit">s</span>
+                </button>
+                <button class="shot-clock-reset" @click="resetShotClock" title="Reset to 30s (T)">↻</button>
+              </div>
             </div>
           </div>
           <div class="active-name">
@@ -925,7 +1039,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                The hotkeys are wired in onKeydown above. -->
           <div class="kbd-hints">
             <span><kbd>←</kbd> prev</span>
-            <span><kbd>→</kbd> / <kbd>Space</kbd> next</span>
+            <span><kbd>→</kbd>/<kbd>Space</kbd> next</span>
+            <span><kbd>1</kbd>–<kbd>9</kbd> jump</span>
+            <span><kbd>S</kbd> status</span>
+            <span><kbd>T</kbd> reset clock</span>
+            <span><kbd>F</kbd> failed</span>
+            <span><kbd>R</kbd> redive</span>
+            <span><kbd>H</kbd> hold</span>
             <span><kbd>L</kbd> leaderboard</span>
           </div>
         </div>
@@ -1578,6 +1698,72 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   50%  { transform: scale(1.06); box-shadow: 0 0 18px rgba(16,185,129,0.5); }
   100% { transform: scale(1); box-shadow: 0 0 12px rgba(16,185,129,0.2); }
 }
+
+/* =========================================================
+   Header context — meet name + round/diver position badges
+   ========================================================= */
+.ctrl-header-ctx {
+  display: flex; align-items: center; gap: 0.6rem;
+  flex: 1; min-width: 0; justify-content: center;
+}
+.ctx-meet {
+  font-family: var(--font-display); font-size: 16px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ctx-badge {
+  font-family: var(--font-display); font-size: 10px; font-weight: 900;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  padding: 0.2rem 0.5rem; border-radius: 3px;
+  background: var(--bg-3); border: 1px solid var(--border); color: var(--text-2);
+  flex-shrink: 0;
+}
+
+/* =========================================================
+   Active-diver status pill (READY / DIVING / JUDGING)
+   ========================================================= */
+.status-pill {
+  font-family: var(--font-display); font-size: 11px; font-weight: 900;
+  letter-spacing: 0.2em; padding: 0.35rem 0.7rem;
+  border-radius: 3px; cursor: pointer; border: 1px solid transparent;
+  transition: all 0.1s;
+}
+.status-pill.status-ready   { background: var(--bg-3); color: var(--text-2); border-color: var(--border); }
+.status-pill.status-diving  { background: var(--cyan); color: var(--bg); animation: pulse-cyan 1s infinite; }
+.status-pill.status-judging { background: var(--amber); color: var(--bg); }
+@keyframes pulse-cyan { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+/* =========================================================
+   Operator broadcast mode — chromeless projector layout
+   /control?broadcast=1 hides the queue + history columns and
+   leaves just the active-diver centre column at full size,
+   suitable for a back-of-house screen.
+   ========================================================= */
+.ctrl-broadcast .ctrl-header,
+.ctrl-broadcast .hold-banner { display: none; }
+.ctrl-broadcast .ctrl-body {
+  grid-template-columns: 1fr;        /* drop side panels */
+}
+.ctrl-broadcast .ctrl-panel { display: none; }
+.ctrl-broadcast .active-zone { padding: 3rem; }
+.ctrl-broadcast .active-name { font-size: clamp(56px, 9vw, 140px); }
+.ctrl-broadcast .judge-tile  { width: 110px; height: 110px; }
+.ctrl-broadcast .judge-tile-score { font-size: 32px; }
+.ctrl-broadcast .ref-actions,
+.ctrl-broadcast .nav-btns,
+.ctrl-broadcast .kbd-hints { display: none; }
+
+.ops-broadcast-exit {
+  position: fixed; top: 1rem; right: 1rem; z-index: 90;
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.4); color: var(--text-3);
+  border: 1px solid var(--border); border-radius: 50%;
+  font-family: var(--font-mono); font-size: 16px; font-weight: 700;
+  text-decoration: none;
+  opacity: 0.25; transition: opacity 0.2s;
+}
+.ops-broadcast-exit:hover { opacity: 1; color: var(--cyan); border-color: var(--cyan); }
 
 .kbd-hints {
   display: flex; gap: 1rem; flex-wrap: wrap;

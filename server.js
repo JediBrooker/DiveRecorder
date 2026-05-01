@@ -3093,13 +3093,53 @@ io.on("connection", (socket) => {
     }
   });
   socket.on("announce_score", (data) => io.emit("final_score_announced", data));
-  socket.on("referee_failed_dive", (data) =>
-    io.emit("referee_action_failed", data),
-  );
-  socket.on("referee_cap_scores", (data) =>
-    io.emit("referee_action_cap", data),
-  );
-  socket.on("referee_redive", (data) => io.emit("referee_action_redive", data));
+
+  // Referee actions — broadcast to clients AND persist to the
+  // score_audit_log so a post-meet dispute investigation has a
+  // record. We log the action as 'update' on every score row
+  // for that (event, competitor, round) tuple so the audit
+  // timeline shows exactly what was changed.
+  async function logRefereeAction(action, data, actorUserId) {
+    if (!data?.event_id || !data?.competitor_id || !data?.round_number) return;
+    try {
+      await pool.query(
+        `INSERT INTO score_audit_log
+           (score_id, event_id, competitor_id, judge_id, round_number,
+            action, old_score, new_score, actor_user_id, ip_address, user_agent)
+         SELECT s.id, s.event_id, s.competitor_id, s.judge_id, s.round_number,
+                'update', s.score,
+                CASE WHEN $5 = 'failed' THEN 0
+                     WHEN $5 = 'cap'    THEN LEAST(s.score, $6::numeric)
+                     ELSE s.score END,
+                $7, $8, $9
+         FROM scores s
+         WHERE s.event_id = $1 AND s.competitor_id = $2 AND s.round_number = $3
+           AND $4::boolean IS true`,
+        [
+          data.event_id, data.competitor_id, data.round_number,
+          true, action, data.cap_value || 2.0,
+          actorUserId || null,
+          clientIp(socket),
+          socket.handshake.headers["user-agent"] || null,
+        ],
+      );
+    } catch (err) {
+      console.error("[Referee Audit Skipped]", err.message);
+    }
+  }
+
+  socket.on("referee_failed_dive", async (data) => {
+    await logRefereeAction("failed", data, socket.userId);
+    io.emit("referee_action_failed", data);
+  });
+  socket.on("referee_cap_scores", async (data) => {
+    await logRefereeAction("cap", data, socket.userId);
+    io.emit("referee_action_cap", data);
+  });
+  socket.on("referee_redive", async (data) => {
+    await logRefereeAction("redive", data, socket.userId);
+    io.emit("referee_action_redive", data);
+  });
 
   // Hold / resume the meet. The Control Room dispatches these;
   // judges + scoreboard listen and display a banner while the
