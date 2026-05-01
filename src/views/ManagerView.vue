@@ -156,7 +156,7 @@ onMounted(loadEvents)
           <select class="select" v-model="createType">
             <option value="individual">Individual</option>
             <option value="synchro_pair">Synchronised Pair</option>
-            <option value="team" disabled>Team (coming soon)</option>
+            <option value="team">Team (FINA)</option>
           </select>
           <p v-if="createType === 'synchro_pair'" class="hint">
             Synchro: positions 1–2 (or 1–3) score Diver A's execution, 3–4 (or 4–6) score Diver B's execution, the rest score synchronisation. World Aquatics requires a 9- or 11-judge panel.
@@ -250,7 +250,7 @@ onMounted(loadEvents)
           <select class="select" v-model="editType">
             <option value="individual">Individual</option>
             <option value="synchro_pair">Synchronised Pair</option>
-            <option value="team" disabled>Team (coming soon)</option>
+            <option value="team">Team (FINA)</option>
           </select>
         </div>
         <div class="field">

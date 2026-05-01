@@ -126,15 +126,18 @@ psql -d diverecorder -f seed_dive_directory.sql
 psql -d diverecorder -f migrations/001_score_audit_log.sql
 psql -d diverecorder -f migrations/002_calc_dive_points.sql
 psql -d diverecorder -f migrations/003_clubs_and_role_audit.sql
+psql -d diverecorder -f migrations/004_event_types_and_synchro.sql
+psql -d diverecorder -f migrations/005_teams.sql
 ```
 
 ### 5. (Optional) Seed test data
 
 ```bash
 psql -d diverecorder -f seed_bulk_test_data.sql
+psql -d diverecorder -f seed_synchro_team_events.sql
 ```
 
-This creates 20 country federations, 80 clubs, 1000 users, 50 events with full scoring data, and matching audit history. All seeded users share the password `password123`. Useful for stress-testing the archive, scoreboard, and admin views.
+The first creates 20 country federations, 80 clubs, 1000 users, 50 individual events with full scoring data, and matching audit history. The second adds 20 synchronised pair events (11-judge panels with proper World Aquatics scoring) and 10 team events (3 teams of 4 members each) on top. All seeded users share the password `password123`. Useful for stress-testing the archive, scoreboard, and admin views.
 
 ### 6. Configure environment
 
@@ -182,12 +185,15 @@ Open `http://localhost:5173` (dev) or `http://localhost:3000` (built).
 .
 ├── server.js                # Single-file Express app (auth, REST, sockets, PDF)
 ├── schema_v2.sql            # Bootstrap schema (run on a fresh DB)
-├── seed_dive_directory.sql  # World Aquatics dive directory (DDs by code/height/position)
-├── seed_bulk_test_data.sql  # 1000-user / 50-event seed for local development
-├── migrations/              # Append-only schema changes
+├── seed_dive_directory.sql       # World Aquatics dive directory (DDs by code/height/position)
+├── seed_bulk_test_data.sql       # 1000-user / 50-individual-event seed
+├── seed_synchro_team_events.sql  # 20 synchro + 10 team events on top of the bulk seed
+├── migrations/                   # Append-only schema changes
 │   ├── 001_score_audit_log.sql
 │   ├── 002_calc_dive_points.sql
-│   └── 003_clubs_and_role_audit.sql
+│   ├── 003_clubs_and_role_audit.sql
+│   ├── 004_event_types_and_synchro.sql
+│   └── 005_teams.sql
 ├── src/
 │   ├── views/               # One Vue component per route
 │   ├── stores/auth.js       # Pinia auth store (JWT in sessionStorage)

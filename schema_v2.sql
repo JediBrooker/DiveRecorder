@@ -255,6 +255,7 @@ CREATE TABLE public.competitor_dive_lists (
     event_id      uuid REFERENCES public.events(id) ON DELETE CASCADE,
     competitor_id uuid REFERENCES public.users(id) ON DELETE CASCADE,
     partner_id    uuid REFERENCES public.users(id) ON DELETE CASCADE,
+    team_id       uuid REFERENCES public.teams(id) ON DELETE CASCADE,
     dive_id       uuid REFERENCES public.dive_directory(id) ON DELETE RESTRICT,
     round_number  integer NOT NULL,
     UNIQUE (event_id, competitor_id, round_number),
@@ -287,6 +288,36 @@ CREATE TABLE public.scores (
     FOREIGN KEY (event_id, competitor_id, round_number)
         REFERENCES public.competitor_dive_lists(event_id, competitor_id, round_number)
         ON DELETE CASCADE
+);
+
+
+-- =============================================================
+-- TEAMS — for event_type = 'team' events
+-- A team belongs to an organisation, has members (many-to-many),
+-- and enters events via event_teams. Dive lists carry team_id
+-- so standings queries can aggregate by team.
+-- =============================================================
+
+CREATE TABLE public.teams (
+    id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    org_id      uuid NOT NULL REFERENCES public.organisations(id) ON DELETE CASCADE,
+    name        varchar(255) NOT NULL,
+    short_code  varchar(20),
+    created_at  timestamptz DEFAULT now() NOT NULL
+);
+
+CREATE TABLE public.team_members (
+    team_id    uuid NOT NULL REFERENCES public.teams(id) ON DELETE CASCADE,
+    user_id    uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    added_at   timestamptz DEFAULT now() NOT NULL,
+    PRIMARY KEY (team_id, user_id)
+);
+
+CREATE TABLE public.event_teams (
+    event_id   uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    team_id    uuid NOT NULL REFERENCES public.teams(id) ON DELETE CASCADE,
+    added_at   timestamptz DEFAULT now() NOT NULL,
+    PRIMARY KEY (event_id, team_id)
 );
 
 
@@ -479,6 +510,10 @@ CREATE INDEX idx_event_judges_event     ON public.event_judges (event_id);
 CREATE INDEX idx_dive_lists_event       ON public.competitor_dive_lists (event_id);
 CREATE INDEX idx_dive_lists_competitor  ON public.competitor_dive_lists (competitor_id);
 CREATE INDEX idx_dive_lists_partner     ON public.competitor_dive_lists (partner_id);
+CREATE INDEX idx_dive_lists_team        ON public.competitor_dive_lists (team_id);
+CREATE INDEX idx_teams_org              ON public.teams (org_id);
+CREATE INDEX idx_team_members_user      ON public.team_members (user_id);
+CREATE INDEX idx_event_teams_team       ON public.event_teams (team_id);
 CREATE INDEX idx_scores_event           ON public.scores (event_id);
 CREATE INDEX idx_scores_competitor      ON public.scores (competitor_id);
 CREATE INDEX idx_score_audit_event_round   ON public.score_audit_log (event_id, round_number);

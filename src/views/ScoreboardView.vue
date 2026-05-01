@@ -29,32 +29,38 @@ const latestRound = computed(() => {
   return leaderboardRounds.value[leaderboardRounds.value.length - 1]
 })
 
-// Group the archive's flat dive list by diver, ordered by the
-// diver's final ranking so the breakdown column reads top-down
-// from gold to last place.
+const isTeamEvent = computed(() => archiveResults.value?.event?.event_type === 'team')
+
+// Group the archive's flat dive list. For team events the group
+// key is the team name (so the breakdown reads team-by-team with
+// each member's dive listed inside). For individual / synchro
+// events it stays per-diver as before.
 const divesByDiver = computed(() => {
   if (!archiveResults.value) return []
+  const teamMode = isTeamEvent.value
   const order = new Map()
   ;(archiveResults.value.standings || []).forEach((s, i) => order.set(s.full_name, i))
 
   const grouped = new Map()
   for (const d of archiveResults.value.dives || []) {
-    if (!grouped.has(d.full_name)) grouped.set(d.full_name, [])
-    grouped.get(d.full_name).push(d)
+    const key = teamMode ? (d.team_name || 'Unattached') : d.full_name
+    if (!grouped.has(key)) grouped.set(key, [])
+    grouped.get(key).push(d)
   }
   for (const arr of grouped.values()) {
     arr.sort((a, b) => a.round_number - b.round_number)
   }
   return [...grouped.entries()]
     .sort((a, b) => (order.get(a[0]) ?? 999) - (order.get(b[0]) ?? 999))
-    .map(([diver, dives]) => ({
-      name: diver,
-      country: dives[0]?.country_code || null,
-      club: dives[0]?.club_name || null,
-      partner: dives[0]?.partner_name || null,
-      partner_country: dives[0]?.partner_country || null,
-      total: archiveResults.value.standings.find(s => s.full_name === diver)?.total ?? null,
-      rank: (order.get(diver) ?? -1) + 1,
+    .map(([key, dives]) => ({
+      name: key,
+      country: teamMode ? null : (dives[0]?.country_code || null),
+      club: teamMode ? null : (dives[0]?.club_name || null),
+      partner: teamMode ? null : (dives[0]?.partner_name || null),
+      partner_country: teamMode ? null : (dives[0]?.partner_country || null),
+      isTeam: teamMode,
+      total: archiveResults.value.standings.find(s => s.full_name === key)?.total ?? null,
+      rank: (order.get(key) ?? -1) + 1,
       dives,
     }))
 })
@@ -564,9 +570,10 @@ onMounted(async () => {
                   <div class="dr-judges">Judge Scores</div>
                   <div class="dr-total">Total</div>
                 </div>
-                <div v-for="d in block.dives" :key="d.round_number" class="dive-row">
+                <div v-for="d in block.dives" :key="d.round_number + (d.full_name || '')" class="dive-row">
                   <div class="dr-round">R{{ d.round_number }}</div>
                   <div class="dr-code">
+                    <span v-if="block.isTeam" class="dr-team-member">{{ d.full_name }}</span>
                     <span class="dr-code-main">{{ [d.dive_code, d.position].filter(Boolean).join(' ') }}</span>
                     <span v-if="d.description" class="dr-code-desc">{{ d.description }}</span>
                   </div>
@@ -887,6 +894,7 @@ onMounted(async () => {
 .dr-round { font-family: var(--font-mono); color: var(--text-3); }
 .dr-code-main { font-family: var(--font-mono); font-weight: 700; color: var(--text); }
 .dr-code-desc { font-size: 10px; color: var(--text-3); margin-left: 0.4rem; }
+.dr-team-member { font-family: var(--font-display); font-size: 11px; font-weight: 700; color: var(--text-2); margin-right: 0.5rem; }
 .dr-dd {
   font-family: var(--font-display); font-size: 12px; font-weight: 700;
   color: var(--cyan); text-align: right;

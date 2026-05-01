@@ -368,6 +368,212 @@ app.put("/api/orgs/:id/status", requireSystemAdmin, async (req, res) => {
   }
 });
 
+// =============================================================
+// TEAMS
+// =============================================================
+
+// Teams in an org with member counts. Auth required, org_admin
+// or meet_manager only.
+app.get(
+  "/api/orgs/:id/teams",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    if (!req.user.is_system_admin && req.params.id !== req.user.org_id) {
+      return res
+        .status(403)
+        .json({ error: "Cannot list teams in other organisations" });
+    }
+    try {
+      const r = await pool.query(
+        `SELECT t.id, t.name, t.short_code, t.created_at,
+                COALESCE(stat.member_count, 0)::int AS member_count
+         FROM teams t
+         LEFT JOIN LATERAL (
+           SELECT COUNT(*) AS member_count FROM team_members WHERE team_id = t.id
+         ) stat ON true
+         WHERE t.org_id = $1
+         ORDER BY t.name ASC`,
+        [req.params.id],
+      );
+      res.json(r.rows);
+    } catch (err) {
+      console.error("[Teams List Error]", err.message);
+      res.status(500).json([]);
+    }
+  },
+);
+
+app.post(
+  "/api/orgs/:id/teams",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    if (!req.user.is_system_admin && req.params.id !== req.user.org_id) {
+      return res
+        .status(403)
+        .json({ error: "Cannot create teams in other organisations" });
+    }
+    const { name, short_code } = req.body;
+    if (!name || !name.trim())
+      return res.status(400).json({ error: "Team name is required" });
+    try {
+      const r = await pool.query(
+        `INSERT INTO teams (org_id, name, short_code)
+         VALUES ($1, $2, $3)
+         RETURNING id, name, short_code`,
+        [req.params.id, name.trim(), short_code?.trim() || null],
+      );
+      res.status(201).json(r.rows[0]);
+    } catch (err) {
+      console.error("[Create Team Error]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+app.get(
+  "/api/teams/:id/members",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    try {
+      const target = await pool.query(
+        "SELECT org_id FROM teams WHERE id = $1",
+        [req.params.id],
+      );
+      if (!target.rows.length)
+        return res.status(404).json({ error: "Team not found" });
+      if (
+        !req.user.is_system_admin &&
+        target.rows[0].org_id !== req.user.org_id
+      ) {
+        return res
+          .status(403)
+          .json({ error: "Cannot view teams in other organisations" });
+      }
+      const r = await pool.query(
+        `SELECT u.id, u.username, u.full_name, tm.added_at
+         FROM team_members tm
+         JOIN users u ON u.id = tm.user_id
+         WHERE tm.team_id = $1
+         ORDER BY u.full_name ASC`,
+        [req.params.id],
+      );
+      res.json(r.rows);
+    } catch (err) {
+      res.status(500).json([]);
+    }
+  },
+);
+
+app.post(
+  "/api/teams/:id/members",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    const { user_id } = req.body;
+    try {
+      const target = await pool.query(
+        "SELECT org_id FROM teams WHERE id = $1",
+        [req.params.id],
+      );
+      if (!target.rows.length)
+        return res.status(404).json({ error: "Team not found" });
+      if (
+        !req.user.is_system_admin &&
+        target.rows[0].org_id !== req.user.org_id
+      ) {
+        return res
+          .status(403)
+          .json({ error: "Cannot modify teams in other organisations" });
+      }
+      // Member must be a user in the same org as the team
+      const u = await pool.query(
+        "SELECT 1 FROM users WHERE id = $1 AND org_id = $2",
+        [user_id, target.rows[0].org_id],
+      );
+      if (!u.rows.length)
+        return res
+          .status(400)
+          .json({ error: "User must belong to the team's organisation" });
+      await pool.query(
+        `INSERT INTO team_members (team_id, user_id) VALUES ($1, $2)
+         ON CONFLICT DO NOTHING`,
+        [req.params.id, user_id],
+      );
+      res.json({ message: "Member added" });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+app.delete(
+  "/api/teams/:id/members/:userId",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    try {
+      const target = await pool.query(
+        "SELECT org_id FROM teams WHERE id = $1",
+        [req.params.id],
+      );
+      if (!target.rows.length)
+        return res.status(404).json({ error: "Team not found" });
+      if (
+        !req.user.is_system_admin &&
+        target.rows[0].org_id !== req.user.org_id
+      ) {
+        return res
+          .status(403)
+          .json({ error: "Cannot modify teams in other organisations" });
+      }
+      await pool.query(
+        "DELETE FROM team_members WHERE team_id = $1 AND user_id = $2",
+        [req.params.id, req.params.userId],
+      );
+      res.json({ message: "Member removed" });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+// Teams entered in an event
+app.get(
+  "/api/events/:id/teams",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    try {
+      const r = await pool.query(
+        `SELECT t.id, t.name, t.short_code, et.added_at
+         FROM event_teams et
+         JOIN teams t ON t.id = et.team_id
+         WHERE et.event_id = $1
+         ORDER BY t.name ASC`,
+        [req.params.id],
+      );
+      res.json(r.rows);
+    } catch (err) {
+      res.status(500).json([]);
+    }
+  },
+);
+
+app.post(
+  "/api/events/:id/teams",
+  requireEventManager(),
+  async (req, res) => {
+    const { team_id } = req.body;
+    try {
+      await pool.query(
+        `INSERT INTO event_teams (event_id, team_id) VALUES ($1, $2)
+         ON CONFLICT DO NOTHING`,
+        [req.params.id, team_id],
+      );
+      res.json({ message: "Team added to event" });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
 // Divers in an organisation. Authenticated and scoped to the
 // caller's own org (system admins see any). Used by the
 // CompetitorView's synchro partner picker.
@@ -1250,7 +1456,7 @@ app.get("/api/scoreboard/:eventId", async (req, res) => {
       // across all of a competitor's dives in the event.
       pool.query(
         `WITH per_dive AS (
-           SELECT s.competitor_id, s.round_number,
+           SELECT s.competitor_id, cdl.team_id, s.round_number,
                   calc_event_dive_points(
                     array_agg(ej.judge_number ORDER BY ej.judge_number),
                     array_agg(s.score ORDER BY ej.judge_number),
@@ -1265,25 +1471,45 @@ app.get("/api/scoreboard/:eventId", async (req, res) => {
             AND cdl.round_number = s.round_number
            LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
            WHERE s.event_id = $1
-           GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+           GROUP BY s.competitor_id, cdl.team_id, s.round_number, e.number_of_judges, e.event_type
+         ),
+         /* Team-event branch: aggregate by team */
+         team_standings AS (
+           SELECT t.name AS full_name,
+                  NULL::char(3) AS country_code,
+                  t.short_code AS club_name,
+                  NULL::varchar AS partner_name,
+                  NULL::char(3) AS partner_country,
+                  SUM(pd.dive_points) AS total
+           FROM per_dive pd
+           JOIN teams t ON t.id = pd.team_id
+           WHERE (SELECT event_type FROM events WHERE id = $1) = 'team'
+           GROUP BY t.id, t.name, t.short_code
+         ),
+         /* Individual / synchro branch: aggregate by competitor */
+         comp_standings AS (
+           SELECT u.full_name, o.country_code, cl.name AS club_name,
+                  pu.full_name AS partner_name, pl.country_code AS partner_country,
+                  SUM(pd.dive_points) AS total
+           FROM per_dive pd
+           JOIN users u ON u.id = pd.competitor_id
+           JOIN organisations o ON o.id = u.org_id
+           LEFT JOIN clubs cl ON cl.id = u.club_id
+           LEFT JOIN LATERAL (
+             SELECT DISTINCT cdl.partner_id
+             FROM competitor_dive_lists cdl
+             WHERE cdl.event_id = $1 AND cdl.competitor_id = pd.competitor_id
+               AND cdl.partner_id IS NOT NULL
+             LIMIT 1
+           ) p ON true
+           LEFT JOIN users pu ON pu.id = p.partner_id
+           LEFT JOIN organisations pl ON pl.id = pu.org_id
+           WHERE (SELECT event_type FROM events WHERE id = $1) <> 'team'
+           GROUP BY u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code
          )
-         SELECT u.full_name, o.country_code, cl.name AS club_name,
-                SUM(pd.dive_points) AS total,
-                pu.full_name AS partner_name, pl.country_code AS partner_country
-         FROM per_dive pd
-         JOIN users u ON u.id = pd.competitor_id
-         JOIN organisations o ON o.id = u.org_id
-         LEFT JOIN clubs cl ON cl.id = u.club_id
-         LEFT JOIN LATERAL (
-           SELECT DISTINCT cdl.partner_id
-           FROM competitor_dive_lists cdl
-           WHERE cdl.event_id = $1 AND cdl.competitor_id = pd.competitor_id
-             AND cdl.partner_id IS NOT NULL
-           LIMIT 1
-         ) p ON true
-         LEFT JOIN users pu ON pu.id = p.partner_id
-         LEFT JOIN organisations pl ON pl.id = pu.org_id
-         GROUP BY u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code
+         SELECT * FROM team_standings
+         UNION ALL
+         SELECT * FROM comp_standings
          ORDER BY total DESC`,
         [req.params.eventId],
       ),
@@ -1292,6 +1518,7 @@ app.get("/api/scoreboard/:eventId", async (req, res) => {
       pool.query(
         `SELECT s.competitor_id, u.full_name, o.country_code, cl.name AS club_name,
                 pu.full_name AS partner_name, pl.country_code AS partner_country,
+                t.id AS team_id, t.name AS team_name,
                 d.dive_code, d.position, d.description, d.dd, s.round_number,
                 calc_event_dive_points(
                   array_agg(ej.judge_number ORDER BY ej.judge_number),
@@ -1312,9 +1539,10 @@ app.get("/api/scoreboard/:eventId", async (req, res) => {
          LEFT JOIN dive_directory d ON COALESCE(s.dive_id, cdl.dive_id) = d.id
          LEFT JOIN users pu ON pu.id = cdl.partner_id
          LEFT JOIN organisations pl ON pl.id = pu.org_id
+         LEFT JOIN teams t ON t.id = cdl.team_id
          WHERE s.event_id = $1
          GROUP BY s.competitor_id, u.full_name, o.country_code, cl.name,
-                  pu.full_name, pl.country_code,
+                  pu.full_name, pl.country_code, t.id, t.name,
                   d.dive_code, d.position, d.description, d.dd,
                   s.round_number, e.number_of_judges, e.event_type
          ORDER BY MAX(s.created_at) DESC LIMIT 10`,
@@ -1976,7 +2204,7 @@ app.get("/api/archive/:eventId/results", async (req, res) => {
       pool.query("SELECT e.name, e.gender, e.height, e.total_rounds, e.number_of_judges, e.event_type, o.name AS org_name FROM events e JOIN organisations o ON e.org_id = o.id WHERE e.id = $1", [req.params.eventId]),
       pool.query(
         `WITH per_dive AS (
-           SELECT s.competitor_id, s.round_number,
+           SELECT s.competitor_id, cdl.team_id, s.round_number,
                   calc_event_dive_points(
                     array_agg(ej.judge_number ORDER BY ej.judge_number),
                     array_agg(s.score ORDER BY ej.judge_number),
@@ -1991,29 +2219,48 @@ app.get("/api/archive/:eventId/results", async (req, res) => {
             AND cdl.round_number = s.round_number
            LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
            WHERE s.event_id = $1
-           GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+           GROUP BY s.competitor_id, cdl.team_id, s.round_number, e.number_of_judges, e.event_type
+         ),
+         team_standings AS (
+           SELECT t.name AS full_name,
+                  NULL::char(3) AS country_code,
+                  t.short_code AS club_name,
+                  NULL::varchar AS partner_name,
+                  NULL::char(3) AS partner_country,
+                  SUM(pd.dive_points) AS total
+           FROM per_dive pd
+           JOIN teams t ON t.id = pd.team_id
+           WHERE (SELECT event_type FROM events WHERE id = $1) = 'team'
+           GROUP BY t.id, t.name, t.short_code
+         ),
+         comp_standings AS (
+           SELECT u.full_name, o.country_code, cl.name AS club_name,
+                  pu.full_name AS partner_name, pl.country_code AS partner_country,
+                  SUM(pd.dive_points) AS total
+           FROM per_dive pd
+           JOIN users u ON u.id = pd.competitor_id
+           JOIN organisations o ON o.id = u.org_id
+           LEFT JOIN clubs cl ON cl.id = u.club_id
+           LEFT JOIN LATERAL (
+             SELECT DISTINCT cdl.partner_id FROM competitor_dive_lists cdl
+             WHERE cdl.event_id = $1 AND cdl.competitor_id = pd.competitor_id
+               AND cdl.partner_id IS NOT NULL LIMIT 1
+           ) p ON true
+           LEFT JOIN users pu ON pu.id = p.partner_id
+           LEFT JOIN organisations pl ON pl.id = pu.org_id
+           WHERE (SELECT event_type FROM events WHERE id = $1) <> 'team'
+           GROUP BY u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code
          )
-         SELECT u.full_name, o.country_code, cl.name AS club_name,
-                pu.full_name AS partner_name, pl.country_code AS partner_country,
-                SUM(pd.dive_points) AS total
-         FROM per_dive pd
-         JOIN users u ON u.id = pd.competitor_id
-         JOIN organisations o ON o.id = u.org_id
-         LEFT JOIN clubs cl ON cl.id = u.club_id
-         LEFT JOIN LATERAL (
-           SELECT DISTINCT cdl.partner_id FROM competitor_dive_lists cdl
-           WHERE cdl.event_id = $1 AND cdl.competitor_id = pd.competitor_id
-             AND cdl.partner_id IS NOT NULL LIMIT 1
-         ) p ON true
-         LEFT JOIN users pu ON pu.id = p.partner_id
-         LEFT JOIN organisations pl ON pl.id = pu.org_id
-         GROUP BY u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code
+         SELECT * FROM team_standings
+         UNION ALL
+         SELECT * FROM comp_standings
          ORDER BY total DESC`,
         [req.params.eventId],
       ),
       pool.query(
         `SELECT u.full_name, o.country_code, cl.name AS club_name,
                 pu.full_name AS partner_name, pl.country_code AS partner_country,
+                t.id AS team_id, t.name AS team_name,
                 s.round_number,
                 d.dive_code, d.position, d.description, d.dd,
                 calc_event_dive_points(
@@ -2033,8 +2280,10 @@ app.get("/api/archive/:eventId/results", async (req, res) => {
          LEFT JOIN dive_directory d ON COALESCE(s.dive_id, cdl.dive_id) = d.id
          LEFT JOIN users pu ON pu.id = cdl.partner_id
          LEFT JOIN organisations pl ON pl.id = pu.org_id
+         LEFT JOIN teams t ON t.id = cdl.team_id
          WHERE s.event_id = $1
          GROUP BY u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code,
+                  t.id, t.name,
                   s.round_number, d.dive_code, d.position, d.description, d.dd,
                   e.number_of_judges, e.event_type
          ORDER BY u.full_name ASC, s.round_number ASC`,

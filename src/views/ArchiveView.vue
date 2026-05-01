@@ -139,22 +139,23 @@ function downloadPdf(ev) {
   window.open(`/api/events/${ev.id}/results.pdf`, '_blank')
 }
 
-function byDiver(dives) {
-  // Group dives by diver, preserving country / club / partner
-  // from the first row in the group.
+function byDiver(dives, isTeam) {
+  // Group by diver normally, by team for team events.
   const map = new Map()
   for (const d of dives) {
-    if (!map.has(d.full_name)) {
-      map.set(d.full_name, {
-        name: d.full_name,
-        country: d.country_code || null,
-        club: d.club_name || null,
-        partner: d.partner_name || null,
-        partner_country: d.partner_country || null,
+    const key = isTeam ? (d.team_name || 'Unattached') : d.full_name
+    if (!map.has(key)) {
+      map.set(key, {
+        name: key,
+        country: isTeam ? null : (d.country_code || null),
+        club: isTeam ? null : (d.club_name || null),
+        partner: isTeam ? null : (d.partner_name || null),
+        partner_country: isTeam ? null : (d.partner_country || null),
+        isTeam,
         dives: [],
       })
     }
-    map.get(d.full_name).dives.push(d)
+    map.get(key).dives.push(d)
   }
   return [...map.values()]
 }
@@ -270,7 +271,7 @@ function fmtDate(iso) {
 
             <!-- Dive breakdown -->
             <div class="section-label" style="margin-top:1.5rem">Dive Breakdown</div>
-            <div v-for="b in byDiver(results.dives)" :key="b.name" class="diver-block">
+            <div v-for="b in byDiver(results.dives, results.event?.event_type === 'team')" :key="b.name" class="diver-block">
               <div class="diver-head">
                 <div class="diver-name">
                   {{ b.name }}<span v-if="b.country" class="ctry">{{ b.country }}</span>
@@ -281,8 +282,9 @@ function fmtDate(iso) {
                 </div>
                 <div v-if="b.club" class="diver-club">{{ b.club }}</div>
               </div>
-              <div v-for="d in b.dives" :key="d.round_number" class="dive-row">
+              <div v-for="d in b.dives" :key="d.round_number + (d.full_name || '')" class="dive-row">
                 <span class="round-num">R{{ d.round_number }}</span>
+                <span v-if="b.isTeam" class="dive-member">{{ d.full_name }}</span>
                 <span class="dive-code">{{ [d.dive_code, d.position].filter(Boolean).join(' ') }}</span>
                 <span v-if="d.dd" class="dd-pill">DD {{ Number(d.dd).toFixed(1) }}</span>
                 <span class="judge-scores">
@@ -424,6 +426,7 @@ function fmtDate(iso) {
 }
 .round-num { color: var(--text-3); width: 2rem; flex-shrink: 0; }
 .dive-code { color: var(--text); font-weight: 500; min-width: 5rem; }
+.dive-member { font-family: var(--font-display); font-size: 11px; font-weight: 700; color: var(--text-2); margin-right: 0.4rem; }
 .dd-pill {
   color: var(--cyan); border: 1px solid rgba(6,182,212,0.3);
   background: var(--cyan-dim); border-radius: 3px;
