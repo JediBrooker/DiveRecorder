@@ -477,4 +477,72 @@ function fmtDate(iso) {
   display: flex; flex-wrap: wrap; gap: 0.25rem; min-width: 0;
 }
 .dive-total { font-weight: 700; color: var(--text); flex-shrink: 0; }
+
+/* ── Phone & small tablet ─────────────────────────────────── */
+@media (max-width: 720px) {
+  /* The whole-page outer padding shrinks to give content the
+     full viewport width. */
+  .archive-wrap { padding: 1rem; }
+  .page-header  { margin-bottom: 1rem; padding-bottom: 0.875rem; flex-wrap: wrap; gap: 0.5rem; }
+  .page-title   { font-size: 26px; }
+
+  /* Filter bar — selects go full-width and stack so the country
+     selector stops getting clipped on the right. */
+  .filter-bar { padding: 0.7rem 0.875rem; gap: 0.5rem; }
+  .filter-bar .input,
+  .filter-bar .select { max-width: none; flex: 1 1 100%; }
+  .result-count { margin-left: 0; }
+
+  /* Event row — wrap so action buttons drop onto their own row
+     and stretch full-width like a tap target. */
+  .event-row     { padding: 1rem 1rem; flex-wrap: wrap; gap: 0.6rem; }
+  .event-name    { font-size: 16px; }
+  .event-meta    { font-size: 10.5px; }
+  .event-actions { width: 100%; }
+  .event-actions .btn { flex: 1; }
+
+  /* Results panel — tighter padding so the recap isn't framed
+     by 24px of surface on every side. */
+  .results-panel { padding: 1rem 0.875rem; }
+
+  /* Standings rows — looser padding made each row ~64px tall,
+     which is wasteful when there are 6+ rows + a header above. */
+  .standing-row  { padding: 0.55rem 0.7rem; gap: 0.55rem; }
+  .sname         { font-size: 14px; }
+  .total         { font-size: 14px; }
+  .partner-line  { font-size: 12px; }
+  .club-line     { font-size: 10px; }
+
+  /* The fix for the main user complaint:
+     wrap the dive-row so judge-scores drops onto its own row
+     with the full viewport width to play with. With ~320px
+     available, synchro EXEC A / EXEC B / SYNC groups fit as
+     short horizontal chip-strips instead of stacking each chip
+     on its own line, and a single dive shrinks from ~600px
+     tall back down to ~110-140px. */
+  .dive-row {
+    flex-wrap: wrap;
+    row-gap: 0.4rem;
+    padding: 0.5rem 0;
+  }
+  .judge-scores {
+    flex-basis: 100%;
+    order: 10;
+    gap: 0.3rem;
+  }
+  .dive-total { margin-left: auto; }   /* keep on the meta-row right edge */
+  .dive-code  { min-width: 4rem; }
+
+  /* Synchro: each group label uses uppercase + spacing that
+     reads as an axis label rather than chip filler. Slightly
+     denser padding so the group "boxes" don't dominate. */
+  .judge-scores .judge-group { padding: 0.2rem 0.35rem; gap: 0.2rem; }
+
+  /* Diver header tightens — the country pill + ampersand block
+     was big enough to wrap on synchro pairs in the screenshot. */
+  .diver-block  { margin-bottom: 0.6rem; }
+  .diver-name   { font-size: 13px; }
+  .diver-club   { font-size: 10px; }
+  .archive-amp  { margin: 0 0.2em; }
+}
 </style>
