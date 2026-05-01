@@ -2027,7 +2027,7 @@ app.get("/api/events/:id/history", async (req, res) => {
 
 app.get("/api/scoreboard/:eventId", async (req, res) => {
   try {
-    const [st, hi] = await Promise.all([
+    const [st, hi, up] = await Promise.all([
       // Standings: per-dive points (trimmed × DD × scaling) summed
       // across all of a competitor's dives in the event.
       pool.query(
@@ -2126,11 +2126,39 @@ app.get("/api/scoreboard/:eventId", async (req, res) => {
          ORDER BY MAX(s.created_at) DESC LIMIT 10`,
         [req.params.eventId],
       ),
+      // Up Next: dive list rows that haven't been scored yet,
+      // earliest round first. The scoreboard surfaces the first
+      // few of these so the audience knows who's coming up.
+      pool.query(
+        `SELECT cdl.round_number, u.full_name, o.country_code,
+                cl.name AS club_name,
+                pu.full_name AS partner_name, pl.country_code AS partner_country,
+                t.name AS team_name,
+                d.dive_code, d.position, d.dd
+         FROM competitor_dive_lists cdl
+         JOIN users u ON u.id = cdl.competitor_id
+         JOIN organisations o ON o.id = u.org_id
+         LEFT JOIN clubs cl ON cl.id = u.club_id
+         LEFT JOIN users pu ON pu.id = cdl.partner_id
+         LEFT JOIN organisations pl ON pl.id = pu.org_id
+         LEFT JOIN teams t ON t.id = cdl.team_id
+         LEFT JOIN dive_directory d ON d.id = cdl.dive_id
+         WHERE cdl.event_id = $1
+           AND NOT EXISTS (
+             SELECT 1 FROM scores s
+             WHERE s.event_id = cdl.event_id
+               AND s.competitor_id = cdl.competitor_id
+               AND s.round_number = cdl.round_number
+           )
+         ORDER BY cdl.round_number, u.full_name
+         LIMIT 5`,
+        [req.params.eventId],
+      ),
     ]);
-    res.json({ standings: st.rows, history: hi.rows });
+    res.json({ standings: st.rows, history: hi.rows, upcoming: up.rows });
   } catch (err) {
     console.error("[Scoreboard Error]", err.message);
-    res.status(500).json({ standings: [], history: [] });
+    res.status(500).json({ standings: [], history: [], upcoming: [] });
   }
 });
 

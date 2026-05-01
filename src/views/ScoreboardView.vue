@@ -35,6 +35,18 @@ const statusFilter  = ref('')      // '' | 'Live' | 'Completed'
 
 const liveEvents = computed(() => events.value.filter(e => e.status === 'Live'))
 
+// Up Next: filter the server's queue to skip the current active
+// diver (so they don't appear as both "current performer" and
+// "up next") and cap at 3 rows. Empty array → panel hides.
+const upcomingDisplay = computed(() => {
+  if (!upcoming.value?.length) return []
+  const active = activeDiver.value?.diverName
+  const round  = activeDiver.value?.round_number
+  return upcoming.value
+    .filter(u => !(active && u.full_name === active && u.round_number === round))
+    .slice(0, 3)
+})
+
 const countries = computed(() => {
   const seen = new Map()
   for (const e of events.value) {
@@ -103,6 +115,45 @@ function clearFilters() {
   statusFilter.value  = ''
 }
 
+// CSV export of the currently-filtered meets list. Useful for
+// federations doing year-end reporting — pick a year + status
+// in the filter, click Export.
+function exportMeetsCsv() {
+  const headers = [
+    'Name', 'Org', 'Country', 'Status', 'Date',
+    'Gender', 'Height', 'Type', 'Rounds', 'Judges',
+    'Competitors', 'Clubs',
+  ]
+  const escape = (v) => {
+    const s = v == null ? '' : String(v)
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  const rows = filteredEvents.value.map(e => [
+    e.name,
+    e.org_name,
+    e.country_code || '',
+    e.status,
+    e.created_at ? new Date(e.created_at).toISOString().slice(0, 10) : '',
+    e.gender || '',
+    e.height || '',
+    e.event_type || 'individual',
+    e.total_rounds,
+    e.number_of_judges,
+    e.competitor_count || 0,
+    e.club_count || 0,
+  ].map(escape).join(','))
+  const csv = [headers.join(','), ...rows].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url  = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `dive-recorder-meets-${new Date().toISOString().slice(0, 10)}.csv`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 // Drop the club filter if the user picks a country whose clubs
 // don't include the currently-selected club.
 watch(countryFilter, (val) => {
@@ -123,6 +174,7 @@ async function fetchJsonArray(url) {
 }
 const historyItems = ref([])
 const standings = ref([])
+const upcoming = ref([])         // next ≤5 dives queued, populated for Live events
 const leaderboardRounds = ref([])     // [{ round_number, rankings: [...] }]
 const standingsTab = ref('final')     // 'final' | 'by-round'
 const expandedRound = ref(null)       // currently expanded round in by-round view
@@ -254,6 +306,7 @@ function resetToEventPicker({ pushUrl = true } = {}) {
   activeDiver.value = null
   historyItems.value = []
   standings.value = []
+  upcoming.value = []
   leaderboardRounds.value = []
   expandedRound.value = null
   archiveResults.value = null
@@ -292,6 +345,7 @@ async function refreshData() {
       ])
       historyItems.value = scoreboard.history || []
       standings.value = scoreboard.standings || []
+      upcoming.value = scoreboard.upcoming || []
       leaderboardRounds.value = leaderboard.rounds || []
     }
     if (expandedRound.value === null && leaderboardRounds.value.length) {
@@ -383,7 +437,17 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="sb-layout">
+  <div class="sb-layout" :class="{ 'broadcast-mode': broadcastMode }">
+    <!-- Floating exit button when in broadcast mode — small,
+         positioned in the corner, nearly invisible until hover.
+         Lets an operator drop back into the normal layout
+         without retyping the URL. -->
+    <RouterLink
+      v-if="broadcastMode && currentEventId"
+      :to="`/scoreboard/${currentEventId}`"
+      class="broadcast-exit"
+      title="Exit broadcast mode"
+    >✕</RouterLink>
     <!-- Connection banner — visible whenever the spectator
          socket has dropped. Live event watchers won't see new
          dives until reconnect, so it's worth surfacing. -->
@@ -393,8 +457,10 @@ onMounted(async () => {
     </div>
     <!-- Header — adapts to list mode (browsing) vs detail mode
          (a single event selected). The detail header doubles as a
-         breadcrumb so the user can jump back to the list. -->
-    <div class="sb-header">
+         breadcrumb so the user can jump back to the list. Hidden
+         entirely in broadcast mode so a venue projector shows
+         only the live scoring content. -->
+    <div v-if="!broadcastMode" class="sb-header">
       <template v-if="!currentEventId">
         <div class="header-left">
           <span class="sb-page-title">Scoreboard &amp; Results</span>
@@ -413,7 +479,18 @@ onMounted(async () => {
           <span class="sb-event-name">{{ currentEvent?.name || (isCompleted ? 'Event Recap' : 'Broadcast Feed') }}</span>
         </div>
       </template>
-      <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">Dashboard</RouterLink>
+      <div style="display:flex;gap:0.4rem;align-items:center">
+        <!-- Broadcast / kiosk mode toggle. Visible only when an
+             event is selected; flips into a chromeless layout
+             suitable for a venue projector. -->
+        <RouterLink
+          v-if="currentEventId && !isCompleted"
+          :to="`/scoreboard/${currentEventId}/broadcast`"
+          class="btn btn-ghost btn-sm"
+          title="Open in broadcast / kiosk mode (no page chrome)"
+        >📺 Broadcast</RouterLink>
+        <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">Dashboard</RouterLink>
+      </div>
     </div>
 
     <!-- =========================================================
@@ -483,6 +560,12 @@ onMounted(async () => {
           </option>
         </select>
         <button v-if="activeFilterCount" class="btn btn-ghost btn-sm" @click="clearFilters">Clear filters</button>
+        <button
+          v-if="filteredEvents.length"
+          class="btn btn-ghost btn-sm"
+          @click="exportMeetsCsv"
+          title="Download the currently-filtered list as CSV"
+        >Export CSV</button>
         <span class="result-count">
           {{ filteredEvents.length.toLocaleString() }} of {{ events.length.toLocaleString() }} meets
         </span>
@@ -602,6 +685,30 @@ onMounted(async () => {
             <div class="sb-dd">{{ activeDiver?.dd ? `DD ${activeDiver.dd}` : 'DD —' }}</div>
           </div>
           <div v-if="activeDiver?.description" class="sb-desc">{{ activeDiver.description }}</div>
+
+          <!-- Up Next: the next ≤3 dives queued. Shown only when
+               we actually have upcoming entries — the panel
+               disappears the moment the queue empties so we
+               don't dangle an empty list at end-of-meet. Filters
+               out any that match the current active diver +
+               round so we never show "active diver" as also "up
+               next". -->
+          <div v-if="upcomingDisplay.length" class="up-next">
+            <div class="up-next-label">Up Next</div>
+            <div v-for="(u, i) in upcomingDisplay" :key="i" class="up-next-row">
+              <span class="up-next-rd">R{{ u.round_number }}</span>
+              <span class="up-next-name">
+                {{ u.full_name }}<span v-if="u.country_code" class="up-next-ctry">{{ u.country_code }}</span>
+                <template v-if="u.partner_name">
+                  <span class="up-next-amp">&amp;</span>
+                  {{ u.partner_name }}
+                </template>
+              </span>
+              <span v-if="u.dive_code" class="up-next-code">
+                {{ [u.dive_code, u.position].filter(Boolean).join(' ') }}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -891,6 +998,28 @@ onMounted(async () => {
 <style scoped>
 .sb-layout { overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
 
+/* Broadcast / kiosk mode — header is hidden via v-if, but we
+   also nudge font sizes up so the venue projector reads
+   cleanly from the back of a pool deck. */
+.sb-layout.broadcast-mode .sb-name      { font-size: clamp(48px, 9vw, 110px); }
+.sb-layout.broadcast-mode .sb-code      { font-size: clamp(28px, 5vw, 56px); }
+.sb-layout.broadcast-mode .sb-dd        { font-size: clamp(20px, 3.5vw, 40px); }
+.sb-layout.broadcast-mode .standing-name,
+.sb-layout.broadcast-mode .standing-score { font-size: 18px; }
+.sb-layout.broadcast-mode .col-head     { font-size: 12px; padding: 1.2rem 1.4rem; }
+
+.broadcast-exit {
+  position: fixed; top: 1rem; right: 1rem; z-index: 90;
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.4); color: var(--text-3);
+  border: 1px solid var(--border); border-radius: 50%;
+  font-family: var(--font-mono); font-size: 16px; font-weight: 700;
+  text-decoration: none;
+  opacity: 0.25; transition: opacity 0.2s;
+}
+.broadcast-exit:hover { opacity: 1; color: var(--cyan); border-color: var(--cyan); }
+
 /* Connection-lost banner — same look as the judge view. */
 .conn-banner {
   background: var(--amber); color: var(--bg);
@@ -1146,6 +1275,48 @@ onMounted(async () => {
 .sb-code { font-family: var(--font-mono); font-size: clamp(24px,4vw,36px); color: var(--text); }
 .sb-dd { font-family: var(--font-display); font-size: clamp(18px,3vw,28px); font-weight: 700; color: var(--cyan); }
 .sb-desc { font-family: var(--font-mono); font-size: clamp(13px,1.8vw,18px); color: var(--text-3); margin-top: 1rem; }
+
+/* Up Next strip — sits below the active diver in the live
+   centre column, gives the audience a reason to stay engaged
+   through the gap between dives. */
+.up-next {
+  margin-top: 2rem; padding: 0.875rem 1rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius);
+  text-align: left;
+  width: 100%; max-width: 520px;
+}
+.up-next-label {
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.3em; text-transform: uppercase; color: var(--text-3);
+  margin-bottom: 0.6rem;
+}
+.up-next-row {
+  display: grid; grid-template-columns: 30px 1fr auto;
+  align-items: baseline; gap: 0.6rem;
+  padding: 0.35rem 0; border-top: 1px solid var(--border);
+}
+.up-next-row:first-of-type { border-top: none; }
+.up-next-rd {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+}
+.up-next-name {
+  font-family: var(--font-display); font-size: 13px; font-weight: 700;
+  color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0;
+}
+.up-next-amp { color: var(--cyan); margin: 0 0.25em; font-weight: 400; }
+.up-next-ctry {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.05em; color: var(--text-3);
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 3px; padding: 0.05rem 0.3rem;
+  margin-left: 0.4rem; vertical-align: middle;
+}
+.up-next-code {
+  font-family: var(--font-mono); font-size: 11px; color: var(--cyan);
+}
 .sb-country-line { font-family: var(--font-mono); font-size: clamp(14px,2vw,20px); font-weight: 700; letter-spacing: 0.15em; color: var(--text-3); margin-bottom: 1.5rem; }
 
 #no-event-view { display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 700px; }

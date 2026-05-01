@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
@@ -183,6 +183,42 @@ function nextDiver() {
   }
 }
 
+// Keyboard shortcuts for the Control Room — meet referees often
+// run the queue with one hand on the keyboard. Only fire when
+// the focus is somewhere outside an input/textarea so typing
+// into a search box doesn't accidentally advance the queue.
+function isTypingTarget(el) {
+  if (!el) return false
+  const tag = (el.tagName || '').toLowerCase()
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable
+}
+
+function onKeydown(e) {
+  if (isTypingTarget(e.target)) return
+  if (!currentEvent.value) return
+  // Avoid stomping on browser navigation (alt-arrow / cmd-arrow)
+  if (e.altKey || e.metaKey || e.ctrlKey) return
+
+  switch (e.key) {
+    case 'ArrowRight':
+    case ' ':           // space = advance — same muscle memory as a remote
+      e.preventDefault()
+      nextDiver()
+      break
+    case 'ArrowLeft':
+      if (currentIndex.value > 0) {
+        e.preventDefault()
+        setActive(currentIndex.value - 1)
+      }
+      break
+    case 'l':
+    case 'L':
+      e.preventDefault()
+      showLeaderboard()
+      break
+  }
+}
+
 function updateFinaliseButton() {
   if (!currentEvent.value) { finaliseBtnShow.value = false; return }
   finaliseBtnShow.value = true
@@ -258,7 +294,9 @@ const medals = ['🥇', '🥈', '🥉']
 
 onMounted(async () => {
   events.value = await auth.apiFetch('/api/events')
+  window.addEventListener('keydown', onKeydown)
 })
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
@@ -387,6 +425,14 @@ onMounted(async () => {
               :disabled="nextBtnDisabled"
               @click="nextDiver"
             >{{ nextBtnText }}</button>
+          </div>
+
+          <!-- Discoverability hint for the keyboard shortcuts.
+               The hotkeys are wired in onKeydown above. -->
+          <div class="kbd-hints">
+            <span><kbd>←</kbd> prev</span>
+            <span><kbd>→</kbd> / <kbd>Space</kbd> next</span>
+            <span><kbd>L</kbd> leaderboard</span>
           </div>
         </div>
       </div>
@@ -593,6 +639,20 @@ onMounted(async () => {
 .lb-name { font-family: var(--font-display); font-size: 20px; font-weight: 700; color: var(--text); flex: 1; }
 .lb-score { font-family: var(--font-mono); font-size: 22px; font-weight: 500; color: var(--cyan); flex-shrink: 0; }
 .lb-winner { background: linear-gradient(135deg, rgba(245,158,11,0.08), rgba(245,158,11,0.03)); border-radius: var(--radius); padding: 0 0.75rem; margin: 0 -0.75rem; }
+
+.kbd-hints {
+  display: flex; gap: 1rem; flex-wrap: wrap;
+  margin-top: 0.75rem;
+  font-family: var(--font-mono); font-size: 10px;
+  color: var(--text-3);
+}
+.kbd-hints kbd {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  padding: 0.1rem 0.35rem;
+  background: var(--bg-3); color: var(--text-2);
+  border: 1px solid var(--border); border-radius: 3px;
+  box-shadow: inset 0 -1px 0 var(--border-2);
+}
 
 /* ── Tablet & phone ─────────────────────────────────────────
    The control room is primarily a desktop view, but a meet

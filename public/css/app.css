@@ -551,6 +551,64 @@ h1, h2, h3, h4 {
   h3 { font-size: clamp(15px, 4vw, 18px); }
 }
 
+/* =========================================================
+   PRINT — turn the recap into a clean printout
+   The dark broadcast UI doesn't print well (lots of black ink
+   and tiny chips). On Cmd-P / Ctrl-P we strip backgrounds,
+   force black text on white, hide the page chrome and the
+   chip colour-coding, and let the recap flow to one page.
+   ========================================================= */
+@media print {
+  :root {
+    --bg:        #ffffff;
+    --bg-2:      #ffffff;
+    --bg-3:      #f8fafc;
+    --surface:   #ffffff;
+    --surface-2: #ffffff;
+    --border:    #cbd5e1;
+    --border-2:  #94a3b8;
+    --text:      #0f172a;
+    --text-2:    #334155;
+    --text-3:    #64748b;
+    --cyan:      #0e7490;
+    --cyan-dim:  #ecfeff;
+  }
+  body {
+    background: white !important;
+    background-image: none !important;
+    color: black !important;
+  }
+  /* Hide page chrome that doesn't belong on paper. */
+  .app-header, .conn-banner, .filter-bar,
+  .btn, .btn-ghost, .btn-primary, .btn-primary-lg,
+  .sb-header, .modal-backdrop, .modal,
+  .meta-strip a, .broadcast-exit, .kbd-hints { display: none !important; }
+  /* Restore page-flow so a tall recap pages naturally. */
+  .sb-layout, .sb-completed, .completed-grid, .completed-col,
+  .col-body, .archive-wrap {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .completed-grid { display: block !important; }
+  .completed-col + .completed-col { page-break-before: avoid; margin-top: 1.5rem; }
+  /* The chip backgrounds end up muddy in print — neutralise them
+     and rely on text + struck-through for the trim indication. */
+  .j-score, .judge-group {
+    background: white !important;
+    border-color: #94a3b8 !important;
+    color: black !important;
+    font-weight: 600 !important;
+  }
+  .j-score.j-dropped {
+    color: #64748b !important;
+    text-decoration: line-through !important;
+  }
+  /* Page break before each diver block keeps long recaps tidy. */
+  .diver-block { page-break-inside: avoid; }
+  /* Avoid invisible cyan dividers on white. */
+  .divider, .border, .standing { border-color: #cbd5e1 !important; }
+}
+
 @media (max-width: 480px) {
   /* Even tighter for compact phones. Keep cards readable but
      drop the big radius and outer padding further. */
