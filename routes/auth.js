@@ -29,11 +29,21 @@ module.exports = function createAuthRouter({
   const router = express.Router();
 
   router.post("/api/auth/login", authLimiter, async (req, res) => {
-    const { username, password } = req.body;
+    const { username, password } = req.body || {};
+    // Reject malformed bodies up front so bcrypt.compare never sees
+    // a non-string and throws — that was leaking 500 vs 401, which
+    // a probing attacker could use to distinguish "user exists".
+    if (typeof username !== "string" || typeof password !== "string") {
+      return res.status(401).json({ error: "Invalid username or password" });
+    }
     try {
-      const result = await pool.query("SELECT * FROM users WHERE username = $1", [
-        username,
-      ]);
+      // Pull only the columns we need. Defence in depth: a future
+      // change that responds with the row directly can't leak the
+      // password hash if it was never selected.
+      const result = await pool.query(
+        "SELECT id, password FROM users WHERE username = $1",
+        [username],
+      );
       const user = result.rows[0];
       if (!user || !(await bcrypt.compare(password, user.password)))
         return res.status(401).json({ error: "Invalid username or password" });
@@ -195,13 +205,13 @@ module.exports = function createAuthRouter({
     if (!current_password || !new_password) {
       return res.status(400).json({ error: "Current and new password are required" });
     }
-    if (typeof new_password !== "string" || new_password.length < 6) {
-      return res.status(400).json({ error: "New password must be at least 6 characters" });
+    if (typeof new_password !== "string" || new_password.length < 8) {
+      return res.status(400).json({ error: "New password must be at least 8 characters" });
     }
     try {
       const u = await pool.query(
         "SELECT id, password, full_name, email FROM users WHERE id = $1",
-        [req.user.user_id],
+        [req.user.id],
       );
       const user = u.rows[0];
       if (!user) return res.status(404).json({ error: "User not found" });
@@ -233,20 +243,32 @@ module.exports = function createAuthRouter({
   // -------------------------------------------------------------
   router.post("/api/auth/forgot-password", authLimiter, async (req, res) => {
     const { email } = req.body || {};
-    if (!email) return res.json({ ok: true });
+    // Always respond 200 + ok:true so callers can't enumerate which
+    // emails are registered. To avoid timing-based enumeration we
+    // also do equal work in both branches and dispatch SMTP fully
+    // out-of-band (setImmediate) so the email-send latency doesn't
+    // leak through the response time either.
     try {
-      const u = await pool.query(
-        "SELECT id, password, full_name, email FROM users WHERE email = $1",
-        [email],
-      );
-      const user = u.rows[0];
+      let user = null;
+      if (typeof email === "string" && email.length <= 320) {
+        const u = await pool.query(
+          "SELECT id, password, full_name, email FROM users WHERE email = $1",
+          [email],
+        );
+        user = u.rows[0] || null;
+      }
       if (user && user.email) {
         const fingerprint = jwt.sign(
           { sub: user.id, type: "password_reset", fp: hashFingerprint(user.password) },
           JWT_SECRET,
           { expiresIn: "30m" },
         );
-        sendPasswordResetEmail(user, fingerprint).catch(() => {});
+        // Defer the SMTP round-trip so the response time doesn't
+        // depend on whether we found a user. The catch is swallowed
+        // intentionally — we never tell the caller about delivery.
+        setImmediate(() => {
+          sendPasswordResetEmail(user, fingerprint).catch(() => {});
+        });
       }
       res.json({ ok: true });
     } catch (err) {
@@ -260,8 +282,8 @@ module.exports = function createAuthRouter({
     if (!token || !new_password) {
       return res.status(400).json({ error: "Token and new password are required" });
     }
-    if (typeof new_password !== "string" || new_password.length < 6) {
-      return res.status(400).json({ error: "New password must be at least 6 characters" });
+    if (typeof new_password !== "string" || new_password.length < 8) {
+      return res.status(400).json({ error: "New password must be at least 8 characters" });
     }
     try {
       let decoded;

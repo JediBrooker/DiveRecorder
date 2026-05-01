@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { idbClear } from '@/lib/idbCache'
 
 const TOKEN_KEY = 'olympic_token'
 
@@ -15,6 +16,11 @@ export const useAuthStore = defineStore('auth', () => {
   const isLoggedIn = computed(() => !!token.value && !!user.value)
 
   function saveSession(data) {
+    // Wipe any cached responses owned by the previous identity
+    // before swapping in the new token. Even though cache keys are
+    // per-user-fingerprint now, an explicit clear keeps disk usage
+    // bounded across many sign-in/out cycles on the same device.
+    idbClear().catch(() => {})
     token.value = data.token
     sessionStorage.setItem(TOKEN_KEY, data.token)
   }
@@ -22,6 +28,10 @@ export const useAuthStore = defineStore('auth', () => {
   function clearSession() {
     token.value = null
     sessionStorage.clear()
+    // Belt-and-braces: drop every cached API payload. Without this,
+    // the next user on a shared device could be served the previous
+    // user's cached profile / dashboard / club lists.
+    idbClear().catch(() => {})
   }
 
   function hasRole(role) {
@@ -46,6 +56,18 @@ export const useAuthStore = defineStore('auth', () => {
       ...options,
       headers: { ...getHeaders(), ...(options.headers ?? {}) },
     })
+    // 401 = token expired or revoked. Clear the session so the
+    // router guard sends the user back to /login, instead of every
+    // page just throwing red errors with a stale-but-present token.
+    if (res.status === 401) {
+      clearSession()
+      // Best-effort hash-route redirect. Direct router import would
+      // create a circular import in the SPA bundle, so we go through
+      // window.location which is fine for a hard "your session ended".
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login'
+      }
+    }
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
       throw new Error(body.error || res.statusText)

@@ -10,6 +10,7 @@ const path = require("path");
 const { Server } = require("socket.io");
 const { Pool } = require("pg");
 const cors = require("cors");
+const helmet = require("helmet");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const rateLimit = require("express-rate-limit");
@@ -23,13 +24,41 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: CORS_ORIGIN } });
 
+// Standard HTTP-security headers. CSP is left at helmet's defaults
+// for the API; the SPA bundle is served via the same origin so
+// the header set is fine for both.
+app.use(helmet({
+  // Disable CSP for now — the SPA inlines a small bootstrap and
+  // we'd otherwise have to maintain a hash list. Revisit when the
+  // app shell is fully external. The other helmet defaults
+  // (HSTS, X-Frame-Options, X-Content-Type-Options, etc.) stay on.
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
 app.use(cors({ origin: CORS_ORIGIN }));
-app.use(express.json());
+// Bound the JSON body size — the largest legitimate payload is the
+// CSV roster import, which never approaches 256kb. Anything bigger
+// is either a bug or an abuse attempt.
+app.use(express.json({ limit: "256kb" }));
 
+// 20 requests / 15 min / IP for auth + password flows. Tight enough
+// to slow brute-force, loose enough that a real user fat-fingering
+// their password a couple of times isn't locked out.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,
   message: { error: "Too many attempts, please try again in 15 minutes." },
+});
+
+// Heavier limiter for the bulk-write endpoints (CSV roster import,
+// dive-list submission). Mostly to prevent a logged-in but malicious
+// user from looping these to lock tables.
+const bulkWriteLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many bulk-write attempts, please slow down." },
 });
 
 // =============================================================
@@ -253,7 +282,16 @@ const pool = new Pool({
   port: process.env.DB_PORT,
 });
 
-const JWT_SECRET = process.env.JWT_SECRET || "change_this_secret_in_production";
+// Fail closed if the JWT secret is missing or obviously weak. The old
+// silent-fallback default meant a misconfigured prod box would happily
+// boot and sign forgeable tokens with a public string.
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 32 || JWT_SECRET === "change_this_secret_in_production") {
+  console.error(
+    "FATAL: JWT_SECRET must be set to a strong (≥32 char) random value. Refusing to start.",
+  );
+  process.exit(1);
+}
 const JWT_EXPIRY = process.env.JWT_EXPIRY || "8h";
 
 // =============================================================
@@ -286,17 +324,37 @@ const requireOrgRole =
     });
   };
 
-// Ensures the user is in event_managers for the event.
-// org_admin and system_admin always pass.
+// Ensures the user can manage the event in the URL.
+//
+// system_admin always passes. Otherwise we fetch the event's org_id
+// and require either:
+//   * org_admin role in *that same org*, or
+//   * event_managers membership for the specific event.
+//
+// The previous version let any user with the org_admin role pass,
+// without verifying the event was in their org — which let a small-
+// org admin manage another org's events by guessing the event ID.
+// We also stash the event row on req.event for handlers to reuse.
 const requireEventManager = () => async (req, res, next) => {
   verifyToken(req, res, async () => {
     try {
-      if (req.user.is_system_admin) return next();
-      const orgRoles = req.user.org_roles || [];
-      if (orgRoles.includes("org_admin")) return next();
-
       const eventId = req.params.id || req.body.eventId;
       if (!eventId) return res.status(400).json({ error: "Event ID required" });
+
+      const ev = await pool.query(
+        "SELECT id, org_id FROM events WHERE id = $1",
+        [eventId],
+      );
+      if (!ev.rows.length) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      req.event = ev.rows[0];
+
+      if (req.user.is_system_admin) return next();
+
+      const sameOrg = req.event.org_id === req.user.org_id;
+      const orgRoles = req.user.org_roles || [];
+      if (sameOrg && orgRoles.includes("org_admin")) return next();
 
       const result = await pool.query(
         "SELECT 1 FROM event_managers WHERE event_id = $1 AND user_id = $2",
@@ -313,6 +371,35 @@ const requireEventManager = () => async (req, res, next) => {
     }
   });
 };
+
+// Helper for assignment endpoints: confirms a target user/team
+// belongs to the same org as the event the request targets.
+// Returns the row or null. Use the second arg `kind` to switch
+// between users and teams. We accept either a pool or a client
+// (so it composes inside an open transaction).
+async function isInSameOrg(db, eventOrgId, id, kind = "users") {
+  if (!id || !eventOrgId) return false;
+  const table = kind === "teams" ? "teams" : "users";
+  const r = await db.query(`SELECT org_id FROM ${table} WHERE id = $1`, [id]);
+  return r.rows[0]?.org_id === eventOrgId;
+}
+
+// Express helper: confirms the event in :id (or the named param) is
+// in the calling user's org. system_admin bypasses. Returns 404 on
+// missing event, 403 on wrong org. Stashes req.event for the handler.
+async function ensureEventOrgGate(req, res, paramName = "id") {
+  const id = req.params[paramName];
+  if (!id) { res.status(400).json({ error: "Event id required" }); return false; }
+  const r = await pool.query("SELECT id, org_id FROM events WHERE id = $1", [id]);
+  if (!r.rows.length) { res.status(404).json({ error: "Event not found" }); return false; }
+  req.event = r.rows[0];
+  if (req.user.is_system_admin) return true;
+  if (r.rows[0].org_id !== req.user.org_id) {
+    res.status(403).json({ error: "Event is not in your organisation" });
+    return false;
+  }
+  return true;
+}
 
 const requireSystemAdmin = (req, res, next) =>
   verifyToken(req, res, () => {
@@ -809,6 +896,7 @@ app.get(
   requireOrgRole(["org_admin", "meet_manager"]),
   async (req, res) => {
     try {
+      if (!(await ensureEventOrgGate(req, res, "id"))) return;
       const r = await pool.query(
         `SELECT t.id, t.name, t.short_code, et.added_at
          FROM event_teams et
@@ -830,6 +918,9 @@ app.post(
   async (req, res) => {
     const { team_id } = req.body;
     try {
+      if (!(await isInSameOrg(pool, req.event.org_id, team_id, "teams"))) {
+        return res.status(400).json({ error: "Team is not in this event's organisation" });
+      }
       await pool.query(
         `INSERT INTO event_teams (event_id, team_id) VALUES ($1, $2)
          ON CONFLICT DO NOTHING`,
@@ -1827,11 +1918,25 @@ app.post(
            WHERE s.event_id = $1
            GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
          )
-         SELECT competitor_id, SUM(dive_points) AS total
-         FROM per_dive
-         GROUP BY competitor_id
-         ORDER BY total DESC
-         LIMIT $2`,
+         , event_totals AS (
+           SELECT competitor_id, SUM(dive_points) AS total
+           FROM per_dive
+           GROUP BY competitor_id
+         )
+         /* Tie handling: use RANK() so two divers tied for the
+            advancement cut both go through, instead of postgres
+            silently dropping one based on its arbitrary internal
+            row order. World Aquatics protocols generally advance
+            on tie at the boundary; if a federation needs a
+            stricter tie-break it can clamp downstream. */
+         SELECT competitor_id, total
+         FROM (
+           SELECT competitor_id, total,
+                  RANK() OVER (ORDER BY total DESC) AS rnk
+           FROM event_totals
+         ) ranked
+         WHERE rnk <= $2
+         ORDER BY total DESC, competitor_id ASC`,
         [source.id, source.advance_count || 12],
       );
 
@@ -2220,6 +2325,7 @@ app.get(
   requireOrgRole(["org_admin", "meet_manager"]),
   async (req, res) => {
     try {
+      if (!(await ensureEventOrgGate(req, res, "id"))) return;
       const r = await pool.query(
         `SELECT u.id, u.full_name, u.username, em.added_at
        FROM event_managers em JOIN users u ON em.user_id = u.id
@@ -2239,6 +2345,12 @@ app.post(
   async (req, res) => {
     const { user_id } = req.body;
     try {
+      // The user being added must be in the same org as the event.
+      // Prevents a meet manager from elevating a foreign-org user
+      // into a managerial role on this event.
+      if (!(await isInSameOrg(pool, req.event.org_id, user_id, "users"))) {
+        return res.status(400).json({ error: "User is not in this event's organisation" });
+      }
       await pool.query(
         "INSERT INTO event_managers (event_id, user_id, added_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
         [req.params.id, user_id, req.user.id],
@@ -2275,6 +2387,7 @@ app.get(
   requireOrgRole(["org_admin", "meet_manager", "referee"]),
   async (req, res) => {
     try {
+      if (!(await ensureEventOrgGate(req, res, "eventId"))) return;
       // Joined to users so the Control Room can label each judge
       // tile with the actual person's name (helps the meet
       // referee chase a slow submitter without checking the
@@ -2296,9 +2409,21 @@ app.get(
 
 app.post("/api/events/:id/judges", requireEventManager(), async (req, res) => {
   const { judgeIds } = req.body; // ordered array — position = judge number
+  if (!Array.isArray(judgeIds)) {
+    return res.status(400).json({ error: "judgeIds must be an array" });
+  }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
+    // Every judge must belong to the event's org. One foreign judge
+    // means we reject the whole assignment — easier to surface the
+    // error than to silently drop part of the panel.
+    for (const jid of judgeIds) {
+      if (!(await isInSameOrg(client, req.event.org_id, jid, "users"))) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "All judges must belong to the event's organisation" });
+      }
+    }
     await client.query("DELETE FROM event_judges WHERE event_id = $1", [
       req.params.id,
     ]);
@@ -2526,11 +2651,17 @@ app.post(
 // partner_username is optional (only used for synchro events).
 app.post(
   "/api/events/:id/roster/import",
+  bulkWriteLimiter,
   requireOrgRole(["org_admin", "meet_manager"]),
   async (req, res) => {
     const { csv } = req.body || {};
     if (typeof csv !== "string" || !csv.trim()) {
       return res.status(400).json({ error: "csv body field is required" });
+    }
+    // Hard cap on CSV size — anything past this is either a bug or
+    // an attempt to lock the table inside the import transaction.
+    if (csv.length > 200_000) {
+      return res.status(413).json({ error: "CSV is too large (max ~200KB / a few thousand rows)." });
     }
     const client = await pool.connect();
     try {
@@ -2904,6 +3035,7 @@ app.delete("/api/templates/:id", verifyToken, async (req, res) => {
 
 app.post(
   "/api/competitor/submit-list",
+  bulkWriteLimiter,
   requireOrgRole(["diver"]),
   async (req, res) => {
     const { event_id, dives, partner_id } = req.body;
@@ -2911,14 +3043,57 @@ app.post(
     try {
       await client.query("BEGIN");
 
+      // First confirm the event exists and belongs to the diver's
+      // own organisation. Without this, a diver could submit a list
+      // against any event ID they can guess and pollute another
+      // org's roster.
+      const evRes = await client.query(
+        "SELECT event_type, org_id, total_rounds FROM events WHERE id = $1",
+        [event_id],
+      );
+      if (!evRes.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Event not found" });
+      }
+      if (evRes.rows[0].org_id !== req.user.org_id && !req.user.is_system_admin) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ error: "Event is not in your organisation" });
+      }
+      const eventType = evRes.rows[0].event_type || "individual";
+      const totalRounds = Number(evRes.rows[0].total_rounds) || null;
+
+      // Sanity-check the dives array — must be a non-empty list of
+      // {dive_id, round_number} with no duplicate rounds and round
+      // numbers within range.
+      if (!Array.isArray(dives) || !dives.length) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "dives must be a non-empty array" });
+      }
+      const seenRounds = new Set();
+      for (const d of dives) {
+        const rn = Number(d?.round_number);
+        if (!Number.isInteger(rn) || rn < 1) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: "Each dive needs an integer round_number ≥ 1" });
+        }
+        if (totalRounds && rn > totalRounds) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: `round_number ${rn} exceeds total_rounds ${totalRounds}` });
+        }
+        if (seenRounds.has(rn)) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: `Duplicate round_number ${rn}` });
+        }
+        seenRounds.add(rn);
+        if (!d.dive_id) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: "Each dive needs a dive_id" });
+        }
+      }
+
       // For synchro events, validate the partner exists, isn't
       // the user themselves, and is a diver in the same org.
       let resolvedPartnerId = null;
-      const evRes = await client.query(
-        "SELECT event_type FROM events WHERE id = $1",
-        [event_id],
-      );
-      const eventType = evRes.rows[0]?.event_type || "individual";
       if (eventType === "synchro_pair") {
         if (!partner_id || partner_id === req.user.id) {
           await client.query("ROLLBACK");
@@ -3730,6 +3905,36 @@ io.use((socket, next) => {
   next();
 });
 
+// Authorisation gate for any privileged socket event. Returns true
+// when the connection has a verified user and (optionally) one of
+// the listed org_roles, or is a system admin. Emits "unauthorized"
+// and returns false otherwise so the client can react. This is the
+// counterpart to verifyToken / requireOrgRole on the HTTP side.
+function socketRequireRole(socket, roles = null) {
+  if (!socket.userId) {
+    socket.emit("unauthorized", { reason: "not_authenticated" });
+    return false;
+  }
+  if (!roles || socket.userIsSystemAdmin) return true;
+  const userRoles = socket.userOrgRoles || [];
+  if (!roles.some((r) => userRoles.includes(r))) {
+    socket.emit("unauthorized", { reason: "insufficient_role" });
+    return false;
+  }
+  return true;
+}
+
+// Validate a score payload from the wire. Mirrors the HTTP correction
+// route's checks so the socket path can't store nonsense like 99.9
+// or -1, which would silently skew totals downstream.
+function isValidScore(s) {
+  const n = Number(s);
+  if (!Number.isFinite(n)) return false;
+  if (n < 0 || n > 10) return false;
+  // Whole or half points only.
+  return Math.round(n * 2) === n * 2;
+}
+
 function clientIp(socket) {
   const fwd = socket.handshake.headers["x-forwarded-for"];
   if (fwd) return fwd.split(",")[0].trim();
@@ -3786,7 +3991,10 @@ io.on("connection", (socket) => {
   }
 
   socket.on("set_active_diver", (data) => {
-    // Persist the state server-side so late-joining clients get it
+    // Mutates server-side state — must come from a meet manager,
+    // referee, or org admin (or sysadmin). Anonymous spectators
+    // pulling state via get_active_diver still work.
+    if (!socketRequireRole(socket, ["meet_manager", "referee", "org_admin"])) return;
     if (data.event_id) activeDivers[data.event_id] = data;
     io.emit("state_update", data);
   });
@@ -3804,41 +4012,87 @@ io.on("connection", (socket) => {
 
   socket.on("submit_score", async (data) => {
     try {
-      const checkJudgeId = socket.userId || data.judge_id;
-      if (judgeIsRateLimited(checkJudgeId)) {
-        console.warn(`[Score] Rate limit exceeded for judge ${checkJudgeId}`);
+      // Authentication: must be a verified user. We deliberately do
+      // NOT fall back to data.judge_id any more — the previous fallback
+      // let an unauthenticated client emit submit_score with whatever
+      // judge_id they liked, attributing scores to other people.
+      if (!socket.userId) {
+        socket.emit("score_rejected", {
+          reason: "not_authenticated",
+          message: "You must be signed in to submit scores.",
+        });
+        return;
+      }
+      const judgeId = socket.userId;
+
+      // Authorisation: judge or referee role (or sysadmin).
+      const roles = socket.userOrgRoles || [];
+      if (!socket.userIsSystemAdmin
+          && !roles.includes("judge")
+          && !roles.includes("referee")) {
+        socket.emit("score_rejected", { reason: "insufficient_role" });
+        return;
+      }
+
+      // Payload sanity. event_id, competitor_id, round_number, score
+      // are all required; score must be in [0, 10] in 0.5 increments.
+      if (!data?.event_id || !data?.competitor_id) {
+        socket.emit("score_rejected", { reason: "bad_payload" });
+        return;
+      }
+      const round = Number(data.round_number);
+      if (!Number.isInteger(round) || round < 1) {
+        socket.emit("score_rejected", { reason: "bad_round" });
+        return;
+      }
+      if (!isValidScore(data.score)) {
+        socket.emit("score_rejected", {
+          reason: "bad_score",
+          message: "Score must be between 0 and 10 in 0.5 increments.",
+        });
+        return;
+      }
+
+      if (judgeIsRateLimited(judgeId)) {
+        console.warn(`[Score] Rate limit exceeded for judge ${judgeId}`);
         socket.emit("score_rejected", {
           reason: "rate_limited",
           message: "Slow down — too many submissions in the last minute.",
         });
         return;
       }
-      // Prefer the verified socket user over the client-supplied id.
-      // Falls back to data.judge_id for backwards compatibility with
-      // older clients that haven't picked up auth on the socket.
-      const judgeId = socket.userId || data.judge_id;
-      if (!judgeId) {
-        console.warn("[Score] Submission without identifiable judge");
+
+      // Confirm this user is on the panel for this event. This is
+      // both an authorisation check (a judge from event A can't
+      // post into event B's scores) and the source of judge_number,
+      // which the trim algorithm needs.
+      let judgeNumber = data.judge_number || null;
+      const jnRes = await pool.query(
+        "SELECT judge_number FROM event_judges WHERE event_id = $1 AND judge_id = $2",
+        [data.event_id, judgeId],
+      );
+      if (!jnRes.rows.length && !socket.userIsSystemAdmin) {
+        socket.emit("score_rejected", {
+          reason: "not_on_panel",
+          message: "You're not on the judging panel for this event.",
+        });
         return;
       }
-
-      let judgeNumber = data.judge_number || null;
-      if (!judgeNumber && data.event_id) {
-        const jnRes = await pool.query(
-          "SELECT judge_number FROM event_judges WHERE event_id = $1 AND judge_id = $2",
-          [data.event_id, judgeId],
-        );
-        if (jnRes.rows.length) judgeNumber = jnRes.rows[0].judge_number;
-      }
+      if (jnRes.rows.length) judgeNumber = jnRes.rows[0].judge_number;
 
       // Read the prior row (if any) so we know whether this write is
       // an insert or an update, and can capture the previous score
       // for the audit log. Done outside any transaction — the audit
       // log is best-effort and must not block the score write itself.
+      // Use the validated `round` (not the unvalidated data.round_number)
+      // and the coerced numeric score, so a string "8.5" stores as 8.5
+      // and not as text in the numeric column.
+      const score = Number(data.score);
+
       const prior = await pool.query(
         `SELECT id, score FROM scores
          WHERE event_id=$1 AND competitor_id=$2 AND round_number=$3 AND judge_id=$4`,
-        [data.event_id, data.competitor_id, data.round_number, judgeId],
+        [data.event_id, data.competitor_id, round, judgeId],
       );
       const existing = prior.rows[0] || null;
 
@@ -3853,8 +4107,8 @@ io.on("connection", (socket) => {
           data.competitor_id,
           judgeId,
           data.dive_id || null,
-          data.round_number,
-          data.score,
+          round,
+          score,
         ],
       );
       const scoreId = upsert.rows[0].id;
@@ -3863,7 +4117,7 @@ io.on("connection", (socket) => {
       // table (e.g. before the operator runs the migration) does not
       // break live scoring. The error is logged so the operator
       // notices and applies the migration.
-      const newScore = Number(data.score);
+      const newScore = score;
       const oldScore = existing ? Number(existing.score) : null;
       if (!existing || oldScore !== newScore) {
         try {
@@ -3877,11 +4131,11 @@ io.on("connection", (socket) => {
               data.event_id,
               data.competitor_id,
               judgeId,
-              data.round_number,
+              round,
               existing ? "update" : "insert",
               oldScore,
               newScore,
-              socket.userId || judgeId,
+              socket.userId,
               clientIp(socket),
               socket.handshake.headers["user-agent"] || null,
             ],
@@ -3902,7 +4156,10 @@ io.on("connection", (socket) => {
       io.emit("score_received", data);
     }
   });
-  socket.on("announce_score", (data) => io.emit("final_score_announced", data));
+  socket.on("announce_score", (data) => {
+    if (!socketRequireRole(socket, ["meet_manager", "referee", "org_admin"])) return;
+    io.emit("final_score_announced", data);
+  });
 
   // Referee actions — broadcast to clients AND persist to the
   // score_audit_log so a post-meet dispute investigation has a
@@ -3939,14 +4196,17 @@ io.on("connection", (socket) => {
   }
 
   socket.on("referee_failed_dive", async (data) => {
+    if (!socketRequireRole(socket, ["referee", "meet_manager", "org_admin"])) return;
     await logRefereeAction("failed", data, socket.userId);
     io.emit("referee_action_failed", data);
   });
   socket.on("referee_cap_scores", async (data) => {
+    if (!socketRequireRole(socket, ["referee", "meet_manager", "org_admin"])) return;
     await logRefereeAction("cap", data, socket.userId);
     io.emit("referee_action_cap", data);
   });
   socket.on("referee_redive", async (data) => {
+    if (!socketRequireRole(socket, ["referee", "meet_manager", "org_admin"])) return;
     await logRefereeAction("redive", data, socket.userId);
     io.emit("referee_action_redive", data);
   });
@@ -3956,6 +4216,7 @@ io.on("connection", (socket) => {
   // hold is active. Per-event so multiple meets can run in
   // parallel without interfering.
   socket.on("meet_hold", (data) => {
+    if (!socketRequireRole(socket, ["meet_manager", "referee", "org_admin"])) return;
     if (!data?.event_id) return;
     meetHolds[data.event_id] = {
       reason: data.reason || null,
@@ -3964,6 +4225,7 @@ io.on("connection", (socket) => {
     io.emit("meet_held", { event_id: data.event_id, ...meetHolds[data.event_id] });
   });
   socket.on("meet_resume", (data) => {
+    if (!socketRequireRole(socket, ["meet_manager", "referee", "org_admin"])) return;
     if (!data?.event_id) return;
     delete meetHolds[data.event_id];
     io.emit("meet_resumed", { event_id: data.event_id });
