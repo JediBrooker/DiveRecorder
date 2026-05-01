@@ -49,7 +49,11 @@ const routes = [
     // Unified live + archive surface — the old /archive route
     // was retired once this view absorbed both browse-completed-
     // meets and live-broadcast modes.
-    path: '/scoreboard',
+    //
+    // /scoreboard            → list mode (browse meets)
+    // /scoreboard/:eventId   → detail mode (deep-link to one meet)
+    // /scoreboard/:eventId/broadcast → projector / kiosk mode
+    path: '/scoreboard/:eventId?/:mode?',
     component: () => import('@/views/ScoreboardView.vue'),
   },
   {

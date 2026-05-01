@@ -2268,6 +2268,42 @@ function clientIp(socket) {
   return socket.handshake.address || null;
 }
 
+// Per-judge rate limit on score submissions. The HTTP rate limit
+// middleware doesn't reach socket events, so we track a sliding
+// window in memory: at most SCORE_LIMIT submissions per judge per
+// SCORE_WINDOW_MS. A typical judge taps a dive 1–2× per minute,
+// so 60/min is well above legitimate use and well below "rogue
+// script spamming the wire".
+const SCORE_LIMIT = 60;
+const SCORE_WINDOW_MS = 60 * 1000;
+const scoreSubmissions = new Map();   // judgeId → array of timestamps
+
+function judgeIsRateLimited(judgeId) {
+  if (!judgeId) return false;
+  const now = Date.now();
+  const cutoff = now - SCORE_WINDOW_MS;
+  const arr = (scoreSubmissions.get(judgeId) || []).filter((t) => t > cutoff);
+  if (arr.length >= SCORE_LIMIT) {
+    scoreSubmissions.set(judgeId, arr);
+    return true;
+  }
+  arr.push(now);
+  scoreSubmissions.set(judgeId, arr);
+  return false;
+}
+
+// Periodic cleanup so the map doesn't grow forever as judges come
+// and go. Runs every 5 minutes; drops entries with no submissions
+// inside the window.
+setInterval(() => {
+  const cutoff = Date.now() - SCORE_WINDOW_MS;
+  for (const [judgeId, arr] of scoreSubmissions.entries()) {
+    const fresh = arr.filter((t) => t > cutoff);
+    if (fresh.length === 0) scoreSubmissions.delete(judgeId);
+    else scoreSubmissions.set(judgeId, fresh);
+  }
+}, 5 * 60 * 1000).unref?.();
+
 io.on("connection", (socket) => {
   console.log(`[Socket] Connected: ${socket.id}`);
 
@@ -2300,6 +2336,15 @@ io.on("connection", (socket) => {
 
   socket.on("submit_score", async (data) => {
     try {
+      const checkJudgeId = socket.userId || data.judge_id;
+      if (judgeIsRateLimited(checkJudgeId)) {
+        console.warn(`[Score] Rate limit exceeded for judge ${checkJudgeId}`);
+        socket.emit("score_rejected", {
+          reason: "rate_limited",
+          message: "Slow down — too many submissions in the last minute.",
+        });
+        return;
+      }
       // Prefer the verified socket user over the client-supplied id.
       // Falls back to data.judge_id for backwards compatibility with
       // older clients that haven't picked up auth on the socket.
@@ -2417,13 +2462,22 @@ app.get("/api/archive", async (req, res) => {
     // page can show both in the same browsable list. The status
     // column lets the client render a "LIVE NOW" badge / banner
     // for in-progress meets.
+    //
+    // For Live events we additionally fold in the current round
+    // (= max round_number with any score recorded) and the
+    // most-recent diver to score. The "LIVE NOW" banner uses
+    // these to read "Round 3 · Phoenix Patel diving" instead of
+    // a generic placeholder, which is far more compelling for a
+    // spectator deciding whether to tap in.
     const events = await pool.query(
       `SELECT e.id, e.name, e.gender, e.height, e.total_rounds, e.number_of_judges,
               e.event_type, e.status,
               e.created_at, o.id AS org_id, o.name AS org_name, o.country_code,
               COALESCE(stat.competitor_count, 0)::int AS competitor_count,
               COALESCE(stat.club_count, 0)::int       AS club_count,
-              COALESCE(stat.club_ids, ARRAY[]::text[]) AS club_ids
+              COALESCE(stat.club_ids, ARRAY[]::text[]) AS club_ids,
+              live.current_round,
+              live.last_diver_name
        FROM events e
        JOIN organisations o ON e.org_id = o.id
        LEFT JOIN LATERAL (
@@ -2436,6 +2490,18 @@ app.get("/api/archive", async (req, res) => {
          JOIN users u ON u.id = s.competitor_id
          WHERE s.event_id = e.id
        ) stat ON true
+       LEFT JOIN LATERAL (
+         SELECT
+           MAX(s.round_number) AS current_round,
+           (SELECT u2.full_name
+            FROM scores s2
+            JOIN users u2 ON u2.id = s2.competitor_id
+            WHERE s2.event_id = e.id
+            ORDER BY s2.created_at DESC
+            LIMIT 1) AS last_diver_name
+         FROM scores s
+         WHERE s.event_id = e.id
+       ) live ON e.status = 'Live'
        WHERE e.status IN ('Live', 'Completed')
        ORDER BY
          CASE e.status WHEN 'Live' THEN 0 ELSE 1 END,    -- live meets float to the top
@@ -2775,5 +2841,31 @@ app.use((req, res) => {
 // START
 // =============================================================
 
+// Log schema version + run audit-log retention sweep at boot.
+// Both queries are best-effort: a failure (e.g. running against
+// an old DB that pre-dates migration 008) just logs a warning.
+async function bootChecks() {
+  try {
+    const v = await pool.query("SELECT version, applied_at FROM schema_meta WHERE id = 1");
+    if (v.rows[0]) {
+      console.log(`📊 Schema version ${v.rows[0].version} (applied ${new Date(v.rows[0].applied_at).toISOString()})`);
+    } else {
+      console.warn("[Boot] schema_meta has no rows — run migration 008");
+    }
+  } catch (err) {
+    console.warn("[Boot] Couldn't read schema_meta:", err.message);
+  }
+  try {
+    const purge = await pool.query("SELECT * FROM purge_audit_logs(30)");
+    const total = purge.rows.reduce((sum, r) => sum + Number(r.deleted_rows), 0);
+    if (total > 0) console.log(`🧹 Purged ${total} audit-log row(s) older than 30 days`);
+  } catch (err) {
+    console.warn("[Boot] purge_audit_logs failed (run migration 008?):", err.message);
+  }
+}
+
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`🚀 Diving App v2 on port ${PORT}`));
+server.listen(PORT, () => {
+  console.log(`🚀 Diving App v2 on port ${PORT}`);
+  bootChecks();
+});

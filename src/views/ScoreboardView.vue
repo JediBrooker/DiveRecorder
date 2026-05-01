@@ -1,10 +1,19 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useSocket } from '@/composables/useSocket'
 import { annotatedScores, groupedSynchroScoresForDisplay } from '@/composables/useScoreCategories'
 
+const route  = useRoute()
+const router = useRouter()
 const socket = useSocket({ spectator: true })
+
+// Broadcast / kiosk mode: when the URL ends in /broadcast we
+// hide the page chrome (header, dashboard link) so a venue
+// projector shows just the standings and active diver. Toggled
+// purely via the URL so a meet operator can switch a screen
+// into kiosk mode without leaving the page.
+const broadcastMode = computed(() => route.params.mode === 'broadcast')
 
 // Browsable list of every Live + Completed meet. Used as the
 // landing state of the page; the user picks one and we pivot
@@ -220,7 +229,7 @@ const eventStats = computed(() => {
   }
 })
 
-function selectEvent(id) {
+function selectEvent(id, { pushUrl = true } = {}) {
   currentEventId.value = id
   expandedRound.value = null
   // Clear any stale active-diver state from a previous event so
@@ -232,9 +241,15 @@ function selectEvent(id) {
   // buffers the emit until the connection is up, so this works
   // whether the socket has already connected or not.
   socket.emit('get_active_diver', { event_id: id })
+  // Reflect the selection in the URL so the meet is shareable
+  // and back-button works. pushUrl=false avoids loops when this
+  // is being driven *by* a URL change.
+  if (pushUrl && route.params.eventId !== id) {
+    router.push({ path: `/scoreboard/${id}` })
+  }
 }
 
-function resetToEventPicker() {
+function resetToEventPicker({ pushUrl = true } = {}) {
   currentEventId.value = null
   activeDiver.value = null
   historyItems.value = []
@@ -242,7 +257,20 @@ function resetToEventPicker() {
   leaderboardRounds.value = []
   expandedRound.value = null
   archiveResults.value = null
+  if (pushUrl && route.params.eventId) {
+    router.push({ path: '/scoreboard' })
+  }
 }
+
+// Drive the view from the URL. If someone deep-links to
+// /scoreboard/<id> or hits Back/Forward, we sync state to match
+// without reflecting back into the URL (which would loop).
+watch(() => route.params.eventId, (newId) => {
+  const id = newId || null
+  if (id === currentEventId.value) return
+  if (id) selectEvent(id, { pushUrl: false })
+  else    resetToEventPicker({ pushUrl: false })
+}, { immediate: false })
 
 async function refreshData() {
   if (!currentEventId.value) return
@@ -347,11 +375,22 @@ onMounted(async () => {
   } finally {
     loadingList.value = false
   }
+  // Bootstrap from a deep-link URL (e.g. /scoreboard/<id>) once
+  // the events list has loaded, so currentEvent resolves.
+  const initial = route.params.eventId
+  if (initial) selectEvent(initial, { pushUrl: false })
 })
 </script>
 
 <template>
   <div class="sb-layout">
+    <!-- Connection banner — visible whenever the spectator
+         socket has dropped. Live event watchers won't see new
+         dives until reconnect, so it's worth surfacing. -->
+    <div v-if="!socket.isConnected.value && currentEventId && !isCompleted" class="conn-banner">
+      <span class="conn-dot"></span>
+      Reconnecting to live feed…
+    </div>
     <!-- Header — adapts to list mode (browsing) vs detail mode
          (a single event selected). The detail header doubles as a
          breadcrumb so the user can jump back to the list. -->
@@ -400,6 +439,14 @@ onMounted(async () => {
               {{ ev.org_name }}<span v-if="ev.country_code" class="live-event-ctry">{{ ev.country_code }}</span>
               <span v-if="ev.height"> · {{ ev.height }}</span>
               <span> · {{ ev.total_rounds }} rounds</span>
+            </div>
+            <!-- Round + most-recent diver from /api/archive's
+                 LATERAL join. Only shows once at least one dive
+                 has scored — before that we keep the generic
+                 "Watch live" CTA. -->
+            <div v-if="ev.current_round" class="live-event-now">
+              Round {{ ev.current_round }} / {{ ev.total_rounds }}
+              <span v-if="ev.last_diver_name"> · {{ ev.last_diver_name }} just scored</span>
             </div>
             <div class="live-event-watch">Watch live →</div>
           </button>
@@ -844,6 +891,22 @@ onMounted(async () => {
 <style scoped>
 .sb-layout { overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
 
+/* Connection-lost banner — same look as the judge view. */
+.conn-banner {
+  background: var(--amber); color: var(--bg);
+  font-family: var(--font-display); font-size: 12px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 0.5rem 1rem; flex-shrink: 0;
+  display: flex; align-items: center; gap: 0.6rem;
+  animation: connSlide 0.18s ease;
+}
+.conn-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--bg); animation: connPulse 1s infinite;
+}
+@keyframes connSlide { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+@keyframes connPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
 .sb-header {
   background: var(--bg-2); border-bottom: 1px solid var(--border);
   padding: 0.875rem 1.5rem; display: flex; align-items: center;
@@ -954,6 +1017,13 @@ onMounted(async () => {
   font-family: var(--font-display); font-size: 11px; font-weight: 700;
   letter-spacing: 0.15em; text-transform: uppercase; color: var(--red);
   margin-top: 0.1rem;
+}
+.live-event-now {
+  font-family: var(--font-display); font-size: 12px; font-weight: 700;
+  color: var(--text);
+  background: rgba(239,68,68,0.08); border-left: 2px solid var(--red);
+  padding: 0.35rem 0.5rem; border-radius: 0 3px 3px 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* Filter bar */

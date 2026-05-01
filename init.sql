@@ -533,6 +533,58 @@ CREATE INDEX idx_score_audit_judge         ON public.score_audit_log (judge_id);
 CREATE INDEX idx_role_audit_user           ON public.role_audit_log (user_id, created_at DESC);
 CREATE INDEX idx_role_audit_org            ON public.role_audit_log (org_id, created_at DESC);
 CREATE INDEX idx_role_audit_actor          ON public.role_audit_log (actor_id);
+CREATE INDEX idx_score_audit_created_at    ON public.score_audit_log (created_at);
+CREATE INDEX idx_role_audit_created_at     ON public.role_audit_log  (created_at);
+
+
+-- =============================================================
+-- SCHEMA VERSION STAMP
+-- Single-row table the server reads on boot to log which
+-- schema version is deployed. init.sql sets version 8 (matches
+-- the latest migration baked in here); each future migration
+-- bumps the value.
+-- =============================================================
+
+CREATE TABLE public.schema_meta (
+    id           integer PRIMARY KEY DEFAULT 1,
+    version      integer NOT NULL,
+    applied_at   timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT schema_meta_singleton CHECK (id = 1)
+);
+
+INSERT INTO public.schema_meta (id, version) VALUES (1, 8);
+
+
+-- =============================================================
+-- AUDIT-LOG RETENTION
+-- Audit tables are append-only and grow forever otherwise.
+-- The function deletes entries older than the given window
+-- (default 30 days). Wire it into a cron, rely on the server's
+-- boot-time cleanup, or run it ad-hoc from psql.
+-- =============================================================
+
+CREATE OR REPLACE FUNCTION public.purge_audit_logs(
+    retention_days integer DEFAULT 30
+) RETURNS TABLE (table_name text, deleted_rows bigint) LANGUAGE plpgsql AS $$
+DECLARE
+    cutoff timestamptz;
+    n_score bigint;
+    n_role  bigint;
+BEGIN
+    cutoff := now() - make_interval(days => retention_days);
+
+    DELETE FROM public.score_audit_log WHERE created_at < cutoff;
+    GET DIAGNOSTICS n_score = ROW_COUNT;
+
+    DELETE FROM public.role_audit_log  WHERE created_at < cutoff;
+    GET DIAGNOSTICS n_role = ROW_COUNT;
+
+    RETURN QUERY
+        SELECT 'score_audit_log'::text, n_score
+        UNION ALL
+        SELECT 'role_audit_log'::text,  n_role;
+END
+$$;
 
 
 -- =============================================================

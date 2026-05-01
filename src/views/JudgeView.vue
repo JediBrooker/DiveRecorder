@@ -127,6 +127,13 @@ const submitLabel = computed(() => {
 
 <template>
   <div class="judge-layout">
+    <!-- Connection banner — flips on whenever the socket is
+         disconnected. Critical for poolside wifi reliability:
+         judges need to know if a tap actually sent. -->
+    <div v-if="!socket.isConnected.value" class="conn-banner">
+      <span class="conn-dot"></span>
+      Reconnecting… your last score may not have sent
+    </div>
     <!-- Header -->
     <div class="judge-header">
       <div class="header-top">
@@ -196,6 +203,26 @@ const submitLabel = computed(() => {
 </template>
 
 <style scoped>
+/* Connection banner — sticky at top of viewport so a judge
+   can't miss it. Animates in from above on disconnect. */
+.conn-banner {
+  position: sticky; top: 0; z-index: 50;
+  background: var(--amber); color: var(--bg);
+  font-family: var(--font-display); font-size: 12px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 0.55rem 1rem;
+  display: flex; align-items: center; gap: 0.6rem;
+  border-bottom: 1px solid rgba(0,0,0,0.2);
+  animation: connSlide 0.18s ease;
+}
+.conn-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--bg); animation: connPulse 1s infinite;
+}
+@keyframes connSlide { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+@keyframes connPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+
 .judge-layout {
   overflow: hidden;
   height: 100dvh;
