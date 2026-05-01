@@ -3900,6 +3900,57 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
     const [recent, placings, heights, rounds, quality, ddRisk, frequent, streak,
            comparePeers, eventTypeSplits, yearOverYear] = queries;
 
+    // Recent Form expansion — for each meet returned, fetch every
+    // dive the diver did with the per-judge raw scores. The widget
+    // shows a click-to-expand panel where the diver can see the
+    // judges' actual marks (the trim algorithm is then applied
+    // client-side: the highest k and lowest k by score render with
+    // a strike-through chip).
+    if (recent.length) {
+      const eventIds = recent.map((r) => r.event_id);
+      const diveDetails = await runQuery("recent_form_dives",
+        `SELECT s.event_id, s.round_number,
+                d.dive_code, d.position, d.height, d.dd, d.description,
+                e.number_of_judges, e.event_type::text AS event_type,
+                calc_event_dive_points(
+                  array_agg(ej.judge_number ORDER BY ej.judge_number),
+                  array_agg(s.score ORDER BY ej.judge_number),
+                  e.number_of_judges, MAX(d.dd), e.event_type,
+                  BOOL_OR(cdl.partner_id IS NOT NULL)
+                ) AS dive_total,
+                json_agg(
+                  json_build_object(
+                    'judge_number', ej.judge_number,
+                    'score',        s.score
+                  ) ORDER BY ej.judge_number
+                ) AS judges
+         FROM scores s
+         JOIN events e ON e.id = s.event_id
+         LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+         LEFT JOIN competitor_dive_lists cdl
+           ON cdl.event_id = s.event_id
+          AND cdl.competitor_id = s.competitor_id
+          AND cdl.round_number = s.round_number
+         LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+         WHERE s.competitor_id = $1
+           AND s.event_id = ANY($2::uuid[])
+         GROUP BY s.event_id, s.round_number,
+                  d.dive_code, d.position, d.height, d.dd, d.description,
+                  e.number_of_judges, e.event_type
+         ORDER BY s.round_number ASC`,
+        [id, eventIds],
+      );
+      const byEvent = new Map();
+      for (const row of diveDetails) {
+        const arr = byEvent.get(row.event_id) || [];
+        arr.push(row);
+        byEvent.set(row.event_id, arr);
+      }
+      for (const r of recent) {
+        r.dives = byEvent.get(r.event_id) || [];
+      }
+    }
+
     // Streak post-processing — count consecutive top-3 from the
     // most recent meet backwards.
     let streakLen = 0;

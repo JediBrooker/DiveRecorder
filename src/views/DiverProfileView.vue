@@ -440,6 +440,87 @@ function placeColor(n) {
   return ''
 }
 
+// =========================================================
+// Recent Form expansion — click a meet row to see each dive
+// with the per-judge raw scores. The trim algorithm (drop k
+// highest + k lowest) is reproduced client-side for display
+// only; the actual dive_total comes from the SQL function so
+// the chip strikethroughs and the printed total agree.
+// =========================================================
+const expandedMeet = ref(null)
+function toggleMeet(eventId) {
+  expandedMeet.value = expandedMeet.value === eventId ? null : eventId
+}
+
+// Mark each judge's score as dropped/kept under standard FINA
+// trim rules. Returns a new array of {judge_number, score, dropped}.
+// For the most common synchro panels we apply the documented
+// trim per sub-panel; for unfamiliar shapes we fall through to
+// "no drops" which matches calc_event_dive_points for those cases.
+function annotateJudges(judges, numJudges, eventType) {
+  if (!Array.isArray(judges) || !judges.length) return []
+  const list = judges.map(j => ({ ...j, dropped: false }))
+
+  // Synchro panels: 5 sync judges (numbers 5..9 on a 9-panel,
+  // or 7..11 on an 11-panel) get the high+low trim; the
+  // execution sub-panels of 2 (9-panel) keep both, and the
+  // execution sub-panels of 3 (11-panel) keep only the median.
+  if (eventType === 'synchro_pair') {
+    if (numJudges === 9) {
+      const sync = list.filter(j => j.judge_number >= 5 && j.judge_number <= 9)
+      dropEnds(sync, 1, 1)
+      return list
+    }
+    if (numJudges === 11) {
+      const execA = list.filter(j => j.judge_number >= 1 && j.judge_number <= 3)
+      const execB = list.filter(j => j.judge_number >= 4 && j.judge_number <= 6)
+      const sync  = list.filter(j => j.judge_number >= 7 && j.judge_number <= 11)
+      // Exec panels keep the middle, drop high + low
+      dropEnds(execA, 1, 1)
+      dropEnds(execB, 1, 1)
+      // Sync keeps middle 3, drops 1 high + 1 low
+      dropEnds(sync, 1, 1)
+      return list
+    }
+  }
+  // Individual / team trims
+  const TRIMS = { 3: 0, 5: 1, 7: 2, 9: 2, 11: 3 }
+  const k = TRIMS[numJudges] ?? 0
+  if (k > 0) dropEnds(list, k, k)
+  return list
+}
+
+// Mark the top `dropHigh` and bottom `dropLow` scores in `arr`
+// as dropped=true. Mutates the input. Stable on ties — first
+// encountered match wins, matching the SQL ORDER BY behaviour.
+function dropEnds(arr, dropLow, dropHigh) {
+  if (!arr.length) return
+  const indexed = arr.map((j, i) => ({ idx: i, score: Number(j.score) }))
+  // Drop the lowest k
+  indexed.sort((a, b) => a.score - b.score)
+  for (let i = 0; i < dropLow && i < indexed.length; i++) {
+    arr[indexed[i].idx].dropped = true
+  }
+  // Drop the highest k (from the back of the sorted list)
+  for (let i = 0; i < dropHigh && (indexed.length - 1 - i) >= dropLow; i++) {
+    arr[indexed[indexed.length - 1 - i].idx].dropped = true
+  }
+}
+
+// Map a single score → category class for chip colouring.
+// Mirrors src/composables/useScoreCategories.js so the chip
+// colours line up with the live scoreboard.
+function scoreClass(s) {
+  const n = Number(s)
+  if (n === 0) return 'qs-failed'
+  if (n <= 2.0) return 'qs-deficient'
+  if (n <= 4.5) return 'qs-unsatisfactory'
+  if (n <= 6.0) return 'qs-satisfactory'
+  if (n <= 8.0) return 'qs-good'
+  if (n <= 9.5) return 'qs-very-good'
+  return 'qs-excellent'
+}
+
 // Year-over-year delta — compares row[i] to row[i+1] (since the
 // list is sorted newest first). Returns "+12.3%" / "-4.5%" / "—".
 function yoyDelta(list, i) {
@@ -616,7 +697,9 @@ watch(targetId, load)
         </table>
       </div>
 
-      <!-- Recent form — last 5 meets with rank inline. The
+      <!-- Recent form — last 5 meets with rank inline. Click any
+           row to expand a per-dive breakdown showing the judges'
+           individual marks (dropped scores struck through). The
            field_size suffix gives context ("3rd of 18" reads
            differently than "3rd of 4"). -->
       <div v-if="isEnabled('recent_form')" class="card" :style="{ order: widgetOrder('recent_form') }">
@@ -624,14 +707,59 @@ watch(targetId, load)
         <div v-if="analyticsLoading && !analytics" class="empty-mini">Loading…</div>
         <div v-else-if="!analytics?.recent_form?.length" class="empty-mini">No completed meets yet.</div>
         <div v-else class="trend-list">
-          <div v-for="r in analytics.recent_form" :key="r.event_id" class="trend-row">
-            <span class="trend-date">{{ fmtDate(r.created_at) }}</span>
-            <span class="trend-name">{{ r.event_name }}</span>
-            <span :class="['trend-place', placeColor(r.rank)]">
-              {{ placeOrdinal(r.rank) }} <span class="dim">/ {{ r.field_size }}</span>
-            </span>
-            <span class="trend-total">{{ Number(r.total).toFixed(1) }}</span>
-          </div>
+          <template v-for="r in analytics.recent_form" :key="r.event_id">
+            <div
+              class="trend-row trend-row-clickable"
+              :class="{ 'is-expanded': expandedMeet === r.event_id }"
+              @click="toggleMeet(r.event_id)"
+            >
+              <span class="trend-chevron">
+                {{ expandedMeet === r.event_id ? '▾' : '▸' }}
+              </span>
+              <span class="trend-date">{{ fmtDate(r.created_at) }}</span>
+              <span class="trend-name">{{ r.event_name }}</span>
+              <span :class="['trend-place', placeColor(r.rank)]">
+                {{ placeOrdinal(r.rank) }} <span class="dim">/ {{ r.field_size }}</span>
+              </span>
+              <span class="trend-total">{{ Number(r.total).toFixed(1) }}</span>
+            </div>
+            <div v-if="expandedMeet === r.event_id" class="dive-breakdown">
+              <div v-if="!r.dives?.length" class="empty-mini">No dives recorded.</div>
+              <table v-else class="dive-table">
+                <thead>
+                  <tr>
+                    <th>Rd</th>
+                    <th>Dive</th>
+                    <th>Pos</th>
+                    <th>Ht</th>
+                    <th>DD</th>
+                    <th>Judges</th>
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="d in r.dives" :key="d.round_number">
+                    <td class="mono dim">{{ d.round_number }}</td>
+                    <td class="mono strong">{{ d.dive_code || '—' }}</td>
+                    <td class="mono">{{ d.position || '—' }}</td>
+                    <td class="mono">{{ d.height ? d.height + 'm' : '—' }}</td>
+                    <td class="mono cyan">{{ d.dd != null ? Number(d.dd).toFixed(1) : '—' }}</td>
+                    <td class="judge-strip">
+                      <span
+                        v-for="j in annotateJudges(d.judges, d.number_of_judges, d.event_type)"
+                        :key="j.judge_number"
+                        :class="['j-chip', scoreClass(j.score), { 'j-dropped': j.dropped }]"
+                        :title="`Judge ${j.judge_number}` + (j.dropped ? ' (dropped)' : '')"
+                      >
+                        {{ Number(j.score).toFixed(1) }}
+                      </span>
+                    </td>
+                    <td class="mono strong cyan">{{ Number(d.dive_total).toFixed(2) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
         </div>
       </div>
 
@@ -1432,6 +1560,88 @@ watch(targetId, load)
    ========================================================= */
 .yoy-up   { color: #10b981; font-weight: 700; }
 .yoy-down { color: #ef4444; font-weight: 700; }
+
+/* =========================================================
+   Recent Form expansion — click a meet to see the per-dive
+   judges' breakdown.
+   ========================================================= */
+.trend-row-clickable {
+  grid-template-columns: 16px 110px 1fr auto auto;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.trend-row-clickable:hover { background: var(--bg-3); }
+.trend-row-clickable.is-expanded { background: var(--bg-3); }
+.trend-chevron {
+  font-family: var(--font-mono);
+  color: var(--text-3);
+  font-size: 11px;
+  transition: color 0.1s;
+}
+.trend-row-clickable:hover .trend-chevron { color: var(--cyan); }
+
+.dive-breakdown {
+  padding: 0.5rem 0.5rem 0.75rem 1.5rem;
+  border-top: 1px dashed var(--border);
+  background: var(--bg-3);
+}
+.dive-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.dive-table th {
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  text-align: left;
+  padding: 0.4rem 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+.dive-table td {
+  padding: 0.4rem 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+.dive-table tr:last-child td { border-bottom: none; }
+.dive-table td.mono { font-family: var(--font-mono); font-size: 12px; }
+.dive-table td.strong { font-weight: 700; color: var(--text); }
+.dive-table td.cyan { color: var(--cyan); }
+.dive-table td.dim { color: var(--text-3); }
+
+.judge-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.j-chip {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--text);
+  min-width: 30px;
+  text-align: center;
+}
+.j-chip.j-dropped {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+/* Per-category chip backgrounds — matches the live scoreboard.
+   Same palette as .quality-* classes used by Score Quality Mix. */
+.j-chip.qs-failed         { background: rgba(239,68,68,0.18);   border-color: rgba(239,68,68,0.45);   color: #fecaca; }
+.j-chip.qs-deficient      { background: rgba(251,146,60,0.18);  border-color: rgba(251,146,60,0.45);  color: #fed7aa; }
+.j-chip.qs-unsatisfactory { background: rgba(251,191,36,0.18);  border-color: rgba(251,191,36,0.45);  color: #fde68a; }
+.j-chip.qs-satisfactory   { background: rgba(71,85,105,0.30);   border-color: rgba(71,85,105,0.55);   color: var(--text-2); }
+.j-chip.qs-good           { background: rgba(6,182,212,0.18);   border-color: rgba(6,182,212,0.45);   color: #a5f3fc; }
+.j-chip.qs-very-good      { background: rgba(16,185,129,0.18);  border-color: rgba(16,185,129,0.45);  color: #a7f3d0; }
+.j-chip.qs-excellent      { background: rgba(236,72,153,0.18);  border-color: rgba(236,72,153,0.45);  color: #fbcfe8; }
 
 /* =========================================================
    Print / "save as PDF" support. Hides chrome (header buttons,
