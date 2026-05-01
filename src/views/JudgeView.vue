@@ -26,6 +26,26 @@ const displayValue = computed(() => {
 
 const scoreIsZero = computed(() => (currentScore.value + (isHalf.value ? 0.5 : 0)) === 0)
 
+// Synchro role — derived from this judge's position in the panel.
+// Lets the judge see whether they should be scoring Diver A's
+// execution, Diver B's execution, or the synchronisation.
+const synchroRole = computed(() => {
+  if (activeDiver.value?.event_type !== 'synchro_pair') return null
+  const n = judgeNumber.value
+  const total = activeDiver.value?.number_of_judges
+  if (!n || !total) return null
+  if (total === 9) {
+    if (n <= 2) return { label: 'EXEC A', tone: 'a' }
+    if (n <= 4) return { label: 'EXEC B', tone: 'b' }
+    if (n <= 9) return { label: 'SYNCHRONISATION', tone: 'sync' }
+  } else if (total === 11) {
+    if (n <= 3) return { label: 'EXEC A', tone: 'a' }
+    if (n <= 6) return { label: 'EXEC B', tone: 'b' }
+    if (n <= 11) return { label: 'SYNCHRONISATION', tone: 'sync' }
+  }
+  return null
+})
+
 socket.on('connect', () => {
   connStatus.value = true
   if (pendingScore.value) {
@@ -112,7 +132,19 @@ const submitLabel = computed(() => {
       <div class="header-top">
         <div>
           <div class="event-name">{{ activeDiver?.eventName || '—' }}</div>
-          <div class="diver-name">{{ activeDiver?.diverName || 'Waiting for diver...' }}<span v-if="activeDiver?.country_code" class="diver-country">{{ activeDiver.country_code }}</span></div>
+          <div class="diver-name">
+            <template v-if="activeDiver?.partner_name">
+              {{ activeDiver.diverName }}<span v-if="activeDiver?.country_code" class="diver-country">{{ activeDiver.country_code }}</span>
+              <span class="diver-amp">&amp;</span>
+              {{ activeDiver.partner_name }}<span v-if="activeDiver?.partner_country" class="diver-country">{{ activeDiver.partner_country }}</span>
+            </template>
+            <template v-else>
+              {{ activeDiver?.diverName || 'Waiting for diver...' }}<span v-if="activeDiver?.country_code" class="diver-country">{{ activeDiver.country_code }}</span>
+            </template>
+          </div>
+          <div v-if="synchroRole" :class="['synchro-role', `role-${synchroRole.tone}`]">
+            You are scoring: <strong>{{ synchroRole.label }}</strong>
+          </div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:0.5rem">
           <div class="judge-id">
@@ -228,6 +260,19 @@ const submitLabel = computed(() => {
   padding: 0.15rem 0.4rem;
   vertical-align: middle;
 }
+.diver-amp { color: var(--cyan); margin: 0 0.4em; font-weight: 400; }
+.synchro-role {
+  display: inline-block;
+  margin-top: 0.6rem;
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.15em; text-transform: uppercase;
+  padding: 0.35rem 0.75rem; border-radius: 4px;
+  border: 1px solid var(--border); background: var(--bg-3); color: var(--text-2);
+}
+.synchro-role strong { color: var(--text); }
+.synchro-role.role-a    { color: #c4b5fd; border-color: rgba(139,92,246,0.45); background: rgba(139,92,246,0.10); }
+.synchro-role.role-b    { color: #fbbf24; border-color: rgba(245,158,11,0.45); background: rgba(245,158,11,0.10); }
+.synchro-role.role-sync { color: #34d399; border-color: rgba(16,185,129,0.45); background: rgba(16,185,129,0.10); }
 .judge-id {
   font-family: var(--font-display);
   font-size: 10px;

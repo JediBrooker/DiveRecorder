@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -17,6 +17,11 @@ const searchInput = ref('')
 const activeHeightFilter = ref(null)
 const submitErr = ref('')
 const loading = ref(false)
+
+// Synchro support
+const orgDivers = ref([])      // potential partners — fellow divers in your org
+const partnerId = ref('')       // selected partner's user id, '' = none
+const isSynchro = computed(() => currentEvent.value?.event_type === 'synchro_pair')
 
 const activeEventHeight = computed(() => {
   if (!currentEvent.value?.height) return null
@@ -42,6 +47,7 @@ const searchResults = computed(() => {
 })
 
 function onEventChange() {
+  partnerId.value = ''
   if (!selectedEventId.value) {
     currentEvent.value = null
     selectedDives.value = []
@@ -80,14 +86,20 @@ async function submitList() {
     submitErr.value = `Please select all ${selectedDives.value.length} dives before submitting.`
     return
   }
+  if (isSynchro.value && !partnerId.value) {
+    submitErr.value = 'Synchronised events require a partner. Pick one above.'
+    return
+  }
   loading.value = true
   try {
+    const body = {
+      event_id: eventId,
+      dives: selectedDives.value.map((d, i) => ({ dive_id: d.id, round_number: i + 1 })),
+    }
+    if (isSynchro.value) body.partner_id = partnerId.value
     await auth.apiFetch('/api/competitor/submit-list', {
       method: 'POST',
-      body: JSON.stringify({
-        event_id: eventId,
-        dives: selectedDives.value.map((d, i) => ({ dive_id: d.id, round_number: i + 1 })),
-      }),
+      body: JSON.stringify(body),
     })
     router.push('/dashboard')
   } catch (err) {
@@ -105,6 +117,25 @@ onMounted(async () => {
   events.value = evs
   diveDirectory.value = dir
 })
+
+// When the event changes and it's synchro, fetch potential
+// partners — other divers in the user's org.
+watch(currentEvent, async (ev) => {
+  if (!ev || ev.event_type !== 'synchro_pair') {
+    orgDivers.value = []
+    return
+  }
+  try {
+    const r = await fetch(`/api/orgs/${auth.user.org_id}/divers`, {
+      headers: { Authorization: `Bearer ${auth.token}` },
+    })
+    const body = await r.json()
+    orgDivers.value = (Array.isArray(body) ? body : [])
+      .filter(u => u.id !== auth.user.id)
+  } catch {
+    orgDivers.value = []
+  }
+})
 </script>
 
 <template>
@@ -118,8 +149,29 @@ onMounted(async () => {
       <label class="label" style="margin-bottom:0.75rem;display:block">Step 1 — Select Event</label>
       <select class="select" v-model="selectedEventId" @change="onEventChange">
         <option value="">— Choose Active Event —</option>
-        <option v-for="ev in events" :key="ev.id" :value="ev.id">{{ ev.name }}</option>
+        <option v-for="ev in events" :key="ev.id" :value="ev.id">
+          {{ ev.name }}{{ ev.event_type === 'synchro_pair' ? ' (Synchro)' : '' }}
+        </option>
       </select>
+    </div>
+
+    <!-- Synchro partner picker -->
+    <div v-if="isSynchro" class="card">
+      <label class="label" style="margin-bottom:0.75rem;display:block">
+        Step 1.5 — Pick Your Synchro Partner
+      </label>
+      <select class="select" v-model="partnerId">
+        <option value="">— Select a partner —</option>
+        <option v-for="d in orgDivers" :key="d.id" :value="d.id">
+          {{ d.full_name }}{{ d.club_code ? ' (' + d.club_code + ')' : '' }}
+        </option>
+      </select>
+      <p v-if="!orgDivers.length" class="hint-line" style="margin-top:0.5rem">
+        No other divers found in your organisation yet. Ask your partner to register first.
+      </p>
+      <p v-else class="hint-line" style="margin-top:0.5rem">
+        Both you and your partner perform the same dive list — you only submit it from one account.
+      </p>
     </div>
 
     <div v-if="currentEvent">
@@ -263,6 +315,7 @@ onMounted(async () => {
 .result-dd{font-family:var(--font-mono);font-size:14px;color:var(--cyan);}
 .result-height{font-size:10px;color:var(--text-3);margin-top:0.15rem;}
 
+.hint-line { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
 .lock-badge{
   display:inline-flex;align-items:center;gap:0.4rem;
   font-family:var(--font-display);font-size:10px;font-weight:700;

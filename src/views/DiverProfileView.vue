@@ -196,7 +196,11 @@ watch(targetId, load)
           <div class="trend-list">
             <div v-for="t in profile.score_trend" :key="t.event_id" class="trend-row">
               <span class="trend-date">{{ fmtDate(t.created_at) }}</span>
-              <span class="trend-name">{{ t.event_name }}</span>
+              <span class="trend-name">
+                {{ t.event_name }}
+                <span v-if="t.event_type === 'synchro_pair'" class="trend-synchro">SYNCHRO</span>
+                <span v-if="t.partner_name" class="trend-partner">with {{ t.partner_name }}</span>
+              </span>
               <span :class="['trend-place', placeColor(t.final_rank)]">{{ placeOrdinal(t.final_rank) }}</span>
               <span class="trend-total">{{ Number(t.total_score).toFixed(2) }}</span>
             </div>
@@ -322,6 +326,13 @@ watch(targetId, load)
 .trend-row:first-child { border-top: none; }
 .trend-date { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
 .trend-name { font-family: var(--font-display); color: var(--text); font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trend-synchro {
+  font-family: var(--font-display); font-size: 9px; font-weight: 900;
+  letter-spacing: 0.18em; color: var(--cyan);
+  background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.4);
+  border-radius: 3px; padding: 0.1rem 0.4rem; margin-left: 0.4rem;
+}
+.trend-partner { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-left: 0.4rem; }
 .trend-place { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); padding: 0.1rem 0.4rem; border-radius: 3px; border: 1px solid var(--border); background: var(--bg-2); }
 .trend-place.place-gold   { color: #f59e0b; border-color: rgba(234,179,8,0.4); background: rgba(234,179,8,0.06); }
 .trend-place.place-silver { color: #94a3b8; border-color: rgba(148,163,184,0.4); background: rgba(148,163,184,0.06); }

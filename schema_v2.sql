@@ -63,6 +63,13 @@ CREATE TYPE event_status AS ENUM (
     'Completed'
 );
 
+-- Format of the event — drives scoring rules and dive-list shape
+CREATE TYPE event_type AS ENUM (
+    'individual',
+    'synchro_pair',
+    'team'
+);
+
 -- Board/platform heights
 CREATE TYPE board_height AS ENUM (
     '1m',
@@ -200,6 +207,7 @@ CREATE TABLE public.events (
     total_rounds     integer DEFAULT 6 NOT NULL,
     dd_limit_rounds  integer DEFAULT 0,
     dd_limit_value   numeric(3,1),
+    event_type       event_type DEFAULT 'individual' NOT NULL,
     status           event_status DEFAULT 'Upcoming' NOT NULL,
     created_at       timestamptz DEFAULT now(),
     CONSTRAINT events_number_of_judges_check
@@ -246,6 +254,7 @@ CREATE TABLE public.competitor_dive_lists (
     id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     event_id      uuid REFERENCES public.events(id) ON DELETE CASCADE,
     competitor_id uuid REFERENCES public.users(id) ON DELETE CASCADE,
+    partner_id    uuid REFERENCES public.users(id) ON DELETE CASCADE,
     dive_id       uuid REFERENCES public.dive_directory(id) ON DELETE RESTRICT,
     round_number  integer NOT NULL,
     UNIQUE (event_id, competitor_id, round_number),
@@ -370,6 +379,91 @@ $$;
 
 
 -- =============================================================
+-- WORLD AQUATICS SYNCHRONISED DIVE POINTS
+-- See migrations/004_event_types_and_synchro.sql for the full
+-- World Aquatics rule. Groups judges by position into Diver A
+-- execution / Diver B execution / synchronisation, applies the
+-- correct drops per group, sums × DD × 0.6.
+-- =============================================================
+
+CREATE OR REPLACE FUNCTION public.calc_synchro_dive_points(
+    judge_numbers integer[],
+    scores        numeric[],
+    num_judges    integer,
+    dd            numeric
+) RETURNS numeric LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE
+    n           integer;
+    exec_a      numeric[];
+    exec_b      numeric[];
+    sync_grp    numeric[];
+    sorted      numeric[];
+    counted_sum numeric := 0;
+BEGIN
+    IF scores IS NULL OR array_length(scores, 1) IS NULL THEN
+        RETURN 0;
+    END IF;
+    exec_a := ARRAY[]::numeric[];
+    exec_b := ARRAY[]::numeric[];
+    sync_grp := ARRAY[]::numeric[];
+    FOR n IN 1 .. array_length(scores, 1) LOOP
+        IF num_judges = 9 THEN
+            IF judge_numbers[n] BETWEEN 1 AND 2 THEN exec_a := exec_a || scores[n];
+            ELSIF judge_numbers[n] BETWEEN 3 AND 4 THEN exec_b := exec_b || scores[n];
+            ELSIF judge_numbers[n] BETWEEN 5 AND 9 THEN sync_grp := sync_grp || scores[n]; END IF;
+        ELSIF num_judges = 11 THEN
+            IF judge_numbers[n] BETWEEN 1 AND 3 THEN exec_a := exec_a || scores[n];
+            ELSIF judge_numbers[n] BETWEEN 4 AND 6 THEN exec_b := exec_b || scores[n];
+            ELSIF judge_numbers[n] BETWEEN 7 AND 11 THEN sync_grp := sync_grp || scores[n]; END IF;
+        ELSE
+            sync_grp := sync_grp || scores[n];
+        END IF;
+    END LOOP;
+    IF array_length(exec_a, 1) IS NOT NULL THEN
+        IF num_judges = 9 THEN SELECT SUM(s) INTO counted_sum FROM unnest(exec_a) AS s;
+        ELSIF num_judges = 11 AND array_length(exec_a, 1) = 3 THEN
+            SELECT array_agg(s ORDER BY s) INTO sorted FROM unnest(exec_a) AS s;
+            counted_sum := counted_sum + sorted[2];
+        ELSE SELECT counted_sum + SUM(s) INTO counted_sum FROM unnest(exec_a) AS s; END IF;
+    END IF;
+    IF array_length(exec_b, 1) IS NOT NULL THEN
+        IF num_judges = 9 THEN SELECT counted_sum + SUM(s) INTO counted_sum FROM unnest(exec_b) AS s;
+        ELSIF num_judges = 11 AND array_length(exec_b, 1) = 3 THEN
+            SELECT array_agg(s ORDER BY s) INTO sorted FROM unnest(exec_b) AS s;
+            counted_sum := counted_sum + sorted[2];
+        ELSE SELECT counted_sum + SUM(s) INTO counted_sum FROM unnest(exec_b) AS s; END IF;
+    END IF;
+    IF array_length(sync_grp, 1) IS NOT NULL THEN
+        IF array_length(sync_grp, 1) = 5 THEN
+            SELECT array_agg(s ORDER BY s) INTO sorted FROM unnest(sync_grp) AS s;
+            counted_sum := counted_sum + sorted[2] + sorted[3] + sorted[4];
+        ELSE SELECT counted_sum + SUM(s) INTO counted_sum FROM unnest(sync_grp) AS s; END IF;
+    END IF;
+    RETURN counted_sum * COALESCE(dd, 1.0) * 0.6;
+END
+$$;
+
+-- Single dispatch wrapper used by every standings / leaderboard
+-- / archive / PDF query so they don't have to CASE on event_type
+-- inline.
+CREATE OR REPLACE FUNCTION public.calc_event_dive_points(
+    judge_numbers integer[],
+    scores        numeric[],
+    num_judges    integer,
+    dd            numeric,
+    e_type        event_type
+) RETURNS numeric LANGUAGE plpgsql IMMUTABLE AS $$
+BEGIN
+    IF e_type = 'synchro_pair' THEN
+        RETURN public.calc_synchro_dive_points(judge_numbers, scores, num_judges, dd);
+    ELSE
+        RETURN public.calc_dive_points(scores, num_judges, dd);
+    END IF;
+END
+$$;
+
+
+-- =============================================================
 -- INDEXES
 -- =============================================================
 
@@ -384,6 +478,7 @@ CREATE INDEX idx_event_managers_user    ON public.event_managers (user_id);
 CREATE INDEX idx_event_judges_event     ON public.event_judges (event_id);
 CREATE INDEX idx_dive_lists_event       ON public.competitor_dive_lists (event_id);
 CREATE INDEX idx_dive_lists_competitor  ON public.competitor_dive_lists (competitor_id);
+CREATE INDEX idx_dive_lists_partner     ON public.competitor_dive_lists (partner_id);
 CREATE INDEX idx_scores_event           ON public.scores (event_id);
 CREATE INDEX idx_scores_competitor      ON public.scores (competitor_id);
 CREATE INDEX idx_score_audit_event_round   ON public.score_audit_log (event_id, round_number);

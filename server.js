@@ -368,6 +368,32 @@ app.put("/api/orgs/:id/status", requireSystemAdmin, async (req, res) => {
   }
 });
 
+// Divers in an organisation. Authenticated and scoped to the
+// caller's own org (system admins see any). Used by the
+// CompetitorView's synchro partner picker.
+app.get("/api/orgs/:id/divers", verifyToken, async (req, res) => {
+  if (!req.user.is_system_admin && req.params.id !== req.user.org_id) {
+    return res
+      .status(403)
+      .json({ error: "Cannot list divers in other organisations" });
+  }
+  try {
+    const r = await pool.query(
+      `SELECT u.id, u.full_name, u.username, cl.name AS club_name, cl.short_code AS club_code
+       FROM users u
+       JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id AND r.role = 'diver'
+       LEFT JOIN clubs cl ON cl.id = u.club_id
+       WHERE u.org_id = $1
+       ORDER BY u.full_name ASC`,
+      [req.params.id],
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error("[Org Divers Error]", err.message);
+    res.status(500).json([]);
+  }
+});
+
 // Clubs in an organisation. Public — used by the registration
 // form's club picker before the user has an account.
 app.get("/api/orgs/:id/clubs", async (req, res) => {
@@ -893,19 +919,30 @@ app.get("/api/events", async (req, res) => {
 });
 
 app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
-  const { name, gender, number_of_judges, total_rounds, height } = req.body;
+  const { name, gender, number_of_judges, total_rounds, height, event_type } =
+    req.body;
+  // Synchronised pairs require 9 or 11 judges (the only panel
+  // sizes World Aquatics defines exec/sync judge groups for).
+  // Reject anything else early so standings later make sense.
+  const type = event_type || "individual";
+  if (type === "synchro_pair" && ![9, 11].includes(number_of_judges)) {
+    return res.status(400).json({
+      error: "Synchronised pair events require 9 or 11 judges",
+    });
+  }
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     const evRes = await client.query(
-      `INSERT INTO events (name, gender, number_of_judges, total_rounds, height, org_id)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      `INSERT INTO events (name, gender, number_of_judges, total_rounds, height, event_type, org_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
       [
         name,
         gender,
         number_of_judges || 5,
         total_rounds || 6,
         height || null,
+        type,
         req.user.org_id,
       ],
     );
@@ -927,17 +964,25 @@ app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
 });
 
 app.put("/api/events/:id", requireEventManager(), async (req, res) => {
-  const { name, gender, number_of_judges, total_rounds, height } = req.body;
+  const { name, gender, number_of_judges, total_rounds, height, event_type } =
+    req.body;
+  if (event_type === "synchro_pair" && ![9, 11].includes(number_of_judges)) {
+    return res.status(400).json({
+      error: "Synchronised pair events require 9 or 11 judges",
+    });
+  }
   try {
     const r = await pool.query(
-      `UPDATE events SET name=$1, gender=$2, number_of_judges=$3, total_rounds=$4, height=$5
-       WHERE id=$6 AND org_id=$7 RETURNING *`,
+      `UPDATE events SET name=$1, gender=$2, number_of_judges=$3, total_rounds=$4,
+                         height=$5, event_type=COALESCE($6, event_type)
+       WHERE id=$7 AND org_id=$8 RETURNING *`,
       [
         name,
         gender,
         number_of_judges,
         total_rounds,
         height || null,
+        event_type || null,
         req.params.id,
         req.user.org_id,
       ],
@@ -1131,13 +1176,18 @@ app.get(
       const r = await pool.query(
         `SELECT u.id AS competitor_id, u.full_name, o.country_code,
                 cl.name AS club_name, cl.short_code AS club_code,
+                cdl.partner_id, pu.full_name AS partner_name, po.country_code AS partner_country,
                 cdl.event_id, cdl.round_number, cdl.dive_id,
-                d.dive_code, d.description, d.dd, d.position
+                d.dive_code, d.description, d.dd, d.position,
+                e.event_type, e.number_of_judges
          FROM users u
          JOIN competitor_dive_lists cdl ON u.id = cdl.competitor_id
          JOIN dive_directory d ON cdl.dive_id = d.id
          JOIN organisations o ON u.org_id = o.id
+         JOIN events e ON e.id = cdl.event_id
          LEFT JOIN clubs cl ON cl.id = u.club_id
+         LEFT JOIN users pu ON pu.id = cdl.partner_id
+         LEFT JOIN organisations po ON po.id = pu.org_id
          WHERE cdl.event_id = $1
          ORDER BY cdl.round_number ASC, u.full_name ASC`,
         [req.params.id],
@@ -1154,24 +1204,31 @@ app.get("/api/events/:id/history", async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT u.full_name AS "diverName", o.country_code, cl.name AS club_name,
+              pu.full_name AS partner_name,
               s.round_number,
               d.dive_code, d.position, d.dd, d.description,
-              calc_dive_points(array_agg(s.score), e.number_of_judges, d.dd) AS total_points,
+              calc_event_dive_points(
+                array_agg(ej.judge_number ORDER BY ej.judge_number),
+                array_agg(s.score ORDER BY ej.judge_number),
+                e.number_of_judges, d.dd, e.event_type
+              ) AS total_points,
               JSON_AGG(s.score ORDER BY s.judge_id) AS judge_scores
        FROM scores s
        JOIN events e ON e.id = s.event_id
        JOIN users u ON s.competitor_id = u.id
        JOIN organisations o ON u.org_id = o.id
        LEFT JOIN clubs cl ON cl.id = u.club_id
+       LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
        LEFT JOIN competitor_dive_lists cdl
          ON s.competitor_id = cdl.competitor_id
         AND s.event_id = cdl.event_id
         AND s.round_number = cdl.round_number
        LEFT JOIN dive_directory d ON COALESCE(s.dive_id, cdl.dive_id) = d.id
+       LEFT JOIN users pu ON pu.id = cdl.partner_id
        WHERE s.event_id = $1
-       GROUP BY u.full_name, o.country_code, cl.name,
+       GROUP BY u.full_name, o.country_code, cl.name, pu.full_name,
                 s.round_number, d.dive_code, d.position, d.dd, d.description,
-                e.number_of_judges
+                e.number_of_judges, e.event_type
        ORDER BY s.round_number ASC, u.full_name ASC`,
       [req.params.id],
     );
@@ -1194,24 +1251,39 @@ app.get("/api/scoreboard/:eventId", async (req, res) => {
       pool.query(
         `WITH per_dive AS (
            SELECT s.competitor_id, s.round_number,
-                  calc_dive_points(array_agg(s.score), e.number_of_judges, MAX(d.dd)) AS dive_points
+                  calc_event_dive_points(
+                    array_agg(ej.judge_number ORDER BY ej.judge_number),
+                    array_agg(s.score ORDER BY ej.judge_number),
+                    e.number_of_judges, MAX(d.dd), e.event_type
+                  ) AS dive_points
            FROM scores s
            JOIN events e ON e.id = s.event_id
+           LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
            LEFT JOIN competitor_dive_lists cdl
              ON cdl.event_id = s.event_id
             AND cdl.competitor_id = s.competitor_id
             AND cdl.round_number = s.round_number
            LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
            WHERE s.event_id = $1
-           GROUP BY s.competitor_id, s.round_number, e.number_of_judges
+           GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
          )
          SELECT u.full_name, o.country_code, cl.name AS club_name,
-                SUM(pd.dive_points) AS total
+                SUM(pd.dive_points) AS total,
+                pu.full_name AS partner_name, pl.country_code AS partner_country
          FROM per_dive pd
          JOIN users u ON u.id = pd.competitor_id
          JOIN organisations o ON o.id = u.org_id
          LEFT JOIN clubs cl ON cl.id = u.club_id
-         GROUP BY u.full_name, o.country_code, cl.name
+         LEFT JOIN LATERAL (
+           SELECT DISTINCT cdl.partner_id
+           FROM competitor_dive_lists cdl
+           WHERE cdl.event_id = $1 AND cdl.competitor_id = pd.competitor_id
+             AND cdl.partner_id IS NOT NULL
+           LIMIT 1
+         ) p ON true
+         LEFT JOIN users pu ON pu.id = p.partner_id
+         LEFT JOIN organisations pl ON pl.id = pu.org_id
+         GROUP BY u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code
          ORDER BY total DESC`,
         [req.params.eventId],
       ),
@@ -1219,23 +1291,32 @@ app.get("/api/scoreboard/:eventId", async (req, res) => {
       // official dive points.
       pool.query(
         `SELECT s.competitor_id, u.full_name, o.country_code, cl.name AS club_name,
+                pu.full_name AS partner_name, pl.country_code AS partner_country,
                 d.dive_code, d.position, d.description, d.dd, s.round_number,
-                calc_dive_points(array_agg(s.score), e.number_of_judges, d.dd) AS total_dive_score,
+                calc_event_dive_points(
+                  array_agg(ej.judge_number ORDER BY ej.judge_number),
+                  array_agg(s.score ORDER BY ej.judge_number),
+                  e.number_of_judges, d.dd, e.event_type
+                ) AS total_dive_score,
                 STRING_AGG(s.score::text, ',' ORDER BY s.judge_id) AS judge_array
          FROM scores s
          JOIN events e ON e.id = s.event_id
          JOIN users u ON s.competitor_id = u.id
          JOIN organisations o ON u.org_id = o.id
          LEFT JOIN clubs cl ON cl.id = u.club_id
+         LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
          LEFT JOIN competitor_dive_lists cdl
            ON s.competitor_id = cdl.competitor_id
           AND s.event_id = cdl.event_id
           AND s.round_number = cdl.round_number
          LEFT JOIN dive_directory d ON COALESCE(s.dive_id, cdl.dive_id) = d.id
+         LEFT JOIN users pu ON pu.id = cdl.partner_id
+         LEFT JOIN organisations pl ON pl.id = pu.org_id
          WHERE s.event_id = $1
          GROUP BY s.competitor_id, u.full_name, o.country_code, cl.name,
+                  pu.full_name, pl.country_code,
                   d.dive_code, d.position, d.description, d.dd,
-                  s.round_number, e.number_of_judges
+                  s.round_number, e.number_of_judges, e.event_type
          ORDER BY MAX(s.created_at) DESC LIMIT 10`,
         [req.params.eventId],
       ),
@@ -1255,14 +1336,52 @@ app.post(
   "/api/competitor/submit-list",
   requireOrgRole(["diver"]),
   async (req, res) => {
-    const { event_id, dives } = req.body;
+    const { event_id, dives, partner_id } = req.body;
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+
+      // For synchro events, validate the partner exists, isn't
+      // the user themselves, and is a diver in the same org.
+      let resolvedPartnerId = null;
+      const evRes = await client.query(
+        "SELECT event_type FROM events WHERE id = $1",
+        [event_id],
+      );
+      const eventType = evRes.rows[0]?.event_type || "individual";
+      if (eventType === "synchro_pair") {
+        if (!partner_id || partner_id === req.user.id) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "A different partner is required for synchronised events",
+          });
+        }
+        const p = await client.query(
+          `SELECT u.id FROM users u
+           JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id AND r.role = 'diver'
+           WHERE u.id = $1 AND u.org_id = $2`,
+          [partner_id, req.user.org_id],
+        );
+        if (!p.rows.length) {
+          await client.query("ROLLBACK");
+          return res
+            .status(400)
+            .json({ error: "Partner must be a diver in your organisation" });
+        }
+        resolvedPartnerId = partner_id;
+      }
+
       for (const dive of dives) {
         await client.query(
-          "INSERT INTO competitor_dive_lists (competitor_id, event_id, dive_id, round_number) VALUES ($1,$2,$3,$4)",
-          [req.user.id, event_id, dive.dive_id, dive.round_number],
+          `INSERT INTO competitor_dive_lists (competitor_id, partner_id, event_id, dive_id, round_number)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [
+            req.user.id,
+            resolvedPartnerId,
+            event_id,
+            dive.dive_id,
+            dive.round_number,
+          ],
         );
       }
       await client.query("COMMIT");
@@ -1306,16 +1425,21 @@ app.get("/api/scoreboard/:eventId/leaderboard", async (req, res) => {
     const r = await pool.query(
       `WITH dive_totals AS (
          SELECT s.competitor_id, s.round_number,
-                calc_dive_points(array_agg(s.score), e.number_of_judges, MAX(d.dd)) AS round_total
+                calc_event_dive_points(
+                  array_agg(ej.judge_number ORDER BY ej.judge_number),
+                  array_agg(s.score ORDER BY ej.judge_number),
+                  e.number_of_judges, MAX(d.dd), e.event_type
+                ) AS round_total
          FROM scores s
          JOIN events e ON e.id = s.event_id
+         LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
          LEFT JOIN competitor_dive_lists cdl
            ON cdl.event_id = s.event_id
           AND cdl.competitor_id = s.competitor_id
           AND cdl.round_number = s.round_number
          LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
          WHERE s.event_id = $1
-         GROUP BY s.competitor_id, s.round_number, e.number_of_judges
+         GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
        ),
        cumulative AS (
          SELECT competitor_id, round_number, round_total,
@@ -1423,17 +1547,22 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
     const stats = await pool.query(
       `WITH dive_totals AS (
          SELECT s.event_id, s.round_number,
-                calc_dive_points(array_agg(s.score), e.number_of_judges, MAX(d.dd)) AS dive_total,
+                calc_event_dive_points(
+                  array_agg(ej.judge_number ORDER BY ej.judge_number),
+                  array_agg(s.score ORDER BY ej.judge_number),
+                  e.number_of_judges, MAX(d.dd), e.event_type
+                ) AS dive_total,
                 MAX(d.dd) AS dd
          FROM scores s
          JOIN events e ON e.id = s.event_id
+         LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
          LEFT JOIN competitor_dive_lists cdl
            ON cdl.event_id = s.event_id
           AND cdl.competitor_id = s.competitor_id
           AND cdl.round_number = s.round_number
          LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
          WHERE s.competitor_id = $1
-         GROUP BY s.event_id, s.round_number, e.number_of_judges
+         GROUP BY s.event_id, s.round_number, e.number_of_judges, e.event_type
        )
        SELECT
          COUNT(DISTINCT event_id)::int AS total_meets,
@@ -1451,9 +1580,14 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
       `WITH dive_totals AS (
          SELECT s.event_id, s.round_number,
                 d.dive_code, d.position, d.height, d.dd, d.description,
-                calc_dive_points(array_agg(s.score), e.number_of_judges, d.dd) AS dive_total
+                calc_event_dive_points(
+                  array_agg(ej.judge_number ORDER BY ej.judge_number),
+                  array_agg(s.score ORDER BY ej.judge_number),
+                  e.number_of_judges, d.dd, e.event_type
+                ) AS dive_total
          FROM scores s
          JOIN events e ON e.id = s.event_id
+         LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
          JOIN competitor_dive_lists cdl
            ON cdl.event_id = s.event_id
           AND cdl.competitor_id = s.competitor_id
@@ -1461,7 +1595,7 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
          JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
          WHERE s.competitor_id = $1
          GROUP BY s.event_id, s.round_number,
-                  d.dive_code, d.position, d.height, d.dd, d.description, e.number_of_judges
+                  d.dive_code, d.position, d.height, d.dd, d.description, e.number_of_judges, e.event_type
        ),
        ranked AS (
          SELECT dt.*, e.name AS event_name, e.created_at,
@@ -1496,16 +1630,21 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
        ),
        per_dive AS (
          SELECT s.event_id, s.competitor_id, s.round_number,
-                calc_dive_points(array_agg(s.score), e.number_of_judges, MAX(d.dd)) AS dive_points
+                calc_event_dive_points(
+                  array_agg(ej.judge_number ORDER BY ej.judge_number),
+                  array_agg(s.score ORDER BY ej.judge_number),
+                  e.number_of_judges, MAX(d.dd), e.event_type
+                ) AS dive_points
          FROM scores s
          JOIN events e ON e.id = s.event_id
+         LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
          LEFT JOIN competitor_dive_lists cdl
            ON cdl.event_id = s.event_id
           AND cdl.competitor_id = s.competitor_id
           AND cdl.round_number = s.round_number
          LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
          WHERE s.event_id IN (SELECT event_id FROM diver_events)
-         GROUP BY s.event_id, s.competitor_id, s.round_number, e.number_of_judges
+         GROUP BY s.event_id, s.competitor_id, s.round_number, e.number_of_judges, e.event_type
        ),
        all_event_totals AS (
          SELECT event_id, competitor_id, SUM(dive_points) AS total
@@ -1518,10 +1657,21 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
        )
        SELECT e.id AS event_id, e.name AS event_name, e.height,
               e.gender, e.status, e.created_at,
+              e.event_type::text AS event_type,
               ranked.total::numeric(8,2) AS total_score,
-              ranked.rnk::int AS final_rank
+              ranked.rnk::int AS final_rank,
+              partner.full_name AS partner_name
        FROM ranked
        JOIN events e ON e.id = ranked.event_id
+       LEFT JOIN LATERAL (
+         SELECT DISTINCT cdl.partner_id
+         FROM competitor_dive_lists cdl
+         WHERE cdl.event_id = e.id
+           AND cdl.competitor_id = $1
+           AND cdl.partner_id IS NOT NULL
+         LIMIT 1
+       ) p ON true
+       LEFT JOIN users partner ON partner.id = p.partner_id
        WHERE ranked.competitor_id = $1
        ORDER BY e.created_at ASC`,
       [req.params.id],
@@ -1823,49 +1973,70 @@ app.get("/api/archive/clubs", async (req, res) => {
 app.get("/api/archive/:eventId/results", async (req, res) => {
   try {
     const [ev, standings, history] = await Promise.all([
-      pool.query("SELECT e.name, e.gender, e.height, e.total_rounds, e.number_of_judges, o.name AS org_name FROM events e JOIN organisations o ON e.org_id = o.id WHERE e.id = $1", [req.params.eventId]),
+      pool.query("SELECT e.name, e.gender, e.height, e.total_rounds, e.number_of_judges, e.event_type, o.name AS org_name FROM events e JOIN organisations o ON e.org_id = o.id WHERE e.id = $1", [req.params.eventId]),
       pool.query(
         `WITH per_dive AS (
            SELECT s.competitor_id, s.round_number,
-                  calc_dive_points(array_agg(s.score), e.number_of_judges, MAX(d.dd)) AS dive_points
+                  calc_event_dive_points(
+                    array_agg(ej.judge_number ORDER BY ej.judge_number),
+                    array_agg(s.score ORDER BY ej.judge_number),
+                    e.number_of_judges, MAX(d.dd), e.event_type
+                  ) AS dive_points
            FROM scores s
            JOIN events e ON e.id = s.event_id
+           LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
            LEFT JOIN competitor_dive_lists cdl
              ON cdl.event_id = s.event_id
             AND cdl.competitor_id = s.competitor_id
             AND cdl.round_number = s.round_number
            LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
            WHERE s.event_id = $1
-           GROUP BY s.competitor_id, s.round_number, e.number_of_judges
+           GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
          )
          SELECT u.full_name, o.country_code, cl.name AS club_name,
+                pu.full_name AS partner_name, pl.country_code AS partner_country,
                 SUM(pd.dive_points) AS total
          FROM per_dive pd
          JOIN users u ON u.id = pd.competitor_id
          JOIN organisations o ON o.id = u.org_id
          LEFT JOIN clubs cl ON cl.id = u.club_id
-         GROUP BY u.full_name, o.country_code, cl.name
+         LEFT JOIN LATERAL (
+           SELECT DISTINCT cdl.partner_id FROM competitor_dive_lists cdl
+           WHERE cdl.event_id = $1 AND cdl.competitor_id = pd.competitor_id
+             AND cdl.partner_id IS NOT NULL LIMIT 1
+         ) p ON true
+         LEFT JOIN users pu ON pu.id = p.partner_id
+         LEFT JOIN organisations pl ON pl.id = pu.org_id
+         GROUP BY u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code
          ORDER BY total DESC`,
         [req.params.eventId],
       ),
       pool.query(
         `SELECT u.full_name, o.country_code, cl.name AS club_name,
+                pu.full_name AS partner_name, pl.country_code AS partner_country,
                 s.round_number,
                 d.dive_code, d.position, d.description, d.dd,
-                calc_dive_points(array_agg(s.score), e.number_of_judges, d.dd) AS total_dive_score,
+                calc_event_dive_points(
+                  array_agg(ej.judge_number ORDER BY ej.judge_number),
+                  array_agg(s.score ORDER BY ej.judge_number),
+                  e.number_of_judges, d.dd, e.event_type
+                ) AS total_dive_score,
                 STRING_AGG(s.score::text, ',' ORDER BY s.judge_id) AS judge_scores
          FROM scores s
          JOIN events e ON e.id = s.event_id
          JOIN users u ON s.competitor_id = u.id
          JOIN organisations o ON u.org_id = o.id
          LEFT JOIN clubs cl ON cl.id = u.club_id
+         LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
          LEFT JOIN competitor_dive_lists cdl
            ON s.competitor_id = cdl.competitor_id AND s.event_id = cdl.event_id AND s.round_number = cdl.round_number
          LEFT JOIN dive_directory d ON COALESCE(s.dive_id, cdl.dive_id) = d.id
+         LEFT JOIN users pu ON pu.id = cdl.partner_id
+         LEFT JOIN organisations pl ON pl.id = pu.org_id
          WHERE s.event_id = $1
-         GROUP BY u.full_name, o.country_code, cl.name,
+         GROUP BY u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code,
                   s.round_number, d.dive_code, d.position, d.description, d.dd,
-                  e.number_of_judges
+                  e.number_of_judges, e.event_type
          ORDER BY u.full_name ASC, s.round_number ASC`,
         [req.params.eventId],
       ),
@@ -1892,40 +2063,60 @@ app.get("/api/events/:id/results.pdf", async (req, res) => {
       pool.query(
         `WITH per_dive AS (
            SELECT s.competitor_id, s.round_number,
-                  calc_dive_points(array_agg(s.score), e.number_of_judges, MAX(d.dd)) AS dive_points
+                  calc_event_dive_points(
+                    array_agg(ej.judge_number ORDER BY ej.judge_number),
+                    array_agg(s.score ORDER BY ej.judge_number),
+                    e.number_of_judges, MAX(d.dd), e.event_type
+                  ) AS dive_points
            FROM scores s
            JOIN events e ON e.id = s.event_id
+           LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
            LEFT JOIN competitor_dive_lists cdl
              ON cdl.event_id = s.event_id
             AND cdl.competitor_id = s.competitor_id
             AND cdl.round_number = s.round_number
            LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
            WHERE s.event_id = $1
-           GROUP BY s.competitor_id, s.round_number, e.number_of_judges
+           GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
          )
          SELECT u.full_name, o.country_code, cl.name AS club_name,
+                pu.full_name AS partner_name,
                 SUM(pd.dive_points) AS total
          FROM per_dive pd
          JOIN users u ON u.id = pd.competitor_id
          JOIN organisations o ON o.id = u.org_id
          LEFT JOIN clubs cl ON cl.id = u.club_id
-         GROUP BY u.full_name, o.country_code, cl.name
+         LEFT JOIN LATERAL (
+           SELECT DISTINCT cdl.partner_id FROM competitor_dive_lists cdl
+           WHERE cdl.event_id = $1 AND cdl.competitor_id = pd.competitor_id
+             AND cdl.partner_id IS NOT NULL LIMIT 1
+         ) p ON true
+         LEFT JOIN users pu ON pu.id = p.partner_id
+         GROUP BY u.full_name, o.country_code, cl.name, pu.full_name
          ORDER BY total DESC`,
         [req.params.id],
       ),
       pool.query(
-        `SELECT u.full_name, cl.name AS club_name,
+        `SELECT u.full_name, cl.name AS club_name, pu.full_name AS partner_name,
                 s.round_number, d.dive_code, d.position, d.dd,
-                calc_dive_points(array_agg(s.score), e.number_of_judges, d.dd) AS total_dive_score,
+                calc_event_dive_points(
+                  array_agg(ej.judge_number ORDER BY ej.judge_number),
+                  array_agg(s.score ORDER BY ej.judge_number),
+                  e.number_of_judges, d.dd, e.event_type
+                ) AS total_dive_score,
                 STRING_AGG(s.score::text, ', ' ORDER BY s.judge_id) AS judge_scores
          FROM scores s
          JOIN events e ON e.id = s.event_id
          JOIN users u ON s.competitor_id = u.id
          LEFT JOIN clubs cl ON cl.id = u.club_id
+         LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
          LEFT JOIN competitor_dive_lists cdl ON s.competitor_id = cdl.competitor_id AND s.event_id = cdl.event_id AND s.round_number = cdl.round_number
          LEFT JOIN dive_directory d ON COALESCE(s.dive_id, cdl.dive_id) = d.id
+         LEFT JOIN users pu ON pu.id = cdl.partner_id
          WHERE s.event_id = $1
-         GROUP BY u.full_name, cl.name, s.round_number, d.dive_code, d.position, d.dd, e.number_of_judges
+         GROUP BY u.full_name, cl.name, pu.full_name,
+                  s.round_number, d.dive_code, d.position, d.dd,
+                  e.number_of_judges, e.event_type
          ORDER BY u.full_name ASC, s.round_number ASC`,
         [req.params.id],
       ),

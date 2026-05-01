@@ -140,9 +140,8 @@ function downloadPdf(ev) {
 }
 
 function byDiver(dives) {
-  // Group dives by diver, preserving country and club from the
-  // first row in the group so the diver header in the breakdown
-  // can show them without re-querying.
+  // Group dives by diver, preserving country / club / partner
+  // from the first row in the group.
   const map = new Map()
   for (const d of dives) {
     if (!map.has(d.full_name)) {
@@ -150,6 +149,8 @@ function byDiver(dives) {
         name: d.full_name,
         country: d.country_code || null,
         club: d.club_name || null,
+        partner: d.partner_name || null,
+        partner_country: d.partner_country || null,
         dives: [],
       })
     }
@@ -258,6 +259,9 @@ function fmtDate(iso) {
                     <span class="sname">{{ row.full_name }}</span>
                     <span v-if="row.country_code" class="ctry">{{ row.country_code }}</span>
                   </div>
+                  <div v-if="row.partner_name" class="partner-line">
+                    &amp; {{ row.partner_name }}<span v-if="row.partner_country" class="ctry">{{ row.partner_country }}</span>
+                  </div>
                   <div v-if="row.club_name" class="club-line">{{ row.club_name }}</div>
                 </div>
                 <span class="total">{{ Number(row.total).toFixed(2) }}</span>
@@ -270,6 +274,10 @@ function fmtDate(iso) {
               <div class="diver-head">
                 <div class="diver-name">
                   {{ b.name }}<span v-if="b.country" class="ctry">{{ b.country }}</span>
+                  <template v-if="b.partner">
+                    <span class="archive-amp">&amp;</span>
+                    {{ b.partner }}<span v-if="b.partner_country" class="ctry">{{ b.partner_country }}</span>
+                  </template>
                 </div>
                 <div v-if="b.club" class="diver-club">{{ b.club }}</div>
               </div>
@@ -392,6 +400,11 @@ function fmtDate(iso) {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.partner-line {
+  font-family: var(--font-display); font-size: 13px; font-weight: 600;
+  color: var(--text-2);
+}
+.archive-amp { color: var(--cyan); margin: 0 0.35em; font-weight: 400; }
 .total { font-size: 15px; font-weight: 900; color: var(--cyan); }
 
 .diver-block { margin-bottom: 1rem; }

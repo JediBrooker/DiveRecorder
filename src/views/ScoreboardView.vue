@@ -51,6 +51,8 @@ const divesByDiver = computed(() => {
       name: diver,
       country: dives[0]?.country_code || null,
       club: dives[0]?.club_name || null,
+      partner: dives[0]?.partner_name || null,
+      partner_country: dives[0]?.partner_country || null,
       total: archiveResults.value.standings.find(s => s.full_name === diver)?.total ?? null,
       rank: (order.get(diver) ?? -1) + 1,
       dives,
@@ -308,7 +310,14 @@ onMounted(async () => {
           </div>
           <div class="sb-label">Current Performer</div>
           <div class="sb-name" :style="{ opacity: activeDiver ? '1' : '0.2' }">
-            {{ activeDiver?.diverName || 'Waiting...' }}
+            <template v-if="activeDiver?.partner_name">
+              {{ activeDiver.diverName }}
+              <span class="sb-name-amp">&amp;</span>
+              {{ activeDiver.partner_name }}
+            </template>
+            <template v-else>
+              {{ activeDiver?.diverName || 'Waiting...' }}
+            </template>
           </div>
           <div v-if="activeDiver?.country_code || activeDiver?.club_name"
                class="sb-country-line" :style="{ opacity: activeDiver ? '1' : '0.2' }">
@@ -345,7 +354,12 @@ onMounted(async () => {
             <div v-for="(s, i) in standings" :key="i" class="standing">
               <div :class="['standing-rank', rankClass(i)]">{{ i + 1 }}</div>
               <div class="standing-id">
-                <div class="standing-name">{{ s.full_name }}<span v-if="s.country_code" class="standing-country">{{ s.country_code }}</span></div>
+                <div class="standing-name">
+                  {{ s.full_name }}<span v-if="s.country_code" class="standing-country">{{ s.country_code }}</span>
+                </div>
+                <div v-if="s.partner_name" class="standing-partner">
+                  &amp; {{ s.partner_name }}<span v-if="s.partner_country" class="standing-country">{{ s.partner_country }}</span>
+                </div>
                 <div v-if="s.club_name" class="standing-club">{{ s.club_name }}</div>
               </div>
               <div class="standing-score">{{ parseFloat(s.total).toFixed(1) }}</div>
@@ -530,7 +544,13 @@ onMounted(async () => {
                 <div class="diver-rank-badge" :class="rankClass(block.rank - 1)">{{ block.rank }}</div>
                 <div class="diver-id">
                   <div class="diver-id-row">
-                    <div class="diver-name">{{ block.name }}<span v-if="block.country" class="diver-country">{{ block.country }}</span></div>
+                    <div class="diver-name">
+                      {{ block.name }}<span v-if="block.country" class="diver-country">{{ block.country }}</span>
+                      <template v-if="block.partner">
+                        <span class="diver-amp">&amp;</span>
+                        {{ block.partner }}<span v-if="block.partner_country" class="diver-country">{{ block.partner_country }}</span>
+                      </template>
+                    </div>
                     <div class="diver-total" v-if="block.total != null">{{ parseFloat(block.total).toFixed(1) }} pts</div>
                   </div>
                   <div v-if="block.club" class="diver-club">{{ block.club }}</div>
@@ -664,6 +684,9 @@ onMounted(async () => {
 .standing-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
 .standing-name { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--text); }
 .standing-club { font-family: var(--font-mono); font-size: 10px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.standing-partner { font-family: var(--font-display); font-size: 13px; font-weight: 700; color: var(--text-2); }
+.sb-name-amp { color: var(--cyan); margin: 0 0.4em; font-weight: 400; }
+.diver-amp { color: var(--cyan); margin: 0 0.35em; font-weight: 400; }
 .standing-country { font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.05em; color: var(--text-3); background: var(--bg-2); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; margin-left: 0.4rem; vertical-align: middle; }
 .standing-score { font-family: var(--font-mono); font-size: 15px; font-weight: 500; color: var(--text); }
 .sb-club-line { font-family: var(--font-mono); font-size: clamp(11px,1.4vw,14px); color: var(--text-3); margin-left: 0.6rem; }
