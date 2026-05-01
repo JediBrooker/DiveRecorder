@@ -45,6 +45,64 @@ const orgTeams = ref([])
 const teamToAdd = ref('')
 const teamsBusy = ref(false)
 
+// Roster import modal — opened from the per-event "Import
+// Roster" button. Manager pastes a CSV; backend parses, looks
+// up each diver by username, validates dives in the directory,
+// and bulk-creates dive list rows. Per-row errors are reported
+// without failing the whole import.
+const rosterModalOpen = ref(false)
+const rosterModalEvent = ref(null)
+const rosterCsv = ref('')
+const rosterBusy = ref(false)
+const rosterResult = ref(null)   // { added, skipped, errors }
+const rosterErr = ref('')
+
+function openRosterImport(ev) {
+  rosterModalEvent.value = ev
+  rosterCsv.value = ''
+  rosterResult.value = null
+  rosterErr.value = ''
+  rosterModalOpen.value = true
+}
+
+function closeRosterImport() {
+  rosterModalOpen.value = false
+  rosterModalEvent.value = null
+}
+
+async function submitRosterImport() {
+  if (!rosterCsv.value.trim()) {
+    rosterErr.value = 'Paste a CSV first'
+    return
+  }
+  rosterBusy.value = true
+  rosterErr.value = ''
+  rosterResult.value = null
+  try {
+    rosterResult.value = await auth.apiFetch(
+      `/api/events/${rosterModalEvent.value.id}/roster/import`,
+      { method: 'POST', body: JSON.stringify({ csv: rosterCsv.value }) },
+    )
+  } catch (err) {
+    rosterErr.value = err.message
+  } finally {
+    rosterBusy.value = false
+  }
+}
+
+// Build a sample CSV header that matches the event's round count
+// so the manager has a starting template.
+function rosterTemplateHeader(ev) {
+  if (!ev) return ''
+  const rounds = ev.total_rounds || 6
+  const cols = ['username']
+  if (ev.event_type === 'synchro_pair') cols.push('partner_username')
+  for (let n = 1; n <= rounds; n++) {
+    cols.push(`round_${n}_code`, `round_${n}_pos`)
+  }
+  return cols.join(',')
+}
+
 const HEIGHT_LABELS = {
   '1m': '1m Springboard',
   '3m': '3m Springboard',
@@ -432,6 +490,9 @@ onMounted(async () => { await Promise.all([loadEvents(), loadMeets()]) })
             <button v-if="ev.event_type === 'team'"
                     class="btn btn-ghost btn-sm"
                     @click="openTeamsModal(ev)">Teams</button>
+            <button class="btn btn-ghost btn-sm" @click="openRosterImport(ev)">
+              Import Roster
+            </button>
             <RouterLink :to="`/events/${ev.id}/audit`" class="btn btn-ghost btn-sm">Audit Log</RouterLink>
             <button class="btn btn-ghost btn-sm" @click="openEdit(ev)">Edit</button>
             <button class="btn btn-danger btn-sm" @click="deleteEvent(ev.id)">Delete</button>
@@ -541,6 +602,76 @@ onMounted(async () => { await Promise.all([loadEvents(), loadMeets()]) })
       <RouterLink to="/teams" style="color:var(--cyan)">/teams</RouterLink>.
     </p>
   </div>
+
+  <!-- Roster CSV import modal -->
+  <div v-if="rosterModalOpen" class="modal-backdrop" @click="closeRosterImport"></div>
+  <div v-if="rosterModalOpen" class="modal roster-modal" @click.stop>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+      <div>
+        <div class="teams-section-label">Import Roster</div>
+        <h2 style="font-size:20px;font-style:italic;line-height:1">{{ rosterModalEvent?.name }}</h2>
+      </div>
+      <button class="btn btn-ghost btn-sm" @click="closeRosterImport">Close</button>
+    </div>
+
+    <p class="hint" style="margin-bottom:0.75rem">
+      Paste a CSV with one diver per row. First row must be a header.
+      Required columns: <code>username</code>,
+      <code>round_1_code</code>, <code>round_1_pos</code>, …
+      <span v-if="rosterModalEvent?.event_type === 'synchro_pair'">
+        Synchro events also accept <code>partner_username</code>.
+      </span>
+      Existing dive list rows for the same diver + round are
+      overwritten (idempotent re-runs).
+    </p>
+
+    <div class="field">
+      <label class="label">Template header for this event</label>
+      <input class="input mono"
+             type="text"
+             :value="rosterTemplateHeader(rosterModalEvent)"
+             readonly
+             style="font-size:11px"
+             title="Click to select; copy as the first row of your CSV">
+    </div>
+
+    <div class="field">
+      <label class="label">CSV</label>
+      <textarea
+        class="input mono"
+        v-model="rosterCsv"
+        rows="10"
+        style="font-size:12px"
+        placeholder="username,round_1_code,round_1_pos,round_2_code,round_2_pos&#10;phoenix.patel,5132,D,107,B&#10;..."
+      ></textarea>
+    </div>
+
+    <div v-if="rosterErr" class="msg msg-error">{{ rosterErr }}</div>
+
+    <div v-if="rosterResult" class="roster-result">
+      <div class="msg msg-success">
+        Added / updated rosters for <strong>{{ rosterResult.added }}</strong>
+        diver{{ rosterResult.added === 1 ? '' : 's' }}<span v-if="rosterResult.skipped">, skipped {{ rosterResult.skipped }}</span>.
+      </div>
+      <div v-if="rosterResult.errors?.length" class="roster-errors">
+        <div class="teams-section-label" style="margin-top:0.6rem">{{ rosterResult.errors.length }} row error(s)</div>
+        <ul class="roster-error-list">
+          <li v-for="(e, i) in rosterResult.errors" :key="i">
+            <strong>{{ e.username }}</strong>: {{ e.error }}
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:1rem">
+      <button class="btn btn-ghost btn-sm" @click="closeRosterImport">Done</button>
+      <button class="btn btn-primary btn-sm"
+              :disabled="rosterBusy || !rosterCsv.trim()"
+              @click="submitRosterImport">
+        {{ rosterBusy ? 'Importing…' : 'Import' }}
+      </button>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -587,6 +718,30 @@ onMounted(async () => { await Promise.all([loadEvents(), loadMeets()]) })
   font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
 }
 .meet-live { color: var(--red); font-weight: 700; margin-left: 0.4rem; }
+
+.roster-modal { max-width: 720px; }
+.roster-modal .mono { font-family: var(--font-mono); }
+.roster-modal textarea { resize: vertical; min-height: 180px; }
+.roster-modal .hint code {
+  font-family: var(--font-mono); font-size: 10.5px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  padding: 0.05rem 0.3rem; border-radius: 3px;
+  color: var(--cyan);
+}
+
+.roster-result { margin-top: 0.75rem; }
+.roster-errors {
+  margin-top: 0.4rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-left: 3px solid var(--amber); border-radius: 3px;
+  padding: 0.6rem 0.8rem;
+}
+.roster-error-list {
+  list-style: disc; padding-left: 1.25rem; margin: 0;
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--text-2);
+  max-height: 200px; overflow-y: auto;
+}
+.roster-error-list li { margin: 0.15rem 0; }
 
 .teams-modal { max-width: 560px; }
 .teams-section-label {

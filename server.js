@@ -2047,6 +2047,176 @@ app.get(
   },
 );
 
+// Roster CSV import. Manager pastes a CSV with one diver per
+// row plus a column per round (dive_code + position). The
+// server parses, validates each diver exists in the org, looks
+// up each dive in the directory, and inserts dive list rows in
+// a single transaction. Per-row errors are returned without
+// failing the whole import.
+//
+// Expected CSV shape (header row required):
+//   username,partner_username,round_1_code,round_1_pos,round_2_code,round_2_pos,...
+// partner_username is optional (only used for synchro events).
+app.post(
+  "/api/events/:id/roster/import",
+  requireOrgRole(["org_admin", "meet_manager"]),
+  async (req, res) => {
+    const { csv } = req.body || {};
+    if (typeof csv !== "string" || !csv.trim()) {
+      return res.status(400).json({ error: "csv body field is required" });
+    }
+    const client = await pool.connect();
+    try {
+      // Look up the event so we know its height + total_rounds
+      // before parsing — both feed into dive lookup.
+      const ev = await client.query(
+        "SELECT id, org_id, height, total_rounds, event_type FROM events WHERE id = $1 AND org_id = $2",
+        [req.params.id, req.user.org_id],
+      );
+      if (!ev.rows.length) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const event = ev.rows[0];
+      const heightNumeric = event.height ? parseFloat(event.height) : null;
+
+      const rows = parseCsv(csv);
+      if (!rows.length) {
+        return res.status(400).json({ error: "CSV had no data rows" });
+      }
+      const header = rows.shift().map((h) => h.trim().toLowerCase());
+      const userIdx     = header.indexOf("username");
+      const partnerIdx  = header.indexOf("partner_username");
+      if (userIdx < 0) {
+        return res
+          .status(400)
+          .json({ error: 'CSV must include a "username" column' });
+      }
+      // Round columns: round_N_code + round_N_pos pairs.
+      const roundCols = [];
+      for (let n = 1; n <= 12; n++) {
+        const ci = header.indexOf(`round_${n}_code`);
+        const pi = header.indexOf(`round_${n}_pos`);
+        if (ci >= 0 && pi >= 0) roundCols.push({ round: n, codeIdx: ci, posIdx: pi });
+      }
+      if (!roundCols.length) {
+        return res
+          .status(400)
+          .json({ error: 'CSV must include at least one round_N_code + round_N_pos pair' });
+      }
+
+      const stats = { added: 0, skipped: 0, errors: [] };
+      await client.query("BEGIN");
+
+      for (const row of rows) {
+        const username = (row[userIdx] || "").trim();
+        if (!username) { stats.skipped++; continue; }
+        try {
+          const u = await client.query(
+            "SELECT id FROM users WHERE username = $1 AND org_id = $2",
+            [username, event.org_id],
+          );
+          if (!u.rows.length) {
+            stats.errors.push({ username, error: "User not found in this org" });
+            continue;
+          }
+          const competitorId = u.rows[0].id;
+
+          let partnerId = null;
+          if (partnerIdx >= 0) {
+            const partnerName = (row[partnerIdx] || "").trim();
+            if (partnerName) {
+              const p = await client.query(
+                "SELECT id FROM users WHERE username = $1 AND org_id = $2",
+                [partnerName, event.org_id],
+              );
+              if (!p.rows.length) {
+                stats.errors.push({ username, error: `Partner ${partnerName} not found` });
+                continue;
+              }
+              partnerId = p.rows[0].id;
+            }
+          }
+
+          // Resolve each round's dive in the directory.
+          for (const { round, codeIdx, posIdx } of roundCols) {
+            const code = (row[codeIdx] || "").trim();
+            const pos  = (row[posIdx]  || "").trim().toUpperCase();
+            if (!code || !pos) continue;
+            const d = await client.query(
+              `SELECT id FROM dive_directory
+               WHERE dive_code = $1 AND position = $2::dive_position
+                 AND ($3::numeric IS NULL OR height = $3::numeric)`,
+              [code, pos, heightNumeric],
+            );
+            if (!d.rows.length) {
+              stats.errors.push({
+                username,
+                error: `Round ${round}: ${code}${pos} not in directory${heightNumeric ? ` for ${event.height}` : ""}`,
+              });
+              continue;
+            }
+            await client.query(
+              `INSERT INTO competitor_dive_lists (event_id, competitor_id, partner_id, dive_id, round_number)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (event_id, competitor_id, round_number)
+               DO UPDATE SET dive_id = EXCLUDED.dive_id, partner_id = EXCLUDED.partner_id`,
+              [event.id, competitorId, partnerId, d.rows[0].id, round],
+            );
+          }
+          stats.added++;
+        } catch (rowErr) {
+          stats.errors.push({ username, error: rowErr.message });
+        }
+      }
+
+      await client.query("COMMIT");
+      res.json(stats);
+    } catch (err) {
+      await client.query("ROLLBACK");
+      console.error("[Roster Import Error]", err.message);
+      res.status(500).json({ error: err.message });
+    } finally {
+      client.release();
+    }
+  },
+);
+
+// Light CSV parser. Handles "quoted, fields", "doubled""quotes"
+// inside quoted fields, and trailing/leading whitespace. Doesn't
+// pull a dependency for what's a 30-line job; the input is
+// always small (a meet roster, not a database export).
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuoted) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuoted = false;
+      } else {
+        field += ch;
+      }
+    } else {
+      if (ch === '"') {
+        inQuoted = true;
+      } else if (ch === ",") {
+        row.push(field); field = "";
+      } else if (ch === "\n" || ch === "\r") {
+        if (ch === "\r" && text[i + 1] === "\n") i++;
+        if (field.length || row.length) { row.push(field); rows.push(row); }
+        row = []; field = "";
+      } else {
+        field += ch;
+      }
+    }
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  return rows.filter((r) => r.some((c) => c.trim() !== ""));
+}
+
 app.get("/api/events/:id/history", async (req, res) => {
   try {
     const r = await pool.query(
