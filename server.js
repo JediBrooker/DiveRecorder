@@ -888,7 +888,7 @@ app.get("/api/coach/divers", verifyToken, async (req, res) => {
        LEFT JOIN clubs cl ON cl.id = u.club_id
        WHERE link.coach_id = $1
        ORDER BY u.full_name ASC`,
-      [req.user.user_id],
+      [req.user.id],
     );
     res.json(r.rows);
   } catch (err) {
@@ -1944,7 +1944,7 @@ app.post(
            config     = EXCLUDED.config,
            updated_at = now()
          RETURNING id, name, config, created_at, updated_at`,
-        [req.user.org_id, name.trim(), JSON.stringify(config), req.user.user_id],
+        [req.user.org_id, name.trim(), JSON.stringify(config), req.user.id],
       );
       res.status(201).json(r.rows[0]);
     } catch (err) {
@@ -2797,7 +2797,7 @@ app.put(
           [
             existing.id, existing.event_id, existing.competitor_id,
             existing.judge_id, existing.round_number,
-            oldScore, newScore, req.user.user_id,
+            oldScore, newScore, req.user.id,
             req.ip, req.headers["user-agent"] || null,
           ],
         );
@@ -2816,7 +2816,7 @@ app.put(
         old_score: oldScore,
         new_score: newScore,
         reason: reason || null,
-        actor_user_id: req.user.user_id,
+        actor_user_id: req.user.id,
       });
 
       res.json({ ok: true, old_score: oldScore, new_score: newScore });
@@ -2848,7 +2848,7 @@ app.get("/api/templates", verifyToken, async (req, res) => {
        FROM dive_list_templates
        WHERE user_id = $1
        ORDER BY updated_at DESC`,
-      [req.user.user_id],
+      [req.user.id],
     );
     res.json(r.rows);
   } catch (err) {
@@ -2875,7 +2875,7 @@ app.post("/api/templates", verifyToken, async (req, res) => {
          dives      = EXCLUDED.dives,
          updated_at = now()
        RETURNING id, name, height, dives, created_at, updated_at`,
-      [req.user.user_id, name.trim(), height || null, JSON.stringify(dives)],
+      [req.user.id, name.trim(), height || null, JSON.stringify(dives)],
     );
     res.status(201).json(r.rows[0]);
   } catch (err) {
@@ -2888,7 +2888,7 @@ app.delete("/api/templates/:id", verifyToken, async (req, res) => {
   try {
     const r = await pool.query(
       "DELETE FROM dive_list_templates WHERE id = $1 AND user_id = $2 RETURNING id",
-      [req.params.id, req.user.user_id],
+      [req.params.id, req.user.id],
     );
     if (!r.rows.length) return res.status(404).json({ error: "Template not found" });
     res.json({ ok: true });
@@ -3652,7 +3652,7 @@ app.put("/api/users/me/dashboard", verifyToken, async (req, res) => {
       `UPDATE users SET dashboard_widgets = $1::jsonb
        WHERE id = $2
        RETURNING dashboard_widgets`,
-      [JSON.stringify(cleaned), req.user.user_id],
+      [JSON.stringify(cleaned), req.user.id],
     );
     if (!r.rows.length) return res.status(404).json({ error: "User not found" });
     res.json({ ok: true, widgets: r.rows[0].dashboard_widgets });
