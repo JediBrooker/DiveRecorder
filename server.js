@@ -55,8 +55,8 @@ async function sendRoleDecisionEmail(userId, decision, role) {
       ? `Your ${role} role has been approved`
       : `Your ${role} role request was not approved`;
     const text = decision === "approved"
-      ? `Hi ${user.full_name},\n\nYour request for the "${role}" role has been approved. You can now sign in and access the ${role} area.\n\nDiveMeet`
-      : `Hi ${user.full_name},\n\nYour request for the "${role}" role was not approved. Please contact your organisation admin if you have questions.\n\nDiveMeet`;
+      ? `Hi ${user.full_name},\n\nYour request for the "${role}" role has been approved. You can now sign in and access the ${role} area.\n\nDive Recorder`
+      : `Hi ${user.full_name},\n\nYour request for the "${role}" role was not approved. Please contact your organisation admin if you have questions.\n\nDive Recorder`;
     await mailer.sendMail({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: user.email,
@@ -1941,7 +1941,7 @@ app.get("/api/events/:id/results.pdf", async (req, res) => {
     doc.pipe(res);
 
     // Header
-    doc.fontSize(20).font("Helvetica-Bold").text("DIVEMEET", { align: "center" });
+    doc.fontSize(20).font("Helvetica-Bold").text("DIVE RECORDER", { align: "center" });
     doc.fontSize(10).font("Helvetica").text(event.org_name, { align: "center" });
     doc.moveDown(0.5);
     doc.fontSize(16).font("Helvetica-Bold").text(event.name, { align: "center" });

@@ -126,7 +126,7 @@ onMounted(async () => {
 <template>
   <div class="header-inner">
     <div>
-      <div class="welcome-label">Dive Meet Platform</div>
+      <div class="welcome-label">Dive Recorder</div>
       <div class="welcome-name">{{ welcomeName }}</div>
       <div class="role-line">{{ roleLine }}</div>
     </div>

@@ -1,6 +1,6 @@
 # DiveRecorder
 
-A multi-tenant diving competition scoring app, branded **DiveMeet** in-product. Real-time judge scoring over WebSockets, World Aquatics-compliant point calculations, and a results archive that goes from "live broadcast" to "PDF export" without leaving the app.
+A multi-tenant diving competition scoring app. Real-time judge scoring over WebSockets, World Aquatics-compliant point calculations, and a results archive that goes from "live broadcast" to "PDF export" without leaving the app.
 
 Built around three audiences:
 

@@ -88,7 +88,7 @@ async function handleSubmit() {
 
 <template>
   <div class="wrap">
-    <div class="login-mark">Dive Meet Platform</div>
+    <div class="login-mark">Dive Recorder</div>
     <h1>Register</h1>
     <p class="subtitle">Create your account</p>
 

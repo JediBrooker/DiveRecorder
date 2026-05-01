@@ -16,8 +16,8 @@ onMounted(() => {
   <section class="hero">
     <div class="hero-glow"></div>
     <div class="hero-mark">Competition Management Platform</div>
-    <div class="hero-logo">DIVE<span>MEET</span></div>
-    <p class="hero-tagline">End-to-end dive meet management — from event setup and dive list submission through to live judging, broadcast scores, and final results.</p>
+    <div class="hero-logo">DIVE<span>RECORDER</span></div>
+    <p class="hero-tagline">End-to-end diving competition management — from event setup and dive list submission through to live judging, broadcast scores, and final results.</p>
     <div class="hero-actions">
       <RouterLink to="/login" class="hero-btn-primary">Sign In</RouterLink>
       <RouterLink to="/register" class="hero-btn-ghost">Create Account</RouterLink>
@@ -205,7 +205,7 @@ onMounted(() => {
   margin-bottom: 2rem;
   animation: fadeUp 0.5s 0.05s ease both;
 }
-.hero-logo span { color: var(--cyan); }
+.hero-logo span { display: block; color: var(--cyan); }
 .hero-tagline {
   font-family: var(--font-mono);
   font-size: clamp(13px, 2vw, 16px);
