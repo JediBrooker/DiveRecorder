@@ -584,7 +584,8 @@ h1, h2, h3, h4 {
   .app-header, .conn-banner, .filter-bar,
   .btn, .btn-ghost, .btn-primary, .btn-primary-lg,
   .sb-header, .modal-backdrop, .modal,
-  .meta-strip a, .broadcast-exit, .kbd-hints { display: none !important; }
+  .meta-strip a, .broadcast-exit, .kbd-hints,
+  .no-print { display: none !important; }
   /* Restore page-flow so a tall recap pages naturally. */
   .sb-layout, .sb-completed, .completed-grid, .completed-col,
   .col-body, .archive-wrap {

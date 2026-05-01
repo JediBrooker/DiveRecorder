@@ -26,31 +26,56 @@ const analyticsLoading = ref(false)
 // Catalog is the source of truth for labels + descriptions; the
 // backend validates against the same set of IDs.
 const WIDGET_CATALOG = [
-  { id: 'score_trend',      label: 'Score Trend',           desc: 'Total scores across meets over time, as a line chart.' },
-  { id: 'personal_bests',   label: 'Personal Bests',        desc: 'Best dive total per (code + position + height).' },
-  { id: 'recent_form',      label: 'Recent Form',           desc: 'Last 5 meets with finishing position and total.' },
-  { id: 'placings',         label: 'Medal Counts',          desc: 'Lifetime tally of gold / silver / bronze + finalist appearances.' },
-  { id: 'height_breakdown', label: 'Height Breakdown',      desc: 'Average and best dive total per board height.' },
-  { id: 'round_stamina',    label: 'Round-by-Round Form',   desc: 'Average score by round number — do you fade in later rounds?' },
-  { id: 'quality_mix',      label: 'Score Quality Mix',     desc: 'Distribution of judge scores across the FINA categories.' },
-  { id: 'dd_risk',          label: 'DD Risk Profile',       desc: 'Average + max DD attempted; how you score at the upper bound.' },
-  { id: 'frequent_dives',   label: 'Go-To Dives',           desc: 'Top 5 most-attempted dives with avg / best totals.' },
-  { id: 'streak',           label: 'Current Streak',        desc: 'Consecutive top-3 / top-1 finishes from your most recent meet.' },
+  { id: 'score_trend',       label: 'Score Trend',           desc: 'Total scores across meets over time, as a line chart.' },
+  { id: 'personal_bests',    label: 'Personal Bests',        desc: 'Best dive total per (code + position + height).' },
+  { id: 'recent_form',       label: 'Recent Form',           desc: 'Last 5 meets with finishing position and total.' },
+  { id: 'placings',          label: 'Medal Counts',          desc: 'Lifetime tally of gold / silver / bronze + finalist appearances.' },
+  { id: 'height_breakdown',  label: 'Height Breakdown',      desc: 'Average and best dive total per board height.' },
+  { id: 'round_stamina',     label: 'Round-by-Round Form',   desc: 'Average score by round number — do you fade in later rounds?' },
+  { id: 'quality_mix',       label: 'Score Quality Mix',     desc: 'Distribution of judge scores across the FINA categories.' },
+  { id: 'dd_risk',           label: 'DD Risk Profile',       desc: 'Average + max DD attempted; how you score at the upper bound.' },
+  { id: 'frequent_dives',    label: 'Go-To Dives',           desc: 'Top 5 most-attempted dives with avg / best totals.' },
+  { id: 'streak',            label: 'Current Streak',        desc: 'Consecutive top-3 / top-1 finishes from your most recent meet.' },
+  { id: 'compare_peers',     label: 'Compare to Peers',      desc: 'Your average DD and dive scores vs. the rest of your organisation.' },
+  { id: 'event_type_splits', label: 'Synchro vs Individual', desc: 'Per-event-type split: meets, dive count, average + best totals.' },
+  { id: 'year_over_year',    label: 'Year-over-Year',        desc: 'Calendar-year deltas: meets, average, best, podiums per year.' },
 ]
 const customizing = ref(false)
 const customizeSaving = ref(false)
 const customizeErr = ref('')
+// Index of the widget currently being dragged in the customize modal,
+// or null when no drag is in progress. Used to drive the drop-target
+// styling and to re-order on drop.
+const dragIndex = ref(null)
+const dragOverIndex = ref(null)
+// Date-range filter state. Empty strings = "no filter on that side".
+// The two inputs round-trip through query params on the analytics
+// endpoint; the cache key in IndexedDB is the URL, so each distinct
+// range gets its own cached payload.
+const fromDate = ref('')
+const toDate = ref('')
+
 const enabledWidgets = computed(() =>
   Array.isArray(profile.value?.dashboard_widgets)
     ? profile.value.dashboard_widgets
     : ['score_trend', 'personal_bests', 'recent_form', 'placings'],
 )
+// Display order on the dashboard mirrors the saved order in
+// dashboard_widgets, but only includes IDs that are still in the
+// catalog (so a future widget removal doesn't leave a ghost entry).
+const orderedEnabled = computed(() => {
+  const known = new Set(WIDGET_CATALOG.map(w => w.id))
+  return enabledWidgets.value.filter(id => known.has(id))
+})
 function isEnabled(id) { return enabledWidgets.value.includes(id) }
-async function toggleWidget(id) {
-  if (!isSelf.value) return
-  const next = isEnabled(id)
-    ? enabledWidgets.value.filter(w => w !== id)
-    : [...enabledWidgets.value, id]
+// Order index used by each widget card's inline `style="order: N"`
+// so the dashboard reflects the saved drag order without repeating
+// the entire template inside a v-for.
+function widgetOrder(id) {
+  const idx = orderedEnabled.value.indexOf(id)
+  return idx === -1 ? 999 : idx
+}
+async function saveWidgets(next) {
   customizeSaving.value = true
   customizeErr.value = ''
   try {
@@ -64,6 +89,102 @@ async function toggleWidget(id) {
   } finally {
     customizeSaving.value = false
   }
+}
+async function toggleWidget(id) {
+  if (!isSelf.value) return
+  const next = isEnabled(id)
+    ? enabledWidgets.value.filter(w => w !== id)
+    : [...enabledWidgets.value, id]
+  await saveWidgets(next)
+}
+
+// Customize modal builds its own list (catalog order, with enabled
+// items first in saved order, then disabled items in catalog order)
+// so drag-to-reorder operates on a stable, complete list.
+const customizeList = computed(() => {
+  const enabledSet = new Set(enabledWidgets.value)
+  // Enabled, in saved order; fall back to catalog order for any
+  // saved IDs that aren't in the catalog (defensive).
+  const enabledOrdered = enabledWidgets.value
+    .filter(id => enabledSet.has(id))
+    .map(id => WIDGET_CATALOG.find(w => w.id === id))
+    .filter(Boolean)
+  const disabled = WIDGET_CATALOG.filter(w => !enabledSet.has(w.id))
+  return [...enabledOrdered, ...disabled]
+})
+
+function onDragStart(idx, ev) {
+  dragIndex.value = idx
+  // Required for Firefox drag init.
+  if (ev.dataTransfer) {
+    ev.dataTransfer.effectAllowed = 'move'
+    try { ev.dataTransfer.setData('text/plain', String(idx)) } catch { /* ignore */ }
+  }
+}
+function onDragOver(idx, ev) {
+  if (dragIndex.value == null) return
+  ev.preventDefault()  // allow drop
+  dragOverIndex.value = idx
+}
+function onDragLeave(idx) {
+  if (dragOverIndex.value === idx) dragOverIndex.value = null
+}
+async function onDrop(idx, ev) {
+  ev.preventDefault()
+  const from = dragIndex.value
+  dragIndex.value = null
+  dragOverIndex.value = null
+  if (from == null || from === idx) return
+  // Apply the move to a copy of the customize list, then derive the
+  // new enabled-only order from it (drag works across enabled +
+  // disabled rows; only enabled IDs get persisted to the server).
+  const list = customizeList.value.slice()
+  const [moved] = list.splice(from, 1)
+  list.splice(idx, 0, moved)
+  const enabledSet = new Set(enabledWidgets.value)
+  const next = list.map(w => w.id).filter(id => enabledSet.has(id))
+  await saveWidgets(next)
+}
+function onDragEnd() {
+  dragIndex.value = null
+  dragOverIndex.value = null
+}
+
+// Apply the date-range filter — re-fetches profile + analytics with
+// the new query params. Triggered by the Apply button so a half-typed
+// date doesn't fire a request mid-keystroke.
+async function applyDateFilter() {
+  await load()
+}
+function clearDateFilter() {
+  fromDate.value = ''
+  toDate.value = ''
+  load()
+}
+
+// Build the query string for /profile and /analytics. Empty when no
+// filter is set, otherwise leading "?".
+function dateQS() {
+  const parts = []
+  if (fromDate.value) parts.push(`from_date=${encodeURIComponent(fromDate.value)}`)
+  if (toDate.value)   parts.push(`to_date=${encodeURIComponent(toDate.value)}`)
+  return parts.length ? `?${parts.join('&')}` : ''
+}
+
+// Print / "save as PDF" — relies on the browser's print dialog and
+// our @media print stylesheet, which hides headers, buttons, and
+// modals so the dashboard cards print cleanly across pages.
+function exportPDF() {
+  // Add a body class so print CSS can also kick in if the dialog is
+  // dismissed (e.g. user takes a screenshot). Removed on afterprint.
+  document.body.classList.add('printing-dashboard')
+  const cleanup = () => {
+    document.body.classList.remove('printing-dashboard')
+    window.removeEventListener('afterprint', cleanup)
+  }
+  window.addEventListener('afterprint', cleanup)
+  // Defer to next frame so the class lands before the print snapshot.
+  requestAnimationFrame(() => window.print())
 }
 
 // :id route param is optional — fall back to the logged-in user.
@@ -146,7 +267,7 @@ const trendChart = computed(() => {
 
 async function load() {
   if (!targetId.value) return
-  const url = `/api/divers/${targetId.value}/profile`
+  const url = `/api/divers/${targetId.value}/profile${dateQS()}`
   loading.value = true
   error.value = ''
   fromCache.value = false
@@ -194,7 +315,7 @@ async function loadAnalytics() {
   analyticsLoading.value = true
   try {
     const result = await cachedFetch(
-      `/api/divers/${targetId.value}/analytics`,
+      `/api/divers/${targetId.value}/analytics${dateQS()}`,
       {
         headers: {
           'Content-Type': 'application/json',
@@ -319,6 +440,28 @@ function placeColor(n) {
   return ''
 }
 
+// Year-over-year delta — compares row[i] to row[i+1] (since the
+// list is sorted newest first). Returns "+12.3%" / "-4.5%" / "—".
+function yoyDelta(list, i) {
+  const cur  = Number(list[i]?.avg_meet_total)
+  const prev = Number(list[i + 1]?.avg_meet_total)
+  if (!cur || !prev) return null
+  return ((cur - prev) / prev) * 100
+}
+function yoyDeltaText(list, i) {
+  const d = yoyDelta(list, i)
+  if (d == null) return '—'
+  const sign = d >= 0 ? '+' : ''
+  return `${sign}${d.toFixed(1)}%`
+}
+function yoyDeltaClass(list, i) {
+  const d = yoyDelta(list, i)
+  if (d == null) return 'dim'
+  if (d > 1) return 'yoy-up'
+  if (d < -1) return 'yoy-down'
+  return ''
+}
+
 onMounted(load)
 watch(targetId, load)
 </script>
@@ -337,9 +480,12 @@ watch(targetId, load)
           </span>
         </div>
       </div>
-      <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+      <div class="header-actions">
         <button v-if="profile && isSelf" class="btn btn-ghost btn-sm" @click="customizing = true">
           ⚙ Customize
+        </button>
+        <button v-if="profile" class="btn btn-ghost btn-sm" @click="exportPDF" title="Open print dialog — choose 'Save as PDF' to export.">
+          📄 Export PDF
         </button>
         <button v-if="profile && isSelf" class="btn btn-ghost btn-sm" @click="openClubEditor">
           Change Club
@@ -351,6 +497,26 @@ watch(targetId, load)
       </div>
     </div>
 
+    <!-- Date-range filter strip. Applies to every aggregate widget;
+         empty fields = no filter on that side. The Apply button
+         deliberately requires a click so partial input doesn't fire
+         a request mid-edit. -->
+    <div v-if="profile" class="filter-strip no-print">
+      <span class="filter-label">Date range</span>
+      <input type="date" class="filter-input" v-model="fromDate" :max="toDate || undefined" aria-label="From date">
+      <span class="filter-sep">→</span>
+      <input type="date" class="filter-input" v-model="toDate" :min="fromDate || undefined" aria-label="To date">
+      <button class="btn btn-primary btn-sm" @click="applyDateFilter" :disabled="loading">
+        Apply
+      </button>
+      <button v-if="fromDate || toDate" class="btn btn-ghost btn-sm" @click="clearDateFilter">
+        Clear
+      </button>
+      <span v-if="fromDate || toDate" class="filter-active">
+        Showing {{ fromDate || '…' }} → {{ toDate || 'today' }}
+      </span>
+    </div>
+
     <div v-if="loading && !profile" class="empty">Loading profile…</div>
     <div v-else-if="fromCache" class="cache-banner">
       <span class="cache-dot"></span>
@@ -358,8 +524,8 @@ watch(targetId, load)
     </div>
     <div v-else-if="error" class="msg msg-error">{{ error }}</div>
     <div v-else-if="profile" class="content">
-      <!-- Headline stats -->
-      <div class="stats-row">
+      <!-- Headline stats — always pinned to the top via order: -1 -->
+      <div class="stats-row" :style="{ order: -1 }">
         <div class="stat">
           <div class="stat-num">{{ profile.stats.total_meets || 0 }}</div>
           <div class="stat-label">Meets Entered</div>
@@ -383,7 +549,7 @@ watch(targetId, load)
       </div>
 
       <!-- Score trend -->
-      <div v-if="isEnabled('score_trend')" class="card">
+      <div v-if="isEnabled('score_trend')" class="card" :style="{ order: widgetOrder('score_trend') }">
         <div class="card-head">Score Trend</div>
         <div v-if="!profile.score_trend?.length" class="empty-mini">No completed meets yet.</div>
         <template v-else>
@@ -421,7 +587,7 @@ watch(targetId, load)
       </div>
 
       <!-- Personal bests -->
-      <div v-if="isEnabled('personal_bests')" class="card">
+      <div v-if="isEnabled('personal_bests')" class="card" :style="{ order: widgetOrder('personal_bests') }">
         <div class="card-head">Personal Bests by Dive</div>
         <div v-if="!profile.personal_bests?.length" class="empty-mini">No dives recorded yet.</div>
         <table v-else class="pb-table">
@@ -453,7 +619,7 @@ watch(targetId, load)
       <!-- Recent form — last 5 meets with rank inline. The
            field_size suffix gives context ("3rd of 18" reads
            differently than "3rd of 4"). -->
-      <div v-if="isEnabled('recent_form')" class="card">
+      <div v-if="isEnabled('recent_form')" class="card" :style="{ order: widgetOrder('recent_form') }">
         <div class="card-head">Recent Form</div>
         <div v-if="analyticsLoading && !analytics" class="empty-mini">Loading…</div>
         <div v-else-if="!analytics?.recent_form?.length" class="empty-mini">No completed meets yet.</div>
@@ -470,7 +636,7 @@ watch(targetId, load)
       </div>
 
       <!-- Medal counts -->
-      <div v-if="isEnabled('placings')" class="card">
+      <div v-if="isEnabled('placings')" class="card" :style="{ order: widgetOrder('placings') }">
         <div class="card-head">Medals &amp; Placings</div>
         <div v-if="!analytics" class="empty-mini">Loading…</div>
         <div v-else class="placings-row">
@@ -499,7 +665,7 @@ watch(targetId, load)
 
       <!-- Height breakdown — average + best dive total per board.
            Bar widths normalised to the highest avg in the set. -->
-      <div v-if="isEnabled('height_breakdown')" class="card">
+      <div v-if="isEnabled('height_breakdown')" class="card" :style="{ order: widgetOrder('height_breakdown') }">
         <div class="card-head">Height Breakdown</div>
         <div v-if="!analytics" class="empty-mini">Loading…</div>
         <div v-else-if="!analytics.height_breakdown.length" class="empty-mini">No dives by height yet.</div>
@@ -518,7 +684,7 @@ watch(targetId, load)
       </div>
 
       <!-- Round-by-round form -->
-      <div v-if="isEnabled('round_stamina')" class="card">
+      <div v-if="isEnabled('round_stamina')" class="card" :style="{ order: widgetOrder('round_stamina') }">
         <div class="card-head">Round-by-Round Form</div>
         <div v-if="!analytics" class="empty-mini">Loading…</div>
         <div v-else-if="!analytics.round_stamina.length" class="empty-mini">No rounds completed yet.</div>
@@ -542,7 +708,7 @@ watch(targetId, load)
       <!-- Score quality mix — distribution across FINA categories,
            rendered as a horizontal stacked bar with category
            colours matching the live scoreboard chips. -->
-      <div v-if="isEnabled('quality_mix')" class="card">
+      <div v-if="isEnabled('quality_mix')" class="card" :style="{ order: widgetOrder('quality_mix') }">
         <div class="card-head">Score Quality Mix</div>
         <div v-if="!analytics || !analytics.quality_mix.total" class="empty-mini">No judge scores yet.</div>
         <template v-else>
@@ -564,7 +730,7 @@ watch(targetId, load)
       </div>
 
       <!-- DD risk profile -->
-      <div v-if="isEnabled('dd_risk')" class="card">
+      <div v-if="isEnabled('dd_risk')" class="card" :style="{ order: widgetOrder('dd_risk') }">
         <div class="card-head">DD Risk Profile</div>
         <div v-if="!analytics?.dd_risk?.avg_dd" class="empty-mini">Not enough data yet.</div>
         <div v-else class="dd-risk-row">
@@ -591,7 +757,7 @@ watch(targetId, load)
       </div>
 
       <!-- Frequent (go-to) dives -->
-      <div v-if="isEnabled('frequent_dives')" class="card">
+      <div v-if="isEnabled('frequent_dives')" class="card" :style="{ order: widgetOrder('frequent_dives') }">
         <div class="card-head">Go-To Dives</div>
         <div v-if="!analytics?.frequent_dives?.length" class="empty-mini">No dives recorded yet.</div>
         <table v-else class="pb-table">
@@ -621,7 +787,7 @@ watch(targetId, load)
       <!-- Current streak — only renders when there's an active
            podium / win run. Otherwise hides itself to avoid
            a "no streak" pity widget. -->
-      <div v-if="isEnabled('streak') && analytics?.streak?.length" class="card streak-card">
+      <div v-if="isEnabled('streak') && analytics?.streak?.length" class="card streak-card" :style="{ order: widgetOrder('streak') }">
         <div class="card-head">Current Streak</div>
         <div class="streak-body">
           <div class="streak-num">{{ analytics.streak.length }}</div>
@@ -633,10 +799,161 @@ watch(targetId, load)
           </div>
         </div>
       </div>
+
+      <!-- Compare to peers — diver vs. org averages. The bars are
+           normalised to the larger of (me, peer) so a glance shows
+           who's higher. Hidden when there are no peer dives in the
+           current date window. -->
+      <div v-if="isEnabled('compare_peers') && analytics?.compare_peers" class="card" :style="{ order: widgetOrder('compare_peers') }">
+        <div class="card-head">Compare to Peers ({{ profile.diver.org_name }})</div>
+        <div v-if="!analytics.compare_peers.peer_dives" class="empty-mini">
+          No peer dives in this date range yet.
+        </div>
+        <div v-else class="compare-grid">
+          <div class="compare-row">
+            <span class="compare-lbl">Avg DD attempted</span>
+            <div class="compare-bars">
+              <div class="compare-bar compare-me"
+                   :style="{ width: barWidth(analytics.compare_peers.my_avg_dd, [
+                     { v: analytics.compare_peers.my_avg_dd },
+                     { v: analytics.compare_peers.peer_avg_dd }
+                   ], 'v') + '%' }"></div>
+              <div class="compare-bar compare-peer"
+                   :style="{ width: barWidth(analytics.compare_peers.peer_avg_dd, [
+                     { v: analytics.compare_peers.my_avg_dd },
+                     { v: analytics.compare_peers.peer_avg_dd }
+                   ], 'v') + '%' }"></div>
+            </div>
+            <span class="compare-vals">
+              <span class="compare-me-text">You {{ analytics.compare_peers.my_avg_dd != null ? Number(analytics.compare_peers.my_avg_dd).toFixed(2) : '—' }}</span>
+              <span class="compare-peer-text">Peers {{ analytics.compare_peers.peer_avg_dd != null ? Number(analytics.compare_peers.peer_avg_dd).toFixed(2) : '—' }}</span>
+            </span>
+          </div>
+          <div class="compare-row">
+            <span class="compare-lbl">Avg dive total</span>
+            <div class="compare-bars">
+              <div class="compare-bar compare-me"
+                   :style="{ width: barWidth(analytics.compare_peers.my_avg_score, [
+                     { v: analytics.compare_peers.my_avg_score },
+                     { v: analytics.compare_peers.peer_avg_score }
+                   ], 'v') + '%' }"></div>
+              <div class="compare-bar compare-peer"
+                   :style="{ width: barWidth(analytics.compare_peers.peer_avg_score, [
+                     { v: analytics.compare_peers.my_avg_score },
+                     { v: analytics.compare_peers.peer_avg_score }
+                   ], 'v') + '%' }"></div>
+            </div>
+            <span class="compare-vals">
+              <span class="compare-me-text">You {{ analytics.compare_peers.my_avg_score != null ? Number(analytics.compare_peers.my_avg_score).toFixed(1) : '—' }}</span>
+              <span class="compare-peer-text">Peers {{ analytics.compare_peers.peer_avg_score != null ? Number(analytics.compare_peers.peer_avg_score).toFixed(1) : '—' }}</span>
+            </span>
+          </div>
+          <div class="compare-row">
+            <span class="compare-lbl">Max DD attempted</span>
+            <div class="compare-bars">
+              <div class="compare-bar compare-me"
+                   :style="{ width: barWidth(analytics.compare_peers.my_max_dd, [
+                     { v: analytics.compare_peers.my_max_dd },
+                     { v: analytics.compare_peers.peer_max_dd }
+                   ], 'v') + '%' }"></div>
+              <div class="compare-bar compare-peer"
+                   :style="{ width: barWidth(analytics.compare_peers.peer_max_dd, [
+                     { v: analytics.compare_peers.my_max_dd },
+                     { v: analytics.compare_peers.peer_max_dd }
+                   ], 'v') + '%' }"></div>
+            </div>
+            <span class="compare-vals">
+              <span class="compare-me-text">You {{ analytics.compare_peers.my_max_dd != null ? Number(analytics.compare_peers.my_max_dd).toFixed(1) : '—' }}</span>
+              <span class="compare-peer-text">Peers {{ analytics.compare_peers.peer_max_dd != null ? Number(analytics.compare_peers.peer_max_dd).toFixed(1) : '—' }}</span>
+            </span>
+          </div>
+        </div>
+        <p class="widget-hint">
+          Sample: {{ analytics.compare_peers.my_dives }} of your dives vs. {{ analytics.compare_peers.peer_dives }} peer dives.
+        </p>
+      </div>
+
+      <!-- Event-type splits — synchro vs individual vs team. Each
+           row is one event_type with meets, dive count, averages.
+           The label maps the SQL enum to a human-friendly name. -->
+      <div v-if="isEnabled('event_type_splits')" class="card" :style="{ order: widgetOrder('event_type_splits') }">
+        <div class="card-head">Synchro vs Individual</div>
+        <div v-if="!analytics?.event_type_splits?.length" class="empty-mini">
+          No events to compare yet.
+        </div>
+        <table v-else class="pb-table">
+          <thead>
+            <tr>
+              <th>Event type</th>
+              <th>Meets</th>
+              <th>Dives</th>
+              <th>Avg dive</th>
+              <th>Best dive</th>
+              <th>Avg meet</th>
+              <th>Best meet</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in analytics.event_type_splits" :key="r.event_type">
+              <td class="strong">
+                {{ r.event_type === 'synchro_pair' ? 'Synchro'
+                 : r.event_type === 'team' ? 'Team'
+                 : r.event_type === 'individual' ? 'Individual'
+                 : r.event_type }}
+              </td>
+              <td class="mono dim">{{ r.meets }}</td>
+              <td class="mono dim">{{ r.dives }}</td>
+              <td class="mono">{{ r.avg_dive_score != null ? Number(r.avg_dive_score).toFixed(1) : '—' }}</td>
+              <td class="mono cyan strong">{{ r.best_single_dive != null ? Number(r.best_single_dive).toFixed(1) : '—' }}</td>
+              <td class="mono">{{ r.avg_meet_total != null ? Number(r.avg_meet_total).toFixed(1) : '—' }}</td>
+              <td class="mono cyan strong">{{ r.best_meet_total != null ? Number(r.best_meet_total).toFixed(1) : '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Year-over-year — one row per calendar year with the
+           headline numbers. Sorted newest first; the "Δ" column
+           is the year-on-year change in average meet total. -->
+      <div v-if="isEnabled('year_over_year')" class="card" :style="{ order: widgetOrder('year_over_year') }">
+        <div class="card-head">Year-over-Year</div>
+        <div v-if="!analytics?.year_over_year?.length" class="empty-mini">
+          Need at least one completed meet.
+        </div>
+        <table v-else class="pb-table">
+          <thead>
+            <tr>
+              <th>Year</th>
+              <th>Meets</th>
+              <th>Avg meet</th>
+              <th>Best meet</th>
+              <th>Wins</th>
+              <th>Podiums</th>
+              <th>Δ vs prev</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(y, i) in analytics.year_over_year" :key="y.year">
+              <td class="mono strong">{{ y.year }}</td>
+              <td class="mono dim">{{ y.meets }}</td>
+              <td class="mono">{{ y.avg_meet_total != null ? Number(y.avg_meet_total).toFixed(1) : '—' }}</td>
+              <td class="mono cyan strong">{{ y.best_meet_total != null ? Number(y.best_meet_total).toFixed(1) : '—' }}</td>
+              <td class="mono">{{ y.wins }}</td>
+              <td class="mono">{{ y.podiums }}</td>
+              <td class="mono" :class="yoyDeltaClass(analytics.year_over_year, i)">
+                {{ yoyDeltaText(analytics.year_over_year, i) }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 
-  <!-- Customize Dashboard modal -->
+  <!-- Customize Dashboard modal — toggle on/off + drag-to-reorder.
+       Order is taken from `customizeList`: enabled widgets first
+       (in saved order), then disabled widgets. Dragging a row
+       commits a new order through PUT /api/users/me/dashboard. -->
   <div v-if="customizing" class="modal-backdrop" @click="customizing = false"></div>
   <div v-if="customizing" class="modal customize-modal" @click.stop>
     <div class="modal-head">
@@ -645,19 +962,33 @@ watch(targetId, load)
     </div>
     <div class="modal-body">
       <p class="modal-hint" style="margin-top:0">
-        Toggle widgets on or off. Changes save automatically.
+        Toggle widgets on or off. Drag the ⋮⋮ handle to re-order.
+        Changes save automatically.
       </p>
-      <div class="widget-toggles">
-        <label v-for="w in WIDGET_CATALOG" :key="w.id" class="widget-toggle">
+      <div class="widget-toggles" @dragend="onDragEnd">
+        <div
+          v-for="(w, idx) in customizeList"
+          :key="w.id"
+          :class="['widget-toggle',
+                   { 'is-dragging': dragIndex === idx,
+                     'is-drop-target': dragOverIndex === idx && dragIndex !== idx,
+                     'is-disabled': !isEnabled(w.id) }]"
+          :draggable="isSelf"
+          @dragstart="onDragStart(idx, $event)"
+          @dragover="onDragOver(idx, $event)"
+          @dragleave="onDragLeave(idx)"
+          @drop="onDrop(idx, $event)"
+        >
+          <span class="drag-handle" :title="isSelf ? 'Drag to re-order' : ''">⋮⋮</span>
           <input type="checkbox"
                  :checked="isEnabled(w.id)"
-                 :disabled="customizeSaving"
+                 :disabled="customizeSaving || !isSelf"
                  @change="toggleWidget(w.id)">
           <div class="widget-toggle-text">
             <div class="widget-toggle-label">{{ w.label }}</div>
             <div class="widget-toggle-desc">{{ w.desc }}</div>
           </div>
-        </label>
+        </div>
       </div>
       <div v-if="customizeErr" class="msg msg-error">{{ customizeErr }}</div>
     </div>
@@ -1019,5 +1350,115 @@ watch(targetId, load)
 }
 .streak-hint {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+}
+
+.header-actions {
+  display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;
+}
+
+/* =========================================================
+   Date-range filter strip
+   ========================================================= */
+.filter-strip {
+  display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.875rem;
+  margin-bottom: 1.25rem;
+  font-family: var(--font-mono); font-size: 12px;
+}
+.filter-label {
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3);
+}
+.filter-input {
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); border-radius: 4px;
+  padding: 0.35rem 0.5rem; font-family: var(--font-mono); font-size: 12px;
+  color-scheme: dark;
+}
+.filter-input:focus { outline: 1px solid var(--cyan); border-color: var(--cyan); }
+.filter-sep { color: var(--text-3); }
+.filter-active {
+  color: var(--cyan); font-size: 11px;
+  margin-left: auto;
+}
+
+/* =========================================================
+   Compare-to-peers bars — diver in cyan, peers in slate
+   ========================================================= */
+.compare-grid { display: flex; flex-direction: column; gap: 0.7rem; }
+.compare-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 200px;
+  align-items: center; gap: 0.6rem;
+}
+.compare-lbl {
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3);
+}
+.compare-bars {
+  display: flex; flex-direction: column; gap: 3px;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px; min-height: 28px;
+}
+.compare-bar { height: 8px; border-radius: 3px; transition: width 0.2s; min-width: 1px; }
+.compare-bar.compare-me   { background: linear-gradient(90deg, var(--cyan), #0891b2); }
+.compare-bar.compare-peer { background: linear-gradient(90deg, #64748b, #475569); }
+.compare-vals {
+  display: flex; flex-direction: column; gap: 2px;
+  font-family: var(--font-mono); font-size: 11px;
+}
+.compare-me-text   { color: var(--cyan); font-weight: 700; }
+.compare-peer-text { color: var(--text-3); }
+
+/* =========================================================
+   Drag-to-reorder visual cues in customize modal
+   ========================================================= */
+.widget-toggle .drag-handle {
+  display: inline-block;
+  font-family: var(--font-mono); font-weight: 700; font-size: 14px;
+  color: var(--text-3); cursor: grab; user-select: none;
+  letter-spacing: -2px; padding: 0 0.2rem;
+}
+.widget-toggle.is-dragging   { opacity: 0.4; }
+.widget-toggle.is-drop-target {
+  border-color: var(--cyan); box-shadow: 0 0 0 1px var(--cyan) inset;
+}
+.widget-toggle.is-disabled .widget-toggle-label { color: var(--text-3); }
+
+/* =========================================================
+   Year-over-year delta colours
+   ========================================================= */
+.yoy-up   { color: #10b981; font-weight: 700; }
+.yoy-down { color: #ef4444; font-weight: 700; }
+
+/* =========================================================
+   Print / "save as PDF" support. Hides chrome (header buttons,
+   modals, filter strip) so the dashboard prints cleanly across
+   pages. Triggered by the .printing-dashboard class on <body>
+   that exportPDF() adds for the duration of window.print().
+   ========================================================= */
+@media print {
+  .no-print, .header-actions, .modal-backdrop, .modal { display: none !important; }
+  .profile-wrap { padding: 0.5rem; }
+  .page-header { border-bottom: 2px solid #000; }
+  .page-title { color: #000; }
+  .card, .stat {
+    break-inside: avoid; page-break-inside: avoid;
+    background: #fff !important; border: 1px solid #ccc !important;
+    color: #000 !important;
+  }
+  .stat-num, .placing-num, .dd-num, .streak-num { color: #000 !important; }
+  .card-head, .stat-label, .placing-lbl, .dd-lbl { color: #555 !important; }
+  .trend-place, .trend-total, .compare-me-text, .pb-table td.cyan { color: #000 !important; }
+  .bar-fill { background: #555 !important; }
+  .quality-seg.quality-failed         { background: #c0392b !important; }
+  .quality-seg.quality-deficient      { background: #e67e22 !important; }
+  .quality-seg.quality-unsatisfactory { background: #f1c40f !important; }
+  .quality-seg.quality-satisfactory   { background: #7f8c8d !important; }
+  .quality-seg.quality-good           { background: #16a085 !important; }
+  .quality-seg.quality-very_good      { background: #27ae60 !important; }
+  .quality-seg.quality-excellent      { background: #8e44ad !important; }
 }
 </style>

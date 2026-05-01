@@ -3003,8 +3003,39 @@ async function canViewDiverProfile(viewer, diverRow) {
   return roles.includes("org_admin") || roles.includes("meet_manager");
 }
 
+// Parse + normalise the optional ?from_date / ?to_date query params
+// used by /profile and /analytics. Returns { from, to } where each
+// is either a YYYY-MM-DD string or null. Throws a 400-shaped Error
+// on invalid input so the route handler can convert it to a response.
+function parseDateRange(query) {
+  const norm = (raw) => {
+    if (!raw) return null;
+    const s = String(raw).trim();
+    if (!s) return null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const e = new Error("from_date / to_date must be YYYY-MM-DD");
+      e.status = 400;
+      throw e;
+    }
+    // Quick sanity check — Date.parse rejects 2024-13-40 etc.
+    const t = Date.parse(s + "T00:00:00Z");
+    if (Number.isNaN(t)) {
+      const e = new Error("from_date / to_date is not a real date");
+      e.status = 400;
+      throw e;
+    }
+    return s;
+  };
+  return { from: norm(query.from_date), to: norm(query.to_date) };
+}
+
 app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
   try {
+    let dateRange;
+    try { dateRange = parseDateRange(req.query); }
+    catch (err) { return res.status(err.status || 400).json({ error: err.message }); }
+    const { from: fromDate, to: toDate } = dateRange;
+
     const diverRes = await pool.query(
       `SELECT u.id, u.full_name, u.org_id, o.name AS org_name, o.country_code,
               u.club_id, cl.name AS club_name, cl.short_code AS club_code,
@@ -3021,6 +3052,12 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
 
     if (!(await canViewDiverProfile(req.user, diver)))
       return res.status(403).json({ error: "Not permitted to view this profile" });
+
+    // Date-range filter pushed into every aggregate. $2/$3 are nullable;
+    // when null the AND clause is a no-op so unfiltered callers still work.
+    const DATE_FILTER = `
+      AND ($2::date IS NULL OR e.created_at >= $2::date)
+      AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')`;
 
     // Top-level stats: total events the diver has scored in,
     // total dives performed, average DD across all dives attempted.
@@ -3043,6 +3080,7 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
           AND cdl.round_number = s.round_number
          LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
          WHERE s.competitor_id = $1
+         ${DATE_FILTER}
          GROUP BY s.event_id, s.round_number, e.number_of_judges, e.event_type
        )
        SELECT
@@ -3051,7 +3089,7 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
          AVG(dd)::numeric(4,2)         AS avg_dd,
          MAX(dive_total)::numeric(6,2) AS best_single_dive
        FROM dive_totals`,
-      [req.params.id],
+      [req.params.id, fromDate, toDate],
     );
 
     // Personal best per dive: highest dive points the diver has
@@ -3076,6 +3114,7 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
           AND cdl.round_number = s.round_number
          JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
          WHERE s.competitor_id = $1
+         ${DATE_FILTER}
          GROUP BY s.event_id, s.round_number,
                   d.dive_code, d.position, d.height, d.dd, d.description, e.number_of_judges, e.event_type
        ),
@@ -3098,7 +3137,7 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
        FROM ranked
        WHERE rn = 1
        ORDER BY dive_code ASC, position ASC`,
-      [req.params.id],
+      [req.params.id, fromDate, toDate],
     );
 
     // Score trend: per-event total + final placing, oldest first
@@ -3108,7 +3147,9 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
       `WITH diver_events AS (
          SELECT DISTINCT s.event_id
          FROM scores s
+         JOIN events e ON e.id = s.event_id
          WHERE s.competitor_id = $1
+         ${DATE_FILTER}
        ),
        per_dive AS (
          SELECT s.event_id, s.competitor_id, s.round_number,
@@ -3167,7 +3208,7 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
        LEFT JOIN teams tm ON tm.id = tlink.team_id
        WHERE ranked.competitor_id = $1
        ORDER BY e.created_at ASC`,
-      [req.params.id],
+      [req.params.id, fromDate, toDate],
     );
 
     res.json({
@@ -3207,6 +3248,11 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
 
 app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
   try {
+    let dateRange;
+    try { dateRange = parseDateRange(req.query); }
+    catch (err) { return res.status(err.status || 400).json({ error: err.message }); }
+    const { from: fromDate, to: toDate } = dateRange;
+
     const diverRes = await pool.query(
       "SELECT id, org_id FROM users WHERE id = $1",
       [req.params.id],
@@ -3218,14 +3264,20 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
       return res.status(403).json({ error: "Not permitted to view this profile" });
     }
     const id = req.params.id;
+    const orgId = diverRes.rows[0].org_id;
 
     // CTE used by every widget: per-dive totals via the official
     // calc function. Building it once and reusing in WITH would
     // be ideal, but pg can't reuse CTEs across separate queries,
     // and inlining keeps each rollup independent and cheap.
+    //
+    // $1 = competitor_id, $2 = from_date (nullable), $3 = to_date (nullable).
+    // The two date predicates are no-ops when their param is null, so
+    // unfiltered callers still work.
     const PER_DIVE = `
       SELECT s.event_id, s.competitor_id, s.round_number,
              d.dive_code, d.position, d.height, d.dd, d.description,
+             e.event_type::text AS event_type, e.created_at,
              calc_event_dive_points(
                array_agg(ej.judge_number ORDER BY ej.judge_number),
                array_agg(s.score ORDER BY ej.judge_number),
@@ -3242,9 +3294,11 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
        AND cdl.round_number = s.round_number
       LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
       WHERE s.competitor_id = $1
+        AND ($2::date IS NULL OR e.created_at >= $2::date)
+        AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')
       GROUP BY s.event_id, s.competitor_id, s.round_number,
                d.dive_code, d.position, d.height, d.dd, d.description,
-               e.number_of_judges, e.event_type
+               e.number_of_judges, e.event_type, e.created_at
     `;
 
     const queries = await Promise.all([
@@ -3273,7 +3327,7 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
          WHERE r.competitor_id = $1
          ORDER BY e.created_at DESC
          LIMIT 5`,
-        [id],
+        [id, fromDate, toDate],
       ),
 
       // PLACINGS — counts of medals + finalist + further-back results
@@ -3296,7 +3350,7 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
            COUNT(*) FILTER (WHERE rank > 8)::int              AS further,
            COUNT(*)::int                                      AS total_meets
          FROM ranked WHERE competitor_id = $1`,
-        [id],
+        [id, fromDate, toDate],
       ),
 
       // HEIGHT BREAKDOWN — avg + best dive total per board height
@@ -3310,7 +3364,7 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
          WHERE competitor_id = $1 AND height IS NOT NULL
          GROUP BY height
          ORDER BY height ASC`,
-        [id],
+        [id, fromDate, toDate],
       ),
 
       // ROUND STAMINA — average dive total by round number.
@@ -3324,24 +3378,29 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
          WHERE competitor_id = $1
          GROUP BY round_number
          ORDER BY round_number ASC`,
-        [id],
+        [id, fromDate, toDate],
       ),
 
       // QUALITY MIX — distribution of individual judge scores
       // bucketed into FINA categories. Mirrors the colour
-      // categories used on the live scoreboard chips.
+      // categories used on the live scoreboard chips. Joined to
+      // events so the date-range filter applies the same way.
       pool.query(
         `SELECT
-           COUNT(*) FILTER (WHERE score = 0)::int                     AS failed,
-           COUNT(*) FILTER (WHERE score > 0   AND score <= 2.0)::int AS deficient,
-           COUNT(*) FILTER (WHERE score > 2.0 AND score <= 4.5)::int AS unsatisfactory,
-           COUNT(*) FILTER (WHERE score > 4.5 AND score <= 6.0)::int AS satisfactory,
-           COUNT(*) FILTER (WHERE score > 6.0 AND score <= 8.0)::int AS good,
-           COUNT(*) FILTER (WHERE score > 8.0 AND score <= 9.5)::int AS very_good,
-           COUNT(*) FILTER (WHERE score > 9.5)::int                   AS excellent,
-           COUNT(*)::int                                              AS total
-         FROM scores WHERE competitor_id = $1`,
-        [id],
+           COUNT(*) FILTER (WHERE s.score = 0)::int                       AS failed,
+           COUNT(*) FILTER (WHERE s.score > 0   AND s.score <= 2.0)::int AS deficient,
+           COUNT(*) FILTER (WHERE s.score > 2.0 AND s.score <= 4.5)::int AS unsatisfactory,
+           COUNT(*) FILTER (WHERE s.score > 4.5 AND s.score <= 6.0)::int AS satisfactory,
+           COUNT(*) FILTER (WHERE s.score > 6.0 AND s.score <= 8.0)::int AS good,
+           COUNT(*) FILTER (WHERE s.score > 8.0 AND s.score <= 9.5)::int AS very_good,
+           COUNT(*) FILTER (WHERE s.score > 9.5)::int                     AS excellent,
+           COUNT(*)::int                                                  AS total
+         FROM scores s
+         JOIN events e ON e.id = s.event_id
+         WHERE s.competitor_id = $1
+           AND ($2::date IS NULL OR e.created_at >= $2::date)
+           AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')`,
+        [id, fromDate, toDate],
       ),
 
       // DD RISK PROFILE — average DD attempted, max DD, average
@@ -3359,7 +3418,7 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
                                          AS attempts_at_highest_dd
          FROM per_dive
          WHERE competitor_id = $1 AND dd IS NOT NULL`,
-        [id],
+        [id, fromDate, toDate],
       ),
 
       // FREQUENT DIVES — the diver's go-to dives, ordered by
@@ -3375,7 +3434,7 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
          GROUP BY dive_code, position, height
          ORDER BY attempts DESC, avg_score DESC
          LIMIT 5`,
-        [id],
+        [id, fromDate, toDate],
       ),
 
       // STREAK — current run of consecutive top-3 / top-1 finishes
@@ -3396,11 +3455,114 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
          FROM ranked
          WHERE competitor_id = $1
          ORDER BY created_at DESC`,
-        [id],
+        [id, fromDate, toDate],
+      ),
+
+      // COMPARE TO PEERS — diver's avg DD + avg dive total vs. the
+      // rest of their organisation over the same date window.
+      // Excludes the diver themselves from the peer pool. Cost
+      // scales with org size; acceptable for analytics as it's
+      // not a hot path. Date filter applies to the org pool too.
+      pool.query(
+        `WITH org_dives AS (
+           SELECT (s.competitor_id = $1) AS is_me, d.dd,
+                  calc_event_dive_points(
+                    array_agg(ej.judge_number ORDER BY ej.judge_number),
+                    array_agg(s.score ORDER BY ej.judge_number),
+                    e.number_of_judges, MAX(d.dd), e.event_type,
+                    BOOL_OR(cdl.partner_id IS NOT NULL)
+                  ) AS dive_total
+           FROM scores s
+           JOIN users u ON u.id = s.competitor_id
+           JOIN events e ON e.id = s.event_id
+           LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+           LEFT JOIN competitor_dive_lists cdl
+             ON cdl.event_id = s.event_id
+            AND cdl.competitor_id = s.competitor_id
+            AND cdl.round_number = s.round_number
+           LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+           WHERE u.org_id = $4
+             AND ($2::date IS NULL OR e.created_at >= $2::date)
+             AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')
+           GROUP BY (s.competitor_id = $1), s.event_id, s.competitor_id, s.round_number,
+                    d.dd, e.number_of_judges, e.event_type
+         )
+         SELECT
+           AVG(dd)         FILTER (WHERE is_me)::numeric(4,2)         AS my_avg_dd,
+           AVG(dd)         FILTER (WHERE NOT is_me)::numeric(4,2)     AS peer_avg_dd,
+           MAX(dd)         FILTER (WHERE is_me)::numeric(4,2)         AS my_max_dd,
+           MAX(dd)         FILTER (WHERE NOT is_me)::numeric(4,2)     AS peer_max_dd,
+           AVG(dive_total) FILTER (WHERE is_me)::numeric(6,2)         AS my_avg_score,
+           AVG(dive_total) FILTER (WHERE NOT is_me)::numeric(6,2)     AS peer_avg_score,
+           COUNT(*)        FILTER (WHERE is_me)::int                  AS my_dives,
+           COUNT(*)        FILTER (WHERE NOT is_me)::int              AS peer_dives
+         FROM org_dives`,
+        [id, fromDate, toDate, orgId],
+      ),
+
+      // EVENT TYPE SPLITS — meets, dives, avg + best dive total
+      // per event_type (individual / synchro_pair / team). Lets a
+      // diver see at a glance whether synchro pulls down their
+      // average or vice versa.
+      pool.query(
+        `WITH per_dive AS (${PER_DIVE}),
+         event_totals AS (
+           SELECT event_id, competitor_id, event_type,
+                  SUM(dive_total) AS total
+           FROM per_dive GROUP BY event_id, competitor_id, event_type
+         )
+         SELECT pd.event_type,
+                COUNT(DISTINCT pd.event_id)::int           AS meets,
+                COUNT(*)::int                              AS dives,
+                AVG(pd.dive_total)::numeric(6,2)           AS avg_dive_score,
+                MAX(pd.dive_total)::numeric(6,2)           AS best_single_dive,
+                AVG(et.total)::numeric(8,2)                AS avg_meet_total,
+                MAX(et.total)::numeric(8,2)                AS best_meet_total
+         FROM per_dive pd
+         LEFT JOIN event_totals et
+           ON et.event_id = pd.event_id AND et.competitor_id = pd.competitor_id
+         WHERE pd.competitor_id = $1
+         GROUP BY pd.event_type
+         ORDER BY meets DESC`,
+        [id, fromDate, toDate],
+      ),
+
+      // YEAR-OVER-YEAR — per calendar year (of e.created_at) headline
+      // numbers + ranks, so the diver can see their own deltas
+      // year over year. We compute placings inside the same query
+      // so a single rollup answers "did I progress this year vs last".
+      pool.query(
+        `WITH per_dive AS (${PER_DIVE}),
+         event_totals AS (
+           SELECT event_id, competitor_id, SUM(dive_total) AS total
+           FROM per_dive GROUP BY event_id, competitor_id
+         ),
+         ranked AS (
+           SELECT et.event_id, et.competitor_id, et.total,
+                  RANK() OVER (PARTITION BY et.event_id ORDER BY et.total DESC) AS rank
+           FROM event_totals et
+         ),
+         my_events AS (
+           SELECT r.*, e.created_at
+           FROM ranked r
+           JOIN events e ON e.id = r.event_id
+           WHERE r.competitor_id = $1
+         )
+         SELECT EXTRACT(YEAR FROM created_at)::int     AS year,
+                COUNT(DISTINCT event_id)::int          AS meets,
+                AVG(total)::numeric(8,2)               AS avg_meet_total,
+                MAX(total)::numeric(8,2)               AS best_meet_total,
+                COUNT(*) FILTER (WHERE rank = 1)::int  AS wins,
+                COUNT(*) FILTER (WHERE rank <= 3)::int AS podiums
+         FROM my_events
+         GROUP BY year
+         ORDER BY year DESC`,
+        [id, fromDate, toDate],
       ),
     ]);
 
-    const [recent, placings, heights, rounds, quality, ddRisk, frequent, streak] =
+    const [recent, placings, heights, rounds, quality, ddRisk, frequent, streak,
+           comparePeers, eventTypeSplits, yearOverYear] =
       queries.map((q) => q.rows);
 
     // Streak post-processing — count consecutive top-3 from the
@@ -3444,6 +3606,15 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
       },
       frequent_dives: frequent,
       streak: { kind: streakKind, length: streakLen },
+      compare_peers: comparePeers[0] || {
+        my_avg_dd: null, peer_avg_dd: null,
+        my_max_dd: null, peer_max_dd: null,
+        my_avg_score: null, peer_avg_score: null,
+        my_dives: 0, peer_dives: 0,
+      },
+      event_type_splits: eventTypeSplits,
+      year_over_year: yearOverYear,
+      filter: { from_date: fromDate, to_date: toDate },
     });
   } catch (err) {
     console.error("[Diver Analytics Error]", err.message);
@@ -3457,6 +3628,8 @@ const KNOWN_WIDGETS = new Set([
   "score_trend", "personal_bests", "recent_form", "placings",
   "height_breakdown", "round_stamina", "quality_mix", "dd_risk",
   "frequent_dives", "streak",
+  // Added with the date-range filter pass:
+  "compare_peers", "event_type_splits", "year_over_year",
 ]);
 
 app.put("/api/users/me/dashboard", verifyToken, async (req, res) => {
