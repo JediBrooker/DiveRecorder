@@ -9,6 +9,24 @@ of truth** — fix this file as part of the same commit.
 
 ---
 
+## Where things live
+
+| Folder | What's there |
+|---|---|
+| `server.js`           | Express + Socket.IO bootstrap, route mounts, socket handlers. Has a TOC at the top with `[SECTION: NAME]` anchors — Cmd-F for any of them to jump straight there. ~5,000 lines. |
+| `routes/`             | Route modules extracted from `server.js`: `auth.js`, `scoreboard.js`, `diver-search.js`. Pattern: factory function returning an Express router. |
+| `lib/middleware.js`   | The auth + RBAC + payload-validation perimeter. Every gate the API uses to reject a request lives here. **Read this whole file** when reviewing security. |
+| `db/queries.js`       | Shared SQL CTE templates (`PER_DIVE`, `FULL_FIELD_RANKING`). Used by the analytics endpoint. |
+| `migrations/`         | Numbered SQL migration files (`0NN_*.sql`). Run via `npm run migrate`. |
+| `init.sql`            | Schema bootstrap from empty. Bumps `schema_meta.version` at the bottom. |
+| `scripts/migrate.js`  | Migration runner. Reads `schema_meta.version`, applies pending files in order. `npm run migrate -- --dry` for plan-only. |
+| `src/types.js`        | JSDoc `@typedef`s for every API response shape. Reference via `/** @type {import('@/types').DiverProfile} */`. |
+| `src/composables/`    | Vue composables. **ESM** (sub-package.json `type: module`). Pure logic ones (`useScoreTrim`, `useScoreCategories`) are unit-tested in `test/score-trim.test.js`. |
+| `docs/socket-events.md` | Socket.IO event registry — every event the server listens for or emits, the role gate, and the payload shape. **Update this in the same commit when you add or change an event.** |
+| `test/`               | `node:test` suites. `syntax`, `calc`, `score-trim` run without a DB; `integration` skips when DB unreachable. |
+
+---
+
 ## Stack at a glance
 
 - **Backend**: Node 20 + Express 5 + Socket.IO 4 + node-postgres (`pg`).
@@ -103,21 +121,24 @@ above it.
 
 | Job | Helper | File |
 |---|---|---|
-| Decode JWT | `verifyToken` middleware | `server.js` |
-| Require any of N org roles | `requireOrgRole([...])` | `server.js` |
-| Require event manager OR org_admin in same org | `requireEventManager()` | `server.js` |
-| Require sysadmin only | `requireSystemAdmin` | `server.js` |
-| Confirm event ID belongs to caller's org (read paths) | `ensureEventOrgGate(req, res, paramName)` | `server.js` |
-| Confirm a target user/team belongs to the event's org | `isInSameOrg(db, eventOrgId, id, kind)` | `server.js` |
+| Decode JWT | `verifyToken` middleware | `lib/middleware.js` |
+| Require any of N org roles | `requireOrgRole([...])` | `lib/middleware.js` |
+| Require event manager OR same-org admin | `requireEventManager()` | `lib/middleware.js` |
+| Require sysadmin only | `requireSystemAdmin` | `lib/middleware.js` |
+| Confirm event ID belongs to caller's org (read paths) | `ensureEventOrgGate(req, res, paramName)` | `lib/middleware.js` |
+| Confirm a target user/team belongs to the event's org | `isInSameOrg(db, eventOrgId, id, kind)` | `lib/middleware.js` |
+| Auth gate for socket events | `socketRequireRole(socket, [...])` | `lib/middleware.js` |
+| Validate a score from the wire (0–10, half-points) | `isValidScore(s)` | `lib/middleware.js` |
+| Parse `?from_date=&to_date=` query params | `parseDateRange(query)` | `lib/middleware.js` |
 | Per-query catch-and-log (analytics) | `runQuery(label, sql, params)` | inline in `/api/divers/:id/analytics` |
+| Standard analytics CTE for per-dive rows | `PER_DIVE` | `db/queries.js` |
+| Standard analytics CTE for full-field ranking | `FULL_FIELD_RANKING` | `db/queries.js` |
+| Computed dive points (server) | `calc_event_dive_points(...)` SQL function | `init.sql` |
 | Auth-aware fetch with auto-redirect on 401 | `auth.apiFetch(url, opts)` | `src/stores/auth.js` |
 | Stale-while-revalidate fetch | `cachedFetch(url, opts, { onUpdate })` | `src/lib/idbCache.js` |
 | Wipe per-user IndexedDB cache | `idbClear()` | `src/lib/idbCache.js` |
-| Trim & tag judges' scores (FINA rules) | `useScoreTrim()` composable | `src/composables/useScoreTrim.js` |
-| Bucket a score into a FINA category | `useScoreCategories()` composable | `src/composables/useScoreCategories.js` |
-| Computed dive points (server) | `calc_event_dive_points(...)` SQL function | `init.sql` |
-| Standard analytics CTE for per-dive rows | `PER_DIVE` template string | inline in `/api/divers/:id/analytics` |
-| Standard analytics CTE for full-field ranking | `analyticsRankingCTE(...)` | `db/queries.js` |
+| Trim & tag judges' scores (FINA rules) | `annotateJudgeRows(judges, n, eventType)` | `src/composables/useScoreTrim.js` |
+| Bucket a score into a FINA category | `scoreCategory(s)` | `src/composables/useScoreCategories.js` |
 
 If you write the third copy of any of these, **stop and consolidate** into
 a helper. The repo has bled time on duplicated patterns.

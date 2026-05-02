@@ -2,6 +2,45 @@
 // DIVING APP — SERVER v2
 // Express + Socket.IO + PostgreSQL
 // Multi-tenant RBAC with org-scoped roles
+//
+// AGENT NAVIGATION
+// ----------------
+// Each section is tagged with [SECTION: NAME] so an agent can jump
+// to it via Cmd-F / grep. Order below mirrors the file's reading
+// flow top-to-bottom. Read AGENTS.md alongside this file for the
+// invariants (JWT shape, sysadmin bypass, org-resource cross-checks).
+//
+//   [SECTION: BOOTSTRAP]              app + io setup, helmet, limiters
+//   [SECTION: EMAIL]                  nodemailer + send-* helpers
+//   [SECTION: DB POOL & JWT_SECRET]   pool config, fail-closed secret
+//   [SECTION: MIDDLEWARE]             verifyToken, requireOrgRole,
+//                                     requireEventManager, requireSystemAdmin,
+//                                     ensureEventOrgGate, isInSameOrg,
+//                                     parseDateRange, isValidScore
+//   [SECTION: TOKEN PAYLOAD]          buildTokenPayload (JWT shape)
+//   [SECTION: ROUTES — ORGANISATIONS] /api/orgs/*, /api/clubs/*
+//   [SECTION: ROUTES — TEAMS]         /api/teams/*, /api/events/:id/teams
+//   [SECTION: ROUTES — COACH]         /api/coach/*
+//   [SECTION: ROUTES — USERS]         /api/users/*, /api/role-requests/*
+//   [SECTION: ROUTES — MEETS]         /api/meets/*
+//   [SECTION: ROUTES — EVENTS]        /api/events (CRUD + status)
+//   [SECTION: ROUTES — STAGE ADVANCE] /api/events/:id/advance (top-N)
+//   [SECTION: ROUTES — TEMPLATES]     /api/orgs/:id/event-templates
+//   [SECTION: ROUTES — JUDGES]        /api/events/:id/judges
+//   [SECTION: ROUTES — CONTROL ROOM]  /api/events/:id/roster + reorder + DNS
+//   [SECTION: ROUTES — SCOREBOARD]    public scoreboard, score corrections
+//   [SECTION: MEET HOLD STATE]        in-memory hold map
+//   [SECTION: ROUTES — DIVE TEMPLATES] /api/dive-list-templates/*
+//   [SECTION: ROUTES — COMPETITOR]    /api/competitor/submit-list
+//   [SECTION: ROUTES — DIVE DIRECTORY] /api/dive-directory
+//   [SECTION: ROUTES — DIVER PROFILE] /api/divers/:id/profile, /analytics
+//   [SECTION: ROUTES — AUDIT LOG]     /api/events/:id/score-audit
+//   [SECTION: SOCKET ENGINE]          io.use, submit_score, referee_*,
+//                                     meet_hold/resume, set_active_diver
+//   [SECTION: ROUTES — ARCHIVE]       /api/archive
+//   [SECTION: ROUTES — PDF EXPORT]    /api/events/:id/results.pdf, /program.pdf
+//   [SECTION: SPA FALLBACK]           static + history-API rewrite
+//   [SECTION: START]                  server.listen (skipped under require())
 // =============================================================
 
 const express = require("express");
@@ -21,6 +60,7 @@ require("dotenv").config();
 
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3000";
 
+// [SECTION: BOOTSTRAP]
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: CORS_ORIGIN } });
@@ -64,6 +104,7 @@ const bulkWriteLimiter = rateLimit({
 
 // =============================================================
 // EMAIL
+// [SECTION: EMAIL]
 // =============================================================
 
 const mailer = process.env.SMTP_HOST
@@ -275,6 +316,7 @@ async function sendEventResultsEmails(event) {
 // Serve the built Vue app (run `npm run build` before starting the server)
 app.use(express.static(path.join(__dirname, 'dist')))
 
+// [SECTION: DB POOL & JWT_SECRET]
 const pool = new Pool({
   user: process.env.DB_USER,
   host: process.env.DB_HOST,
@@ -305,120 +347,28 @@ const JWT_EXPIRY = process.env.JWT_EXPIRY || "8h";
 
 // =============================================================
 // MIDDLEWARE
+// [SECTION: MIDDLEWARE]
+//
+// All middleware + security helpers live in lib/middleware.js so
+// the auth/RBAC perimeter can be reviewed as a single unit. See
+// AGENTS.md for the invariants. Don't add new gates inline here —
+// add them to lib/middleware.js and re-export.
 // =============================================================
-
-// Decodes JWT and attaches req.user. Does not enforce roles.
-const verifyToken = (req, res, next) => {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
-  if (!token) return res.status(403).json({ error: "No token provided" });
-  jwt.verify(token, JWT_SECRET, (err, decoded) => {
-    if (err) return res.status(401).json({ error: "Invalid or expired token" });
-    req.user = decoded;
-    next();
-  });
-};
-
-// Ensures the user holds at least one of the given org-level roles.
-// system_admin always passes.
-const requireOrgRole =
-  (roles = []) =>
-  (req, res, next) => {
-    verifyToken(req, res, () => {
-      if (req.user.is_system_admin) return next();
-      const userRoles = req.user.org_roles || [];
-      const ok = roles.length === 0 || roles.some((r) => userRoles.includes(r));
-      if (!ok) return res.status(403).json({ error: "Insufficient role" });
-      next();
-    });
-  };
-
-// Ensures the user can manage the event in the URL.
-//
-// system_admin always passes. Otherwise we fetch the event's org_id
-// and require either:
-//   * org_admin role in *that same org*, or
-//   * event_managers membership for the specific event.
-//
-// The previous version let any user with the org_admin role pass,
-// without verifying the event was in their org — which let a small-
-// org admin manage another org's events by guessing the event ID.
-// We also stash the event row on req.event for handlers to reuse.
-const requireEventManager = () => async (req, res, next) => {
-  verifyToken(req, res, async () => {
-    try {
-      const eventId = req.params.id || req.body.eventId;
-      if (!eventId) return res.status(400).json({ error: "Event ID required" });
-
-      const ev = await pool.query(
-        "SELECT id, org_id FROM events WHERE id = $1",
-        [eventId],
-      );
-      if (!ev.rows.length) {
-        return res.status(404).json({ error: "Event not found" });
-      }
-      req.event = ev.rows[0];
-
-      if (req.user.is_system_admin) return next();
-
-      const sameOrg = req.event.org_id === req.user.org_id;
-      const orgRoles = req.user.org_roles || [];
-      if (sameOrg && orgRoles.includes("org_admin")) return next();
-
-      const result = await pool.query(
-        "SELECT 1 FROM event_managers WHERE event_id = $1 AND user_id = $2",
-        [eventId, req.user.id],
-      );
-      if (result.rows.length === 0)
-        return res
-          .status(403)
-          .json({ error: "You are not a manager of this event" });
-      next();
-    } catch (err) {
-      console.error("[requireEventManager]", err.message);
-      res.status(500).json({ error: "Server error during authorisation" });
-    }
-  });
-};
-
-// Helper for assignment endpoints: confirms a target user/team
-// belongs to the same org as the event the request targets.
-// Returns the row or null. Use the second arg `kind` to switch
-// between users and teams. We accept either a pool or a client
-// (so it composes inside an open transaction).
-async function isInSameOrg(db, eventOrgId, id, kind = "users") {
-  if (!id || !eventOrgId) return false;
-  const table = kind === "teams" ? "teams" : "users";
-  const r = await db.query(`SELECT org_id FROM ${table} WHERE id = $1`, [id]);
-  return r.rows[0]?.org_id === eventOrgId;
-}
-
-// Express helper: confirms the event in :id (or the named param) is
-// in the calling user's org. system_admin bypasses. Returns 404 on
-// missing event, 403 on wrong org. Stashes req.event for the handler.
-async function ensureEventOrgGate(req, res, paramName = "id") {
-  const id = req.params[paramName];
-  if (!id) { res.status(400).json({ error: "Event id required" }); return false; }
-  const r = await pool.query("SELECT id, org_id FROM events WHERE id = $1", [id]);
-  if (!r.rows.length) { res.status(404).json({ error: "Event not found" }); return false; }
-  req.event = r.rows[0];
-  if (req.user.is_system_admin) return true;
-  if (r.rows[0].org_id !== req.user.org_id) {
-    res.status(403).json({ error: "Event is not in your organisation" });
-    return false;
-  }
-  return true;
-}
-
-const requireSystemAdmin = (req, res, next) =>
-  verifyToken(req, res, () => {
-    if (!req.user.is_system_admin)
-      return res.status(403).json({ error: "System admin access required" });
-    next();
-  });
+const {
+  verifyToken,
+  requireOrgRole,
+  requireSystemAdmin,
+  requireEventManager,
+  ensureEventOrgGate,
+  isInSameOrg,
+  socketRequireRole,
+  isValidScore,
+  parseDateRange,
+} = require("./lib/middleware")({ pool, JWT_SECRET });
 
 // =============================================================
 // HELPER — Build JWT payload
+// [SECTION: TOKEN PAYLOAD]
 // =============================================================
 async function buildTokenPayload(userId) {
   const u = await pool.query(
@@ -469,6 +419,7 @@ app.use(
 
 // =============================================================
 // ORGANISATION ROUTES
+// [SECTION: ROUTES — ORGANISATIONS]
 // =============================================================
 
 app.get("/api/orgs", requireSystemAdmin, async (req, res) => {
@@ -966,6 +917,7 @@ app.delete(
 // CompetitorView's synchro partner picker.
 // =============================================================
 // COACH ROUTES
+// [SECTION: ROUTES — COACH]
 // A coach picks up divers via coach_diver_links (created by an
 // org admin in the User Manager). These endpoints power the
 // coach's dashboard.
@@ -1278,6 +1230,7 @@ app.post(
 
 // =============================================================
 // USER & ROLE MANAGEMENT ROUTES
+// [SECTION: ROUTES — USERS]
 // =============================================================
 
 app.get("/api/users", requireOrgRole(["org_admin"]), async (req, res) => {
@@ -1614,6 +1567,7 @@ app.get(
 
 // =============================================================
 // MEET ROUTES
+// [SECTION: ROUTES — MEETS]
 // A meet bundles multiple events. Public-readable (any spectator
 // can browse meets) but write-restricted to org_admin /
 // meet_manager.
@@ -1810,6 +1764,7 @@ app.put(
 
 // =============================================================
 // EVENT ROUTES
+// [SECTION: ROUTES — EVENTS]
 // =============================================================
 
 app.get("/api/events", async (req, res) => {
@@ -1857,6 +1812,7 @@ app.get("/api/events", async (req, res) => {
 
 // =============================================================
 // STAGE ADVANCEMENT — top-N from one stage to the next
+// [SECTION: ROUTES — STAGE ADVANCE]
 // (preliminary → semifinal, semifinal → final, or
 // preliminary → final when the meet skips the semi). The
 // downstream event's roster is built from scratch; existing
@@ -2017,6 +1973,7 @@ app.post(
 
 // =============================================================
 // EVENT TEMPLATES — saved configurations a manager can apply
+// [SECTION: ROUTES — TEMPLATES]
 // to a new event. config is the full form state as JSON.
 // =============================================================
 
@@ -2394,6 +2351,7 @@ app.delete(
 
 // =============================================================
 // JUDGE ASSIGNMENT ROUTES
+// [SECTION: ROUTES — JUDGES]
 // =============================================================
 
 app.get(
@@ -2492,6 +2450,7 @@ app.get("/api/judge/my-events", requireOrgRole(["judge"]), async (req, res) => {
 
 // =============================================================
 // CONTROL ROOM ROUTES
+// [SECTION: ROUTES — CONTROL ROOM]
 // =============================================================
 
 app.get(
@@ -2984,6 +2943,7 @@ app.get("/api/events/:id/history", async (req, res) => {
 
 // =============================================================
 // SCOREBOARD — public
+// [SECTION: ROUTES — SCOREBOARD]
 // Endpoints (/api/scoreboard/:eventId and /leaderboard) moved
 // to routes/scoreboard.js. The dive-list-templates section
 // below sits between the two original mounts and is kept here
@@ -2994,6 +2954,7 @@ app.use(require("./routes/scoreboard")({ pool }));
 
 // =============================================================
 // SCORE CORRECTION
+// [SECTION: ROUTES — SCOREBOARD]
 // Manager / referee amends a previously-submitted score (judge
 // typo, scoring dispute resolution). Goes through the same
 // score_audit_log plumbing the live submit path uses, then
@@ -3083,6 +3044,7 @@ app.put(
 
 // =============================================================
 // MEET HOLD STATE
+// [SECTION: MEET HOLD STATE]
 // In-memory map: event_id → { reason, since }. The Control
 // Room toggles it via socket events; the Scoreboard and
 // Judge views render a banner while held. Cleared on
@@ -3093,6 +3055,7 @@ const meetHolds = {};
 
 // =============================================================
 // DIVE LIST TEMPLATES — per-diver saved combinations
+// [SECTION: ROUTES — DIVE TEMPLATES]
 // =============================================================
 
 app.get("/api/templates", verifyToken, async (req, res) => {
@@ -3154,6 +3117,7 @@ app.delete("/api/templates/:id", verifyToken, async (req, res) => {
 
 // =============================================================
 // COMPETITOR ROUTES
+// [SECTION: ROUTES — COMPETITOR]
 // =============================================================
 
 app.post(
@@ -3268,6 +3232,7 @@ app.post(
 
 // =============================================================
 // DIVE DIRECTORY
+// [SECTION: ROUTES — DIVE DIRECTORY]
 // =============================================================
 
 app.get("/api/dive-directory", verifyToken, async (req, res) => {
@@ -3284,6 +3249,7 @@ app.get("/api/dive-directory", verifyToken, async (req, res) => {
 
 // =============================================================
 // DIVER PROFILE & HISTORY
+// [SECTION: ROUTES — DIVER PROFILE]
 // Stats compiled from the diver's score history across all events
 // in the directory: personal best per dive, average DD attempted,
 // recent meets and a chronological score trend.
@@ -3314,31 +3280,7 @@ function canViewDiverPrivate(viewer, diverRow) {
   return roles.includes("org_admin") || roles.includes("meet_manager") || roles.includes("coach");
 }
 
-// Parse + normalise the optional ?from_date / ?to_date query params
-// used by /profile and /analytics. Returns { from, to } where each
-// is either a YYYY-MM-DD string or null. Throws a 400-shaped Error
-// on invalid input so the route handler can convert it to a response.
-function parseDateRange(query) {
-  const norm = (raw) => {
-    if (!raw) return null;
-    const s = String(raw).trim();
-    if (!s) return null;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-      const e = new Error("from_date / to_date must be YYYY-MM-DD");
-      e.status = 400;
-      throw e;
-    }
-    // Quick sanity check — Date.parse rejects 2024-13-40 etc.
-    const t = Date.parse(s + "T00:00:00Z");
-    if (Number.isNaN(t)) {
-      const e = new Error("from_date / to_date is not a real date");
-      e.status = 400;
-      throw e;
-    }
-    return s;
-  };
-  return { from: norm(query.from_date), to: norm(query.to_date) };
-}
+// parseDateRange lives in lib/middleware.js — imported at the top.
 
 app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
   try {
@@ -3560,6 +3502,7 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
 
 // =============================================================
 // DIVER ANALYTICS — composable widgets the diver enables on
+// [SECTION: ROUTES — DIVER PROFILE]
 // their own profile. Each query is a small rollup of existing
 // scores; computed in parallel and returned as a single payload
 // so the frontend just toggles which widget renders.
@@ -4060,6 +4003,7 @@ app.get(
 
 // =============================================================
 // SOCKET ENGINE
+// [SECTION: SOCKET ENGINE]
 // =============================================================
 
 // In-memory store of the current active diver per event.
@@ -4087,35 +4031,9 @@ io.use((socket, next) => {
   next();
 });
 
-// Authorisation gate for any privileged socket event. Returns true
-// when the connection has a verified user and (optionally) one of
-// the listed org_roles, or is a system admin. Emits "unauthorized"
-// and returns false otherwise so the client can react. This is the
-// counterpart to verifyToken / requireOrgRole on the HTTP side.
-function socketRequireRole(socket, roles = null) {
-  if (!socket.userId) {
-    socket.emit("unauthorized", { reason: "not_authenticated" });
-    return false;
-  }
-  if (!roles || socket.userIsSystemAdmin) return true;
-  const userRoles = socket.userOrgRoles || [];
-  if (!roles.some((r) => userRoles.includes(r))) {
-    socket.emit("unauthorized", { reason: "insufficient_role" });
-    return false;
-  }
-  return true;
-}
-
-// Validate a score payload from the wire. Mirrors the HTTP correction
-// route's checks so the socket path can't store nonsense like 99.9
-// or -1, which would silently skew totals downstream.
-function isValidScore(s) {
-  const n = Number(s);
-  if (!Number.isFinite(n)) return false;
-  if (n < 0 || n > 10) return false;
-  // Whole or half points only.
-  return Math.round(n * 2) === n * 2;
-}
+// socketRequireRole + isValidScore live in lib/middleware.js —
+// imported at the top alongside the HTTP gates so the auth
+// perimeter (socket and HTTP) sits in one place.
 
 function clientIp(socket) {
   const fwd = socket.handshake.headers["x-forwarded-for"];
@@ -4427,6 +4345,7 @@ io.on("connection", (socket) => {
 
 // =============================================================
 // RESULTS ARCHIVE — public list of completed events
+// [SECTION: ROUTES — ARCHIVE]
 // =============================================================
 
 app.get("/api/archive", async (req, res) => {
@@ -4620,6 +4539,7 @@ app.get("/api/archive/:eventId/results", async (req, res) => {
 
 // =============================================================
 // PDF EXPORT
+// [SECTION: ROUTES — PDF EXPORT]
 // =============================================================
 
 // Public meet program PDF — full schedule, every event in
@@ -4955,6 +4875,7 @@ app.get("/api/events/:id/results.pdf", async (req, res) => {
 
 // =============================================================
 // SPA FALLBACK — must come after all API routes
+// [SECTION: SPA FALLBACK]
 //
 // Hard-refreshing /dashboard (or any client-side route) hits
 // Express, not the Vue router. We send index.html so the SPA
@@ -5011,6 +4932,7 @@ async function bootChecks() {
   }
 }
 
+// [SECTION: START]
 const PORT = process.env.PORT || 3000;
 
 // Only bind the port when this file is the entry point (i.e. node

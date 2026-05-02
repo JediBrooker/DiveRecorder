@@ -10,11 +10,15 @@
 // wins on the "kept" side, matching the scoreboard's stable-tie
 // behaviour.
 
+// Relative path (rather than the @/ alias) so this file is also
+// importable from Node test runners that don't have Vite's path
+// resolver. Vite handles relative paths fine; nothing changes for
+// the SPA bundle.
 import {
   scoreCategory,
   trimCount,
   synchroJudgeGroups,
-} from '@/composables/useScoreCategories.js'
+} from './useScoreCategories.js'
 
 /**
  * @param {Array<{judge_number:number, score:number|string}>} judges
@@ -77,4 +81,4 @@ function dropEndsByJudgeNumber(rows, judgeNumbers, dropLow, dropHigh) {
 
 // Re-export the bucket helper so callers that already have the
 // composable imported don't need a second import.
-export { scoreCategory } from '@/composables/useScoreCategories.js'
+export { scoreCategory } from './useScoreCategories.js'

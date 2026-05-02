@@ -1,0 +1,4 @@
+{
+  "type": "module",
+  "_comment": "Sub-package.json so Node treats every src/*.js as ESM. Vite already handles them as ESM via Rollup. Adding this lets test/*.test.js dynamically import('../src/composables/...') without an --experimental-vm-modules flag. Don't add dependencies here — this only exists to override the type:commonjs declaration in the repo-root package.json."
+}
