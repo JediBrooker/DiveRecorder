@@ -1698,8 +1698,20 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .btn-finalise { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; padding: 0.5rem 1.1rem; border-radius: var(--radius-sm); border: 1px solid rgba(245,158,11,0.4); background: var(--amber-dim); color: var(--amber); cursor: pointer; transition: all 0.15s; }
 .btn-finalise:hover { background: var(--amber); color: var(--bg); }
 
-.lb-backdrop { position: fixed; inset: 0; background: rgba(3,7,18,0.95); backdrop-filter: blur(12px); z-index: 300; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
-.lb-modal { background: var(--surface); border: 1px solid var(--border-2); border-radius: 28px; width: 100%; max-width: 560px; max-height: 90vh; overflow-y: auto; animation: fadeUp 0.3s ease; }
+.lb-backdrop { position: fixed; inset: 0; background: rgba(3,7,18,0.95); backdrop-filter: blur(12px); z-index: 300; }
+/* Modal renders as a sibling of the backdrop in the DOM, so it
+   needs its own fixed positioning + a higher z-index. The previous
+   rule had no position/z-index, which buried the modal behind the
+   backdrop and produced a black-screen result for late-entry,
+   meet-hold, and round-end prompts. */
+.lb-modal {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  z-index: 301;
+  background: var(--surface); border: 1px solid var(--border-2); border-radius: 28px;
+  width: calc(100% - 3rem); max-width: 560px; max-height: 90vh;
+  overflow-y: auto; animation: fadeUp 0.3s ease;
+  box-shadow: 0 30px 60px rgba(0,0,0,0.55);
+}
 .lb-header { padding: 2rem 2rem 1.25rem; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); display: flex; align-items: flex-start; justify-content: space-between; }
 .lb-title { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 0.25em; text-transform: uppercase; color: var(--cyan); margin-bottom: 0.4rem; }
 .lb-event { font-family: var(--font-display); font-size: 26px; font-weight: 900; font-style: italic; color: var(--text); line-height: 1; }
