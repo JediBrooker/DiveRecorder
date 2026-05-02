@@ -456,6 +456,71 @@ const lateTeams     = ref([])        // teams enrolled in the event
 const lateRounds = ref([])
 const lateActiveSlot = ref(-1)        // which slot's autocomplete dropdown is open
 
+// =============================================================
+// CHECK-IN PANEL (#2 from the feature roadmap)
+// Pre-meet door pass: each unique diver in the event gets a
+// Present / Late / DNS chip. Reduces start delays and lets the
+// announcer call divers who are confirmed on the deck.
+// =============================================================
+const checkInOpen = ref(false)
+const checkInRows = ref([])
+const checkInLoading = ref(false)
+const checkInErr = ref('')
+
+async function openCheckIn() {
+  if (!currentEvent.value) return
+  checkInOpen.value = true
+  await refreshCheckIn()
+}
+function closeCheckIn() { checkInOpen.value = false }
+
+async function refreshCheckIn() {
+  if (!currentEvent.value) return
+  checkInLoading.value = true
+  checkInErr.value = ''
+  try {
+    checkInRows.value = await auth.apiFetch(
+      `/api/events/${currentEvent.value.id}/attendance`,
+    )
+  } catch (err) {
+    checkInErr.value = err.message
+    checkInRows.value = []
+  } finally {
+    checkInLoading.value = false
+  }
+}
+
+// Set a diver's status. Optimistic — we update the local row
+// then fire the PUT; on failure we revert and surface the error.
+async function setAttendance(row, status) {
+  const prev = row.status
+  // Toggle: clicking the same chip twice clears the status.
+  const next = prev === status ? null : status
+  row.status = next
+  try {
+    const r = await auth.apiFetch(
+      `/api/events/${currentEvent.value.id}/attendance/${row.competitor_id}`,
+      { method: 'PUT', body: JSON.stringify({ status: next }) },
+    )
+    row.status = r.status   // server is source of truth
+    row.set_at = r.set_at
+  } catch (err) {
+    row.status = prev
+    checkInErr.value = err.message
+  }
+}
+
+const checkInCounts = computed(() => {
+  const out = { present: 0, late: 0, absent: 0, pending: 0 }
+  for (const r of checkInRows.value) {
+    if (r.status === 'present')      out.present++
+    else if (r.status === 'late')    out.late++
+    else if (r.status === 'absent')  out.absent++
+    else                              out.pending++
+  }
+  return out
+})
+
 async function openLateEntry() {
   lateErr.value = ''
   lateBusy.value = false
@@ -1377,6 +1442,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <span>Diver Queue</span>
           <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
             <span class="roster-count">{{ roster.length ? currentIndex + 1 : 0 }}/{{ roster.length }}</span>
+            <button v-if="currentEvent" class="btn btn-ghost btn-sm" @click="openCheckIn"
+                    title="Open the pre-meet check-in / accreditation list.">
+              ✓ Check-in
+            </button>
             <button v-if="currentEvent && roster.length" class="btn btn-ghost btn-sm"
                     :disabled="randomizing"
                     @click="randomizeStartOrder"
@@ -1556,6 +1625,60 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           {{ correctBusy ? 'Saving…' : 'Save correction' }}
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- Check-in / accreditation modal -->
+  <div v-if="checkInOpen" class="lb-backdrop" @click="closeCheckIn"></div>
+  <div v-if="checkInOpen" class="lb-modal checkin-modal" @click.stop>
+    <div class="lb-header">
+      <div>
+        <div class="lb-title">Check-in</div>
+        <div class="lb-event">
+          {{ currentEvent?.name }}
+          <span class="checkin-tally">
+            <span class="tally-present">✓ {{ checkInCounts.present }}</span>
+            <span class="tally-late">⏱ {{ checkInCounts.late }}</span>
+            <span class="tally-absent">✕ {{ checkInCounts.absent }}</span>
+            <span class="tally-pending">— {{ checkInCounts.pending }}</span>
+          </span>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" @click="closeCheckIn">Close ✕</button>
+    </div>
+    <div class="lb-body">
+      <p class="hint" style="margin-bottom: 0.6rem">
+        Tap a chip to set the diver's status. Clicking the same chip again clears it
+        (back to pending). Updates persist instantly and broadcast to other operators.
+      </p>
+      <div v-if="checkInLoading" class="empty-mini">Loading…</div>
+      <div v-else-if="!checkInRows.length" class="empty-mini">
+        No divers entered for this event yet.
+      </div>
+      <div v-else class="checkin-list">
+        <div v-for="row in checkInRows" :key="row.competitor_id"
+             :class="['checkin-row', `checkin-${row.status || 'pending'}`]">
+          <div class="checkin-name">
+            {{ row.full_name }}
+            <span v-if="row.country_code" class="checkin-country">{{ row.country_code }}</span>
+            <div v-if="row.club_name" class="checkin-club">
+              {{ row.club_name }}<span v-if="row.club_code" class="checkin-club-code">{{ row.club_code }}</span>
+            </div>
+          </div>
+          <div class="checkin-chips">
+            <button :class="['chip', 'chip-present', row.status === 'present' ? 'is-active' : '']"
+                    @click="setAttendance(row, 'present')"
+                    title="Mark present">✓ Present</button>
+            <button :class="['chip', 'chip-late', row.status === 'late' ? 'is-active' : '']"
+                    @click="setAttendance(row, 'late')"
+                    title="Mark late">⏱ Late</button>
+            <button :class="['chip', 'chip-absent', row.status === 'absent' ? 'is-active' : '']"
+                    @click="setAttendance(row, 'absent')"
+                    title="Mark absent / DNS">✕ DNS</button>
+          </div>
+        </div>
+      </div>
+      <div v-if="checkInErr" class="msg msg-error">{{ checkInErr }}</div>
     </div>
   </div>
 
@@ -2111,6 +2234,80 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .late-modal { max-width: 600px; }
+
+/* =========================================================
+   Check-in modal — pre-meet door pass list. Each row has the
+   diver's name + chip group. The chip colour leans on the
+   status semantics (cyan = present, amber = late, red = DNS).
+   ========================================================= */
+.checkin-modal { max-width: 720px; }
+.checkin-tally {
+  display: inline-flex; gap: 0.6rem; margin-left: 0.8rem;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 400;
+  vertical-align: middle;
+}
+.checkin-tally .tally-present { color: #06b6d4; }
+.checkin-tally .tally-late    { color: #f59e0b; }
+.checkin-tally .tally-absent  { color: #ef4444; }
+.checkin-tally .tally-pending { color: var(--text-3); }
+
+.checkin-list {
+  display: flex; flex-direction: column; gap: 0.4rem;
+  max-height: 60vh; overflow-y: auto;
+}
+.checkin-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.6rem; padding: 0.55rem 0.7rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.checkin-row.checkin-present { border-color: rgba(6,182,212,0.4);  background: rgba(6,182,212,0.05); }
+.checkin-row.checkin-late    { border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.05); }
+.checkin-row.checkin-absent  { border-color: rgba(239,68,68,0.4);  background: rgba(239,68,68,0.05); opacity: 0.75; }
+.checkin-name {
+  font-family: var(--font-display); font-weight: 700; color: var(--text);
+  font-size: 13px; min-width: 0;
+}
+.checkin-country {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 400;
+  color: var(--text-3); margin-left: 0.4rem;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 3px; padding: 0.05rem 0.35rem;
+  vertical-align: middle;
+}
+.checkin-club {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3);
+  font-weight: 400; margin-top: 0.15rem;
+}
+.checkin-club-code {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  color: var(--cyan); background: var(--cyan-dim);
+  border: 1px solid rgba(6,182,212,0.3); border-radius: 3px;
+  padding: 0.05rem 0.3rem; margin-left: 0.3rem;
+}
+.checkin-chips { display: flex; gap: 0.3rem; flex-shrink: 0; }
+.checkin-chips .chip {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  padding: 0.3rem 0.55rem;
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text-3); border-radius: var(--radius-sm);
+  cursor: pointer; transition: all 0.1s;
+}
+.checkin-chips .chip:hover { border-color: var(--text-2); color: var(--text-2); }
+.checkin-chips .chip.chip-present.is-active {
+  background: rgba(6,182,212,0.15); border-color: rgba(6,182,212,0.5); color: #06b6d4;
+}
+.checkin-chips .chip.chip-late.is-active {
+  background: rgba(245,158,11,0.15); border-color: rgba(245,158,11,0.5); color: #f59e0b;
+}
+.checkin-chips .chip.chip-absent.is-active {
+  background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.5); color: #ef4444;
+}
+
+@media (max-width: 720px) {
+  .checkin-row { flex-direction: column; align-items: stretch; }
+  .checkin-chips { justify-content: space-between; }
+}
 .late-modal .hint {
   font-size: 11px; color: var(--text-3); line-height: 1.5;
   padding: 0.5rem 0.7rem; margin-top: 0.4rem;

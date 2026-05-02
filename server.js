@@ -2679,6 +2679,90 @@ app.put(
   },
 );
 
+// =============================================================
+// CHECK-IN / ATTENDANCE — pre-meet door pass (migration 016).
+// Operators flip a Present / Late / Absent chip per diver. Status
+// is per-(event, competitor); the absence of a row means "not yet
+// checked in" so the operator can see who hasn't been ticked off.
+// =============================================================
+
+// List every distinct competitor in the event with their current
+// attendance status. Joined to the competitor_dive_lists so we
+// don't have to maintain a separate "entry" table.
+app.get(
+  "/api/events/:id/attendance",
+  requireOrgRole(["org_admin", "meet_manager", "referee"]),
+  async (req, res) => {
+    try {
+      if (!(await ensureEventOrgGate(req, res, "id"))) return;
+      const r = await pool.query(
+        `SELECT u.id AS competitor_id, u.full_name,
+                o.country_code,
+                cl.name AS club_name, cl.short_code AS club_code,
+                ea.status::text  AS status,
+                ea.set_at,
+                actor.full_name  AS set_by_name
+         FROM (
+           SELECT DISTINCT competitor_id
+           FROM competitor_dive_lists WHERE event_id = $1
+         ) entry
+         JOIN users u           ON u.id = entry.competitor_id
+         JOIN organisations o   ON o.id = u.org_id
+         LEFT JOIN clubs cl     ON cl.id = u.club_id
+         LEFT JOIN event_attendance ea
+           ON ea.event_id = $1 AND ea.competitor_id = u.id
+         LEFT JOIN users actor  ON actor.id = ea.set_by
+         ORDER BY u.full_name ASC`,
+        [req.params.id],
+      );
+      res.json(r.rows);
+    } catch (err) {
+      console.error("[Attendance List Error]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+// Set / clear a diver's attendance status. PUT body { status }
+// where status ∈ {present, late, absent} or null to clear. Audit-
+// stamped via set_at + set_by.
+app.put(
+  "/api/events/:id/attendance/:competitorId",
+  requireOrgRole(["org_admin", "meet_manager", "referee"]),
+  async (req, res) => {
+    try {
+      if (!(await ensureEventOrgGate(req, res, "id"))) return;
+      const { status } = req.body || {};
+      const VALID = new Set(["present", "late", "absent"]);
+      if (status != null && !VALID.has(status)) {
+        return res.status(400).json({ error: "status must be present | late | absent | null" });
+      }
+      if (status == null) {
+        await pool.query(
+          `DELETE FROM event_attendance
+           WHERE event_id = $1 AND competitor_id = $2`,
+          [req.params.id, req.params.competitorId],
+        );
+        return res.json({ ok: true, status: null });
+      }
+      const r = await pool.query(
+        `INSERT INTO event_attendance (event_id, competitor_id, status, set_by)
+         VALUES ($1, $2, $3::attendance_status, $4)
+         ON CONFLICT (event_id, competitor_id)
+         DO UPDATE SET status = EXCLUDED.status,
+                       set_at = now(),
+                       set_by = EXCLUDED.set_by
+         RETURNING status::text AS status, set_at`,
+        [req.params.id, req.params.competitorId, status, req.user.id],
+      );
+      res.json({ ok: true, ...r.rows[0] });
+    } catch (err) {
+      console.error("[Attendance Set Error]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
 // Late-entry: add a dive list row from the Control Room. Used
 // when a diver shows up but didn't pre-submit. Single-row
 // version of the existing CSV import — pick competitor + dive

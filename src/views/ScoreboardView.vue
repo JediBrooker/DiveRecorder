@@ -16,6 +16,19 @@ const socket = useSocket({ spectator: true })
 // into kiosk mode without leaving the page.
 const broadcastMode = computed(() => route.params.mode === 'broadcast')
 
+// Stream-overlay mode: ?overlay=1 puts the page into a minimal,
+// chroma-key-friendly layout for OBS / streaming software. Hides
+// every background colour, header, and panel chrome — just the
+// active diver block + a compact top-3. Chroma-key colour is set
+// by ?bg=<hex>; defaults to a vivid green (#00ff44) which is the
+// standard OBS chroma colour. Operators can pick e.g. ?bg=ff00ff
+// for magenta if their lighting pushes a green spill.
+const overlayMode = computed(() => route.query.overlay === '1' || route.query.overlay === 'true')
+const overlayBg   = computed(() => {
+  const raw = String(route.query.bg || '').replace(/^#/, '').trim()
+  return /^[0-9a-fA-F]{6}$/.test(raw) ? `#${raw}` : '#00ff44'
+})
+
 // Browsable list of every Live + Completed meet. Used as the
 // landing state of the page; the user picks one and we pivot
 // into either the live broadcast layout or the recap layout.
@@ -490,7 +503,9 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="sb-layout" :class="{ 'broadcast-mode': broadcastMode }">
+  <div class="sb-layout"
+       :class="{ 'broadcast-mode': broadcastMode, 'overlay-mode': overlayMode }"
+       :style="overlayMode ? { background: overlayBg } : null">
     <!-- Floating exit button when in broadcast mode — small,
          positioned in the corner, nearly invisible until hover.
          Lets an operator drop back into the normal layout
@@ -551,6 +566,13 @@ onMounted(async () => {
           class="btn btn-ghost btn-sm"
           title="Open in broadcast / kiosk mode (no page chrome)"
         >📺 Broadcast</RouterLink>
+        <a
+          v-if="currentEventId && !isCompleted"
+          :href="`/scoreboard/${currentEventId}?overlay=1`"
+          target="_blank" rel="noopener"
+          class="btn btn-ghost btn-sm"
+          title="Open the chroma-key overlay (for OBS / streaming). Append &bg=ff00ff for a magenta key colour."
+        >🎬 Stream overlay</a>
         <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">Dashboard</RouterLink>
       </div>
     </div>
@@ -1580,6 +1602,53 @@ onMounted(async () => {
 /* Result export buttons (PDF / CSV / start list) — sit in the
    recap header next to the event title. Wrap on narrow screens. */
 .export-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+/* =========================================================
+   Live-stream overlay (?overlay=1) — chroma-key-friendly view
+   for OBS. Strips every background colour and panel chrome so
+   the streaming software can key out the bg colour cleanly.
+   Activated by adding `?overlay=1` to the scoreboard URL; the
+   chroma colour is set inline on .sb-layout via ?bg=<hex>.
+   ========================================================= */
+.sb-layout.overlay-mode { color: #fff; min-height: 100vh; padding: 1.5rem; }
+.sb-layout.overlay-mode .sb-header,
+.sb-layout.overlay-mode .sb-controls,
+.sb-layout.overlay-mode .sb-footer,
+.sb-layout.overlay-mode .meta-strip,
+.sb-layout.overlay-mode .conn-banner,
+.sb-layout.overlay-mode .meet-hold-banner,
+.sb-layout.overlay-mode .filter-bar,
+.sb-layout.overlay-mode .sb-event-list,
+.sb-layout.overlay-mode .completed-grid > .completed-col + .completed-col,
+.sb-layout.overlay-mode .export-actions,
+.sb-layout.overlay-mode .archive-wrap,
+.sb-layout.overlay-mode .archive-controls { display: none !important; }
+/* Keep only the active diver tile and a compact top-3 visible.
+   Style them with text-shadow for readability against any chroma
+   colour the operator picks. */
+.sb-layout.overlay-mode .sb-body,
+.sb-layout.overlay-mode .sb-completed,
+.sb-layout.overlay-mode .sb-col,
+.sb-layout.overlay-mode .completed-col {
+  background: transparent !important; border: none !important;
+  box-shadow: none !important;
+}
+.sb-layout.overlay-mode .active-diver-tile,
+.sb-layout.overlay-mode .standings-card,
+.sb-layout.overlay-mode .col-head,
+.sb-layout.overlay-mode .standings-row {
+  background: rgba(0, 0, 0, 0.55) !important;
+  border-radius: 8px;
+  color: #fff !important;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+  padding: 0.6rem 0.9rem;
+}
+.sb-layout.overlay-mode .standings-row {
+  margin-bottom: 0.25rem; padding: 0.4rem 0.7rem;
+}
+.sb-layout.overlay-mode .standings-card { padding: 0.4rem; }
+.sb-layout.overlay-mode .standings-card .standings-row:nth-child(n+5) { display: none; }
+.sb-layout.overlay-mode .col-head { font-size: 13px; letter-spacing: 0.2em; }
 
 .completed-grid {
   flex: 1; display: grid; grid-template-columns: 380px 1fr; overflow: hidden;

@@ -97,6 +97,12 @@ CREATE TYPE role_audit_action AS ENUM (
     'revoked'
 );
 
+CREATE TYPE attendance_status AS ENUM (
+    'present',
+    'late',
+    'absent'
+);
+
 
 -- =============================================================
 -- ORGANISATIONS
@@ -456,6 +462,20 @@ CREATE TABLE public.role_audit_log (
     created_at  timestamptz DEFAULT now() NOT NULL
 );
 
+-- =============================================================
+-- EVENT ATTENDANCE — pre-meet door check-in (migration 016).
+-- One row per (event, competitor); no row = "not yet checked in".
+-- =============================================================
+
+CREATE TABLE public.event_attendance (
+    event_id      uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    competitor_id uuid NOT NULL REFERENCES public.users(id)  ON DELETE CASCADE,
+    status        attendance_status NOT NULL,
+    set_at        timestamptz NOT NULL DEFAULT now(),
+    set_by        uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    PRIMARY KEY (event_id, competitor_id)
+);
+
 
 -- =============================================================
 -- WORLD AQUATICS DIVE POINTS — INDIVIDUAL
@@ -651,6 +671,7 @@ CREATE INDEX idx_events_parent_event       ON public.events (parent_event_id);
 CREATE INDEX idx_dive_lists_event_round_order
     ON public.competitor_dive_lists (event_id, round_number, display_order)
     WHERE withdrawn_at IS NULL;
+CREATE INDEX idx_event_attendance_event    ON public.event_attendance (event_id);
 
 
 -- =============================================================
@@ -668,7 +689,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 15);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 16);
 
 
 -- =============================================================
