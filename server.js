@@ -1408,11 +1408,35 @@ app.get("/api/users", requireOrgRole(["org_admin"]), async (req, res) => {
   }
 });
 
+// Enum values from init.sql's CREATE TYPE org_role. system_admin
+// is intentionally NOT in this set — it's a column on users, not
+// a role assignable here. Keeping this in sync with init.sql is
+// flagged in AGENTS.md.
+const VALID_ORG_ROLES = new Set([
+  "org_admin", "meet_manager", "referee",
+  "judge", "diver", "coach", "spectator",
+]);
+
 app.put(
   "/api/users/:id/roles",
   requireOrgRole(["org_admin"]),
   async (req, res) => {
-    const { roles } = req.body;
+    const { roles } = req.body || {};
+    // Validate up front: roles must be an array of strings, every
+    // element must be a known org_role. Without this, a malformed
+    // body (string, object, role typo) cascades to a 500 from the
+    // INSERT enum cast, which is bad UX and gives an attacker a
+    // clean signal that they hit a real endpoint.
+    if (!Array.isArray(roles)) {
+      return res.status(400).json({ error: "roles must be an array of role strings" });
+    }
+    const invalid = roles.filter((r) => typeof r !== "string" || !VALID_ORG_ROLES.has(r));
+    if (invalid.length) {
+      return res.status(400).json({
+        error: `Invalid role(s): ${invalid.join(", ")}. ` +
+               `Valid: ${[...VALID_ORG_ROLES].join(", ")}.`,
+      });
+    }
     const client = await pool.connect();
     try {
       // Apply roles in the target user's own org — not the
@@ -4419,6 +4443,23 @@ app.get("/api/records", verifyToken, async (req, res) => {
     const eventId  = req.query.event_id || null;
     if (!scopeId && !eventId) {
       return res.status(400).json({ error: "Pass scope+scope_id or event_id" });
+    }
+    // Validate the scope enum so an invalid value (e.g. ?scope=foo)
+    // doesn't cascade to a 500 from the postgres enum cast — clean
+    // 400 instead and a discoverable error message.
+    const VALID_RECORD_SCOPES = new Set(["personal", "club", "federation"]);
+    if (scope != null && !VALID_RECORD_SCOPES.has(scope)) {
+      return res.status(400).json({
+        error: `Invalid scope. Valid: ${[...VALID_RECORD_SCOPES].join(", ")}.`,
+      });
+    }
+    // UUID shape check on scope_id and event_id — same reason.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (scopeId && !UUID_RE.test(scopeId)) {
+      return res.status(400).json({ error: "scope_id must be a UUID" });
+    }
+    if (eventId && !UUID_RE.test(eventId)) {
+      return res.status(400).json({ error: "event_id must be a UUID" });
     }
     const r = await pool.query(
       `SELECT r.id, r.scope::text AS scope, r.scope_id,

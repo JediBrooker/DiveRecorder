@@ -13,6 +13,23 @@ const express = require("express");
 const bcrypt  = require("bcryptjs");
 const jwt     = require("jsonwebtoken");
 
+// Pre-computed dummy bcrypt hash used by the login flow to keep
+// the timing constant when the username doesn't exist. Without
+// this, an attacker can enumerate usernames by measuring the
+// response delay (no-user ≈ 5ms, bad-password ≈ 150ms). Computed
+// once at module load — same cost factor (12) bcrypt.hash() uses
+// for real passwords.
+//
+// The plaintext "*" is never a valid password; bcrypt.compare
+// against this hash always returns false. We just want the
+// CPU-time profile of a real comparison.
+const DUMMY_BCRYPT_HASH = bcrypt.hashSync(
+  // Long unguessable nonsense so that even if an attacker tried
+  // this exact string they couldn't authenticate.
+  Math.random().toString(36) + Date.now() + Math.random().toString(36),
+  12,
+);
+
 module.exports = function createAuthRouter({
   pool,
   authLimiter,
@@ -45,7 +62,13 @@ module.exports = function createAuthRouter({
         [username],
       );
       const user = result.rows[0];
-      if (!user || !(await bcrypt.compare(password, user.password)))
+      // Always run bcrypt.compare — against the user's hash if we
+      // found them, against a dummy hash otherwise — so the
+      // response time is the same in both branches. Stops timing-
+      // based username enumeration.
+      const hashToCheck = user?.password || DUMMY_BCRYPT_HASH;
+      const passwordOk = await bcrypt.compare(password, hashToCheck);
+      if (!user || !passwordOk)
         return res.status(401).json({ error: "Invalid username or password" });
 
       const payload = await buildTokenPayload(user.id);
