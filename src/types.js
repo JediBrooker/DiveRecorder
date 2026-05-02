@@ -24,7 +24,6 @@
  * @property {string}   org_id          Primary org of the user.
  * @property {string[]} org_roles       e.g. ['org_admin', 'meet_manager', 'judge', 'coach', 'diver', 'spectator']
  * @property {boolean}  is_system_admin
- * @property {boolean}  is_email_verified
  * @property {number}   iat             issued-at, set by jsonwebtoken
  * @property {number}   exp             expiry, set by jsonwebtoken
  */

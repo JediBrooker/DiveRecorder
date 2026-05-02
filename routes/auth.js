@@ -85,7 +85,7 @@ module.exports = function createAuthRouter({
     const {
       username, password, full_name, email, org_id, requested_role, note,
       club_id, new_club_name, new_club_short_code,
-    } = req.body;
+    } = req.body || {};
     const client = await pool.connect();
     let postCommit = { newUserId: null, requestedRole: null };
     try {
@@ -172,7 +172,7 @@ module.exports = function createAuthRouter({
   // Register a new organisation + its founding org_admin
   router.post("/api/auth/register-org", authLimiter, async (req, res) => {
     const { org_name, country_code, slug, username, password, full_name } =
-      req.body;
+      req.body || {};
     const client = await pool.connect();
     try {
       await client.query("BEGIN");

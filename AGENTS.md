@@ -55,7 +55,6 @@ of truth** — fix this file as part of the same commit.
   org_id: string,                // primary org
   org_roles: string[],           // ['org_admin', 'meet_manager', 'judge', ...]
   is_system_admin: boolean,
-  is_email_verified: boolean,
 }
 ```
 

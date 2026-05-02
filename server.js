@@ -459,7 +459,7 @@ app.get("/api/orgs/active", async (req, res) => {
 });
 
 app.put("/api/orgs/:id/status", requireSystemAdmin, async (req, res) => {
-  const { status } = req.body;
+  const { status } = req.body || {};
   try {
     const r = await pool.query(
       "UPDATE organisations SET status = $1 WHERE id = $2 RETURNING *",
@@ -515,7 +515,7 @@ app.post(
         .status(403)
         .json({ error: "Cannot create teams in other organisations" });
     }
-    const { name, short_code } = req.body;
+    const { name, short_code } = req.body || {};
     if (!name || !name.trim())
       return res.status(400).json({ error: "Team name is required" });
     try {
@@ -537,7 +537,7 @@ app.put(
   "/api/teams/:id",
   requireOrgRole(["org_admin", "meet_manager"]),
   async (req, res) => {
-    const { name, short_code } = req.body;
+    const { name, short_code } = req.body || {};
     if (!name || !name.trim())
       return res.status(400).json({ error: "Team name is required" });
     try {
@@ -640,7 +640,7 @@ app.post(
   "/api/teams/:teamId/dive-lists",
   requireOrgRole(["org_admin", "meet_manager"]),
   async (req, res) => {
-    const { event_id, dives } = req.body;
+    const { event_id, dives } = req.body || {};
     if (!event_id || !Array.isArray(dives) || !dives.length) {
       return res.status(400).json({ error: "event_id and dives[] required" });
     }
@@ -796,7 +796,7 @@ app.post(
   "/api/teams/:id/members",
   requireOrgRole(["org_admin", "meet_manager"]),
   async (req, res) => {
-    const { user_id } = req.body;
+    const { user_id } = req.body || {};
     try {
       const target = await pool.query(
         "SELECT org_id FROM teams WHERE id = $1",
@@ -889,7 +889,7 @@ app.post(
   "/api/events/:id/teams",
   requireEventManager(),
   async (req, res) => {
-    const { team_id } = req.body;
+    const { team_id } = req.body || {};
     try {
       if (!(await isInSameOrg(pool, req.event.org_id, team_id, "teams"))) {
         return res.status(400).json({ error: "Team is not in this event's organisation" });
@@ -1269,7 +1269,7 @@ app.put(
   "/api/clubs/:id",
   requireOrgRole(["org_admin", "meet_manager"]),
   async (req, res) => {
-    const { name, short_code } = req.body;
+    const { name, short_code } = req.body || {};
     if (!name || !name.trim())
       return res.status(400).json({ error: "Club name is required" });
     try {
@@ -1353,7 +1353,7 @@ app.post(
         .status(403)
         .json({ error: "Cannot create clubs in other organisations" });
     }
-    const { name, short_code } = req.body;
+    const { name, short_code } = req.body || {};
     if (!name || !name.trim())
       return res.status(400).json({ error: "Club name is required" });
     try {
@@ -1547,7 +1547,7 @@ app.post(
   "/api/role-requests/:id/review",
   requireOrgRole(["org_admin"]),
   async (req, res) => {
-    const { decision } = req.body; // 'approved' | 'rejected'
+    const { decision } = req.body || {}; // 'approved' | 'rejected'
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -1619,7 +1619,7 @@ app.post(
 // can change anyone in their org.
 app.put("/api/users/:id/club", verifyToken, async (req, res) => {
   const targetId = req.params.id;
-  const { club_id } = req.body;
+  const { club_id } = req.body || {};
   try {
     const target = await pool.query(
       "SELECT org_id FROM users WHERE id = $1",
@@ -2013,13 +2013,22 @@ app.post(
           .json({ error: "Only preliminary or semifinal events can advance to a later stage" });
       }
 
-      // Find the downstream event — exactly one event must
-      // reference this source via parent_event_id. For a prelim
-      // that's typically a 'semifinal' (or a 'final' if the
-      // meet skips the semi). For a 'semifinal' it'll be a
-      // 'final'.
+      // Find the downstream event linked to this source. Order
+      // matters when both a semifinal AND a final reference the
+      // same prelim (allowed by the schema as a fallback path):
+      // we want to advance into the semifinal first, not the
+      // final. Without an explicit ORDER BY postgres returned
+      // whichever row it scanned first — undefined behaviour.
+      // If more than one downstream of the same format exists,
+      // that's a meet-config error and we raise it.
       const nextRes = await client.query(
-        "SELECT id, event_format FROM events WHERE parent_event_id = $1 LIMIT 1",
+        `SELECT id, event_format FROM events
+         WHERE parent_event_id = $1
+         ORDER BY CASE event_format
+                    WHEN 'semifinal' THEN 0
+                    WHEN 'final'     THEN 1
+                    ELSE 2 END,
+                  created_at ASC`,
         [source.id],
       );
       if (!nextRes.rows.length) {
@@ -2029,6 +2038,19 @@ app.post(
         return res.status(400).json({
           error: `No ${expected} event is linked to this ${source.event_format} yet`,
         });
+      }
+      // Sanity check: more than one event of the SAME format
+      // chained off the source is operator error. Pick the
+      // first deterministically but warn so a reviewer can
+      // clean up the meet configuration.
+      const sameFormatCount = nextRes.rows.filter(
+        (r) => r.event_format === nextRes.rows[0].event_format,
+      ).length;
+      if (sameFormatCount > 1) {
+        console.warn(
+          `[Advance] ${sameFormatCount} ${nextRes.rows[0].event_format} ` +
+          `events chained off source ${source.id}; advancing into the oldest.`,
+        );
       }
       const finalId = nextRes.rows[0].id;
 
@@ -2226,7 +2248,7 @@ app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
     // New fields (migration 013):
     age_group, scheduled_at, event_format, parent_event_id, advance_count,
     dd_limit_rounds, dd_limit_value,
-  } = req.body;
+  } = req.body || {};
   // Synchronised pairs require 9 or 11 judges (the only panel
   // sizes World Aquatics defines exec/sync judge groups for).
   // Reject anything else early so standings later make sense.
@@ -2342,7 +2364,7 @@ app.put("/api/events/:id", requireEventManager(), async (req, res) => {
     name, gender, number_of_judges, total_rounds, height, event_type,
     age_group, scheduled_at, event_format, parent_event_id, advance_count,
     dd_limit_rounds, dd_limit_value,
-  } = req.body;
+  } = req.body || {};
   if (event_type === "synchro_pair" && ![9, 11].includes(number_of_judges)) {
     return res.status(400).json({
       error: "Synchronised pair events require 9 or 11 judges",
@@ -2423,7 +2445,7 @@ app.delete(
 
 // Update event status — meet_manager or org_admin only
 app.put("/api/events/:id/status", requireEventManager(), async (req, res) => {
-  const { status } = req.body;
+  const { status } = req.body || {};
   const validStatuses = ["Upcoming", "Live", "Completed"];
   if (!validStatuses.includes(status)) {
     return res
@@ -2453,6 +2475,15 @@ app.put("/api/events/:id/status", requireEventManager(), async (req, res) => {
     if (previousStatus !== status) {
       if (status === "Live")      sendEventStartedEmails(r.rows[0]).catch(() => {});
       if (status === "Completed") sendEventResultsEmails(r.rows[0]).catch(() => {});
+    }
+
+    // Free up the in-memory state for finished events. activeDivers
+    // and meetHolds are keyed by event_id and would otherwise grow
+    // forever as meets accumulate. Long-running prod servers without
+    // this would slowly leak — not critical, but a clean lifecycle.
+    if (status === "Completed") {
+      delete activeDivers[r.rows[0].id];
+      delete meetHolds[r.rows[0].id];
     }
 
     res.json(r.rows[0]);
@@ -2486,7 +2517,7 @@ app.post(
   "/api/events/:id/managers",
   requireEventManager(),
   async (req, res) => {
-    const { user_id } = req.body;
+    const { user_id } = req.body || {};
     try {
       // The user being added must be in the same org as the event.
       // Prevents a meet manager from elevating a foreign-org user
@@ -2552,7 +2583,7 @@ app.get(
 );
 
 app.post("/api/events/:id/judges", requireEventManager(), async (req, res) => {
-  const { judgeIds } = req.body; // ordered array — position = judge number
+  const { judgeIds } = req.body || {}; // ordered array — position = judge number
   if (!Array.isArray(judgeIds)) {
     return res.status(400).json({ error: "judgeIds must be an array" });
   }
@@ -3450,7 +3481,7 @@ app.post(
   bulkWriteLimiter,
   requireOrgRole(["diver"]),
   async (req, res) => {
-    const { event_id, dives, partner_id } = req.body;
+    const { event_id, dives, partner_id } = req.body || {};
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
