@@ -55,6 +55,12 @@ jobs:
       PGUSER: diver
       PGPASSWORD: diver
       PGDATABASE: diverecorder_test
+      # JWT_SECRET is required for server.js to boot (it fail-closes
+      # on missing or placeholder values). The integration test
+      # require()s server.js directly, so without this the whole
+      # test run dies at startup. Use a long deterministic dummy —
+      # CI never sees real user data.
+      JWT_SECRET: ci-test-secret-do-not-use-in-prod-aaaaaaaaaaaaaaaa
 
     steps:
       - name: Checkout

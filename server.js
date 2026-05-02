@@ -317,13 +317,25 @@ async function sendEventResultsEmails(event) {
 app.use(express.static(path.join(__dirname, 'dist')))
 
 // [SECTION: DB POOL & JWT_SECRET]
-const pool = new Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_DATABASE,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
-});
+//
+// Connection precedence:
+//   1. DATABASE_URL  (preferred for hosted Postgres / single-string envs)
+//   2. DB_*          (the app's documented vars in .env.example)
+//   3. PG*           (libpq standard, used by CI's Postgres service)
+//
+// node-postgres falls back to libpq env vars when a config field is
+// undefined, so the explicit DB_*-then-PG* coalesce below is mostly
+// belt-and-braces — but it makes the precedence visible to anyone
+// debugging a connection error.
+const pool = process.env.DATABASE_URL
+  ? new Pool({ connectionString: process.env.DATABASE_URL })
+  : new Pool({
+      user:     process.env.DB_USER     || process.env.PGUSER,
+      host:     process.env.DB_HOST     || process.env.PGHOST,
+      database: process.env.DB_DATABASE || process.env.PGDATABASE,
+      password: process.env.DB_PASSWORD || process.env.PGPASSWORD,
+      port:     process.env.DB_PORT     || process.env.PGPORT,
+    });
 
 // Refuse to boot with no JWT secret or the well-known placeholder —
 // either case means tokens are trivially forgeable. We DON'T fail on
