@@ -240,6 +240,136 @@ async function announceRoundEnd() {
 // QUEUE MANAGEMENT — reorder, withdraw, late entry
 // =============================================================
 
+// =========================================================
+// ON-DECK STRIP — Now / Next / On-deck
+// Surfaces the next two divers so the announcer can pre-call,
+// the divers know when to mount the platform, and the operator
+// has a visible cue without scrolling the queue. Skips withdrawn
+// rows automatically.
+// =========================================================
+const upcomingDivers = computed(() => {
+  if (!roster.value.length) return { now: null, next: null, onDeck: null }
+  const start = Math.max(currentIndex.value, 0)
+  const queue = []
+  for (let i = start; i < roster.value.length && queue.length < 3; i++) {
+    if (roster.value[i].withdrawn_at) continue
+    queue.push(roster.value[i])
+  }
+  return { now: queue[0] || null, next: queue[1] || null, onDeck: queue[2] || null }
+})
+
+// =========================================================
+// RANDOMISE START ORDER — operator clicks before the meet
+// kicks off (or any time, really) to shuffle every diver's
+// position. Same shuffled order is applied across every round
+// so a diver who's first in round 1 is also first in round 2.
+// =========================================================
+const randomizing = ref(false)
+async function randomizeStartOrder() {
+  if (!currentEvent.value) return
+  const ev = currentEvent.value
+  if (!confirm(
+    `Randomise the start order for "${ev.name}"?\n\n`
+    + `Every diver's position will be reshuffled across all rounds. `
+    + `You can re-run this until you're happy with the order.`
+  )) return
+  randomizing.value = true
+  try {
+    await auth.apiFetch(`/api/events/${ev.id}/dive-lists/randomize`, {
+      method: 'POST',
+    })
+    // Re-pull the roster so the new display_order takes effect.
+    const fresh = await auth.apiFetch(`/api/events/${ev.id}/roster`)
+    roster.value = fresh
+    // currentIndex no longer points at a meaningful row; reset it
+    // and let the operator re-pick the active diver.
+    currentIndex.value = -1
+    currentActive.value = null
+  } catch (err) {
+    alert('Randomise failed: ' + err.message)
+  } finally {
+    randomizing.value = false
+  }
+}
+
+// =========================================================
+// DRAG-AND-DROP REORDER — HTML5 drag/drop, falls back to the
+// existing ▲/▼ arrows for keyboard / accessibility users. On
+// drop we compute fresh display_order values for the entire
+// round and persist them in a single bulk-reorder call.
+// =========================================================
+const dragRosterIdx = ref(null)
+const dragOverRosterIdx = ref(null)
+
+function onRosterDragStart(originalIdx, ev) {
+  dragRosterIdx.value = originalIdx
+  if (ev.dataTransfer) {
+    ev.dataTransfer.effectAllowed = 'move'
+    try { ev.dataTransfer.setData('text/plain', String(originalIdx)) } catch { /* noop */ }
+  }
+}
+function onRosterDragOver(originalIdx, ev) {
+  if (dragRosterIdx.value == null) return
+  // Only allow drop on rows in the same round
+  const src = roster.value[dragRosterIdx.value]
+  const tgt = roster.value[originalIdx]
+  if (!src || !tgt || src.round_number !== tgt.round_number) return
+  ev.preventDefault()
+  dragOverRosterIdx.value = originalIdx
+}
+function onRosterDragLeave(originalIdx) {
+  if (dragOverRosterIdx.value === originalIdx) dragOverRosterIdx.value = null
+}
+function onRosterDragEnd() {
+  dragRosterIdx.value = null
+  dragOverRosterIdx.value = null
+}
+async function onRosterDrop(originalIdx, ev) {
+  ev.preventDefault()
+  const from = dragRosterIdx.value
+  dragRosterIdx.value = null
+  dragOverRosterIdx.value = null
+  if (from == null || from === originalIdx) return
+  const src = roster.value[from]
+  const tgt = roster.value[originalIdx]
+  if (!src || !tgt || src.round_number !== tgt.round_number) return
+
+  // Move src to tgt's slot in the local array (optimistic).
+  const before = roster.value.slice()
+  const moved = roster.value.splice(from, 1)[0]
+  roster.value.splice(originalIdx, 0, moved)
+  // Track currentIndex through the move so the active diver
+  // pointer doesn't break.
+  if (currentIndex.value === from) currentIndex.value = originalIdx
+  else if (from < currentIndex.value && currentIndex.value <= originalIdx) currentIndex.value--
+  else if (originalIdx <= currentIndex.value && currentIndex.value < from) currentIndex.value++
+
+  // Recompute display_order for every row in the affected round.
+  // We send all rounds' rows in a single bulk-reorder call so
+  // the wire format is uniform and the server can be dumb.
+  const round = src.round_number
+  const rowsInRound = roster.value
+    .map((r, i) => ({ row: r, idx: i }))
+    .filter(p => p.row.round_number === round)
+  const payload = rowsInRound.map((p, position) => ({
+    id: p.row.dive_list_id,
+    display_order: position,
+  }))
+  // Mirror locally too so a future re-render doesn't reorder.
+  for (let i = 0; i < rowsInRound.length; i++) {
+    rowsInRound[i].row.display_order = i
+  }
+  try {
+    await auth.apiFetch(`/api/events/${currentEvent.value.id}/dive-lists/reorder`, {
+      method: 'PUT',
+      body: JSON.stringify({ rows: payload }),
+    })
+  } catch (err) {
+    alert('Failed to save order: ' + err.message)
+    roster.value = before
+  }
+}
+
 // Move a roster entry up or down within its round. Recomputes
 // display_order locally first (optimistic) then persists. We
 // pick a value halfway between the new neighbours so subsequent
@@ -971,6 +1101,50 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
       <!-- Centre: Active diver -->
       <div style="display:flex;flex-direction:column;overflow:hidden">
+
+        <!-- On-Deck strip — Now / Next / On-deck so the announcer
+             can pre-call and divers know when to walk to the
+             platform. Auto-skips withdrawn rows. Hidden until a
+             diver is active so it doesn't shout "no one" at boot. -->
+        <div v-if="upcomingDivers.now" class="on-deck-strip">
+          <div :class="['od-cell', 'od-now']">
+            <div class="od-label">Now</div>
+            <div class="od-name">
+              {{ upcomingDivers.now.full_name }}
+              <span v-if="upcomingDivers.now.country_code" class="od-country">{{ upcomingDivers.now.country_code }}</span>
+            </div>
+            <div class="od-meta">
+              R{{ upcomingDivers.now.round_number }} · {{ upcomingDivers.now.dive_code }}{{ upcomingDivers.now.position }}
+            </div>
+          </div>
+          <div :class="['od-cell', 'od-next', upcomingDivers.next ? '' : 'od-empty']">
+            <div class="od-label">Next</div>
+            <template v-if="upcomingDivers.next">
+              <div class="od-name">
+                {{ upcomingDivers.next.full_name }}
+                <span v-if="upcomingDivers.next.country_code" class="od-country">{{ upcomingDivers.next.country_code }}</span>
+              </div>
+              <div class="od-meta">
+                R{{ upcomingDivers.next.round_number }} · {{ upcomingDivers.next.dive_code }}{{ upcomingDivers.next.position }}
+              </div>
+            </template>
+            <div v-else class="od-name od-dim">—</div>
+          </div>
+          <div :class="['od-cell', 'od-deck', upcomingDivers.onDeck ? '' : 'od-empty']">
+            <div class="od-label">On-deck</div>
+            <template v-if="upcomingDivers.onDeck">
+              <div class="od-name">
+                {{ upcomingDivers.onDeck.full_name }}
+                <span v-if="upcomingDivers.onDeck.country_code" class="od-country">{{ upcomingDivers.onDeck.country_code }}</span>
+              </div>
+              <div class="od-meta">
+                R{{ upcomingDivers.onDeck.round_number }} · {{ upcomingDivers.onDeck.dive_code }}{{ upcomingDivers.onDeck.position }}
+              </div>
+            </template>
+            <div v-else class="od-name od-dim">—</div>
+          </div>
+        </div>
+
         <div class="active-zone" style="flex:1;overflow-y:auto">
           <div class="active-label-row">
             <span class="active-label">
@@ -1079,8 +1253,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       <div class="ctrl-panel">
         <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center">
           <span>Diver Queue</span>
-          <div style="display:flex;align-items:center;gap:0.5rem">
+          <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
             <span class="roster-count">{{ roster.length ? currentIndex + 1 : 0 }}/{{ roster.length }}</span>
+            <button v-if="currentEvent && roster.length" class="btn btn-ghost btn-sm"
+                    :disabled="randomizing"
+                    @click="randomizeStartOrder"
+                    title="Shuffle the diver start order across every round.">
+              {{ randomizing ? '🎲 …' : '🎲 Randomise' }}
+            </button>
             <button v-if="currentEvent" class="btn btn-ghost btn-sm" @click="openLateEntry"
                     title="Add a late-arriving diver">+ Add</button>
           </div>
@@ -1134,9 +1314,18 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                 'roster-item',
                 item.originalIdx === currentIndex ? 'active' : '',
                 item.withdrawn_at ? 'withdrawn' : '',
+                dragRosterIdx === item.originalIdx ? 'is-dragging' : '',
+                dragOverRosterIdx === item.originalIdx ? 'is-drop-target' : '',
               ]"
+              :draggable="!item.withdrawn_at"
+              @dragstart="onRosterDragStart(item.originalIdx, $event)"
+              @dragover="onRosterDragOver(item.originalIdx, $event)"
+              @dragleave="onRosterDragLeave(item.originalIdx)"
+              @dragend="onRosterDragEnd"
+              @drop="onRosterDrop(item.originalIdx, $event)"
             >
               <div class="roster-row-head">
+                <span class="roster-grip" title="Drag to reorder within round">⋮⋮</span>
                 <button
                   class="roster-jump"
                   :disabled="!!item.withdrawn_at"
@@ -1651,6 +1840,81 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   background: var(--red-dim); border: 1px solid rgba(239,68,68,0.4);
   border-radius: 3px; padding: 0.05rem 0.35rem;
   margin-left: 0.4rem; vertical-align: middle;
+}
+
+/* =========================================================
+   Drag-to-reorder visual cues. The grip handle on the left of
+   each row is the affordance; while a row is being dragged the
+   source dims and the hover target gets a cyan inset highlight.
+   ========================================================= */
+.roster-grip {
+  display: inline-block;
+  font-family: var(--font-mono); font-weight: 700; font-size: 14px;
+  color: var(--text-3); cursor: grab; user-select: none;
+  letter-spacing: -2px; padding: 0 0.4rem 0 0.1rem;
+  align-self: center;
+}
+.roster-grip:active { cursor: grabbing; }
+.roster-item.is-dragging   { opacity: 0.4; }
+.roster-item.is-drop-target {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 1px var(--cyan) inset;
+}
+.roster-row-head {
+  display: flex; align-items: stretch; gap: 0.25rem;
+}
+
+/* =========================================================
+   On-Deck strip — Now / Next / On-deck above the active zone.
+   Each cell is a compact info card; "Now" is cyan-accented to
+   match the active diver block below; the others fade out
+   slightly so the eye sees the progression.
+   ========================================================= */
+.on-deck-strip {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem 0.6rem;
+  background: var(--bg-3);
+  border-bottom: 1px solid var(--border);
+}
+.od-cell {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.7rem;
+  min-width: 0;
+}
+.od-cell.od-now {
+  border-color: var(--cyan);
+  background: var(--cyan-dim);
+}
+.od-cell.od-empty { opacity: 0.5; }
+.od-label {
+  font-family: var(--font-display); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.22em; text-transform: uppercase; color: var(--text-3);
+}
+.od-cell.od-now .od-label { color: var(--cyan); }
+.od-name {
+  font-family: var(--font-display); font-weight: 700; font-style: italic;
+  color: var(--text); font-size: 14px; line-height: 1.2;
+  margin-top: 0.15rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.od-cell.od-now .od-name { font-size: 16px; color: var(--cyan); }
+.od-name.od-dim { color: var(--text-3); font-style: normal; font-weight: 400; }
+.od-country {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  color: var(--text-3); margin-left: 0.3rem;
+}
+.od-meta {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3);
+  margin-top: 0.1rem;
+}
+
+@media (max-width: 720px) {
+  .on-deck-strip { grid-template-columns: 1fr; gap: 0.35rem; padding: 0.5rem; }
+  .od-cell { padding: 0.4rem 0.6rem; }
 }
 
 .late-modal { max-width: 480px; }

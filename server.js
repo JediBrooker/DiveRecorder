@@ -2667,6 +2667,115 @@ app.put(
   },
 );
 
+// Bulk reorder — drag-and-drop in the Control Room sends the entire
+// new ordering for one round in a single request. Cheaper than N
+// per-row PUTs and atomic against partial failures.
+//
+// Body: { rows: [{ id: <uuid>, display_order: <int> }, ...] }
+// Each id must belong to the event in the URL; rows from other
+// events are silently rejected. Sysadmin bypass on org match.
+app.put(
+  "/api/events/:id/dive-lists/reorder",
+  requireOrgRole(["org_admin", "meet_manager", "referee"]),
+  async (req, res) => {
+    const eventId = req.params.id;
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : null;
+    if (!rows || !rows.length) {
+      return res.status(400).json({ error: "rows must be a non-empty array" });
+    }
+    if (rows.length > 500) {
+      return res.status(413).json({ error: "Too many rows in one request" });
+    }
+    for (const r of rows) {
+      if (!r || typeof r.id !== "string"
+          || !Number.isInteger(r.display_order)) {
+        return res.status(400).json({ error: "Each row needs id (uuid) + integer display_order" });
+      }
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Confirm the event exists in the caller's org first.
+      const ev = await client.query(
+        "SELECT id FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)",
+        [eventId, !!req.user.is_system_admin, req.user.org_id],
+      );
+      if (!ev.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Event not found" });
+      }
+      let updated = 0;
+      for (const r of rows) {
+        const u = await client.query(
+          `UPDATE competitor_dive_lists
+           SET display_order = $1
+           WHERE id = $2 AND event_id = $3`,
+          [r.display_order, r.id, eventId],
+        );
+        updated += u.rowCount;
+      }
+      await client.query("COMMIT");
+      res.json({ ok: true, updated });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      console.error("[Bulk Reorder Error]", err.message);
+      res.status(500).json({ error: err.message });
+    } finally {
+      client.release();
+    }
+  },
+);
+
+// Randomise start order — shuffles every diver's position in the
+// event before it starts. Each unique competitor gets one random
+// position which is then applied to every round they're in, so
+// "Diver Z dives 1st" stays consistent across rounds. Operators
+// can re-run as many times as they like until they're happy.
+//
+// We deliberately don't gate this on event status — meets sometimes
+// re-shuffle after a withdrawal even mid-event. The audit log
+// captures who pressed it via the role_audit_log if you want to
+// track it later.
+app.post(
+  "/api/events/:id/dive-lists/randomize",
+  requireOrgRole(["org_admin", "meet_manager", "referee"]),
+  async (req, res) => {
+    const eventId = req.params.id;
+    try {
+      const ev = await pool.query(
+        "SELECT id FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)",
+        [eventId, !!req.user.is_system_admin, req.user.org_id],
+      );
+      if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
+
+      // Pick a random ordering of the unique competitors, then
+      // apply that ordering across every round in one UPDATE.
+      // Withdrawn rows are excluded from the shuffle pool but
+      // still get a display_order assigned via the JOIN — they
+      // just sort to the end of their slot when reinstated.
+      const r = await pool.query(
+        `WITH shuffled AS (
+           SELECT DISTINCT competitor_id,
+                  ROW_NUMBER() OVER (ORDER BY random()) AS pos
+           FROM competitor_dive_lists
+           WHERE event_id = $1 AND withdrawn_at IS NULL
+         )
+         UPDATE competitor_dive_lists cdl
+         SET display_order = sh.pos
+         FROM shuffled sh
+         WHERE cdl.event_id = $1
+           AND cdl.competitor_id = sh.competitor_id
+         RETURNING cdl.id`,
+        [eventId],
+      );
+      res.json({ ok: true, updated: r.rowCount });
+    } catch (err) {
+      console.error("[Randomize Order Error]", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
 // Withdraw / reinstate a dive list row. Sets withdrawn_at = now()
 // or NULL. Standings still attribute prior dives to the diver,
 // but the active queue excludes them from upcoming rounds.
