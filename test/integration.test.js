@@ -209,7 +209,10 @@ test("end-to-end happy path", async (t) => {
       token: adminToken,
       body: {
         name: "Integration Test Event",
-        gender: "open",
+        // event_gender enum: 'Male' | 'Female' | 'Mixed' (init.sql:63).
+        // Use 'Mixed' for tests since it's age- and sex-agnostic.
+        gender: "Mixed",
+        // board_height enum: '1m' | '3m' | '5m' | '7.5m' | '10m'.
         height: "3m",
         number_of_judges: 5,
         total_rounds: 6,
