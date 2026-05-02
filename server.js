@@ -442,7 +442,7 @@ app.get("/api/orgs", requireSystemAdmin, async (req, res) => {
     );
     res.json(r.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -454,7 +454,7 @@ app.get("/api/orgs/active", async (req, res) => {
     );
     res.json(r.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -467,7 +467,7 @@ app.put("/api/orgs/:id/status", requireSystemAdmin, async (req, res) => {
     );
     res.json(r.rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -528,7 +528,7 @@ app.post(
       res.status(201).json(r.rows[0]);
     } catch (err) {
       console.error("[Create Team Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -563,7 +563,7 @@ app.put(
       res.json(r.rows[0]);
     } catch (err) {
       console.error("[Update Team Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -603,7 +603,7 @@ app.delete(
       });
     } catch (err) {
       console.error("[Delete Team Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -828,7 +828,7 @@ app.post(
       );
       res.json({ message: "Member added" });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -858,7 +858,7 @@ app.delete(
       );
       res.json({ message: "Member removed" });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -901,7 +901,7 @@ app.post(
       );
       res.json({ message: "Team added to event" });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -920,7 +920,7 @@ app.delete(
       );
       res.json({ message: "Team removed from event" });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -1164,7 +1164,7 @@ app.post(
       res.status(201).json(r.rows[0]);
     } catch (err) {
       console.error("[Coach Link Create Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -1182,7 +1182,7 @@ app.delete(
       res.json({ ok: true });
     } catch (err) {
       console.error("[Coach Link Delete Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -1296,7 +1296,7 @@ app.put(
       res.json(r.rows[0]);
     } catch (err) {
       console.error("[Update Club Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -1335,7 +1335,7 @@ app.delete(
       });
     } catch (err) {
       console.error("[Delete Club Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -1366,7 +1366,7 @@ app.post(
       res.status(201).json(r.rows[0]);
     } catch (err) {
       console.error("[Create Club Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -1408,7 +1408,7 @@ app.get("/api/users", requireOrgRole(["org_admin"]), async (req, res) => {
     );
     res.json(r.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -1512,7 +1512,7 @@ app.put(
     } catch (err) {
       await client.query("ROLLBACK");
       console.error("[Role Update Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     } finally {
       client.release();
     }
@@ -1538,7 +1538,7 @@ app.get(
       );
       res.json(r.rows);
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -1606,7 +1606,7 @@ app.post(
     } catch (err) {
       await client.query("ROLLBACK");
       console.error("[Review Request Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     } finally {
       client.release();
     }
@@ -1661,7 +1661,7 @@ app.put("/api/users/:id/club", verifyToken, async (req, res) => {
     res.json({ message: "Club updated" });
   } catch (err) {
     console.error("[Update Club Error]", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -1706,7 +1706,7 @@ app.get(
       res.json(r.rows);
     } catch (err) {
       console.error("[Role Audit Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -1727,7 +1727,7 @@ app.get(
       );
       res.json(r.rows);
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -1798,7 +1798,7 @@ app.get("/api/meets/:id", async (req, res) => {
     res.json({ meet: meetRes.rows[0], events: eventsRes.rows });
   } catch (err) {
     console.error("[Meet Detail Error]", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -1828,7 +1828,7 @@ app.post(
       res.status(201).json(r.rows[0]);
     } catch (err) {
       console.error("[Create Meet Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -1865,7 +1865,7 @@ app.put(
       res.json(r.rows[0]);
     } catch (err) {
       console.error("[Update Meet Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -1886,7 +1886,7 @@ app.delete(
       res.json({ ok: true });
     } catch (err) {
       console.error("[Delete Meet Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -1924,7 +1924,7 @@ app.put(
       res.json(r.rows[0]);
     } catch (err) {
       console.error("[Assign Event Meet Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -1973,7 +1973,7 @@ app.get("/api/events", async (req, res) => {
     }
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -2158,7 +2158,7 @@ app.post(
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
       console.error("[Advance Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     } finally {
       client.release();
     }
@@ -2219,7 +2219,7 @@ app.post(
       res.status(201).json(r.rows[0]);
     } catch (err) {
       console.error("[Template Save Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -2237,7 +2237,7 @@ app.delete(
       res.json({ ok: true });
     } catch (err) {
       console.error("[Template Delete Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -2353,7 +2353,7 @@ app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[Create Event Error]", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   } finally {
     client.release();
   }
@@ -2422,7 +2422,7 @@ app.put("/api/events/:id", requireEventManager(), async (req, res) => {
     res.json(r.rows[0]);
   } catch (err) {
     console.error("[Update Event Error]", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -2438,7 +2438,7 @@ app.delete(
       );
       res.json({ message: "Event deleted" });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -2489,7 +2489,7 @@ app.put("/api/events/:id/status", requireEventManager(), async (req, res) => {
     res.json(r.rows[0]);
   } catch (err) {
     console.error("[Status Update Error]", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -2508,7 +2508,7 @@ app.get(
       );
       res.json(r.rows);
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -2531,7 +2531,7 @@ app.post(
       );
       res.json({ message: "Manager added" });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -2547,7 +2547,7 @@ app.delete(
       );
       res.json({ message: "Manager removed" });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -2577,7 +2577,7 @@ app.get(
       );
       res.json(r.rows); // [{ judge_id, judge_number, full_name }, ...]
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -2612,7 +2612,7 @@ app.post("/api/events/:id/judges", requireEventManager(), async (req, res) => {
     res.json({ message: "Judges assigned" });
   } catch (err) {
     await client.query("ROLLBACK");
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   } finally {
     client.release();
   }
@@ -2632,7 +2632,7 @@ app.get(
         return res.status(404).json({ error: "Not assigned to this event" });
       res.json({ judge_number: r.rows[0].judge_number });
     } catch (err) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -2647,7 +2647,7 @@ app.get("/api/judge/my-events", requireOrgRole(["judge"]), async (req, res) => {
     );
     res.json(r.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -2769,7 +2769,7 @@ app.put(
       res.json({ ok: true, ...r.rows[0] });
     } catch (err) {
       console.error("[Reorder Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -2838,7 +2838,7 @@ app.put(
     } catch (err) {
       await client.query("ROLLBACK");
       console.error("[Bulk Reorder Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     } finally {
       client.release();
     }
@@ -2895,7 +2895,7 @@ app.post(
       res.json({ ok: true, updated: r.rowCount });
     } catch (err) {
       console.error("[Randomize Order Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -2922,7 +2922,7 @@ app.put(
       res.json({ ok: true, ...r.rows[0] });
     } catch (err) {
       console.error("[Withdraw Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -2966,7 +2966,7 @@ app.get(
       res.json(r.rows);
     } catch (err) {
       console.error("[Attendance List Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -3006,7 +3006,7 @@ app.put(
       res.json({ ok: true, ...r.rows[0] });
     } catch (err) {
       console.error("[Attendance Set Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -3060,7 +3060,7 @@ app.post(
       res.status(201).json({ ok: true, dive_list_id: r.rows[0].id });
     } catch (err) {
       console.error("[Late Entry Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -3199,7 +3199,7 @@ app.post(
     } catch (err) {
       await client.query("ROLLBACK");
       console.error("[Roster Import Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     } finally {
       client.release();
     }
@@ -3393,7 +3393,7 @@ app.put(
       res.json({ ok: true, old_score: oldScore, new_score: newScore });
     } catch (err) {
       console.error("[Score Correction Error]", err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 );
@@ -3453,7 +3453,7 @@ app.post("/api/templates", verifyToken, async (req, res) => {
     res.status(201).json(r.rows[0]);
   } catch (err) {
     console.error("[Template Save Error]", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -3467,7 +3467,7 @@ app.delete("/api/templates/:id", verifyToken, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error("[Template Delete Error]", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -4323,7 +4323,7 @@ app.put("/api/users/me/dashboard", verifyToken, async (req, res) => {
     res.json({ ok: true, widgets: r.rows[0].dashboard_widgets });
   } catch (err) {
     console.error("[Dashboard Save Error]", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -5176,7 +5176,7 @@ app.get("/api/archive/:eventId/results", async (req, res) => {
     res.json({ event: ev.rows[0], standings: standings.rows, dives: history.rows });
   } catch (err) {
     console.error("[Archive Results Error]", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -5347,7 +5347,7 @@ app.get("/api/meets/:id/program.pdf", async (req, res) => {
     doc.end();
   } catch (err) {
     console.error("[Meet Program PDF Error]", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -5541,7 +5541,7 @@ app.get("/api/events/:id/start-list.pdf", async (req, res) => {
     doc.end();
   } catch (err) {
     console.error("[Start List PDF Error]", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -5772,7 +5772,7 @@ app.get("/api/events/:id/divers/:diverId/score-sheet.pdf", async (req, res) => {
     doc.end();
   } catch (err) {
     console.error("[Score Sheet PDF Error]", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -5903,7 +5903,7 @@ app.get("/api/events/:id/results.csv", async (req, res) => {
     res.end();
   } catch (err) {
     console.error("[Results CSV Error]", err.message);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
