@@ -135,7 +135,14 @@ const FULL_FIELD_RANKING = `
               two divers with identical totals were separated. */
            COUNT(*) OVER (
              PARTITION BY et.event_id, et.total
-           ) > 1 AS is_tied_on_total
+           ) > 1 AS is_tied_on_total,
+           /* field_size precomputed here (not in the outer SELECT)
+              because outer queries filter to the diver via
+              WHERE competitor_id = $1; window functions run AFTER
+              WHERE so a window in the outer query would see only
+              the one row and return 1. Computing it inside the
+              CTE lets recent_form and friends just select it. */
+           COUNT(*) OVER (PARTITION BY et.event_id)::int AS field_size
     FROM event_totals et
   )
 `;

@@ -3930,10 +3930,10 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
         `WITH ${FULL_FIELD_RANKING}
          SELECT e.id AS event_id, e.name AS event_name, e.created_at,
                 r.total, r.rank,
-                /* field_size as a window over the ranked CTE —
-                   was a correlated subquery against event_totals
-                   which the planner could turn into N×N. */
-                COUNT(*) OVER (PARTITION BY r.event_id)::int AS field_size
+                /* field_size precomputed inside FULL_FIELD_RANKING.ranked.
+                   The outer WHERE clause filters to one diver, so a
+                   window in this SELECT would see only one row. */
+                r.field_size
          FROM ranked r
          JOIN events e ON e.id = r.event_id
          WHERE r.competitor_id = $1
