@@ -431,19 +431,41 @@ async function withdrawRosterRow(idx) {
 }
 
 // =============================================================
-// LATE ENTRY — manager adds a diver from the Control Room
+// LATE ENTRY — manager adds a diver from the Control Room.
+//
+// A late-arriving diver still has to compete every round of the
+// event, so the modal asks for ALL rounds at once (matching the
+// pattern in CompetitorView's submit-list flow). Each round gets
+// an autocomplete input that accepts the full code+position
+// concatenated (e.g. "5132D") — fast for an operator who knows
+// the codes by heart, and validates against the dive directory at
+// the event's height before the submit fires.
 // =============================================================
 const lateOpen = ref(false)
 const lateBusy = ref(false)
 const lateErr = ref('')
-const lateDivers = ref([])           // candidate divers in the org
-const lateDiveDir = ref([])          // dive directory at the event's height
-const lateForm = ref({ competitor_id: '', round_number: 1, dive_code: '', position: '' })
+const lateDivers  = ref([])          // candidate divers in the org
+const lateDiveDir = ref([])          // full dive directory (filtered to height in lateDiveOptions)
+const latePartnerId = ref('')        // synchro-pair only
+const lateTeamId    = ref('')        // team events only
+const lateTeams     = ref([])        // teams enrolled in the event
+
+// One slot per round. Each slot holds the typed input string
+// (`text`) and the resolved dive directory entry (`dive`, may be
+// null until the input matches a known code+position).
+const lateRounds = ref([])
+const lateActiveSlot = ref(-1)        // which slot's autocomplete dropdown is open
 
 async function openLateEntry() {
   lateErr.value = ''
   lateBusy.value = false
-  lateForm.value = { competitor_id: '', round_number: 1, dive_code: '', position: '' }
+  latePartnerId.value = ''
+  lateTeamId.value = ''
+  lateActiveSlot.value = -1
+  // Build N empty slots based on the event's total_rounds. Default
+  // to 6 if the event metadata hasn't loaded yet (rare).
+  const totalRounds = Number(currentEvent.value?.total_rounds) || 6
+  lateRounds.value = Array.from({ length: totalRounds }, () => ({ text: '', dive: null, competitorId: '' }))
   lateOpen.value = true
   // Lazy-load org divers + dive directory once per session
   if (!lateDivers.value.length) {
@@ -456,8 +478,21 @@ async function openLateEntry() {
       lateDiveDir.value = await auth.apiFetch('/api/dive-directory')
     } catch { lateDiveDir.value = [] }
   }
+  // Teams enrolled in this event — only used when event_type === 'team'
+  if (currentEvent.value?.event_type === 'team' && !lateTeams.value.length) {
+    try {
+      lateTeams.value = await auth.apiFetch(`/api/events/${currentEvent.value.id}/teams`)
+    } catch { lateTeams.value = [] }
+  }
 }
 
+// The diver shown in the picker. Stored at the form level rather
+// than per-round because all rounds belong to the same diver.
+const lateCompetitorId = ref('')
+
+// Dive directory filtered to the event's height. Re-used by every
+// round's autocomplete; matching is on `dive_code + position` so
+// "5132D" finds the dive even when the user hasn't typed a space.
 const lateDiveOptions = computed(() => {
   const eventHeight = currentEvent.value?.height
   const heightNumeric = eventHeight ? parseFloat(eventHeight) : null
@@ -465,6 +500,71 @@ const lateDiveOptions = computed(() => {
     heightNumeric === null || parseFloat(d.height) === heightNumeric,
   )
 })
+
+// Autocomplete results for a single round's input. Caps at 8 so
+// the dropdown never overflows the modal. Empty input = empty list.
+function lateMatchesFor(idx) {
+  const term = (lateRounds.value[idx]?.text || '').toLowerCase().trim()
+  if (!term) return []
+  return lateDiveOptions.value.filter(d => {
+    const combined = (d.dive_code + d.position).toLowerCase()
+    return combined.includes(term) || (d.description || '').toLowerCase().includes(term)
+  }).slice(0, 8)
+}
+
+// Try to resolve the typed text directly against the directory
+// (no dropdown needed). Used when the user tabs out — if they
+// typed exactly "5132D" we silently lock it in. Returns the dive
+// or null.
+function resolveTypedDive(text) {
+  if (!text) return null
+  const norm = text.toUpperCase().trim()
+  // Match against (dive_code + position) concatenated, OR just
+  // dive_code if position is empty (rare for diving).
+  return lateDiveOptions.value.find(d =>
+    (d.dive_code + d.position).toUpperCase() === norm,
+  ) || null
+}
+
+function lateOnInput(idx) {
+  // Open this row's dropdown; close any other.
+  lateActiveSlot.value = idx
+  // If the typed text matches an entry exactly, lock it in. The
+  // dropdown still shows in case the operator wants to pick a
+  // similar one, but submit will already work.
+  const slot = lateRounds.value[idx]
+  slot.dive = resolveTypedDive(slot.text)
+}
+
+function latePickDive(idx, dive) {
+  lateRounds.value[idx].dive = dive
+  lateRounds.value[idx].text = `${dive.dive_code}${dive.position}`
+  lateActiveSlot.value = -1
+  // Move focus to the next empty round if there is one — fast
+  // entry workflow for the operator typing through a list.
+  const nextIdx = lateRounds.value.findIndex((s, i) => i > idx && !s.dive)
+  if (nextIdx >= 0) {
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`#late-round-${nextIdx}`)
+      if (el) el.focus()
+    })
+  }
+}
+
+function lateCloseDropdown(idx) {
+  // setTimeout so a click on a result registers before blur tears
+  // down the dropdown.
+  setTimeout(() => {
+    if (lateActiveSlot.value === idx) lateActiveSlot.value = -1
+  }, 150)
+}
+
+const lateAllFilled = computed(() =>
+  lateRounds.value.length > 0 && lateRounds.value.every(s => !!s.dive),
+)
+const lateTotalDD = computed(() =>
+  lateRounds.value.reduce((sum, s) => sum + (s.dive ? Number(s.dive.dd) : 0), 0).toFixed(1),
+)
 
 // =============================================================
 // JUDGE PANEL — names + ids loaded once per event so the tile
@@ -538,30 +638,52 @@ const historyDivers = computed(() => {
 
 async function submitLateEntry() {
   lateErr.value = ''
-  if (!lateForm.value.competitor_id) { lateErr.value = 'Pick a diver'; return }
-  if (!lateForm.value.dive_code || !lateForm.value.position) {
-    lateErr.value = 'Pick a dive'
+  if (!lateCompetitorId.value) { lateErr.value = 'Pick a diver'; return }
+
+  // Re-resolve any rows where the operator typed but didn't click
+  // a result — gives them one last chance before we error.
+  for (const slot of lateRounds.value) {
+    if (!slot.dive && slot.text) slot.dive = resolveTypedDive(slot.text)
+  }
+  const missing = lateRounds.value
+    .map((s, i) => ({ s, i }))
+    .filter(({ s }) => !s.dive)
+  if (missing.length) {
+    lateErr.value = `Missing dive for round${missing.length > 1 ? 's' : ''} ` +
+      missing.map(m => m.i + 1).join(', ')
     return
   }
-  // Resolve dive_code + position to a dive_directory id
-  const dive = lateDiveDir.value.find(d =>
-    d.dive_code === lateForm.value.dive_code &&
-    d.position === lateForm.value.position &&
-    (!currentEvent.value?.height || parseFloat(d.height) === parseFloat(currentEvent.value.height)),
-  )
-  if (!dive) { lateErr.value = 'Dive not found in the directory at this height'; return }
+  // Synchro events need a partner; team events need a team.
+  if (currentEvent.value?.event_type === 'synchro_pair' && !latePartnerId.value) {
+    lateErr.value = 'Synchronised events need a partner.'
+    return
+  }
+  if (currentEvent.value?.event_type === 'team' && !lateTeamId.value) {
+    lateErr.value = 'Team events need a team.'
+    return
+  }
+
   lateBusy.value = true
   try {
-    await auth.apiFetch(`/api/events/${currentEvent.value.id}/roster`, {
-      method: 'POST',
-      body: JSON.stringify({
-        competitor_id: lateForm.value.competitor_id,
-        dive_id: dive.id,
-        round_number: parseInt(lateForm.value.round_number, 10) || 1,
-      }),
-    })
-    // Re-pull roster so the new row appears in the queue with
-    // its dive_list_id.
+    // POST one row per round. The endpoint upserts on
+    // (event_id, competitor_id, round_number) so a re-run after
+    // a partial failure is safe — the operator just clicks Add
+    // again and we backfill the missing rows.
+    for (let i = 0; i < lateRounds.value.length; i++) {
+      const slot = lateRounds.value[i]
+      await auth.apiFetch(`/api/events/${currentEvent.value.id}/roster`, {
+        method: 'POST',
+        body: JSON.stringify({
+          competitor_id: lateCompetitorId.value,
+          dive_id:       slot.dive.id,
+          round_number:  i + 1,
+          partner_id:    latePartnerId.value || null,
+          team_id:       lateTeamId.value    || null,
+        }),
+      })
+    }
+    // Re-pull roster so the new rows appear in the queue with
+    // their dive_list_ids and display order.
     const fresh = await auth.apiFetch(`/api/events/${currentEvent.value.id}/roster`)
     roster.value = fresh
     lateOpen.value = false
@@ -1437,7 +1559,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     </div>
   </div>
 
-  <!-- Late-entry modal -->
+  <!-- Late-entry modal — N autocomplete inputs, one per round.
+       The diver competes in every round of the event, so the
+       operator types the full code+position (e.g. "5132D") into
+       each row. The dive directory is filtered to the event's
+       height before matching. Same submit pattern as the diver
+       portal's CompetitorView, just with inline autocompletes
+       instead of click-to-open modals. -->
   <div v-if="lateOpen" class="lb-backdrop" @click="lateOpen = false"></div>
   <div v-if="lateOpen" class="lb-modal late-modal" @click.stop>
     <div class="lb-header">
@@ -1450,44 +1578,97 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <div class="lb-body">
       <div class="field">
         <label class="label">Diver</label>
-        <select class="select" v-model="lateForm.competitor_id">
+        <select class="select" v-model="lateCompetitorId">
           <option value="">— Pick a diver —</option>
           <option v-for="d in lateDivers" :key="d.id" :value="d.id">{{ d.full_name }}</option>
         </select>
       </div>
-      <div class="field" style="display:flex;gap:0.5rem">
-        <div style="flex:1">
-          <label class="label">Round</label>
-          <select class="select" v-model="lateForm.round_number">
-            <option v-for="n in (currentEvent?.total_rounds || 6)" :key="n" :value="n">
-              Round {{ n }}
-            </option>
-          </select>
+
+      <!-- Synchro pair partner picker — only shown for synchro_pair events. -->
+      <div v-if="currentEvent?.event_type === 'synchro_pair'" class="field">
+        <label class="label">Partner</label>
+        <select class="select" v-model="latePartnerId">
+          <option value="">— Pick partner —</option>
+          <option v-for="d in lateDivers"
+                  :key="d.id"
+                  :value="d.id"
+                  :disabled="d.id === lateCompetitorId">
+            {{ d.full_name }}
+          </option>
+        </select>
+      </div>
+
+      <!-- Team picker — only shown for team events. -->
+      <div v-if="currentEvent?.event_type === 'team'" class="field">
+        <label class="label">Team</label>
+        <select class="select" v-model="lateTeamId">
+          <option value="">— Pick team —</option>
+          <option v-for="t in lateTeams" :key="t.id" :value="t.id">
+            {{ t.name }}<span v-if="t.short_code"> ({{ t.short_code }})</span>
+          </option>
+        </select>
+      </div>
+
+      <div class="late-rounds">
+        <div class="late-rounds-head">
+          <span class="late-rounds-label">
+            {{ lateRounds.length }}-round dive list
+            <span v-if="currentEvent?.height" class="late-rounds-height">{{ currentEvent.height }} board</span>
+          </span>
+          <span class="late-rounds-dd">Total DD <strong>{{ lateTotalDD }}</strong></span>
         </div>
-        <div style="flex:1">
-          <label class="label">Dive code</label>
-          <input class="input" type="text" v-model="lateForm.dive_code"
-                 placeholder="e.g. 5132" maxlength="10">
-        </div>
-        <div style="flex:0 0 80px">
-          <label class="label">Position</label>
-          <select class="select" v-model="lateForm.position">
-            <option value="">—</option>
-            <option value="A">A</option>
-            <option value="B">B</option>
-            <option value="C">C</option>
-            <option value="D">D</option>
-          </select>
+        <div
+          v-for="(slot, idx) in lateRounds"
+          :key="idx"
+          class="late-row"
+        >
+          <span class="late-row-num">{{ idx + 1 }}</span>
+          <div class="late-row-input-wrap">
+            <input
+              class="input"
+              type="text"
+              :id="`late-round-${idx}`"
+              v-model="slot.text"
+              :placeholder="`e.g. 5132D`"
+              autocomplete="off"
+              maxlength="8"
+              @input="lateOnInput(idx)"
+              @focus="lateActiveSlot = idx"
+              @blur="lateCloseDropdown(idx)"
+            >
+            <span v-if="slot.dive" class="late-row-resolved" title="Dive matched in directory">✓</span>
+            <ul v-if="lateActiveSlot === idx && lateMatchesFor(idx).length"
+                class="late-autocomplete">
+              <li v-for="d in lateMatchesFor(idx)"
+                  :key="d.id"
+                  class="late-autocomplete-item"
+                  @mousedown.prevent="latePickDive(idx, d)">
+                <span class="late-ac-code">{{ d.dive_code }}<span class="late-ac-pos">{{ d.position }}</span></span>
+                <span class="late-ac-desc">{{ d.description }}</span>
+                <span class="late-ac-dd">DD {{ d.dd }}</span>
+              </li>
+            </ul>
+          </div>
+          <span class="late-row-meta">
+            <template v-if="slot.dive">
+              <span class="late-row-desc">{{ slot.dive.description }}</span>
+              <span class="late-row-dd">DD {{ slot.dive.dd }}</span>
+            </template>
+            <template v-else>
+              <span class="dim">—</span>
+            </template>
+          </span>
         </div>
       </div>
+
       <p class="hint" v-if="lateDiveOptions.length">
-        {{ lateDiveOptions.length }} dives available at {{ currentEvent?.height }}.
+        {{ lateDiveOptions.length }} dives available at {{ currentEvent?.height }}. Type a dive code + position (e.g. <strong>5132D</strong>) and pick from the list, or hit ✓ when an exact match auto-resolves.
       </p>
       <div v-if="lateErr" class="msg msg-error">{{ lateErr }}</div>
       <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:1rem">
         <button class="btn btn-ghost btn-sm" @click="lateOpen = false">Cancel</button>
-        <button class="btn btn-primary btn-sm" :disabled="lateBusy" @click="submitLateEntry">
-          {{ lateBusy ? 'Adding…' : 'Add to queue' }}
+        <button class="btn btn-primary btn-sm" :disabled="lateBusy || !lateAllFilled || !lateCompetitorId" @click="submitLateEntry">
+          {{ lateBusy ? 'Adding…' : `Add ${lateRounds.length}-round list` }}
         </button>
       </div>
     </div>
@@ -1929,11 +2110,101 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   .od-cell { padding: 0.4rem 0.6rem; }
 }
 
-.late-modal { max-width: 480px; }
+.late-modal { max-width: 600px; }
 .late-modal .hint {
   font-size: 11px; color: var(--text-3); line-height: 1.5;
   padding: 0.5rem 0.7rem; margin-top: 0.4rem;
   background: var(--bg-3); border-left: 3px solid var(--cyan); border-radius: 3px;
+}
+.late-modal .hint strong { color: var(--cyan); font-family: var(--font-mono); }
+
+/* Per-round dive list inside the late-entry modal. One row per
+   round of the event; each row has a number gutter, an autocomplete
+   text input, and a resolved-dive description on the right. */
+.late-rounds {
+  display: flex; flex-direction: column; gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+.late-rounds-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+.late-rounds-label {
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.22em; text-transform: uppercase; color: var(--text-3);
+}
+.late-rounds-height {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 400;
+  letter-spacing: 0.05em; color: var(--cyan); margin-left: 0.5rem;
+  background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.4);
+  border-radius: 3px; padding: 0.05rem 0.4rem; vertical-align: middle;
+}
+.late-rounds-dd {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+}
+.late-rounds-dd strong { color: var(--cyan); font-weight: 700; margin-left: 0.25rem; }
+
+.late-row {
+  display: grid; grid-template-columns: 28px 140px 1fr;
+  align-items: center; gap: 0.6rem;
+  padding: 0.4rem 0.5rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.late-row-num {
+  font-family: var(--font-display); font-size: 13px; font-weight: 700;
+  color: var(--cyan); text-align: center;
+}
+.late-row-input-wrap { position: relative; }
+.late-row-input-wrap > .input {
+  font-family: var(--font-mono); font-size: 13px; padding-right: 1.6rem;
+  text-transform: uppercase;
+}
+.late-row-resolved {
+  position: absolute; right: 0.6rem; top: 50%; transform: translateY(-50%);
+  color: var(--cyan); font-weight: 700; font-size: 12px; pointer-events: none;
+}
+.late-row-meta {
+  display: flex; align-items: baseline; gap: 0.5rem; min-width: 0;
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--text-2);
+}
+.late-row-desc {
+  flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.late-row-dd { color: var(--cyan); flex-shrink: 0; }
+
+.late-autocomplete {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 5;
+  margin: 0.3rem 0 0; padding: 0;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 12px 28px rgba(0,0,0,0.5);
+  max-height: 240px; overflow-y: auto; list-style: none;
+}
+.late-autocomplete-item {
+  display: grid; grid-template-columns: 70px 1fr auto;
+  align-items: center; gap: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 12px;
+}
+.late-autocomplete-item:last-child { border-bottom: none; }
+.late-autocomplete-item:hover { background: var(--bg-3); }
+.late-ac-code { font-weight: 700; color: var(--text); }
+.late-ac-pos  { color: var(--cyan); margin-left: 0.1rem; }
+.late-ac-desc { color: var(--text-2);
+                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.late-ac-dd   { color: var(--cyan); font-weight: 700; }
+
+@media (max-width: 720px) {
+  .late-modal { max-width: calc(100vw - 1.5rem); }
+  .late-row { grid-template-columns: 24px 1fr; }
+  .late-row-meta {
+    grid-column: 1 / -1; padding-left: 30px;
+    font-size: 11px;
+  }
 }
 
 /* =========================================================
