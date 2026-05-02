@@ -709,17 +709,31 @@ const projectedLine = computed(() => {
   const active = currentActive.value
   const standings = standingsPreview.value
   if (!active || !standings.length) return null
-  // Match the active diver against standings by name. Standings
-  // doesn't carry competitor_id today (the public scoreboard avoids
-  // exposing UUIDs to spectators), so name + country is the dedupe.
-  const matchKey = (s) =>
-    `${s.full_name || ''}|${s.country_code || ''}|${s.partner_name || ''}`
-  const activeKey = matchKey({
-    full_name: active.full_name,
-    country_code: active.country_code,
-    partner_name: active.partner_name,
-  })
-  const idx = standings.findIndex(s => matchKey(s) === activeKey)
+  // Primary match: the per-event public_id hash (sha256 of
+  // event_id + competitor_id, server-side). Both endpoints emit
+  // it so a single string equality check is enough, and it works
+  // even when two divers share a full name. For team events we
+  // match team_public_id against the team row's public_id.
+  // Fallback to the old name+country match for any older client
+  // / older roster cache that might not have public_id yet.
+  const activePublic =
+    (active.event_type === 'team' && active.team_public_id) ||
+    active.public_id ||
+    null
+  let idx = -1
+  if (activePublic) {
+    idx = standings.findIndex(s => s.public_id === activePublic)
+  }
+  if (idx === -1) {
+    const matchKey = (s) =>
+      `${s.full_name || ''}|${s.country_code || ''}|${s.partner_name || ''}`
+    const activeKey = matchKey({
+      full_name: active.full_name,
+      country_code: active.country_code,
+      partner_name: active.partner_name,
+    })
+    idx = standings.findIndex(s => matchKey(s) === activeKey)
+  }
   const leader = standings[0]
   if (!leader) return null
   if (idx === -1) {

@@ -2640,6 +2640,16 @@ app.get(
                 cl.name AS club_name, cl.short_code AS club_code,
                 cdl.partner_id, pu.full_name AS partner_name, po.country_code AS partner_country,
                 cdl.team_id, t.name AS team_name, t.short_code AS team_code,
+                /* Per-event public hash. Same formula as the public
+                   scoreboard standings (routes/scoreboard.js) so the
+                   Control Room can reliably match the active diver
+                   to a standings row even when two divers share a
+                   name+country, without exposing internal UUIDs to
+                   spectators. */
+                substr(encode(digest('comp:' || cdl.event_id::text || ':' || u.id::text, 'sha256'), 'hex'), 1, 12) AS public_id,
+                CASE WHEN cdl.team_id IS NOT NULL THEN
+                  substr(encode(digest('team:' || cdl.event_id::text || ':' || cdl.team_id::text, 'sha256'), 'hex'), 1, 12)
+                END AS team_public_id,
                 cdl.event_id, cdl.round_number, cdl.dive_id,
                 d.dive_code, d.description, d.dd, d.position,
                 e.event_type, e.number_of_judges

@@ -258,6 +258,13 @@
  * @property {string}      [team_id]
  * @property {string}      [team_name]
  * @property {string}      [team_code]
+ * @property {string}      public_id         per-event sha256 (event_id + competitor_id)
+ *                                           truncated to 12 hex chars. Stable per event,
+ *                                           non-reversible, used to match against the
+ *                                           public scoreboard standings without exposing
+ *                                           internal UUIDs to spectators. Same value
+ *                                           appears on the standings rows.
+ * @property {string}      [team_public_id]  Same idea but for team_id; only set on team events.
  * @property {string}      event_id
  * @property {number}      round_number
  * @property {string}      dive_id
@@ -267,6 +274,21 @@
  * @property {string}      position
  * @property {string}      event_type
  * @property {number}      number_of_judges
+ */
+
+/**
+ * @typedef {Object} StandingsRow
+ * One row of /api/scoreboard/:eventId standings.
+ *
+ * @property {string}       full_name
+ * @property {string}       [country_code]
+ * @property {string}       [club_name]
+ * @property {string}       [partner_name]
+ * @property {string}       [partner_country]
+ * @property {number}       total
+ * @property {string}       public_id          See RosterRow.public_id.
+ * @property {boolean}      is_tied_on_total   True when 2+ rows share this total
+ *                                             but were separated by FINA tie-break.
  */
 
 // Force this file to be a module so import('@/types') works in

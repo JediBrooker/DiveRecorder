@@ -39,7 +39,11 @@ module.exports = function createScoreboardRouter({ pool }) {
            ),
            /* Team-event branch: aggregate by team. dives_desc is
               the descending-sorted array of dive points used as the
-              FINA tie-break key when two teams share a raw total. */
+              FINA tie-break key when two teams share a raw total.
+              public_id is a per-event sha256 of (event_id || team_id)
+              truncated to 12 hex chars — a stable handle the Control
+              Room can match against the active diver's roster row
+              without exposing internal UUIDs to spectators. */
            team_standings AS (
              SELECT t.name AS full_name,
                     NULL::char(3) AS country_code,
@@ -47,7 +51,8 @@ module.exports = function createScoreboardRouter({ pool }) {
                     NULL::varchar AS partner_name,
                     NULL::char(3) AS partner_country,
                     SUM(pd.dive_points) AS total,
-                    array_agg(pd.dive_points ORDER BY pd.dive_points DESC) AS dives_desc
+                    array_agg(pd.dive_points ORDER BY pd.dive_points DESC) AS dives_desc,
+                    substr(encode(digest('team:' || $1::text || ':' || t.id::text, 'sha256'), 'hex'), 1, 12) AS public_id
              FROM per_dive pd
              JOIN teams t ON t.id = pd.team_id
              WHERE (SELECT event_type FROM events WHERE id = $1) = 'team'
@@ -58,7 +63,8 @@ module.exports = function createScoreboardRouter({ pool }) {
              SELECT u.full_name, o.country_code, cl.name AS club_name,
                     pu.full_name AS partner_name, pl.country_code AS partner_country,
                     SUM(pd.dive_points) AS total,
-                    array_agg(pd.dive_points ORDER BY pd.dive_points DESC) AS dives_desc
+                    array_agg(pd.dive_points ORDER BY pd.dive_points DESC) AS dives_desc,
+                    substr(encode(digest('comp:' || $1::text || ':' || u.id::text, 'sha256'), 'hex'), 1, 12) AS public_id
              FROM per_dive pd
              JOIN users u ON u.id = pd.competitor_id
              JOIN organisations o ON o.id = u.org_id
@@ -73,7 +79,7 @@ module.exports = function createScoreboardRouter({ pool }) {
              LEFT JOIN users pu ON pu.id = p.partner_id
              LEFT JOIN organisations pl ON pl.id = pu.org_id
              WHERE (SELECT event_type FROM events WHERE id = $1) <> 'team'
-             GROUP BY u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code
+             GROUP BY u.id, u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code
            ),
            merged AS (
              SELECT * FROM team_standings
@@ -86,7 +92,7 @@ module.exports = function createScoreboardRouter({ pool }) {
               that shared the raw total but were separated by the
               tie-break, so the UI can hint at why. */
            SELECT full_name, country_code, club_name,
-                  partner_name, partner_country, total,
+                  partner_name, partner_country, total, public_id,
                   COUNT(*) OVER (PARTITION BY total) > 1 AS is_tied_on_total
            FROM merged
            ORDER BY total DESC, dives_desc DESC`,
