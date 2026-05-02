@@ -406,6 +406,7 @@ CREATE TABLE public.score_audit_log (
     actor_user_id   uuid REFERENCES public.users(id) ON DELETE SET NULL,
     ip_address      inet,
     user_agent      text,
+    reason          text,                                            -- free-text "why" for corrections
     created_at      timestamptz DEFAULT now() NOT NULL
 );
 
@@ -731,7 +732,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 17);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 18);
 
 
 -- =============================================================

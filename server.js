@@ -3297,16 +3297,24 @@ app.put(
 
       await pool.query("UPDATE scores SET score = $1 WHERE id = $2", [newScore, existing.id]);
       try {
+        // The `reason` column was added in migration 018. Cap the
+        // free-text length so a malicious / accidentally-pasted
+        // multi-MB blob can't bloat the audit table.
+        const trimmedReason = typeof reason === "string"
+          ? reason.trim().slice(0, 500)
+          : null;
         await pool.query(
           `INSERT INTO score_audit_log
              (score_id, event_id, competitor_id, judge_id, round_number,
-              action, old_score, new_score, actor_user_id, ip_address, user_agent)
-           VALUES ($1,$2,$3,$4,$5,'update',$6,$7,$8,$9,$10)`,
+              action, old_score, new_score, actor_user_id, ip_address,
+              user_agent, reason)
+           VALUES ($1,$2,$3,$4,$5,'update',$6,$7,$8,$9,$10,$11)`,
           [
             existing.id, existing.event_id, existing.competitor_id,
             existing.judge_id, existing.round_number,
             oldScore, newScore, req.user.id,
             req.ip, req.headers["user-agent"] || null,
+            trimmedReason || null,
           ],
         );
       } catch (auditErr) {
@@ -4270,7 +4278,7 @@ app.get(
         `SELECT a.id, a.score_id, a.round_number, a.action,
                 a.old_score, a.new_score,
                 a.ip_address::text AS ip_address,
-                a.user_agent, a.created_at,
+                a.user_agent, a.reason, a.created_at,
                 a.competitor_id, comp.full_name AS competitor_name,
                 a.judge_id,      jud.full_name  AS judge_name,
                 ej.judge_number,
