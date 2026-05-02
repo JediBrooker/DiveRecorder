@@ -963,6 +963,10 @@ app.get("/api/coach/dashboard", verifyToken, async (req, res) => {
           event, with the event's status so we can filter live
           ones. */
        upcoming_raw AS (
+         /* LEFT JOIN dive_directory — a dive_list row with a
+            NULL or stale dive_id (diver hasn't filed their full
+            list yet) shouldn't drop the diver entirely from the
+            coach's dashboard. */
          SELECT cdl.competitor_id, cdl.event_id, cdl.round_number,
                 cdl.display_order,
                 e.name AS event_name, e.status, e.event_type,
@@ -970,7 +974,7 @@ app.get("/api/coach/dashboard", verifyToken, async (req, res) => {
                 d.dive_code, d.position, d.dd, d.description
          FROM competitor_dive_lists cdl
          JOIN events e ON e.id = cdl.event_id
-         JOIN dive_directory d ON d.id = cdl.dive_id
+         LEFT JOIN dive_directory d ON d.id = cdl.dive_id
          WHERE cdl.competitor_id IN (SELECT id FROM my_divers)
            AND cdl.withdrawn_at IS NULL
            AND e.status IN ('Live', 'Upcoming')
@@ -2626,6 +2630,12 @@ app.get(
   requireOrgRole(["org_admin", "meet_manager", "referee"]),
   async (req, res) => {
     try {
+      // Cross-org gate. requireOrgRole only checks the caller HAS
+      // a role; it doesn't check the event in :id is in their org.
+      // Without this any meet_manager could enumerate roster +
+      // dive lists for any other org's events by guessing UUIDs.
+      if (!(await ensureEventOrgGate(req, res, "id"))) return;
+
       // Returns the dive list rows with each row's id (so the
       // operator can target it for reorder / withdraw),
       // display_order (used for sort), and withdrawn_at (so the
@@ -3214,9 +3224,13 @@ app.get("/api/events/:id/history", async (req, res) => {
                 e.number_of_judges, d.dd, e.event_type,
                 BOOL_OR(cdl.partner_id IS NOT NULL)
 ) AS total_points,
-              JSON_AGG(s.score ORDER BY s.judge_id) AS judge_scores,
-              JSON_AGG(s.id    ORDER BY s.judge_id) AS score_ids,
-              JSON_AGG(ej.judge_number ORDER BY s.judge_id) AS judge_numbers
+              /* Three parallel arrays — same ordering across all
+                 three so consumers can zip them. ej.judge_number
+                 (panel position 1..N) gives the canonical order;
+                 s.judge_id (UUID) does not. */
+              JSON_AGG(s.score        ORDER BY ej.judge_number) AS judge_scores,
+              JSON_AGG(s.id           ORDER BY ej.judge_number) AS score_ids,
+              JSON_AGG(ej.judge_number ORDER BY ej.judge_number) AS judge_numbers
        FROM scores s
        JOIN events e ON e.id = s.event_id
        JOIN users u ON s.competitor_id = u.id
@@ -3672,12 +3686,19 @@ app.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
          FROM scores s
          JOIN events e ON e.id = s.event_id
          LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
-         JOIN competitor_dive_lists cdl
+         /* LEFT JOIN cdl + dive_directory — a withdrawn-then-
+            deleted competitor_dive_lists row would otherwise drop
+            the diver's historical scores from PB calculations.
+            Other analytics queries already use LEFT JOINs here. */
+         LEFT JOIN competitor_dive_lists cdl
            ON cdl.event_id = s.event_id
           AND cdl.competitor_id = s.competitor_id
           AND cdl.round_number = s.round_number
-         JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+         LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
          WHERE s.competitor_id = $1
+           AND d.id IS NOT NULL  /* skip dives with no resolvable
+                                    directory entry — they can't
+                                    be PBs at a meaningful tuple. */
          ${DATE_FILTER}
          GROUP BY s.event_id, s.round_number,
                   d.dive_code, d.position, d.height, d.dd, d.description, e.number_of_judges, e.event_type
@@ -3878,8 +3899,10 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
         `WITH ${FULL_FIELD_RANKING}
          SELECT e.id AS event_id, e.name AS event_name, e.created_at,
                 r.total, r.rank,
-                (SELECT COUNT(DISTINCT competitor_id) FROM event_totals et2
-                 WHERE et2.event_id = e.id) AS field_size
+                /* field_size as a window over the ranked CTE —
+                   was a correlated subquery against event_totals
+                   which the planner could turn into N×N. */
+                COUNT(*) OVER (PARTITION BY r.event_id)::int AS field_size
          FROM ranked r
          JOIN events e ON e.id = r.event_id
          WHERE r.competitor_id = $1
@@ -4775,53 +4798,112 @@ io.on("connection", (socket) => {
     io.emit("final_score_announced", data);
   });
 
-  // Referee actions — broadcast to clients AND persist to the
-  // score_audit_log so a post-meet dispute investigation has a
-  // record. We log the action as 'update' on every score row
-  // for that (event, competitor, round) tuple so the audit
-  // timeline shows exactly what was changed.
-  async function logRefereeAction(action, data, actorUserId) {
+  // Referee actions — UPDATE the actual scores AND persist to
+  // score_audit_log. The previous version only wrote the audit
+  // row, leaving `scores` untouched — so standings, results PDF
+  // and CSV all kept the original judge marks while the audit
+  // log claimed they had been zeroed/capped. This is a meet-
+  // integrity bug: a real failed dive showed as a normal one in
+  // every official artefact.
+  //
+  // 'failed' → score = 0 for every judge on that dive
+  // 'cap'    → score = LEAST(score, cap_value) for every judge
+  // 'redive' → no score change; the diver re-performs and the
+  //            new attempt overwrites via submit_score on the
+  //            same (event, competitor, round) UNIQUE key
+  //
+  // For 'cap' we validate cap_value is in [0, 10]. Defaults to
+  // 2.0 (FINA "deficient" threshold) when omitted.
+  async function applyRefereeAction(action, data, actorUserId) {
     if (!data?.event_id || !data?.competitor_id || !data?.round_number) return;
+    let capValue = 2.0;
+    if (action === "cap") {
+      const raw = Number(data.cap_value);
+      if (!Number.isFinite(raw) || raw < 0 || raw > 10) {
+        socket.emit("referee_action_rejected", {
+          reason: "bad_cap_value",
+          message: "cap_value must be between 0 and 10.",
+        });
+        return;
+      }
+      capValue = raw;
+    }
+    const client = await pool.connect();
     try {
-      await pool.query(
+      await client.query("BEGIN");
+      // 1. Update the live scores. 'redive' is intentionally a
+      //    no-op here — the new dive overwrites via submit_score.
+      if (action === "failed") {
+        await client.query(
+          `UPDATE scores SET score = 0
+           WHERE event_id = $1 AND competitor_id = $2 AND round_number = $3`,
+          [data.event_id, data.competitor_id, data.round_number],
+        );
+      } else if (action === "cap") {
+        await client.query(
+          `UPDATE scores SET score = LEAST(score, $4::numeric)
+           WHERE event_id = $1 AND competitor_id = $2 AND round_number = $3`,
+          [data.event_id, data.competitor_id, data.round_number, capValue],
+        );
+      }
+      // 2. Audit-log every affected score row.
+      await client.query(
         `INSERT INTO score_audit_log
            (score_id, event_id, competitor_id, judge_id, round_number,
-            action, old_score, new_score, actor_user_id, ip_address, user_agent)
+            action, old_score, new_score, actor_user_id, ip_address, user_agent, reason)
          SELECT s.id, s.event_id, s.competitor_id, s.judge_id, s.round_number,
-                'update', s.score,
-                CASE WHEN $5 = 'failed' THEN 0
-                     WHEN $5 = 'cap'    THEN LEAST(s.score, $6::numeric)
-                     ELSE s.score END,
-                $7, $8, $9
+                'update', s.score, s.score,
+                $4, $5, $6, $7
          FROM scores s
-         WHERE s.event_id = $1 AND s.competitor_id = $2 AND s.round_number = $3
-           AND $4::boolean IS true`,
+         WHERE s.event_id = $1 AND s.competitor_id = $2 AND s.round_number = $3`,
         [
           data.event_id, data.competitor_id, data.round_number,
-          true, action, data.cap_value || 2.0,
           actorUserId || null,
           clientIp(socket),
           socket.handshake.headers["user-agent"] || null,
+          /* reason */ `referee:${action}` + (action === "cap" ? `(${capValue})` : ""),
         ],
       );
+      await client.query("COMMIT");
     } catch (err) {
-      console.error("[Referee Audit Skipped]", err.message);
+      await client.query("ROLLBACK");
+      console.error("[Referee Action Failed]", err.message);
+      socket.emit("referee_action_rejected", { reason: "server_error" });
+      return;
+    } finally {
+      client.release();
     }
+    return true;
   }
 
   socket.on("referee_failed_dive", async (data) => {
     if (!socketRequireRole(socket, ["referee", "meet_manager", "org_admin"])) return;
-    await logRefereeAction("failed", data, socket.userId);
+    if (!(await applyRefereeAction("failed", data, socket.userId))) return;
     io.emit("referee_action_failed", data);
+    // Also broadcast a generic score_corrected so live consumers
+    // re-pull standings without a manual refresh — same channel
+    // the HTTP score-correction endpoint uses.
+    io.emit("score_corrected", {
+      event_id: data.event_id,
+      competitor_id: data.competitor_id,
+      round_number: data.round_number,
+      reason: "referee:failed",
+    });
   });
   socket.on("referee_cap_scores", async (data) => {
     if (!socketRequireRole(socket, ["referee", "meet_manager", "org_admin"])) return;
-    await logRefereeAction("cap", data, socket.userId);
+    if (!(await applyRefereeAction("cap", data, socket.userId))) return;
     io.emit("referee_action_cap", data);
+    io.emit("score_corrected", {
+      event_id: data.event_id,
+      competitor_id: data.competitor_id,
+      round_number: data.round_number,
+      reason: `referee:cap(${data.cap_value || 2.0})`,
+    });
   });
   socket.on("referee_redive", async (data) => {
     if (!socketRequireRole(socket, ["referee", "meet_manager", "org_admin"])) return;
-    await logRefereeAction("redive", data, socket.userId);
+    if (!(await applyRefereeAction("redive", data, socket.userId))) return;
     io.emit("referee_action_redive", data);
   });
 
@@ -4986,9 +5068,12 @@ app.get("/api/archive/:eventId/results", async (req, res) => {
            GROUP BY t.id, t.name, t.short_code
          ),
          comp_standings AS (
+           /* Group by u.id (not just u.full_name) so two divers
+              sharing a name don't merge into one inflated row. */
            SELECT u.full_name, o.country_code, cl.name AS club_name,
                   pu.full_name AS partner_name, pl.country_code AS partner_country,
-                  SUM(pd.dive_points) AS total
+                  SUM(pd.dive_points) AS total,
+                  array_agg(pd.dive_points ORDER BY pd.dive_points DESC) AS dives_desc
            FROM per_dive pd
            JOIN users u ON u.id = pd.competitor_id
            JOIN organisations o ON o.id = u.org_id
@@ -5001,16 +5086,29 @@ app.get("/api/archive/:eventId/results", async (req, res) => {
            LEFT JOIN users pu ON pu.id = p.partner_id
            LEFT JOIN organisations pl ON pl.id = pu.org_id
            WHERE (SELECT event_type FROM events WHERE id = $1) <> 'team'
-           GROUP BY u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code
+           GROUP BY u.id, u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code
+         ),
+         team_standings_padded AS (
+           SELECT *, NULL::numeric[] AS dives_desc FROM team_standings
          )
-         SELECT * FROM team_standings
-         UNION ALL
-         SELECT * FROM comp_standings
-         ORDER BY total DESC`,
+         SELECT full_name, country_code, club_name, partner_name, partner_country, total
+         FROM (
+           SELECT * FROM team_standings_padded
+           UNION ALL
+           SELECT * FROM comp_standings
+         ) merged
+         /* FINA tie-break: highest single dive desc, then second
+            highest, etc. team rows have NULL dives_desc which
+            sorts last with NULLS LAST (default DESC). */
+         ORDER BY total DESC, dives_desc DESC NULLS LAST`,
         [req.params.eventId],
       ),
       pool.query(
-        `SELECT u.full_name, o.country_code, cl.name AS club_name,
+        /* Group by u.id (not full_name) so same-named divers stay
+           separate. STRING_AGG ordered by judge_number (panel
+           position), not judge_id (random UUID), so the chip
+           order matches the actual panel layout the audience saw. */
+        `SELECT u.id AS competitor_id, u.full_name, o.country_code, cl.name AS club_name,
                 pu.full_name AS partner_name, pl.country_code AS partner_country,
                 t.id AS team_id, t.name AS team_name,
                 s.round_number,
@@ -5021,7 +5119,7 @@ app.get("/api/archive/:eventId/results", async (req, res) => {
                   e.number_of_judges, d.dd, e.event_type,
                 BOOL_OR(cdl.partner_id IS NOT NULL)
   ) AS total_dive_score,
-                STRING_AGG(s.score::text, ',' ORDER BY s.judge_id) AS judge_scores
+                STRING_AGG(s.score::text, ',' ORDER BY ej.judge_number) AS judge_scores
          FROM scores s
          JOIN events e ON e.id = s.event_id
          JOIN users u ON s.competitor_id = u.id
@@ -5035,11 +5133,11 @@ app.get("/api/archive/:eventId/results", async (req, res) => {
          LEFT JOIN organisations pl ON pl.id = pu.org_id
          LEFT JOIN teams t ON t.id = cdl.team_id
          WHERE s.event_id = $1
-         GROUP BY u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code,
+         GROUP BY u.id, u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code,
                   t.id, t.name,
                   s.round_number, d.dive_code, d.position, d.description, d.dd,
                   e.number_of_judges, e.event_type
-         ORDER BY u.full_name ASC, s.round_number ASC`,
+         ORDER BY u.full_name ASC, u.id ASC, s.round_number ASC`,
         [req.params.eventId],
       ),
     ]);
@@ -5672,7 +5770,7 @@ app.get("/api/events/:id/results.csv", async (req, res) => {
         [req.params.id],
       ),
       pool.query(
-        `SELECT u.full_name AS diver_name, o.country_code,
+        `SELECT u.id AS competitor_id, u.full_name AS diver_name, o.country_code,
                 cl.name AS club_name, cl.short_code AS club_code,
                 pu.full_name AS partner_name, tm.name AS team_name,
                 s.round_number, d.dive_code, d.position, d.dd,
@@ -5697,11 +5795,11 @@ app.get("/api/events/:id/results.csv", async (req, res) => {
          LEFT JOIN teams tm ON tm.id = cdl.team_id
          LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
          WHERE s.event_id = $1
-         GROUP BY u.full_name, o.country_code, cl.name, cl.short_code,
+         GROUP BY u.id, u.full_name, o.country_code, cl.name, cl.short_code,
                   pu.full_name, tm.name,
                   s.round_number, d.dive_code, d.position, d.dd,
                   e.number_of_judges, e.event_type
-         ORDER BY u.full_name ASC, s.round_number ASC`,
+         ORDER BY u.full_name ASC, u.id ASC, s.round_number ASC`,
         [req.params.id],
       ),
     ]);
@@ -5715,6 +5813,8 @@ app.get("/api/events/:id/results.csv", async (req, res) => {
 
     // Compute final placings up front so the CSV's per-dive rows
     // can carry both the dive total and the diver's final rank.
+    // Keyed by competitor_id (not full_name) so two same-named
+    // divers don't collide; FINA tie-break applied via dives_desc.
     const totalsRes = await pool.query(
       `WITH per_dive AS (
          SELECT s.competitor_id,
@@ -5734,16 +5834,21 @@ app.get("/api/events/:id/results.csv", async (req, res) => {
          LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
          WHERE s.event_id = $1
          GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+       ),
+       totals AS (
+         SELECT competitor_id, SUM(pts)::numeric(8,2) AS total,
+                array_agg(pts ORDER BY pts DESC) AS dives_desc
+         FROM per_dive GROUP BY competitor_id
        )
-       SELECT u.full_name AS diver_name, SUM(pts)::numeric(8,2) AS total,
-              RANK() OVER (ORDER BY SUM(pts) DESC) AS final_rank
-       FROM per_dive pd
-       JOIN users u ON u.id = pd.competitor_id
-       GROUP BY u.full_name`,
+       SELECT u.id AS competitor_id, u.full_name AS diver_name,
+              t.total,
+              RANK() OVER (ORDER BY t.total DESC, t.dives_desc DESC) AS final_rank
+       FROM totals t
+       JOIN users u ON u.id = t.competitor_id`,
       [req.params.id],
     );
-    const placingByName = new Map(
-      totalsRes.rows.map((r) => [r.diver_name, { total: r.total, rank: r.final_rank }]),
+    const placingById = new Map(
+      totalsRes.rows.map((r) => [r.competitor_id, { total: r.total, rank: r.final_rank }]),
     );
 
     res.write(csvRow([
@@ -5754,7 +5859,7 @@ app.get("/api/events/:id/results.csv", async (req, res) => {
       "final_total", "final_rank",
     ]));
     for (const r of divesRes.rows) {
-      const placing = placingByName.get(r.diver_name) || {};
+      const placing = placingById.get(r.competitor_id) || {};
       res.write(csvRow([
         r.diver_name, r.country_code,
         r.club_name, r.club_code,
@@ -5798,9 +5903,15 @@ app.get("/api/events/:id/results.pdf", async (req, res) => {
            WHERE s.event_id = $1
            GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
          )
+         /* Group by u.id (not u.full_name) so two divers with the
+            same full name don't collapse into one row with summed
+            totals. Prior versions of this query merged "Sarah
+            Williams" + "Sarah Williams" into a single PDF line
+            with double points. */
          SELECT u.full_name, o.country_code, cl.name AS club_name,
                 pu.full_name AS partner_name,
-                SUM(pd.dive_points) AS total
+                SUM(pd.dive_points) AS total,
+                array_agg(pd.dive_points ORDER BY pd.dive_points DESC) AS dives_desc
          FROM per_dive pd
          JOIN users u ON u.id = pd.competitor_id
          JOIN organisations o ON o.id = u.org_id
@@ -5811,12 +5922,21 @@ app.get("/api/events/:id/results.pdf", async (req, res) => {
              AND cdl.partner_id IS NOT NULL LIMIT 1
          ) p ON true
          LEFT JOIN users pu ON pu.id = p.partner_id
-         GROUP BY u.full_name, o.country_code, cl.name, pu.full_name
-         ORDER BY total DESC`,
+         GROUP BY u.id, u.full_name, o.country_code, cl.name, pu.full_name
+         /* FINA tie-break: highest single dive, then second-
+            highest, etc. Element-wise array DESC ordering. */
+         ORDER BY total DESC, dives_desc DESC`,
         [req.params.id],
       ),
       pool.query(
-        `SELECT u.full_name, cl.name AS club_name, pu.full_name AS partner_name,
+        /* Group by u.id (not u.full_name). The PDF renders "Dive
+           Results" grouped by diver — without the id, two divers
+           with the same name merged into a single section with
+           inflated dive totals. STRING_AGG also now orders by
+           judge_number, not judge_id (UUID), so the chip order on
+           the page matches the panel order. */
+        `SELECT u.id AS competitor_id, u.full_name, cl.name AS club_name,
+                pu.full_name AS partner_name,
                 s.round_number, d.dive_code, d.position, d.dd,
                 calc_event_dive_points(
                   array_agg(ej.judge_number ORDER BY ej.judge_number),
@@ -5824,7 +5944,7 @@ app.get("/api/events/:id/results.pdf", async (req, res) => {
                   e.number_of_judges, d.dd, e.event_type,
                 BOOL_OR(cdl.partner_id IS NOT NULL)
   ) AS total_dive_score,
-                STRING_AGG(s.score::text, ', ' ORDER BY s.judge_id) AS judge_scores
+                STRING_AGG(s.score::text, ', ' ORDER BY ej.judge_number) AS judge_scores
          FROM scores s
          JOIN events e ON e.id = s.event_id
          JOIN users u ON s.competitor_id = u.id
@@ -5834,10 +5954,10 @@ app.get("/api/events/:id/results.pdf", async (req, res) => {
          LEFT JOIN dive_directory d ON COALESCE(s.dive_id, cdl.dive_id) = d.id
          LEFT JOIN users pu ON pu.id = cdl.partner_id
          WHERE s.event_id = $1
-         GROUP BY u.full_name, cl.name, pu.full_name,
+         GROUP BY u.id, u.full_name, cl.name, pu.full_name,
                   s.round_number, d.dive_code, d.position, d.dd,
                   e.number_of_judges, e.event_type
-         ORDER BY u.full_name ASC, s.round_number ASC`,
+         ORDER BY u.full_name ASC, u.id ASC, s.round_number ASC`,
         [req.params.id],
       ),
     ]);
@@ -5881,14 +6001,20 @@ app.get("/api/events/:id/results.pdf", async (req, res) => {
     doc.fontSize(13).font("Helvetica-Bold").text("Dive Results");
     doc.moveDown(0.3);
 
-    // Group rows by diver while keeping the first row's club_name
-    // for the section header.
+    // Group rows by competitor_id (not full_name) so two divers
+    // with the same name don't collapse into one section. The
+    // section header still shows full_name for readability.
     const byDiver = new Map();
     dives.rows.forEach((row) => {
-      if (!byDiver.has(row.full_name)) {
-        byDiver.set(row.full_name, { club: row.club_name || null, rows: [] });
+      const key = row.competitor_id;
+      if (!byDiver.has(key)) {
+        byDiver.set(key, {
+          name: row.full_name,
+          club: row.club_name || null,
+          rows: [],
+        });
       }
-      byDiver.get(row.full_name).rows.push(row);
+      byDiver.get(key).rows.push(row);
     });
 
     // For synchro events, regroup judge scores into A / B / Sync
@@ -5909,9 +6035,9 @@ app.get("/api/events/:id/results.pdf", async (req, res) => {
       return scoresStr;
     };
 
-    for (const [diver, group] of byDiver) {
+    for (const [, group] of byDiver) {
       if (doc.y > 680) doc.addPage();
-      doc.fontSize(11).font("Helvetica-Bold").fillColor("#000").text(diver);
+      doc.fontSize(11).font("Helvetica-Bold").fillColor("#000").text(group.name);
       if (group.club) {
         doc.fontSize(9).font("Helvetica").fillColor("#666").text(group.club);
         doc.fillColor("#000");

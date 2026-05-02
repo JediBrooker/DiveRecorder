@@ -111,7 +111,7 @@ module.exports = function createScoreboardRouter({ pool }) {
                     e.number_of_judges, d.dd, e.event_type,
                   BOOL_OR(cdl.partner_id IS NOT NULL)
     ) AS total_dive_score,
-                  STRING_AGG(s.score::text, ',' ORDER BY s.judge_id) AS judge_array
+                  STRING_AGG(s.score::text, ',' ORDER BY ej.judge_number) AS judge_array
            FROM scores s
            JOIN events e ON e.id = s.event_id
            JOIN users u ON s.competitor_id = u.id
@@ -202,12 +202,30 @@ module.exports = function createScoreboardRouter({ pool }) {
                     PARTITION BY competitor_id
                     ORDER BY round_number
                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-                  ) AS cumulative_total
+                  ) AS cumulative_total,
+                  /* All dives this competitor has done up to AND
+                     including this round, sorted desc — the FINA
+                     tie-break key (highest single dive, then
+                     second-highest, etc.). Postgres element-wise
+                     array DESC ordering gives the FINA semantics. */
+                  array_agg(round_total) OVER (
+                    PARTITION BY competitor_id
+                    ORDER BY round_total DESC, round_number
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                  ) AS dives_so_far_desc
            FROM dive_totals
          ),
          ranked AS (
+           /* Apply FINA tie-break to per-round rankings so the
+              up/down movement arrows on the live scoreboard match
+              what the standings panel shows. Previously the
+              leaderboard ordered by total DESC only, disagreeing
+              with the standings panel right next to it. */
            SELECT *,
-                  RANK() OVER (PARTITION BY round_number ORDER BY cumulative_total DESC) AS rnk
+                  RANK() OVER (
+                    PARTITION BY round_number
+                    ORDER BY cumulative_total DESC, dives_so_far_desc DESC
+                  ) AS rnk
            FROM cumulative
          ),
          with_prev AS (

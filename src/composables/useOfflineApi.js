@@ -23,7 +23,7 @@
 
 import { ref, watch, isRef } from 'vue'
 import { useAuthStore } from '@/stores/auth'
-import { cachedFetch, idbDelete } from '@/lib/idbCache'
+import { cachedFetch, idbDeleteFor } from '@/lib/idbCache'
 
 export function useOfflineApi(urlOrRef, options = {}) {
   const data = ref(null)
@@ -45,7 +45,13 @@ export function useOfflineApi(urlOrRef, options = {}) {
     loading.value = true
     error.value = null
     try {
-      if (force) await idbDelete(url)
+      // Force-refresh has to delete the cache entry under the
+      // SAME key cachedFetch wrote it under (token-fingerprint +
+      // url). Earlier versions called `idbDelete(url)` which
+      // didn't match — `force=true` was silently a no-op. Stale
+      // data could persist for the entire stale-while-revalidate
+      // window after a score correction or roster edit.
+      if (force) await idbDeleteFor(auth.token, url)
       const result = await cachedFetch(
         url,
         { headers: buildHeaders(), credentials: 'same-origin' },
