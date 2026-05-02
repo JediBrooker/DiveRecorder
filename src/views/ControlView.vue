@@ -259,14 +259,30 @@ const upcomingDivers = computed(() => {
 })
 
 // =========================================================
+// QUEUE LOCK — drag-reorder + ▲/▼ + randomise are only valid
+// before the meet starts. Once the event flips out of
+// 'Upcoming' the published start order is committed and any
+// reshuffle would invalidate the spectator scoreboard. The
+// server enforces this too (HTTP 409); the UI mirrors it so
+// operators don't see a button that always errors.
+// =========================================================
+const canReorderQueue = computed(() =>
+  currentEvent.value?.status === 'Upcoming',
+)
+
+// =========================================================
 // RANDOMISE START ORDER — operator clicks before the meet
-// kicks off (or any time, really) to shuffle every diver's
-// position. Same shuffled order is applied across every round
-// so a diver who's first in round 1 is also first in round 2.
+// kicks off to shuffle every diver's position. Same shuffled
+// order is applied across every round so a diver who's first
+// in round 1 is also first in round 2.
 // =========================================================
 const randomizing = ref(false)
 async function randomizeStartOrder() {
   if (!currentEvent.value) return
+  if (!canReorderQueue.value) {
+    alert('The dive order is locked once the event has started.')
+    return
+  }
   const ev = currentEvent.value
   if (!confirm(
     `Randomise the start order for "${ev.name}"?\n\n`
@@ -302,6 +318,12 @@ const dragRosterIdx = ref(null)
 const dragOverRosterIdx = ref(null)
 
 function onRosterDragStart(originalIdx, ev) {
+  // Cancel the drag entirely if the queue is locked. preventDefault
+  // here stops the browser from initiating the drag UI.
+  if (!canReorderQueue.value) {
+    ev.preventDefault?.()
+    return
+  }
   dragRosterIdx.value = originalIdx
   if (ev.dataTransfer) {
     ev.dataTransfer.effectAllowed = 'move'
@@ -375,6 +397,7 @@ async function onRosterDrop(originalIdx, ev) {
 // pick a value halfway between the new neighbours so subsequent
 // drags don't have to renumber the whole round.
 async function reorderRosterRow(idx, dir) {
+  if (!canReorderQueue.value) return
   const cur = roster.value[idx]
   if (!cur) return
   // Find the previous / next row in the SAME round
@@ -1517,14 +1540,24 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           <span>Diver Queue</span>
           <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
             <span class="roster-count">{{ roster.length ? currentIndex + 1 : 0 }}/{{ roster.length }}</span>
+            <!-- Once the event flips out of 'Upcoming' the start
+                 order is locked. Show a small badge so the operator
+                 understands why the reorder controls are dimmed. -->
+            <span v-if="currentEvent && !canReorderQueue"
+                  class="queue-lock-badge"
+                  :title="`Start order locked — event is ${currentEvent.status}. Withdraw a diver instead if they need to be skipped.`">
+              🔒 Order locked
+            </span>
             <button v-if="currentEvent" class="btn btn-ghost btn-sm" @click="openCheckIn"
                     title="Open the pre-meet check-in / accreditation list.">
               ✓ Check-in
             </button>
             <button v-if="currentEvent && roster.length" class="btn btn-ghost btn-sm"
-                    :disabled="randomizing"
+                    :disabled="randomizing || !canReorderQueue"
                     @click="randomizeStartOrder"
-                    title="Shuffle the diver start order across every round.">
+                    :title="canReorderQueue
+                      ? 'Shuffle the diver start order across every round.'
+                      : 'Start order is locked once the event has started.'">
               {{ randomizing ? '🎲 …' : '🎲 Randomise' }}
             </button>
             <button v-if="currentEvent" class="btn btn-ghost btn-sm" @click="openLateEntry"
@@ -1621,8 +1654,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                 item.withdrawn_at ? 'withdrawn' : '',
                 dragRosterIdx === item.originalIdx ? 'is-dragging' : '',
                 dragOverRosterIdx === item.originalIdx ? 'is-drop-target' : '',
+                !canReorderQueue ? 'is-locked' : '',
               ]"
-              :draggable="!item.withdrawn_at"
+              :draggable="canReorderQueue && !item.withdrawn_at"
               @dragstart="onRosterDragStart(item.originalIdx, $event)"
               @dragover="onRosterDragOver(item.originalIdx, $event)"
               @dragleave="onRosterDragLeave(item.originalIdx)"
@@ -1630,7 +1664,11 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               @drop="onRosterDrop(item.originalIdx, $event)"
             >
               <div class="roster-row-head">
-                <span class="roster-grip" title="Drag to reorder within round">⋮⋮</span>
+                <span v-if="canReorderQueue"
+                      class="roster-grip"
+                      title="Drag to reorder within round">⋮⋮</span>
+                <span v-else class="roster-grip roster-grip-locked"
+                      title="Start order locked — event has started">🔒</span>
                 <button
                   class="roster-jump"
                   :disabled="!!item.withdrawn_at"
@@ -1657,13 +1695,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                      so reorder targets the correct unfiltered slot. -->
                 <div class="roster-controls">
                   <button class="roster-ctrl"
-                          :disabled="item.originalIdx === 0 || roster[item.originalIdx - 1].round_number !== item.round_number"
+                          :disabled="!canReorderQueue || item.originalIdx === 0 || roster[item.originalIdx - 1].round_number !== item.round_number"
                           @click.stop="reorderRosterRow(item.originalIdx, 'up')"
-                          title="Move up within round">▲</button>
+                          :title="canReorderQueue ? 'Move up within round' : 'Order locked — event has started'">▲</button>
                   <button class="roster-ctrl"
-                          :disabled="item.originalIdx >= roster.length - 1 || roster[item.originalIdx + 1].round_number !== item.round_number"
+                          :disabled="!canReorderQueue || item.originalIdx >= roster.length - 1 || roster[item.originalIdx + 1].round_number !== item.round_number"
                           @click.stop="reorderRosterRow(item.originalIdx, 'down')"
-                          title="Move down within round">▼</button>
+                          :title="canReorderQueue ? 'Move down within round' : 'Order locked — event has started'">▼</button>
                   <button :class="['roster-ctrl', item.withdrawn_at ? 'roster-reinstate' : 'roster-withdraw']"
                           @click.stop="withdrawRosterRow(item.originalIdx)"
                           :title="item.withdrawn_at ? 'Reinstate' : 'Withdraw / scratch'">
@@ -2285,6 +2323,28 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   align-self: center;
 }
 .roster-grip:active { cursor: grabbing; }
+/* Locked state — show a padlock icon instead of the grip and
+   default the cursor so the operator doesn't think drag would
+   work. The whole row also gets .is-locked which removes the
+   hover-only border-colour pulse. */
+.roster-grip-locked {
+  cursor: not-allowed; font-size: 12px; color: var(--text-3);
+  letter-spacing: normal;
+}
+.roster-item.is-locked {
+  /* Make the locked rows feel slightly less interactive. */
+  opacity: 0.95;
+}
+
+/* Lock badge in the queue panel header — small amber chip the
+   controller sees once an event flips to Live/Completed. */
+.queue-lock-badge {
+  font-family: var(--font-mono); font-size: 10.5px; font-weight: 700;
+  color: var(--amber); background: rgba(245,158,11,0.08);
+  border: 1px solid rgba(245,158,11,0.4);
+  border-radius: 3px; padding: 0.15rem 0.45rem;
+  letter-spacing: 0.05em; cursor: help;
+}
 .roster-item.is-dragging   { opacity: 0.4; }
 .roster-item.is-drop-target {
   border-color: var(--cyan);

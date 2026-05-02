@@ -372,6 +372,7 @@ const {
   requireSystemAdmin,
   requireEventManager,
   ensureEventOrgGate,
+  ensureEventPreMeet,
   isInSameOrg,
   socketRequireRole,
   isValidScore,
@@ -2656,14 +2657,38 @@ app.put(
       return res.status(400).json({ error: "display_order must be an integer or null" });
     }
     try {
+      // Look up the row's event so we can both gate on org and on
+      // pre-meet status. Reorder is locked once the event flips
+      // out of 'Upcoming' — operators withdraw scratchers instead.
+      const owner = await pool.query(
+        `SELECT e.id, e.status, e.name, e.org_id
+         FROM competitor_dive_lists cdl
+         JOIN events e ON e.id = cdl.event_id
+         WHERE cdl.id = $1`,
+        [req.params.id],
+      );
+      if (!owner.rows.length) {
+        return res.status(404).json({ error: "Dive list row not found" });
+      }
+      const ev = owner.rows[0];
+      if (!req.user.is_system_admin && ev.org_id !== req.user.org_id) {
+        return res.status(403).json({ error: "Event is not in your organisation" });
+      }
+      if (ev.status !== "Upcoming") {
+        return res.status(409).json({
+          error:
+            `Cannot change the dive order once "${ev.name}" has started ` +
+            `(status is ${ev.status}). Withdraw a diver instead if they ` +
+            `need to be skipped.`,
+          event_status: ev.status,
+        });
+      }
       const r = await pool.query(
         `UPDATE competitor_dive_lists cdl
          SET display_order = $1
-         FROM events e
-         WHERE cdl.id = $2 AND cdl.event_id = e.id
-           AND ($3::boolean OR e.org_id = $4)
+         WHERE cdl.id = $2
          RETURNING cdl.id, cdl.display_order`,
-        [display_order ?? null, req.params.id, !!req.user.is_system_admin, req.user.org_id],
+        [display_order ?? null, req.params.id],
       );
       if (!r.rows.length) return res.status(404).json({ error: "Dive list row not found" });
       res.json({ ok: true, ...r.rows[0] });
@@ -2702,14 +2727,26 @@ app.put(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      // Confirm the event exists in the caller's org first.
+      // Confirm the event exists in the caller's org and is still
+      // pre-meet. Once status flips to Live/Completed the start
+      // order is fixed — operators withdraw divers instead.
       const ev = await client.query(
-        "SELECT id FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)",
+        "SELECT id, status, name FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)",
         [eventId, !!req.user.is_system_admin, req.user.org_id],
       );
       if (!ev.rows.length) {
         await client.query("ROLLBACK");
         return res.status(404).json({ error: "Event not found" });
+      }
+      if (ev.rows[0].status !== "Upcoming") {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          error:
+            `Cannot re-order divers once "${ev.rows[0].name}" has started ` +
+            `(status is ${ev.rows[0].status}). Withdraw a diver instead if they ` +
+            `need to be skipped.`,
+          event_status: ev.rows[0].status,
+        });
       }
       let updated = 0;
       for (const r of rows) {
@@ -2733,16 +2770,13 @@ app.put(
   },
 );
 
-// Randomise start order — shuffles every diver's position in the
-// event before it starts. Each unique competitor gets one random
-// position which is then applied to every round they're in, so
-// "Diver Z dives 1st" stays consistent across rounds. Operators
-// can re-run as many times as they like until they're happy.
-//
-// We deliberately don't gate this on event status — meets sometimes
-// re-shuffle after a withdrawal even mid-event. The audit log
-// captures who pressed it via the role_audit_log if you want to
-// track it later.
+// Randomise start order — shuffles every diver's position before
+// the event starts. Each unique competitor gets one random position
+// applied to every round they're in, so "Diver Z dives 1st" stays
+// consistent across rounds. Operators can re-run as many times as
+// they like until they're happy. Locked once the event flips to
+// Live/Completed — at that point the published start order is
+// committed and shuffling would invalidate scoreboards.
 app.post(
   "/api/events/:id/dive-lists/randomize",
   requireOrgRole(["org_admin", "meet_manager", "referee"]),
@@ -2750,10 +2784,18 @@ app.post(
     const eventId = req.params.id;
     try {
       const ev = await pool.query(
-        "SELECT id FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)",
+        "SELECT id, status, name FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)",
         [eventId, !!req.user.is_system_admin, req.user.org_id],
       );
       if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
+      if (ev.rows[0].status !== "Upcoming") {
+        return res.status(409).json({
+          error:
+            `Cannot randomise the start order once "${ev.rows[0].name}" has started ` +
+            `(status is ${ev.rows[0].status}). The published order is now fixed.`,
+          event_status: ev.rows[0].status,
+        });
+      }
 
       // Pick a random ordering of the unique competitors, then
       // apply that ordering across every round in one UPDATE.
