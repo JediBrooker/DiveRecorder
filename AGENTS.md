@@ -1,0 +1,213 @@
+# Agent guide
+
+A short orientation for AI agents (and humans-doing-AI-work) on this codebase.
+Read once at the start of a session. Keeps you from rediscovering the same
+patterns and bugs that already cost previous sessions real cycles.
+
+If anything in this file looks wrong vs. the code, **the code is the source
+of truth** — fix this file as part of the same commit.
+
+---
+
+## Stack at a glance
+
+- **Backend**: Node 20 + Express 5 + Socket.IO 4 + node-postgres (`pg`).
+  PostgreSQL 14+ with `uuid-ossp` and `pgcrypto`. Auth via JWT in the
+  `Authorization: Bearer …` header.
+- **Frontend**: Vue 3 (`<script setup>`) + Vite 6 + Vue Router + Pinia.
+  PWA via `public/sw.js` (cache v3, network-first navigation).
+  IndexedDB stale-while-revalidate via `src/lib/idbCache.js`.
+- **Tests**: `node:test` runner. Two suites today — `test/syntax.test.js`
+  (no DB needed) and `test/calc.test.js` (skips when DB unreachable).
+  CI runs both against a Postgres service container.
+
+---
+
+## Invariants you must not break
+
+### JWT payload shape
+
+`verifyToken` decodes the JWT into `req.user`:
+
+```ts
+{
+  id: string,                    // ← UUID. NOT user_id, NOT userId, NOT uid.
+  username: string,
+  full_name: string,
+  org_id: string,                // primary org
+  org_roles: string[],           // ['org_admin', 'meet_manager', 'judge', ...]
+  is_system_admin: boolean,
+  is_email_verified: boolean,
+}
+```
+
+**The single most common bug in this repo's history is using
+`req.user.user_id`.** Don't. The audit pass found three handlers doing
+this; if you find a fourth, fix it and grep the rest of the file.
+
+### Sysadmin bypass pattern
+
+Every org-scoped query uses this exact shape:
+
+```sql
+WHERE id = $1 AND ($2::boolean OR org_id = $3)
+-- params: [id, !!req.user.is_system_admin, req.user.org_id]
+```
+
+When you write a new query against an org-scoped resource, use this pattern.
+Don't invent a different one. There's also a route-level helper
+`ensureEventOrgGate(req, res, paramName)` for the simple "is this event in
+my org?" case.
+
+### Org-resource cross-checks
+
+When an endpoint lets one user attach another (manager, judge, team) to an
+event, you **must** confirm the attachee's org matches the event's org.
+The helper is `isInSameOrg(db, eventOrgId, id, kind)`. Without this you've
+opened an IDOR — the audit caught three of these.
+
+### Role gates on socket events
+
+Socket handlers that mutate state (`submit_score`, `set_active_diver`,
+`referee_*`, `meet_hold`, `meet_resume`, `announce_score`) must call
+`socketRequireRole(socket, [...])` first. Anonymous spectators connect
+without a token and that's intentional, but they can only listen, never
+emit. **Don't fall back to `data.judge_id`** — that's the spoof the audit
+closed.
+
+### Score validation
+
+Any code path that accepts a score must validate `0 ≤ n ≤ 10` in 0.5
+increments. Helper is `isValidScore(s)` in `server.js`. The HTTP and
+Socket paths must agree, otherwise one becomes a back-door.
+
+### Schema migrations
+
+Every change goes in **two** places:
+
+1. **`init.sql`** — the bootstrap-from-empty source of truth. Update column
+   defs, indexes, and the `INSERT INTO public.schema_meta (id, version)`
+   line at the bottom.
+2. **`migrations/0NN_<name>.sql`** — a numbered file that brings an existing
+   DB up to the same version. Idempotent (`IF NOT EXISTS`, `ON CONFLICT`).
+   End with the standard `INSERT INTO schema_meta … ON CONFLICT (id) DO
+   UPDATE` block bumping `version`.
+
+Run `npm run migrate` against a target DB to apply pending migrations in
+order. The runner reads `schema_meta.version` and applies any numbered file
+above it.
+
+---
+
+## Repeated patterns and where the helpers live
+
+| Job | Helper | File |
+|---|---|---|
+| Decode JWT | `verifyToken` middleware | `server.js` |
+| Require any of N org roles | `requireOrgRole([...])` | `server.js` |
+| Require event manager OR org_admin in same org | `requireEventManager()` | `server.js` |
+| Require sysadmin only | `requireSystemAdmin` | `server.js` |
+| Confirm event ID belongs to caller's org (read paths) | `ensureEventOrgGate(req, res, paramName)` | `server.js` |
+| Confirm a target user/team belongs to the event's org | `isInSameOrg(db, eventOrgId, id, kind)` | `server.js` |
+| Per-query catch-and-log (analytics) | `runQuery(label, sql, params)` | inline in `/api/divers/:id/analytics` |
+| Auth-aware fetch with auto-redirect on 401 | `auth.apiFetch(url, opts)` | `src/stores/auth.js` |
+| Stale-while-revalidate fetch | `cachedFetch(url, opts, { onUpdate })` | `src/lib/idbCache.js` |
+| Wipe per-user IndexedDB cache | `idbClear()` | `src/lib/idbCache.js` |
+| Trim & tag judges' scores (FINA rules) | `useScoreTrim()` composable | `src/composables/useScoreTrim.js` |
+| Bucket a score into a FINA category | `useScoreCategories()` composable | `src/composables/useScoreCategories.js` |
+| Computed dive points (server) | `calc_event_dive_points(...)` SQL function | `init.sql` |
+| Standard analytics CTE for per-dive rows | `PER_DIVE` template string | inline in `/api/divers/:id/analytics` |
+| Standard analytics CTE for full-field ranking | `analyticsRankingCTE(...)` | `db/queries.js` |
+
+If you write the third copy of any of these, **stop and consolidate** into
+a helper. The repo has bled time on duplicated patterns.
+
+---
+
+## API response shapes
+
+JSDoc `@typedef`s for the half-dozen shapes the frontend reads from the
+API live in `src/types.js`. Reference them via:
+
+```js
+/** @type {import('@/types').DiverProfile} */
+```
+
+When you change a response, update `src/types.js` in the same commit so
+TypeScript-aware editors flag the consumers.
+
+---
+
+## Things that have bitten previous sessions
+
+A non-exhaustive list of "the bug came back because the next agent didn't
+know X":
+
+1. **`recent_form` / `placings` / `streak` / `year_over_year` rank against
+   the FULL field of competitors, not the diver alone.** The temptation
+   is to feed `RANK()` a CTE that's already filtered to the diver, which
+   silently makes every meet rank 1st-of-1. Use the
+   `analyticsRankingCTE(eventIdsSubquery)` helper.
+2. **The FINA category boundaries are duplicated.** Source of truth is
+   `src/composables/useScoreCategories.js`; the test mirror at
+   `test/syntax.test.js` is intentional and detects drift in the
+   composable. Don't add a third copy.
+3. **The trim algorithm is duplicated.** Source of truth is
+   `src/composables/useScoreTrim.js`. If you need to tag judges' scores
+   as kept/dropped client-side, import that.
+4. **`JWT_SECRET` must be set in `.env` and ≥ 32 chars in production.** The
+   server boots with a warning at < 32 chars and refuses to boot at all
+   if the secret is missing or the placeholder. PM2 will crash-loop and
+   Cloudflare will return 502 — see commit `ba83226` for the diagnosis.
+5. **`helmet` is a runtime dependency.** If a deploy didn't run
+   `npm install`, the server crashes on require. Always
+   `git pull && npm install && pm2 restart`.
+6. **Modal CSS pattern.** `.lb-backdrop` is `position: fixed`. Sibling
+   `.lb-modal` needs its own `position: fixed; z-index: 301; transform:
+   translate(-50%, -50%)`. Don't write a new modal that nests differently
+   from this — see commit `e45c227`.
+7. **The IndexedDB cache is keyed per-user.** Don't write a frontend that
+   bypasses `cachedFetch` for a sensitive endpoint without thinking about
+   the leak window between user A logout and user B login.
+
+---
+
+## When you change X, also check Y
+
+A non-exhaustive checklist:
+
+| If you change… | Also check… |
+|---|---|
+| `users` table columns | `routes/auth.js` (the SELECTs that build the JWT payload), `src/types.js`, `init.sql` + a new `migrations/0NN_*.sql` |
+| The JWT payload shape | Every `req.user.X` reference in `server.js` (grep), `src/stores/auth.js`'s `user` computed |
+| A `/api/...` response shape | `src/types.js`, every consumer view (grep for the URL) |
+| A SQL function | `init.sql`, all migrations that touch it, `test/calc.test.js` if there's a closed-form test |
+| `KNOWN_WIDGETS` | `WIDGET_CATALOG` in `src/views/DiverProfileView.vue` |
+| A socket event | `socketRequireRole` gate, every consumer (`socket.on('eventName')` grep) |
+| Anything in `src/composables/` | The handful of consumers, since composables aren't auto-typed |
+
+---
+
+## Style and discipline
+
+- **Comments explain WHY**, not what. The "what" is in the code.
+- **Header comments** on every file with a non-trivial scope.
+- **Commit messages** describe the change in one short title line + body
+  paragraphs explaining the reasoning. The audit-fix and bug-fix commits
+  in `git log` are the template.
+- **One commit per logical change.** Don't batch the cross-org compare
+  feature with the modal CSS fix.
+- **Never bypass `git`'s safety**: no `--no-verify`, no `--force` to main.
+
+---
+
+## When in doubt
+
+- Run `npm run lint` (just `node --check server.js` today, but it catches
+  things).
+- Run `npm test` — the syntax suite is fast and catches schema drift.
+- Run `npm run build` if you touched any `.vue` file.
+
+If something feels off and you can't find it in this file, that's the
+signal to **read the code and then update this file** so the next agent
+finds it on the first pass.

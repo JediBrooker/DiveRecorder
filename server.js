@@ -11,6 +11,7 @@ const { Server } = require("socket.io");
 const { Pool } = require("pg");
 const cors = require("cors");
 const helmet = require("helmet");
+const { PER_DIVE: SHARED_PER_DIVE, FULL_FIELD_RANKING } = require("./db/queries");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const rateLimit = require("express-rate-limit");
@@ -1091,106 +1092,10 @@ app.delete(
   },
 );
 
-// Cross-org diver autocomplete for the Compare page. Any logged-in
-// user can search across every org because the underlying data is
-// already publicly visible on the meet scoreboards and the archive.
-// Returns up to 20 lightweight rows ordered by name match relevance:
-// prefix matches first, then containment. The query is parameterised
-// (no string interpolation) so SQL injection is impossible even
-// though the column refs are dynamic.
-app.get("/api/divers/search", verifyToken, async (req, res) => {
-  const q = (req.query.q || "").trim();
-  if (q.length < 2) return res.json([]);
-  try {
-    const r = await pool.query(
-      `SELECT u.id, u.full_name, u.username,
-              o.id AS org_id, o.name AS org_name, o.country_code,
-              cl.id AS club_id, cl.name AS club_name, cl.short_code AS club_code
-       FROM users u
-       JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id AND r.role = 'diver'
-       JOIN organisations o  ON o.id = u.org_id
-       LEFT JOIN clubs cl    ON cl.id = u.club_id
-       WHERE u.full_name ILIKE $1 OR u.username ILIKE $1
-       ORDER BY
-         /* prefix match wins over contains-anywhere */
-         CASE WHEN u.full_name ILIKE $2 THEN 0 ELSE 1 END,
-         u.full_name ASC
-       LIMIT 20`,
-      [`%${q}%`, `${q}%`],
-    );
-    res.json(r.rows);
-  } catch (err) {
-    console.error("[Diver Search Error]", err.message);
-    res.status(500).json([]);
-  }
-});
-
-// Browse-all paginated diver list. Powers the "browse" modal on the
-// Compare page. Filters are all optional; an unfiltered call returns
-// the alphabetical first page across every org. q does the same
-// name/username substring match as /search but combined with the
-// other filters. limit clamped to [1, 100].
-app.get("/api/divers", verifyToken, async (req, res) => {
-  const q             = (req.query.q || "").trim();
-  const orgId         = req.query.org_id || null;
-  const clubId        = req.query.club_id || null;
-  const countryCode   = (req.query.country_code || "").trim().toUpperCase() || null;
-  const limit         = Math.min(Math.max(Number(req.query.limit)  || 50, 1), 100);
-  const offset        = Math.max(Number(req.query.offset) || 0, 0);
-  try {
-    const r = await pool.query(
-      `SELECT u.id, u.full_name, u.username,
-              o.id AS org_id, o.name AS org_name, o.country_code,
-              cl.id AS club_id, cl.name AS club_name, cl.short_code AS club_code,
-              COUNT(*) OVER ()::int AS total_count
-       FROM users u
-       JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id AND r.role = 'diver'
-       JOIN organisations o  ON o.id = u.org_id
-       LEFT JOIN clubs cl    ON cl.id = u.club_id
-       WHERE ($1::text IS NULL OR u.full_name ILIKE $1 OR u.username ILIKE $1)
-         AND ($2::uuid IS NULL OR u.org_id  = $2::uuid)
-         AND ($3::uuid IS NULL OR u.club_id = $3::uuid)
-         AND ($4::text IS NULL OR o.country_code = $4::text)
-       ORDER BY u.full_name ASC
-       LIMIT $5 OFFSET $6`,
-      [
-        q ? `%${q}%` : null,
-        orgId,
-        clubId,
-        countryCode,
-        limit,
-        offset,
-      ],
-    );
-    const total = r.rows[0]?.total_count ?? 0;
-    res.json({
-      total,
-      limit,
-      offset,
-      rows: r.rows.map(({ total_count, ...rest }) => rest),
-    });
-  } catch (err) {
-    console.error("[Diver Browse Error]", err.message);
-    res.status(500).json({ total: 0, limit, offset, rows: [] });
-  }
-});
-
-// Lightweight org listing for the browse-all filter dropdowns.
-// Returns id + name + country_code for every active org.
-app.get("/api/orgs/all", verifyToken, async (_req, res) => {
-  try {
-    const r = await pool.query(
-      `SELECT id, name, country_code
-       FROM organisations
-       WHERE status = 'active'
-       ORDER BY name ASC`,
-    );
-    res.json(r.rows);
-  } catch (err) {
-    console.error("[Orgs List Error]", err.message);
-    res.status(500).json([]);
-  }
-});
+// Cross-org diver search + browse + orgs/all live in routes/
+// diver-search.js — extracted to keep server.js manageable. See
+// AGENTS.md for the modularisation plan.
+app.use(require("./routes/diver-search")({ pool, verifyToken }));
 
 app.get("/api/orgs/:id/divers", verifyToken, async (req, res) => {
   if (!req.user.is_system_admin && req.params.id !== req.user.org_id) {
@@ -3686,34 +3591,9 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
     // and inlining keeps each rollup independent and cheap.
     //
     // $1 = competitor_id, $2 = from_date (nullable), $3 = to_date (nullable).
-    // The two date predicates are no-ops when their param is null, so
-    // unfiltered callers still work.
-    const PER_DIVE = `
-      SELECT s.event_id, s.competitor_id, s.round_number,
-             d.dive_code, d.position, d.height, d.dd, d.description,
-             e.event_type::text AS event_type, e.created_at,
-             calc_event_dive_points(
-               array_agg(ej.judge_number ORDER BY ej.judge_number),
-               array_agg(s.score ORDER BY ej.judge_number),
-               e.number_of_judges, MAX(d.dd), e.event_type,
-               BOOL_OR(cdl.partner_id IS NOT NULL)
-             ) AS dive_total,
-             AVG(s.score) AS avg_judge_score
-      FROM scores s
-      JOIN events e ON e.id = s.event_id
-      LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
-      LEFT JOIN competitor_dive_lists cdl
-        ON cdl.event_id = s.event_id
-       AND cdl.competitor_id = s.competitor_id
-       AND cdl.round_number = s.round_number
-      LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
-      WHERE s.competitor_id = $1
-        AND ($2::date IS NULL OR e.created_at >= $2::date)
-        AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')
-      GROUP BY s.event_id, s.competitor_id, s.round_number,
-               d.dive_code, d.position, d.height, d.dd, d.description,
-               e.number_of_judges, e.event_type, e.created_at
-    `;
+    // The CTE itself lives in db/queries.js so a fix to the dive-points
+    // logic only has to land in one place.
+    const PER_DIVE = SHARED_PER_DIVE;
 
     // Wrap each rollup so one bad query doesn't take down the whole
     // payload. Anything that throws is logged with its label and
@@ -3741,43 +3621,7 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
       // diver's events, rank within that, then filter to the
       // diver at the very end. Same fix applied to year_over_year.
       runQuery("recent_form",
-        `WITH diver_events AS (
-           SELECT DISTINCT s.event_id
-           FROM scores s
-           JOIN events e ON e.id = s.event_id
-           WHERE s.competitor_id = $1
-             AND ($2::date IS NULL OR e.created_at >= $2::date)
-             AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')
-         ),
-         all_per_dive AS (
-           SELECT s.event_id, s.competitor_id, s.round_number,
-                  calc_event_dive_points(
-                    array_agg(ej.judge_number ORDER BY ej.judge_number),
-                    array_agg(s.score ORDER BY ej.judge_number),
-                    e.number_of_judges, MAX(d.dd), e.event_type,
-                    BOOL_OR(cdl.partner_id IS NOT NULL)
-                  ) AS dive_points
-           FROM scores s
-           JOIN events e ON e.id = s.event_id
-           LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
-           LEFT JOIN competitor_dive_lists cdl
-             ON cdl.event_id = s.event_id
-            AND cdl.competitor_id = s.competitor_id
-            AND cdl.round_number = s.round_number
-           LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
-           WHERE s.event_id IN (SELECT event_id FROM diver_events)
-           GROUP BY s.event_id, s.competitor_id, s.round_number,
-                    e.number_of_judges, e.event_type
-         ),
-         event_totals AS (
-           SELECT event_id, competitor_id, SUM(dive_points) AS total
-           FROM all_per_dive
-           GROUP BY event_id, competitor_id
-         ),
-         ranked AS (
-           SELECT et.*, RANK() OVER (PARTITION BY event_id ORDER BY total DESC) AS rank
-           FROM event_totals et
-         )
+        `WITH ${FULL_FIELD_RANKING}
          SELECT e.id AS event_id, e.name AS event_name, e.created_at,
                 r.total, r.rank,
                 (SELECT COUNT(DISTINCT competitor_id) FROM event_totals et2
@@ -3791,47 +3635,11 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
       ),
 
       // PLACINGS — counts of medals + finalist + further-back
-      // results. As with recent_form, must rank against the full
-      // field, not the diver's own pre-filtered totals. Otherwise
-      // every meet ranks the diver 1st and we report perfect golds.
+      // results. As with recent_form, ranks against the full field
+      // via FULL_FIELD_RANKING; the previous self-filtered version
+      // claimed every meet was a gold.
       runQuery("placings",
-        `WITH diver_events AS (
-           SELECT DISTINCT s.event_id
-           FROM scores s
-           JOIN events e ON e.id = s.event_id
-           WHERE s.competitor_id = $1
-             AND ($2::date IS NULL OR e.created_at >= $2::date)
-             AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')
-         ),
-         all_per_dive AS (
-           SELECT s.event_id, s.competitor_id, s.round_number,
-                  calc_event_dive_points(
-                    array_agg(ej.judge_number ORDER BY ej.judge_number),
-                    array_agg(s.score ORDER BY ej.judge_number),
-                    e.number_of_judges, MAX(d.dd), e.event_type,
-                    BOOL_OR(cdl.partner_id IS NOT NULL)
-                  ) AS dive_points
-           FROM scores s
-           JOIN events e ON e.id = s.event_id
-           LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
-           LEFT JOIN competitor_dive_lists cdl
-             ON cdl.event_id = s.event_id
-            AND cdl.competitor_id = s.competitor_id
-            AND cdl.round_number = s.round_number
-           LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
-           WHERE s.event_id IN (SELECT event_id FROM diver_events)
-           GROUP BY s.event_id, s.competitor_id, s.round_number,
-                    e.number_of_judges, e.event_type
-         ),
-         event_totals AS (
-           SELECT event_id, competitor_id, SUM(dive_points) AS total
-           FROM all_per_dive GROUP BY event_id, competitor_id
-         ),
-         ranked AS (
-           SELECT event_id, competitor_id,
-                  RANK() OVER (PARTITION BY event_id ORDER BY total DESC) AS rank
-           FROM event_totals
-         )
+        `WITH ${FULL_FIELD_RANKING}
          SELECT
            COUNT(*) FILTER (WHERE rank = 1)::int AS gold,
            COUNT(*) FILTER (WHERE rank = 2)::int AS silver,
@@ -3932,46 +3740,14 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
       // ranking pattern as recent_form/placings — otherwise every
       // meet ranks the diver 1st and the streak is meaningless.
       runQuery("streak",
-        `WITH diver_events AS (
-           SELECT DISTINCT s.event_id
-           FROM scores s
-           JOIN events e ON e.id = s.event_id
-           WHERE s.competitor_id = $1
-             AND ($2::date IS NULL OR e.created_at >= $2::date)
-             AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')
-         ),
-         all_per_dive AS (
-           SELECT s.event_id, s.competitor_id, s.round_number,
-                  calc_event_dive_points(
-                    array_agg(ej.judge_number ORDER BY ej.judge_number),
-                    array_agg(s.score ORDER BY ej.judge_number),
-                    e.number_of_judges, MAX(d.dd), e.event_type,
-                    BOOL_OR(cdl.partner_id IS NOT NULL)
-                  ) AS dive_points
-           FROM scores s
-           JOIN events e ON e.id = s.event_id
-           LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
-           LEFT JOIN competitor_dive_lists cdl
-             ON cdl.event_id = s.event_id
-            AND cdl.competitor_id = s.competitor_id
-            AND cdl.round_number = s.round_number
-           LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
-           WHERE s.event_id IN (SELECT event_id FROM diver_events)
-           GROUP BY s.event_id, s.competitor_id, s.round_number,
-                    e.number_of_judges, e.event_type
-         ),
-         event_totals AS (
-           SELECT event_id, competitor_id, SUM(dive_points) AS total
-           FROM all_per_dive GROUP BY event_id, competitor_id
-         ),
-         ranked AS (
-           SELECT et.event_id, et.competitor_id, e.created_at,
-                  RANK() OVER (PARTITION BY et.event_id ORDER BY et.total DESC) AS rank
-           FROM event_totals et JOIN events e ON e.id = et.event_id
+        `WITH ${FULL_FIELD_RANKING},
+         streak_rows AS (
+           SELECT r.event_id, r.rank, e.created_at
+           FROM ranked r JOIN events e ON e.id = r.event_id
+           WHERE r.competitor_id = $1
          )
          SELECT event_id, rank, created_at
-         FROM ranked
-         WHERE competitor_id = $1
+         FROM streak_rows
          ORDER BY created_at DESC`,
         [id, fromDate, toDate],
       ),
@@ -4070,45 +3846,9 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
       // GROUP BY uses the full EXTRACT expression rather than the
       // alias `year` to dodge any keyword-resolution oddities.
       runQuery("year_over_year",
-        `WITH diver_events AS (
-           SELECT DISTINCT s.event_id
-           FROM scores s
-           JOIN events e ON e.id = s.event_id
-           WHERE s.competitor_id = $1
-             AND ($2::date IS NULL OR e.created_at >= $2::date)
-             AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')
-         ),
-         all_per_dive AS (
-           SELECT s.event_id, s.competitor_id, s.round_number,
-                  calc_event_dive_points(
-                    array_agg(ej.judge_number ORDER BY ej.judge_number),
-                    array_agg(s.score ORDER BY ej.judge_number),
-                    e.number_of_judges, MAX(d.dd), e.event_type,
-                    BOOL_OR(cdl.partner_id IS NOT NULL)
-                  ) AS dive_points
-           FROM scores s
-           JOIN events e ON e.id = s.event_id
-           LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
-           LEFT JOIN competitor_dive_lists cdl
-             ON cdl.event_id = s.event_id
-            AND cdl.competitor_id = s.competitor_id
-            AND cdl.round_number = s.round_number
-           LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
-           WHERE s.event_id IN (SELECT event_id FROM diver_events)
-           GROUP BY s.event_id, s.competitor_id, s.round_number,
-                    e.number_of_judges, e.event_type
-         ),
-         event_totals AS (
-           SELECT event_id, competitor_id, SUM(dive_points) AS total
-           FROM all_per_dive
-           GROUP BY event_id, competitor_id
-         ),
-         ranked AS (
-           SELECT et.*, RANK() OVER (PARTITION BY et.event_id ORDER BY et.total DESC) AS rnk
-           FROM event_totals et
-         ),
+        `WITH ${FULL_FIELD_RANKING},
          my_events AS (
-           SELECT r.event_id, r.total, r.rnk, e.created_at
+           SELECT r.event_id, r.total, r.rank, e.created_at
            FROM ranked r
            JOIN events e ON e.id = r.event_id
            WHERE r.competitor_id = $1
@@ -4117,8 +3857,8 @@ app.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
                 COUNT(DISTINCT event_id)::int         AS meets,
                 AVG(total)::numeric(8,2)              AS avg_meet_total,
                 MAX(total)::numeric(8,2)              AS best_meet_total,
-                COUNT(*) FILTER (WHERE rnk = 1)::int  AS wins,
-                COUNT(*) FILTER (WHERE rnk <= 3)::int AS podiums
+                COUNT(*) FILTER (WHERE rank = 1)::int  AS wins,
+                COUNT(*) FILTER (WHERE rank <= 3)::int AS podiums
          FROM my_events
          GROUP BY EXTRACT(YEAR FROM created_at)
          ORDER BY year DESC`,
@@ -5272,7 +5012,17 @@ async function bootChecks() {
 }
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`🚀 Diving App v2 on port ${PORT}`);
-  bootChecks();
-});
+
+// Only bind the port when this file is the entry point (i.e. node
+// server.js or pm2 start server.js). When server.js is required by
+// the integration test runner we skip listen() and instead export
+// the app + server so the test can drive it without a side-effect
+// listener that the process never closes.
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`🚀 Diving App v2 on port ${PORT}`);
+    bootChecks();
+  });
+}
+
+module.exports = { app, server, pool, io };

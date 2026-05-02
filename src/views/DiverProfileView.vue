@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { cachedFetch, idbDelete } from '@/lib/idbCache'
+import { annotateJudgeRows, scoreCategory } from '@/composables/useScoreTrim.js'
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -452,73 +453,17 @@ function toggleMeet(eventId) {
   expandedMeet.value = expandedMeet.value === eventId ? null : eventId
 }
 
-// Mark each judge's score as dropped/kept under standard FINA
-// trim rules. Returns a new array of {judge_number, score, dropped}.
-// For the most common synchro panels we apply the documented
-// trim per sub-panel; for unfamiliar shapes we fall through to
-// "no drops" which matches calc_event_dive_points for those cases.
+// Trim algorithm + score-category lookup live in
+// src/composables/useScoreTrim.js (which itself wraps
+// useScoreCategories) — single source so the live scoreboard,
+// archive, and this profile widget all agree on dropped/kept.
+// Wrap with the chip-class prefix the template's CSS expects.
 function annotateJudges(judges, numJudges, eventType) {
-  if (!Array.isArray(judges) || !judges.length) return []
-  const list = judges.map(j => ({ ...j, dropped: false }))
-
-  // Synchro panels: 5 sync judges (numbers 5..9 on a 9-panel,
-  // or 7..11 on an 11-panel) get the high+low trim; the
-  // execution sub-panels of 2 (9-panel) keep both, and the
-  // execution sub-panels of 3 (11-panel) keep only the median.
-  if (eventType === 'synchro_pair') {
-    if (numJudges === 9) {
-      const sync = list.filter(j => j.judge_number >= 5 && j.judge_number <= 9)
-      dropEnds(sync, 1, 1)
-      return list
-    }
-    if (numJudges === 11) {
-      const execA = list.filter(j => j.judge_number >= 1 && j.judge_number <= 3)
-      const execB = list.filter(j => j.judge_number >= 4 && j.judge_number <= 6)
-      const sync  = list.filter(j => j.judge_number >= 7 && j.judge_number <= 11)
-      // Exec panels keep the middle, drop high + low
-      dropEnds(execA, 1, 1)
-      dropEnds(execB, 1, 1)
-      // Sync keeps middle 3, drops 1 high + 1 low
-      dropEnds(sync, 1, 1)
-      return list
-    }
-  }
-  // Individual / team trims
-  const TRIMS = { 3: 0, 5: 1, 7: 2, 9: 2, 11: 3 }
-  const k = TRIMS[numJudges] ?? 0
-  if (k > 0) dropEnds(list, k, k)
-  return list
+  return annotateJudgeRows(judges, numJudges, eventType)
 }
-
-// Mark the top `dropHigh` and bottom `dropLow` scores in `arr`
-// as dropped=true. Mutates the input. Stable on ties — first
-// encountered match wins, matching the SQL ORDER BY behaviour.
-function dropEnds(arr, dropLow, dropHigh) {
-  if (!arr.length) return
-  const indexed = arr.map((j, i) => ({ idx: i, score: Number(j.score) }))
-  // Drop the lowest k
-  indexed.sort((a, b) => a.score - b.score)
-  for (let i = 0; i < dropLow && i < indexed.length; i++) {
-    arr[indexed[i].idx].dropped = true
-  }
-  // Drop the highest k (from the back of the sorted list)
-  for (let i = 0; i < dropHigh && (indexed.length - 1 - i) >= dropLow; i++) {
-    arr[indexed[indexed.length - 1 - i].idx].dropped = true
-  }
-}
-
-// Map a single score → category class for chip colouring.
-// Mirrors src/composables/useScoreCategories.js so the chip
-// colours line up with the live scoreboard.
 function scoreClass(s) {
-  const n = Number(s)
-  if (n === 0) return 'qs-failed'
-  if (n <= 2.0) return 'qs-deficient'
-  if (n <= 4.5) return 'qs-unsatisfactory'
-  if (n <= 6.0) return 'qs-satisfactory'
-  if (n <= 8.0) return 'qs-good'
-  if (n <= 9.5) return 'qs-very-good'
-  return 'qs-excellent'
+  const cat = scoreCategory(Number(s))
+  return cat ? `qs-${cat}` : ''
 }
 
 // Year-over-year delta — compares row[i] to row[i+1] (since the
