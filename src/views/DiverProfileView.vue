@@ -703,6 +703,11 @@ watch(targetId, load)
                   </tr>
                 </tbody>
               </table>
+              <div class="dive-breakdown-actions">
+                <a :href="`/api/events/${r.event_id}/divers/${targetId}/score-sheet.pdf`"
+                   target="_blank" rel="noopener"
+                   class="btn btn-ghost btn-sm">📄 Download score sheet</a>
+              </div>
             </div>
           </template>
         </div>
@@ -1529,6 +1534,10 @@ watch(targetId, load)
   padding: 0.5rem 0.5rem 0.75rem 1.5rem;
   border-top: 1px dashed var(--border);
   background: var(--bg-3);
+}
+.dive-breakdown-actions {
+  display: flex; justify-content: flex-end;
+  margin-top: 0.5rem;
 }
 .dive-table {
   width: 100%;

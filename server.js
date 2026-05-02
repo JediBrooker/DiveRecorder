@@ -4720,6 +4720,555 @@ app.get("/api/meets/:id/program.pdf", async (req, res) => {
   }
 });
 
+// =============================================================
+// START LIST PDF — pinned-to-wall pre-meet sheet showing every
+// diver in start-order with their per-round dives. Operators
+// print this and pin it to the deck so divers know when they're
+// up. Reuses the program PDF's PDFKit setup but the body is a
+// per-diver dive-list table sorted by display_order then name.
+// =============================================================
+app.get("/api/events/:id/start-list.pdf", async (req, res) => {
+  try {
+    const [evRes, rosterRes] = await Promise.all([
+      pool.query(
+        `SELECT e.id, e.name, e.gender, e.age_group, e.height,
+                e.total_rounds, e.number_of_judges, e.event_type,
+                e.event_format, e.scheduled_at,
+                o.name AS org_name, o.country_code
+         FROM events e
+         JOIN organisations o ON o.id = e.org_id
+         WHERE e.id = $1`,
+        [req.params.id],
+      ),
+      pool.query(
+        `SELECT u.id AS competitor_id, u.full_name, o.country_code,
+                cl.name AS club_name, cl.short_code AS club_code,
+                pu.full_name AS partner_name,
+                tm.name AS team_name,
+                cdl.round_number, cdl.display_order, cdl.withdrawn_at,
+                d.dive_code, d.position, d.dd
+         FROM users u
+         JOIN competitor_dive_lists cdl ON u.id = cdl.competitor_id
+         JOIN organisations o ON u.org_id = o.id
+         LEFT JOIN clubs cl  ON cl.id = u.club_id
+         LEFT JOIN users pu  ON pu.id = cdl.partner_id
+         LEFT JOIN teams tm  ON tm.id = cdl.team_id
+         LEFT JOIN dive_directory d ON d.id = cdl.dive_id
+         WHERE cdl.event_id = $1
+         ORDER BY cdl.display_order ASC NULLS LAST,
+                  u.full_name ASC, cdl.round_number ASC`,
+        [req.params.id],
+      ),
+    ]);
+    if (!evRes.rows.length) return res.status(404).json({ error: "Event not found" });
+    const event = evRes.rows[0];
+
+    // Reshape: one row per diver with an array of N dives indexed
+    // by round (1-based). Reflects the layout PDFKit will render.
+    const byDiver = new Map();
+    for (const r of rosterRes.rows) {
+      if (!byDiver.has(r.competitor_id)) {
+        byDiver.set(r.competitor_id, {
+          full_name: r.full_name,
+          country_code: r.country_code,
+          club_name: r.club_name,
+          club_code: r.club_code,
+          partner_name: r.partner_name,
+          team_name: r.team_name,
+          withdrawn: !!r.withdrawn_at,
+          dives: Array.from({ length: event.total_rounds }, () => null),
+        });
+      }
+      const diver = byDiver.get(r.competitor_id);
+      if (r.round_number >= 1 && r.round_number <= event.total_rounds) {
+        diver.dives[r.round_number - 1] = {
+          code: r.dive_code,
+          position: r.position,
+          dd: r.dd,
+        };
+      }
+    }
+    const divers = [...byDiver.values()];
+
+    const slug = (event.name || "event")
+      .toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    const doc = new PDFDocument({ margin: 40, size: "A4", layout: "landscape" });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${slug}_start_list.pdf"`);
+    doc.pipe(res);
+
+    // ---------- Header ----------
+    doc.font("Helvetica-Bold").fontSize(11).fillColor("#06b6d4")
+      .text((event.org_name || "").toUpperCase()
+        + (event.country_code ? `  ·  ${event.country_code}` : ""),
+        { align: "center", characterSpacing: 2 });
+    doc.moveDown(0.3);
+    doc.font("Helvetica-Bold").fontSize(20).fillColor("#0f172a")
+      .text(event.name, { align: "center" });
+    doc.font("Helvetica").fontSize(10).fillColor("#475569");
+    const tags = [];
+    if (event.event_type === "synchro_pair") tags.push("SYNCHRO");
+    else if (event.event_type === "team")    tags.push("TEAM");
+    if (event.event_format && event.event_format !== "final") {
+      tags.push(event.event_format.toUpperCase());
+    }
+    if (event.age_group) tags.push(event.age_group);
+    tags.push(event.gender);
+    if (event.height) tags.push(event.height);
+    tags.push(`${event.total_rounds} rounds · ${event.number_of_judges} judges`);
+    doc.text(tags.join("  ·  "), { align: "center" });
+    doc.moveDown(0.6);
+    doc.lineWidth(0.5).strokeColor("#cbd5e1")
+      .moveTo(40, doc.y).lineTo(802, doc.y).stroke();
+    doc.moveDown(0.4);
+
+    if (!divers.length) {
+      doc.font("Helvetica-Oblique").fontSize(11).fillColor("#64748b")
+        .text("No divers entered for this event yet.", { align: "center" });
+      doc.end();
+      return;
+    }
+
+    // ---------- Table header ----------
+    // Column layout: # | Name + Club | R1 .. Rn
+    const startX  = 40;
+    const numCol  = 20;
+    const nameCol = 200;
+    const totalRounds = event.total_rounds;
+    const roundColWidth = Math.max(50, Math.floor((802 - startX - numCol - nameCol - 10) / totalRounds));
+
+    function drawTableHeader() {
+      doc.font("Helvetica-Bold").fontSize(8).fillColor("#06b6d4");
+      let x = startX;
+      doc.text("#", x, doc.y, { width: numCol, align: "center" });
+      x += numCol;
+      doc.text("DIVER", x, doc.y, { width: nameCol });
+      x += nameCol;
+      const headerY = doc.y;
+      for (let r = 1; r <= totalRounds; r++) {
+        doc.text(`R${r}`, x, headerY, { width: roundColWidth, align: "center" });
+        x += roundColWidth;
+      }
+      doc.moveDown(0.4);
+      doc.lineWidth(0.5).strokeColor("#cbd5e1")
+        .moveTo(startX, doc.y).lineTo(startX + numCol + nameCol + roundColWidth * totalRounds, doc.y).stroke();
+      doc.moveDown(0.3);
+      doc.fillColor("#0f172a");
+    }
+    drawTableHeader();
+
+    divers.forEach((d, idx) => {
+      // Page break
+      if (doc.y > 540) {
+        doc.addPage({ size: "A4", layout: "landscape", margin: 40 });
+        drawTableHeader();
+      }
+      const rowY = doc.y;
+      let x = startX;
+      // Number column
+      doc.font("Helvetica").fontSize(10).fillColor(d.withdrawn ? "#cbd5e1" : "#0f172a");
+      doc.text(String(idx + 1), x, rowY, { width: numCol, align: "center" });
+      x += numCol;
+      // Name + meta column
+      doc.font("Helvetica-Bold").fontSize(10).fillColor(d.withdrawn ? "#cbd5e1" : "#0f172a");
+      const nameLine = d.full_name + (d.country_code ? `  ${d.country_code}` : "")
+        + (d.partner_name ? `  &  ${d.partner_name}` : "")
+        + (d.withdrawn ? "  (WITHDRAWN)" : "");
+      doc.text(nameLine, x, rowY, { width: nameCol });
+      // Club / team subline
+      const subline = d.team_name
+        ? d.team_name
+        : (d.club_name ? d.club_name + (d.club_code ? `  (${d.club_code})` : "") : "");
+      if (subline) {
+        doc.font("Helvetica").fontSize(8).fillColor("#64748b");
+        doc.text(subline, x, doc.y, { width: nameCol });
+      }
+      x += nameCol;
+      // Round columns
+      const cellTopY = rowY;
+      doc.font("Helvetica").fontSize(9).fillColor(d.withdrawn ? "#cbd5e1" : "#0f172a");
+      for (let r = 0; r < totalRounds; r++) {
+        const dive = d.dives[r];
+        const cellText = dive
+          ? `${dive.code || ""}${dive.position || ""}\nDD ${Number(dive.dd ?? 0).toFixed(1)}`
+          : "—";
+        doc.text(cellText, x, cellTopY, { width: roundColWidth, align: "center" });
+        x += roundColWidth;
+      }
+      // Move y to whichever consumed more vertical space (the
+      // sub-line beneath the name, or the dive cells).
+      doc.moveDown(0.4);
+      doc.lineWidth(0.3).strokeColor("#e2e8f0")
+        .moveTo(startX, doc.y).lineTo(startX + numCol + nameCol + roundColWidth * totalRounds, doc.y).stroke();
+      doc.moveDown(0.2);
+    });
+
+    doc.moveDown(1);
+    doc.font("Helvetica-Oblique").fontSize(8).fillColor("#94a3b8")
+      .text(`Generated ${new Date().toLocaleString()} via Dive Recorder.`, { align: "center" });
+
+    doc.end();
+  } catch (err) {
+    console.error("[Start List PDF Error]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================================
+// PER-DIVER SCORE SHEET PDF — every diver wants their own report
+// after a meet. Reuses the dive-with-judges shape we already
+// build for Recent Form: per-round dive metadata + each judge's
+// raw score (with the dropped scores marked under FINA trim
+// rules, the same way the live scoreboard renders them).
+// =============================================================
+app.get("/api/events/:id/divers/:diverId/score-sheet.pdf", async (req, res) => {
+  try {
+    const eventId = req.params.id;
+    const diverId = req.params.diverId;
+
+    const [evRes, diverRes, divesRes, totalRes] = await Promise.all([
+      pool.query(
+        `SELECT e.id, e.name, e.gender, e.age_group, e.height,
+                e.total_rounds, e.number_of_judges, e.event_type,
+                e.created_at,
+                o.name AS org_name, o.country_code
+         FROM events e
+         JOIN organisations o ON o.id = e.org_id
+         WHERE e.id = $1`,
+        [eventId],
+      ),
+      pool.query(
+        `SELECT u.id, u.full_name, o.country_code,
+                cl.name AS club_name, cl.short_code AS club_code
+         FROM users u
+         JOIN organisations o ON o.id = u.org_id
+         LEFT JOIN clubs cl ON cl.id = u.club_id
+         WHERE u.id = $1`,
+        [diverId],
+      ),
+      pool.query(
+        `SELECT s.round_number,
+                d.dive_code, d.position, d.height, d.dd, d.description,
+                e.number_of_judges, e.event_type::text AS event_type,
+                calc_event_dive_points(
+                  array_agg(ej.judge_number ORDER BY ej.judge_number),
+                  array_agg(s.score        ORDER BY ej.judge_number),
+                  e.number_of_judges, MAX(d.dd), e.event_type,
+                  BOOL_OR(cdl.partner_id IS NOT NULL)
+                ) AS dive_total,
+                array_agg(json_build_object(
+                  'judge_number', ej.judge_number,
+                  'score',        s.score
+                ) ORDER BY ej.judge_number) AS judges_json
+         FROM scores s
+         JOIN events e ON e.id = s.event_id
+         LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+         LEFT JOIN competitor_dive_lists cdl
+           ON cdl.event_id = s.event_id
+          AND cdl.competitor_id = s.competitor_id
+          AND cdl.round_number = s.round_number
+         LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+         WHERE s.event_id = $1 AND s.competitor_id = $2
+         GROUP BY s.round_number, d.dive_code, d.position, d.height, d.dd, d.description,
+                  e.number_of_judges, e.event_type
+         ORDER BY s.round_number ASC`,
+        [eventId, diverId],
+      ),
+      // Final placing — full-field rank query identical to the
+      // analytics rollup, kept inline since it's a one-off here.
+      pool.query(
+        `WITH per_dive AS (
+           SELECT s.competitor_id,
+                  calc_event_dive_points(
+                    array_agg(ej.judge_number ORDER BY ej.judge_number),
+                    array_agg(s.score        ORDER BY ej.judge_number),
+                    e.number_of_judges, MAX(d.dd), e.event_type,
+                    BOOL_OR(cdl.partner_id IS NOT NULL)
+                  ) AS pts
+           FROM scores s
+           JOIN events e ON e.id = s.event_id
+           LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+           LEFT JOIN competitor_dive_lists cdl
+             ON cdl.event_id = s.event_id
+            AND cdl.competitor_id = s.competitor_id
+            AND cdl.round_number = s.round_number
+           LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+           WHERE s.event_id = $1
+           GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+         ),
+         totals AS (
+           SELECT competitor_id, SUM(pts) AS total
+           FROM per_dive GROUP BY competitor_id
+         ),
+         ranked AS (
+           SELECT *, RANK() OVER (ORDER BY total DESC) AS rnk,
+                  COUNT(*) OVER ()::int AS field_size
+           FROM totals
+         )
+         SELECT total, rnk, field_size FROM ranked WHERE competitor_id = $2`,
+        [eventId, diverId],
+      ),
+    ]);
+    if (!evRes.rows.length)    return res.status(404).json({ error: "Event not found" });
+    if (!diverRes.rows.length) return res.status(404).json({ error: "Diver not found" });
+    const event = evRes.rows[0];
+    const diver = diverRes.rows[0];
+    const dives = divesRes.rows;
+    const totals = totalRes.rows[0] || {};
+
+    // FINA trim — apply the same algorithm the frontend uses
+    // (lib/score-trim semantics) so the dropped marks line up.
+    function trimCount(n) {
+      if (!n || n <= 3) return 0;
+      if (n === 5)  return 1;
+      if (n === 7)  return 2;
+      if (n === 9)  return 2;
+      if (n === 11) return 3;
+      return 0;
+    }
+    function annotateDrops(judges, n, eventType) {
+      // For synchro 9/11 we'd need the sub-panel logic. For the
+      // score sheet we keep things simple — the canonical
+      // dive_total comes from the SQL function, and we just need
+      // the visual "what was dropped" markup. Fall back to
+      // individual trim for synchro panels we don't fully model
+      // here.
+      const flagged = judges.map((j) => ({ ...j, dropped: false }));
+      const k = trimCount(n);
+      if (!k || flagged.length <= k * 2) return flagged;
+      const sorted = flagged
+        .map((j, i) => ({ idx: i, score: Number(j.score), jn: j.judge_number }))
+        .sort((a, b) => a.score - b.score || a.jn - b.jn);
+      for (let i = 0; i < k; i++) {
+        flagged[sorted[i].idx].dropped = true;
+        flagged[sorted[sorted.length - 1 - i].idx].dropped = true;
+      }
+      return flagged;
+    }
+
+    const slug = (diver.full_name || "diver").toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    const doc = new PDFDocument({ margin: 50, size: "A4" });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${slug}_score_sheet.pdf"`);
+    doc.pipe(res);
+
+    // ---------- Header ----------
+    doc.font("Helvetica-Bold").fontSize(10).fillColor("#06b6d4")
+      .text(event.org_name.toUpperCase()
+        + (event.country_code ? `  ·  ${event.country_code}` : ""),
+        { align: "center", characterSpacing: 2 });
+    doc.moveDown(0.3);
+    doc.font("Helvetica-Bold").fontSize(20).fillColor("#0f172a")
+      .text(diver.full_name + (diver.country_code ? `  ${diver.country_code}` : ""), { align: "center" });
+    if (diver.club_name) {
+      doc.font("Helvetica").fontSize(11).fillColor("#475569")
+        .text(diver.club_name + (diver.club_code ? `  (${diver.club_code})` : ""), { align: "center" });
+    }
+    doc.moveDown(0.4);
+    doc.font("Helvetica-Bold").fontSize(13).fillColor("#0f172a")
+      .text(event.name, { align: "center" });
+    const meta = [
+      event.gender, event.height, `${event.total_rounds} rounds`, `${event.number_of_judges} judges`,
+      event.created_at ? new Date(event.created_at).toLocaleDateString() : "",
+    ].filter(Boolean).join("  ·  ");
+    doc.font("Helvetica").fontSize(9).fillColor("#64748b").text(meta, { align: "center" });
+    doc.moveDown(0.8);
+
+    // ---------- Headline result tile ----------
+    if (totals.rnk) {
+      const rank = Number(totals.rnk);
+      const total = Number(totals.total).toFixed(2);
+      const fieldSize = Number(totals.field_size);
+      const ord = (n) => {
+        const s = ["th", "st", "nd", "rd"], v = n % 100;
+        return n + (s[(v - 20) % 10] || s[v] || s[0]);
+      };
+      doc.font("Helvetica-Bold").fontSize(28).fillColor(
+        rank === 1 ? "#ca8a04" : rank === 2 ? "#475569" : rank === 3 ? "#92400e" : "#0f172a",
+      ).text(`${ord(rank)} of ${fieldSize}`, { align: "center" });
+      doc.font("Helvetica").fontSize(12).fillColor("#475569")
+        .text(`Total: ${total}`, { align: "center" });
+      doc.moveDown(0.8);
+    }
+
+    if (!dives.length) {
+      doc.font("Helvetica-Oblique").fontSize(11).fillColor("#64748b")
+        .text("No dives recorded for this diver yet.");
+      doc.end();
+      return;
+    }
+
+    // ---------- Per-dive breakdown ----------
+    doc.lineWidth(0.5).strokeColor("#cbd5e1")
+      .moveTo(50, doc.y).lineTo(545, doc.y).stroke();
+    doc.moveDown(0.4);
+    doc.font("Helvetica-Bold").fontSize(10).fillColor("#06b6d4")
+      .text("DIVE-BY-DIVE BREAKDOWN", { characterSpacing: 2 });
+    doc.moveDown(0.4);
+
+    for (const d of dives) {
+      if (doc.y > 720) doc.addPage();
+      doc.font("Helvetica-Bold").fontSize(11).fillColor("#0f172a")
+        .text(`Round ${d.round_number}  ·  ${d.dive_code || "—"}${d.position || ""}`,
+          { continued: true });
+      doc.font("Helvetica").fontSize(10).fillColor("#475569")
+        .text(`   DD ${Number(d.dd ?? 0).toFixed(1)}   Total ${Number(d.dive_total).toFixed(2)}`,
+          { align: "right" });
+      if (d.description) {
+        doc.font("Helvetica-Oblique").fontSize(9).fillColor("#64748b")
+          .text(d.description);
+      }
+      doc.moveDown(0.2);
+
+      const annotated = annotateDrops(d.judges_json || [], d.number_of_judges, d.event_type);
+      const lineParts = annotated.map((j) =>
+        j.dropped
+          ? `[${Number(j.score).toFixed(1)}]`     // brackets = dropped
+          : Number(j.score).toFixed(1),
+      );
+      doc.font("Helvetica").fontSize(10).fillColor("#0f172a")
+        .text("Judges: " + lineParts.join("  "), { indent: 10 });
+      doc.font("Helvetica-Oblique").fontSize(8).fillColor("#94a3b8")
+        .text("(dropped scores shown in brackets)", { indent: 10 });
+
+      doc.moveDown(0.6);
+    }
+
+    doc.moveDown(0.4);
+    doc.font("Helvetica-Oblique").fontSize(8).fillColor("#94a3b8")
+      .text(`Generated ${new Date().toLocaleString()} via Dive Recorder.`, { align: "center" });
+    doc.end();
+  } catch (err) {
+    console.error("[Score Sheet PDF Error]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================================
+// CSV EXPORT — federation operators copy results into the
+// federation's central record-keeping system. Same data as the
+// results PDF, formatted as a single CSV with one row per dive
+// so downstream pivot tables work cleanly.
+// =============================================================
+function csvCell(s) {
+  if (s == null) return "";
+  const text = String(s);
+  // Quote-and-escape if the cell contains a comma, quote, or newline.
+  if (/[",\n\r]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+function csvRow(cells) { return cells.map(csvCell).join(",") + "\n"; }
+
+app.get("/api/events/:id/results.csv", async (req, res) => {
+  try {
+    const [evRes, divesRes] = await Promise.all([
+      pool.query(
+        "SELECT e.name, e.gender, e.height, e.event_type, o.name AS org_name FROM events e JOIN organisations o ON o.id = e.org_id WHERE e.id = $1",
+        [req.params.id],
+      ),
+      pool.query(
+        `SELECT u.full_name AS diver_name, o.country_code,
+                cl.name AS club_name, cl.short_code AS club_code,
+                pu.full_name AS partner_name, tm.name AS team_name,
+                s.round_number, d.dive_code, d.position, d.dd,
+                calc_event_dive_points(
+                  array_agg(ej.judge_number ORDER BY ej.judge_number),
+                  array_agg(s.score        ORDER BY ej.judge_number),
+                  e.number_of_judges, d.dd, e.event_type,
+                  BOOL_OR(cdl.partner_id IS NOT NULL)
+                ) AS dive_total,
+                STRING_AGG(s.score::text, ' ' ORDER BY ej.judge_number) AS judge_scores
+         FROM scores s
+         JOIN events e ON e.id = s.event_id
+         JOIN users u  ON u.id = s.competitor_id
+         JOIN organisations o ON o.id = u.org_id
+         LEFT JOIN clubs cl  ON cl.id = u.club_id
+         LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+         LEFT JOIN competitor_dive_lists cdl
+           ON cdl.event_id = s.event_id
+          AND cdl.competitor_id = s.competitor_id
+          AND cdl.round_number = s.round_number
+         LEFT JOIN users pu ON pu.id = cdl.partner_id
+         LEFT JOIN teams tm ON tm.id = cdl.team_id
+         LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+         WHERE s.event_id = $1
+         GROUP BY u.full_name, o.country_code, cl.name, cl.short_code,
+                  pu.full_name, tm.name,
+                  s.round_number, d.dive_code, d.position, d.dd,
+                  e.number_of_judges, e.event_type
+         ORDER BY u.full_name ASC, s.round_number ASC`,
+        [req.params.id],
+      ),
+    ]);
+    if (!evRes.rows.length) return res.status(404).json({ error: "Event not found" });
+    const event = evRes.rows[0];
+    const slug = (event.name || "event").toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${slug}_results.csv"`);
+
+    // Compute final placings up front so the CSV's per-dive rows
+    // can carry both the dive total and the diver's final rank.
+    const totalsRes = await pool.query(
+      `WITH per_dive AS (
+         SELECT s.competitor_id,
+                calc_event_dive_points(
+                  array_agg(ej.judge_number ORDER BY ej.judge_number),
+                  array_agg(s.score        ORDER BY ej.judge_number),
+                  e.number_of_judges, MAX(d.dd), e.event_type,
+                  BOOL_OR(cdl.partner_id IS NOT NULL)
+                ) AS pts
+         FROM scores s
+         JOIN events e ON e.id = s.event_id
+         LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+         LEFT JOIN competitor_dive_lists cdl
+           ON cdl.event_id = s.event_id
+          AND cdl.competitor_id = s.competitor_id
+          AND cdl.round_number = s.round_number
+         LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+         WHERE s.event_id = $1
+         GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+       )
+       SELECT u.full_name AS diver_name, SUM(pts)::numeric(8,2) AS total,
+              RANK() OVER (ORDER BY SUM(pts) DESC) AS final_rank
+       FROM per_dive pd
+       JOIN users u ON u.id = pd.competitor_id
+       GROUP BY u.full_name`,
+      [req.params.id],
+    );
+    const placingByName = new Map(
+      totalsRes.rows.map((r) => [r.diver_name, { total: r.total, rank: r.final_rank }]),
+    );
+
+    res.write(csvRow([
+      "diver_name", "country", "club_name", "club_code",
+      "partner_name", "team_name",
+      "round", "dive_code", "position", "dd",
+      "judge_scores", "dive_total",
+      "final_total", "final_rank",
+    ]));
+    for (const r of divesRes.rows) {
+      const placing = placingByName.get(r.diver_name) || {};
+      res.write(csvRow([
+        r.diver_name, r.country_code,
+        r.club_name, r.club_code,
+        r.partner_name, r.team_name,
+        r.round_number, r.dive_code, r.position, r.dd,
+        r.judge_scores, r.dive_total,
+        placing.total, placing.rank,
+      ]));
+    }
+    res.end();
+  } catch (err) {
+    console.error("[Results CSV Error]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/api/events/:id/results.pdf", async (req, res) => {
   try {
     const [ev, standings, dives] = await Promise.all([

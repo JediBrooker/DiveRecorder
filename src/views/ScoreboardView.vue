@@ -875,9 +875,16 @@ onMounted(async () => {
             <span v-if="currentEvent?.created_at" class="meta-tag meta-date">{{ fmtDate(currentEvent.created_at) }}</span>
           </div>
         </div>
-        <a :href="`/api/events/${currentEventId}/results.pdf`"
-           target="_blank" rel="noopener"
-           class="btn btn-ghost btn-sm">Export PDF</a>
+        <div class="export-actions">
+          <a :href="`/api/events/${currentEventId}/results.pdf`"
+             target="_blank" rel="noopener"
+             class="btn btn-ghost btn-sm">PDF</a>
+          <a :href="`/api/events/${currentEventId}/results.csv`"
+             class="btn btn-ghost btn-sm">CSV</a>
+          <a :href="`/api/events/${currentEventId}/start-list.pdf`"
+             target="_blank" rel="noopener"
+             class="btn btn-ghost btn-sm">Start list</a>
+        </div>
       </div>
 
       <!-- Two-column body: standings + dive breakdown -->
@@ -1569,6 +1576,10 @@ onMounted(async () => {
 }
 .meta-tag.meta-org { color: var(--cyan); border-color: rgba(6,182,212,0.3); background: var(--cyan-dim); }
 .meta-tag.meta-date { color: var(--text-2); }
+
+/* Result export buttons (PDF / CSV / start list) — sit in the
+   recap header next to the event title. Wrap on narrow screens. */
+.export-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 
 .completed-grid {
   flex: 1; display: grid; grid-template-columns: 380px 1fr; overflow: hidden;
