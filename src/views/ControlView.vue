@@ -1701,8 +1701,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                     {{ item.club_name }}<span v-if="item.club_code" class="roster-club-code">{{ item.club_code }}</span>
                   </div>
                   <div class="roster-meta">
-                    <span>{{ item.dive_code }}{{ item.position }}</span>
-                    <span>DD {{ item.dd }}</span>
+                    <!-- dive_code / position / dd can be null when
+                         the diver hasn't filed their full list yet
+                         (LEFT JOIN dive_directory in the roster
+                         query). Show a dash instead of "undefined". -->
+                    <span>{{ item.dive_code ? `${item.dive_code}${item.position || ''}` : '—' }}</span>
+                    <span>DD {{ item.dd != null ? item.dd : '—' }}</span>
                   </div>
                 </button>
                 <!-- Reorder + withdraw controls. Use originalIdx

@@ -2696,7 +2696,14 @@ app.get(
                 e.event_type, e.number_of_judges
          FROM users u
          JOIN competitor_dive_lists cdl ON u.id = cdl.competitor_id
-         JOIN dive_directory d ON cdl.dive_id = d.id
+         /* LEFT JOIN dive_directory — a competitor_dive_lists row
+            with cdl.dive_id IS NULL (diver hasn't filed their
+            full list yet) or pointing at a deleted directory
+            entry would otherwise drop the diver from the queue
+            entirely. INNER JOIN here was previously rendering
+            an empty 0/0 queue for any event with a single bad
+            row. The frontend handles NULL dive_code/dd gracefully. */
+         LEFT JOIN dive_directory d ON cdl.dive_id = d.id
          JOIN organisations o ON u.org_id = o.id
          JOIN events e ON e.id = cdl.event_id
          LEFT JOIN clubs cl ON cl.id = u.club_id
@@ -2713,6 +2720,9 @@ app.get(
       res.json(r.rows);
     } catch (err) {
       console.error("[Roster Error]", err.message);
+      // Match the JSON shape the frontend expects (empty array)
+      // instead of the {error} object — the load() catch path
+      // sets roster.value=[] which is the same outcome.
       res.status(500).json([]);
     }
   },
