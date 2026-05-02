@@ -8,6 +8,7 @@
 //     app.use(require('./routes/scoreboard')({ pool }))
 
 const express = require("express");
+const { publicId } = require("../lib/public-id");
 
 module.exports = function createScoreboardRouter({ pool }) {
   const router = express.Router();
@@ -40,19 +41,19 @@ module.exports = function createScoreboardRouter({ pool }) {
            /* Team-event branch: aggregate by team. dives_desc is
               the descending-sorted array of dive points used as the
               FINA tie-break key when two teams share a raw total.
-              public_id is a per-event sha256 of (event_id || team_id)
-              truncated to 12 hex chars — a stable handle the Control
-              Room can match against the active diver's roster row
-              without exposing internal UUIDs to spectators. */
+              public_id is computed in Node from team_id below — we
+              expose team_id here so the router can hash it. The
+              spectator-facing JSON drops team_id and only emits
+              public_id, so internal UUIDs still aren't leaked. */
            team_standings AS (
-             SELECT t.name AS full_name,
+             SELECT t.id AS team_id,
+                    t.name AS full_name,
                     NULL::char(3) AS country_code,
                     t.short_code AS club_name,
                     NULL::varchar AS partner_name,
                     NULL::char(3) AS partner_country,
                     SUM(pd.dive_points) AS total,
-                    array_agg(pd.dive_points ORDER BY pd.dive_points DESC) AS dives_desc,
-                    substr(encode(digest('team:' || $1::text || ':' || t.id::text, 'sha256'), 'hex'), 1, 12) AS public_id
+                    array_agg(pd.dive_points ORDER BY pd.dive_points DESC) AS dives_desc
              FROM per_dive pd
              JOIN teams t ON t.id = pd.team_id
              WHERE (SELECT event_type FROM events WHERE id = $1) = 'team'
@@ -60,11 +61,11 @@ module.exports = function createScoreboardRouter({ pool }) {
            ),
            /* Individual / synchro branch: aggregate by competitor */
            comp_standings AS (
-             SELECT u.full_name, o.country_code, cl.name AS club_name,
+             SELECT u.id AS competitor_id,
+                    u.full_name, o.country_code, cl.name AS club_name,
                     pu.full_name AS partner_name, pl.country_code AS partner_country,
                     SUM(pd.dive_points) AS total,
-                    array_agg(pd.dive_points ORDER BY pd.dive_points DESC) AS dives_desc,
-                    substr(encode(digest('comp:' || $1::text || ':' || u.id::text, 'sha256'), 'hex'), 1, 12) AS public_id
+                    array_agg(pd.dive_points ORDER BY pd.dive_points DESC) AS dives_desc
              FROM per_dive pd
              JOIN users u ON u.id = pd.competitor_id
              JOIN organisations o ON o.id = u.org_id
@@ -82,17 +83,24 @@ module.exports = function createScoreboardRouter({ pool }) {
              GROUP BY u.id, u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code
            ),
            merged AS (
-             SELECT * FROM team_standings
+             SELECT competitor_id, NULL::uuid AS team_id,
+                    full_name, country_code, club_name,
+                    partner_name, partner_country, total, dives_desc
+             FROM comp_standings
              UNION ALL
-             SELECT * FROM comp_standings
+             SELECT NULL::uuid AS competitor_id, team_id,
+                    full_name, country_code, club_name,
+                    partner_name, partner_country, total, dives_desc
+             FROM team_standings
            )
            /* FINA tie-break ordering: total desc, then highest dive,
               then second-highest, etc. (Postgres element-wise array
               comparison gives that.) is_tied_on_total flags pairs
               that shared the raw total but were separated by the
               tie-break, so the UI can hint at why. */
-           SELECT full_name, country_code, club_name,
-                  partner_name, partner_country, total, public_id,
+           SELECT competitor_id, team_id,
+                  full_name, country_code, club_name,
+                  partner_name, partner_country, total,
                   COUNT(*) OVER (PARTITION BY total) > 1 AS is_tied_on_total
            FROM merged
            ORDER BY total DESC, dives_desc DESC`,
@@ -163,7 +171,22 @@ module.exports = function createScoreboardRouter({ pool }) {
           [req.params.eventId],
         ),
       ]);
-      res.json({ standings: st.rows, history: hi.rows, upcoming: up.rows });
+
+      // Compute the public_id hash in Node from competitor_id /
+      // team_id, then strip those internal UUIDs so spectators
+      // never see them. The Control Room matches the active
+      // diver to a standings row by public_id; the same hash
+      // formula runs in the roster handler.
+      const eventId = req.params.eventId;
+      const standings = st.rows.map(({ competitor_id, team_id, ...rest }) => ({
+        ...rest,
+        public_id:
+          competitor_id ? publicId("comp", eventId, competitor_id) :
+          team_id       ? publicId("team", eventId, team_id) :
+          null,
+      }));
+
+      res.json({ standings, history: hi.rows, upcoming: up.rows });
     } catch (err) {
       console.error("[Scoreboard Error]", err.message);
       res.status(500).json({ standings: [], history: [], upcoming: [] });

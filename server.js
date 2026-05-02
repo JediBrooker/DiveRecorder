@@ -51,6 +51,7 @@ const { Pool } = require("pg");
 const cors = require("cors");
 const helmet = require("helmet");
 const { PER_DIVE: SHARED_PER_DIVE, FULL_FIELD_RANKING } = require("./db/queries");
+const { publicId } = require("./lib/public-id");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const rateLimit = require("express-rate-limit");
@@ -62,6 +63,21 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3000";
 
 // [SECTION: BOOTSTRAP]
 const app = express();
+
+// Trust the immediate reverse proxy (Cloudflare / Nginx / etc).
+// Without this:
+//   * express-rate-limit warns "X-Forwarded-For is set but trust
+//     proxy is false" on every request and rate-limits all users
+//     by the proxy IP (= one shared bucket).
+//   * req.ip is the proxy address, not the real client.
+// `1` trusts ONE hop — exactly what's wanted behind a single
+// edge proxy. Override via TRUST_PROXY env if you need more
+// hops (or set to 'false' for a no-proxy setup).
+const TRUST_PROXY = process.env.TRUST_PROXY ?? "1";
+app.set("trust proxy", TRUST_PROXY === "false" ? false
+  : /^\d+$/.test(TRUST_PROXY) ? Number(TRUST_PROXY)
+  : TRUST_PROXY);
+
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: CORS_ORIGIN } });
 
@@ -2681,16 +2697,12 @@ app.get(
                 cl.name AS club_name, cl.short_code AS club_code,
                 cdl.partner_id, pu.full_name AS partner_name, po.country_code AS partner_country,
                 cdl.team_id, t.name AS team_name, t.short_code AS team_code,
-                /* Per-event public hash. Same formula as the public
-                   scoreboard standings (routes/scoreboard.js) so the
-                   Control Room can reliably match the active diver
-                   to a standings row even when two divers share a
-                   name+country, without exposing internal UUIDs to
-                   spectators. */
-                substr(encode(digest('comp:' || cdl.event_id::text || ':' || u.id::text, 'sha256'), 'hex'), 1, 12) AS public_id,
-                CASE WHEN cdl.team_id IS NOT NULL THEN
-                  substr(encode(digest('team:' || cdl.event_id::text || ':' || cdl.team_id::text, 'sha256'), 'hex'), 1, 12)
-                END AS team_public_id,
+                /* public_id + team_public_id used to be computed
+                   inline with pgcrypto's digest() — but pgcrypto
+                   isn't enabled on every postgres install, and a
+                   missing extension threw the whole query. We now
+                   compute them in Node after the result lands
+                   (see publicId() below). */
                 cdl.event_id, cdl.round_number, cdl.dive_id,
                 d.dive_code, d.description, d.dd, d.position,
                 e.event_type, e.number_of_judges
@@ -2717,7 +2729,17 @@ app.get(
                   u.full_name ASC`,
         [req.params.id],
       );
-      res.json(r.rows);
+      // Compute public_id + team_public_id in Node (see
+      // lib/public-id.js for why) and attach to each row before
+      // sending. Same hashing algorithm as routes/scoreboard.js.
+      const enriched = r.rows.map((row) => ({
+        ...row,
+        public_id:      publicId("comp", row.event_id, row.competitor_id),
+        team_public_id: row.team_id
+          ? publicId("team", row.event_id, row.team_id)
+          : null,
+      }));
+      res.json(enriched);
     } catch (err) {
       console.error("[Roster Error]", err.message);
       // Match the JSON shape the frontend expects (empty array)
