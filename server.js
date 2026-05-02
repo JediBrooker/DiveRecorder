@@ -935,6 +935,132 @@ app.delete(
 // coach's dashboard.
 // =============================================================
 
+// Coach dashboard rollup — for every linked diver, return the
+// next dive they have in any Live event (round, dive code, DD)
+// plus their current rank in that event's standings, plus a
+// summary of their last dive's total. Powers the dedicated
+// /coach view; reuses coach_diver_links + per_dive aggregates.
+//
+// Schema-wise nothing new — this is just a join across the
+// existing pieces. Heavy enough that we don't want it in the
+// page-load critical path of the regular dashboard.
+app.get("/api/coach/dashboard", verifyToken, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `WITH my_divers AS (
+         SELECT u.id, u.full_name, u.username,
+                o.country_code,
+                cl.name AS club_name, cl.short_code AS club_code,
+                link.note, link.created_at AS linked_at
+         FROM coach_diver_links link
+         JOIN users u           ON u.id = link.diver_id
+         JOIN organisations o   ON o.id = u.org_id
+         LEFT JOIN clubs cl     ON cl.id = u.club_id
+         WHERE link.coach_id = $1
+       ),
+       /* Every dive the linked divers have on a non-completed
+          event, with the event's status so we can filter live
+          ones. */
+       upcoming_raw AS (
+         SELECT cdl.competitor_id, cdl.event_id, cdl.round_number,
+                cdl.display_order,
+                e.name AS event_name, e.status, e.event_type,
+                e.height, e.number_of_judges,
+                d.dive_code, d.position, d.dd, d.description
+         FROM competitor_dive_lists cdl
+         JOIN events e ON e.id = cdl.event_id
+         JOIN dive_directory d ON d.id = cdl.dive_id
+         WHERE cdl.competitor_id IN (SELECT id FROM my_divers)
+           AND cdl.withdrawn_at IS NULL
+           AND e.status IN ('Live', 'Upcoming')
+       ),
+       /* Pick the diver's next round in each event — the lowest
+          round_number that doesn't yet have all judges' scores. */
+       scored_rounds AS (
+         SELECT s.event_id, s.competitor_id, s.round_number,
+                COUNT(*) AS judges_in
+         FROM scores s
+         WHERE s.competitor_id IN (SELECT id FROM my_divers)
+         GROUP BY s.event_id, s.competitor_id, s.round_number
+       ),
+       upcoming_with_status AS (
+         SELECT ur.*,
+                COALESCE(sr.judges_in, 0) AS judges_in,
+                ur.number_of_judges - COALESCE(sr.judges_in, 0) AS judges_pending
+         FROM upcoming_raw ur
+         LEFT JOIN scored_rounds sr
+           ON sr.event_id      = ur.event_id
+          AND sr.competitor_id = ur.competitor_id
+          AND sr.round_number  = ur.round_number
+       ),
+       next_dive AS (
+         SELECT DISTINCT ON (competitor_id, event_id)
+                competitor_id, event_id, round_number,
+                event_name, status, event_type, height,
+                dive_code, position, dd, description,
+                judges_pending
+         FROM upcoming_with_status
+         WHERE judges_pending > 0
+         ORDER BY competitor_id, event_id, round_number ASC
+       ),
+       /* Standings per event so we can attach a current rank. */
+       per_dive AS (
+         SELECT s.event_id, s.competitor_id,
+                calc_event_dive_points(
+                  array_agg(ej.judge_number ORDER BY ej.judge_number),
+                  array_agg(s.score        ORDER BY ej.judge_number),
+                  e.number_of_judges, MAX(d.dd), e.event_type,
+                  BOOL_OR(cdl.partner_id IS NOT NULL)
+                ) AS pts
+         FROM scores s
+         JOIN events e ON e.id = s.event_id
+         LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+         LEFT JOIN competitor_dive_lists cdl
+           ON cdl.event_id = s.event_id
+          AND cdl.competitor_id = s.competitor_id
+          AND cdl.round_number = s.round_number
+         LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+         WHERE s.event_id IN (SELECT event_id FROM upcoming_raw)
+         GROUP BY s.event_id, s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+       ),
+       totals AS (
+         SELECT event_id, competitor_id, SUM(pts)::numeric(8,2) AS total
+         FROM per_dive GROUP BY event_id, competitor_id
+       ),
+       ranked AS (
+         SELECT *, RANK() OVER (PARTITION BY event_id ORDER BY total DESC) AS rnk,
+                COUNT(*) OVER (PARTITION BY event_id)::int AS field_size
+         FROM totals
+       )
+       SELECT md.id AS diver_id, md.full_name, md.username,
+              md.country_code, md.club_name, md.club_code,
+              md.note,
+              nd.event_id, nd.event_name, nd.status AS event_status,
+              nd.event_type, nd.height,
+              nd.round_number, nd.dive_code, nd.position, nd.dd, nd.description,
+              r.total::numeric(8,2)   AS current_total,
+              r.rnk::int              AS current_rank,
+              r.field_size
+       FROM my_divers md
+       LEFT JOIN next_dive nd ON nd.competitor_id = md.id
+       LEFT JOIN ranked r
+         ON r.event_id = nd.event_id AND r.competitor_id = md.id
+       ORDER BY
+         /* Live events first, then upcoming, then divers with no
+            upcoming dive at all */
+         CASE WHEN nd.status = 'Live' THEN 0
+              WHEN nd.status = 'Upcoming' THEN 1
+              ELSE 2 END,
+         md.full_name ASC`,
+      [req.user.id],
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error("[Coach Dashboard Error]", err.message);
+    res.status(500).json([]);
+  }
+});
+
 // Coaches see their own linked divers — minimal fields, enough
 // to build a dashboard tile + click through to each diver's
 // profile (which already exists at /profile/:id).

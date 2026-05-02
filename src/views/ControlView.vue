@@ -648,13 +648,88 @@ const judgeNameByNumber = computed(() => {
 // always knows the running state without opening the modal.
 // =============================================================
 const standingsPreview = ref([])
+// Operator toggle for the standings + projection panel. Persisted
+// in localStorage so the controller's preference survives reload.
+// The public scoreboard is unaffected — this only hides the panel
+// inside the Control Room.
+const SHOW_STANDINGS_KEY = 'dr.controlRoom.showStandings'
+const showStandingsProjection = ref(
+  (typeof localStorage !== 'undefined'
+    ? localStorage.getItem(SHOW_STANDINGS_KEY)
+    : null) !== '0',
+)
+function toggleStandingsProjection() {
+  showStandingsProjection.value = !showStandingsProjection.value
+  try { localStorage.setItem(SHOW_STANDINGS_KEY, showStandingsProjection.value ? '1' : '0') }
+  catch { /* private mode etc. — silent fail */ }
+}
+
 async function refreshStandingsPreview() {
   if (!currentEvent.value) return
   try {
     const data = await auth.apiFetch(`/api/scoreboard/${currentEvent.value.id}`)
-    standingsPreview.value = (data.standings || []).slice(0, 5)
+    // Keep all standings rows so the projection logic can find the
+    // active diver even if they're outside the top 5.
+    standingsPreview.value = data.standings || []
   } catch { standingsPreview.value = [] }
 }
+
+// Top 5 visible rows — derived so the panel keeps the existing
+// rendering shape while the full standings array drives the
+// projection logic.
+const standingsTop5 = computed(() => standingsPreview.value.slice(0, 5))
+
+// "[Active] needs +N pts to take #1 from [Leader]" — or, if the
+// active diver is already first, "Leading by N over [#2]".
+// Returns { kind: 'lead' | 'chase' | null, gap: number, ... }.
+const projectedLine = computed(() => {
+  const active = currentActive.value
+  const standings = standingsPreview.value
+  if (!active || !standings.length) return null
+  // Match the active diver against standings by name. Standings
+  // doesn't carry competitor_id today (the public scoreboard avoids
+  // exposing UUIDs to spectators), so name + country is the dedupe.
+  const matchKey = (s) =>
+    `${s.full_name || ''}|${s.country_code || ''}|${s.partner_name || ''}`
+  const activeKey = matchKey({
+    full_name: active.full_name,
+    country_code: active.country_code,
+    partner_name: active.partner_name,
+  })
+  const idx = standings.findIndex(s => matchKey(s) === activeKey)
+  const leader = standings[0]
+  if (!leader) return null
+  if (idx === -1) {
+    // Active diver not in standings yet (no scored dives). Show
+    // a minimal cue to keep the panel useful.
+    return {
+      kind: 'pre',
+      activeName: active.full_name,
+      leaderName: leader.full_name,
+      leaderTotal: Number(leader.total || 0),
+    }
+  }
+  const me = standings[idx]
+  const myTotal = Number(me.total || 0)
+  const leaderTotal = Number(leader.total || 0)
+  if (idx === 0) {
+    // Active diver IS leading. Show the gap to #2 if there is one.
+    const second = standings[1]
+    if (!second) return { kind: 'unopposed', activeName: active.full_name }
+    return {
+      kind: 'lead',
+      activeName: active.full_name,
+      runnerUp: second.full_name,
+      gap: myTotal - Number(second.total || 0),
+    }
+  }
+  return {
+    kind: 'chase',
+    activeName: active.full_name,
+    leaderName: leader.full_name,
+    gap: leaderTotal - myTotal,
+  }
+})
 
 // =============================================================
 // QUEUE SEARCH + JUMP-TO-ROUND
@@ -1457,18 +1532,57 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           </div>
         </div>
 
-        <!-- Standings preview — top 5 inline so the meet referee
-             always knows the running state. -->
-        <div v-if="standingsPreview.length" class="standings-preview">
-          <div class="standings-preview-label">Top 5 right now</div>
-          <div v-for="(s, i) in standingsPreview" :key="i" class="sp-row">
+        <!-- Standings + projected leader — top 5 inline so the
+             meet referee always knows the running state. The
+             "projected" line under the table shows the gap from
+             the active diver to the leader (or, if leading, to
+             #2). The whole panel can be hidden via the eye icon
+             — preference saved per browser. -->
+        <div v-if="standingsTop5.length && showStandingsProjection" class="standings-preview">
+          <div class="standings-preview-head">
+            <span class="standings-preview-label">Top 5 right now</span>
+            <button class="standings-toggle" @click="toggleStandingsProjection"
+                    title="Hide standings + projection panel">👁</button>
+          </div>
+          <div v-for="(s, i) in standingsTop5" :key="i" class="sp-row">
             <span :class="['sp-rank', i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '']">
               {{ i + 1 }}
             </span>
             <span class="sp-name">{{ s.full_name }}</span>
             <span class="sp-total">{{ parseFloat(s.total).toFixed(1) }}</span>
           </div>
+          <!-- Projected-leader hint. Only shows when there's an
+               active diver and the standings have something useful
+               to compare against. -->
+          <div v-if="projectedLine" :class="['projection-line', `projection-${projectedLine.kind}`]">
+            <template v-if="projectedLine.kind === 'lead'">
+              🏆 <strong>{{ projectedLine.activeName }}</strong>
+              leading by <strong>+{{ projectedLine.gap.toFixed(1) }}</strong>
+              over {{ projectedLine.runnerUp }}
+            </template>
+            <template v-else-if="projectedLine.kind === 'chase'">
+              <strong>{{ projectedLine.activeName }}</strong>
+              needs <strong>+{{ projectedLine.gap.toFixed(1) }}</strong>
+              to overtake {{ projectedLine.leaderName }}
+            </template>
+            <template v-else-if="projectedLine.kind === 'pre'">
+              No completed dives yet. {{ projectedLine.leaderName }} leads at
+              <strong>{{ projectedLine.leaderTotal.toFixed(1) }}</strong>.
+            </template>
+            <template v-else-if="projectedLine.kind === 'unopposed'">
+              {{ projectedLine.activeName }} unopposed — only diver entered.
+            </template>
+          </div>
         </div>
+
+        <!-- Re-show toggle when hidden. Tiny chip so the
+             controller can bring the panel back without leaving
+             the page. -->
+        <button v-if="!showStandingsProjection" class="standings-show-chip"
+                @click="toggleStandingsProjection"
+                title="Show standings + projection panel">
+          📊 Show standings
+        </button>
 
         <!-- Search + jump-to-round chips -->
         <div v-if="roster.length" class="queue-filters">
@@ -2413,10 +2527,52 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   background: var(--bg-3);
   flex-shrink: 0;
 }
+.standings-preview-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
 .standings-preview-label {
   font-family: var(--font-display); font-size: 9px; font-weight: 700;
   letter-spacing: 0.25em; text-transform: uppercase; color: var(--text-3);
-  margin-bottom: 0.5rem;
+}
+.standings-toggle {
+  background: transparent; border: none;
+  color: var(--text-3); cursor: pointer;
+  font-size: 11px; padding: 0.1rem 0.3rem;
+  transition: color 0.1s;
+}
+.standings-toggle:hover { color: var(--text); }
+.standings-show-chip {
+  display: block;
+  margin: 0.5rem 1rem;
+  padding: 0.4rem 0.7rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-3); cursor: pointer;
+  font-family: var(--font-mono); font-size: 11px;
+}
+.standings-show-chip:hover { color: var(--text); border-color: var(--text-3); }
+
+/* Projected-leader hint under the standings preview. */
+.projection-line {
+  font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--text-2); line-height: 1.45;
+  margin-top: 0.5rem; padding: 0.4rem 0.6rem;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.projection-line strong { color: var(--text); }
+.projection-line.projection-lead {
+  background: rgba(234,179,8,0.06); border-color: rgba(234,179,8,0.3);
+}
+.projection-line.projection-lead strong { color: #f59e0b; }
+.projection-line.projection-chase {
+  background: var(--cyan-dim); border-color: rgba(6,182,212,0.3);
+}
+.projection-line.projection-chase strong { color: var(--cyan); }
+.projection-line.projection-pre,
+.projection-line.projection-unopposed {
+  color: var(--text-3); font-style: italic;
 }
 .sp-row {
   display: flex; align-items: baseline; gap: 0.5rem;
