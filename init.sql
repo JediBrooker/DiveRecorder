@@ -103,6 +103,12 @@ CREATE TYPE attendance_status AS ENUM (
     'absent'
 );
 
+CREATE TYPE record_scope AS ENUM (
+    'personal',
+    'club',
+    'federation'
+);
+
 
 -- =============================================================
 -- ORGANISATIONS
@@ -476,6 +482,39 @@ CREATE TABLE public.event_attendance (
     PRIMARY KEY (event_id, competitor_id)
 );
 
+-- =============================================================
+-- RECORDS — personal / club / federation best at a
+-- (height, dive_code, position) tuple. (migration 017)
+-- =============================================================
+
+CREATE TABLE public.records (
+    id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    scope         record_scope NOT NULL,
+    scope_id      uuid NOT NULL,            -- user / club / org id depending on scope
+    height        board_height NOT NULL,
+    dive_code     varchar(10) NOT NULL,
+    position      dive_position NOT NULL,
+    score         numeric(8,2) NOT NULL,
+    holder_id     uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    event_id      uuid REFERENCES public.events(id) ON DELETE SET NULL,
+    set_at        timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (scope, scope_id, height, dive_code, position)
+);
+
+CREATE TABLE public.records_history (
+    id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    scope         record_scope NOT NULL,
+    scope_id      uuid NOT NULL,
+    height        board_height NOT NULL,
+    dive_code     varchar(10) NOT NULL,
+    position      dive_position NOT NULL,
+    score         numeric(8,2) NOT NULL,
+    holder_id     uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    event_id      uuid REFERENCES public.events(id) ON DELETE SET NULL,
+    set_at        timestamptz NOT NULL,
+    superseded_at timestamptz NOT NULL DEFAULT now()
+);
+
 
 -- =============================================================
 -- WORLD AQUATICS DIVE POINTS — INDIVIDUAL
@@ -672,6 +711,9 @@ CREATE INDEX idx_dive_lists_event_round_order
     ON public.competitor_dive_lists (event_id, round_number, display_order)
     WHERE withdrawn_at IS NULL;
 CREATE INDEX idx_event_attendance_event    ON public.event_attendance (event_id);
+CREATE INDEX idx_records_scope_id          ON public.records (scope, scope_id);
+CREATE INDEX idx_records_holder            ON public.records (holder_id);
+CREATE INDEX idx_records_history_scope_id  ON public.records_history (scope, scope_id);
 
 
 -- =============================================================
@@ -689,7 +731,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 16);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 17);
 
 
 -- =============================================================

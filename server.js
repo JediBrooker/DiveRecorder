@@ -4229,6 +4229,177 @@ app.get(
 );
 
 // =============================================================
+// =============================================================
+// RECORDS — personal / club / federation best per (height,
+// dive_code, position). Called from the socket submit_score
+// handler when a dive completes (every judge has submitted).
+//
+// We treat each scope separately so a dive can break a club
+// record and a personal record at the same time. The records
+// table holds the CURRENT best; the previous holder is archived
+// in records_history before we UPDATE.
+// [SECTION: RECORDS]
+// =============================================================
+
+// Returns an array of {scope, scope_id, height, dive_code,
+// position, score, prev_score?, prev_holder_name?} describing
+// every record this dive set. Empty array = nothing broken.
+async function checkAndApplyRecords({ eventId, competitorId, roundNumber }) {
+  try {
+    // Fetch the dive's metadata + the diver's club / org so we
+    // can match against the right scope_ids. One round-trip.
+    const ctx = await pool.query(
+      `SELECT u.id  AS user_id,
+              u.club_id,
+              u.org_id,
+              cl.name AS club_name,
+              o.name  AS org_name,
+              u.full_name AS holder_name,
+              e.height, e.event_type, e.number_of_judges,
+              d.dive_code, d.position, d.dd, d.description,
+              calc_event_dive_points(
+                array_agg(ej.judge_number ORDER BY ej.judge_number),
+                array_agg(s.score        ORDER BY ej.judge_number),
+                e.number_of_judges, d.dd, e.event_type,
+                BOOL_OR(cdl.partner_id IS NOT NULL)
+              ) AS dive_total,
+              COUNT(s.score)::int AS judges_in
+       FROM scores s
+       JOIN events e ON e.id = s.event_id
+       JOIN users u  ON u.id = s.competitor_id
+       LEFT JOIN clubs cl ON cl.id = u.club_id
+       JOIN organisations o ON o.id = u.org_id
+       LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+       LEFT JOIN competitor_dive_lists cdl
+         ON cdl.event_id = s.event_id
+        AND cdl.competitor_id = s.competitor_id
+        AND cdl.round_number = s.round_number
+       LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+       WHERE s.event_id = $1 AND s.competitor_id = $2 AND s.round_number = $3
+       GROUP BY u.id, u.club_id, u.org_id, cl.name, o.name, u.full_name,
+                e.height, e.event_type, e.number_of_judges,
+                d.dive_code, d.position, d.dd, d.description`,
+      [eventId, competitorId, roundNumber],
+    );
+    if (!ctx.rows.length) return [];
+    const c = ctx.rows[0];
+
+    // Skip if the dive isn't complete yet (some judges still to
+    // submit), or if we couldn't resolve the dive metadata (rare
+    // — happens when the dive_directory row is missing).
+    if (c.judges_in < c.number_of_judges) return [];
+    if (!c.dive_code || !c.position || !c.height) return [];
+    if (c.dive_total == null) return [];
+
+    const score = Number(c.dive_total);
+    const broken = [];
+
+    // Personal + (optionally) club + federation scopes.
+    const scopes = [
+      { scope: "personal",   scope_id: c.user_id,  scope_name: c.holder_name },
+      ...(c.club_id ? [{ scope: "club",       scope_id: c.club_id, scope_name: c.club_name }] : []),
+      { scope: "federation", scope_id: c.org_id,   scope_name: c.org_name },
+    ];
+
+    for (const s of scopes) {
+      // Read existing record (if any) for this scope tuple.
+      const existing = await pool.query(
+        `SELECT id, score, holder_id,
+                (SELECT full_name FROM users WHERE id = records.holder_id) AS holder_name
+         FROM records
+         WHERE scope = $1::record_scope AND scope_id = $2
+           AND height = $3::board_height
+           AND dive_code = $4 AND position = $5::dive_position`,
+        [s.scope, s.scope_id, c.height, c.dive_code, c.position],
+      );
+      const prev = existing.rows[0];
+      // No existing record OR new score strictly greater. Strict
+      // greater so equal totals don't displace the original holder.
+      if (!prev || score > Number(prev.score)) {
+        if (prev) {
+          // Archive old holder before overwriting.
+          await pool.query(
+            `INSERT INTO records_history
+               (scope, scope_id, height, dive_code, position,
+                score, holder_id, event_id, set_at)
+             SELECT scope, scope_id, height, dive_code, position,
+                    score, holder_id, event_id, set_at
+             FROM records WHERE id = $1`,
+            [prev.id],
+          );
+        }
+        await pool.query(
+          `INSERT INTO records
+             (scope, scope_id, height, dive_code, position,
+              score, holder_id, event_id, set_at)
+           VALUES ($1::record_scope, $2, $3::board_height, $4, $5::dive_position,
+                   $6, $7, $8, now())
+           ON CONFLICT (scope, scope_id, height, dive_code, position)
+           DO UPDATE SET score = EXCLUDED.score,
+                         holder_id = EXCLUDED.holder_id,
+                         event_id = EXCLUDED.event_id,
+                         set_at = now()`,
+          [s.scope, s.scope_id, c.height, c.dive_code, c.position,
+            score, c.user_id, eventId],
+        );
+        broken.push({
+          scope:        s.scope,
+          scope_id:     s.scope_id,
+          scope_name:   s.scope_name,
+          height:       c.height,
+          dive_code:    c.dive_code,
+          position:     c.position,
+          score,
+          holder_id:    c.user_id,
+          holder_name:  c.holder_name,
+          prev_score:   prev ? Number(prev.score) : null,
+          prev_holder_name: prev ? prev.holder_name : null,
+          event_id:     eventId,
+        });
+      }
+    }
+    return broken;
+  } catch (err) {
+    // Non-fatal — records are best-effort. The scoreboard still
+    // works without them.
+    console.error("[Records Check Error]", err.message);
+    return [];
+  }
+}
+
+// Public read endpoints.
+// GET /api/records?scope=personal&scope_id=<uuid>
+// GET /api/records?event_id=<uuid>   → records broken at this event
+app.get("/api/records", verifyToken, async (req, res) => {
+  try {
+    const scope    = req.query.scope || null;
+    const scopeId  = req.query.scope_id || null;
+    const eventId  = req.query.event_id || null;
+    if (!scopeId && !eventId) {
+      return res.status(400).json({ error: "Pass scope+scope_id or event_id" });
+    }
+    const r = await pool.query(
+      `SELECT r.id, r.scope::text AS scope, r.scope_id,
+              r.height::text AS height, r.dive_code, r.position::text AS position,
+              r.score, r.set_at,
+              r.holder_id, h.full_name AS holder_name,
+              r.event_id, e.name AS event_name
+       FROM records r
+       LEFT JOIN users h ON h.id = r.holder_id
+       LEFT JOIN events e ON e.id = r.event_id
+       WHERE ($1::text IS NULL OR r.scope = $1::record_scope)
+         AND ($2::uuid IS NULL OR r.scope_id = $2::uuid)
+         AND ($3::uuid IS NULL OR r.event_id = $3::uuid)
+       ORDER BY r.height, r.dive_code, r.position`,
+      [scope, scopeId, eventId],
+    );
+    res.json(r.rows);
+  } catch (err) {
+    console.error("[Records List Error]", err.message);
+    res.status(500).json([]);
+  }
+});
+
 // SOCKET ENGINE
 // [SECTION: SOCKET ENGINE]
 // =============================================================
@@ -4477,6 +4648,21 @@ io.on("connection", (socket) => {
         judge_id: judgeId,
         judge_number: judgeNumber,
       });
+
+      // Records check — runs only on the score that COMPLETES the
+      // dive (the helper bails when judges_in < number_of_judges).
+      // Best-effort and async so a slow records lookup doesn't
+      // block the score broadcast. Each broken record fans out a
+      // dedicated `record_broken` event the scoreboard listens for.
+      checkAndApplyRecords({
+        eventId:      data.event_id,
+        competitorId: data.competitor_id,
+        roundNumber:  round,
+      }).then((broken) => {
+        for (const b of broken) {
+          io.emit("record_broken", b);
+        }
+      }).catch((e) => console.error("[Records broadcast]", e.message));
     } catch (err) {
       console.error("[Score Persist Error]", err.message);
       // Still broadcast even if DB write fails so UI stays live

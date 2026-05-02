@@ -402,6 +402,36 @@ function movementSymbol(m) {
   return '–'
 }
 
+// =========================================================
+// RECORD-BROKEN TOASTS — pop a small celebratory banner on
+// the scoreboard when a dive sets a personal / club / or
+// federation record. Server fires `record_broken` once per
+// scope, so a single dive can produce up to 3 stacked toasts.
+// =========================================================
+const recordToasts = ref([])  // [{ id, ...payload }]
+let toastSeq = 0
+socket.on('record_broken', (data) => {
+  if (!data) return
+  // Filter to records for the currently-selected event; otherwise
+  // an operator on the meet list would see toasts from other meets.
+  if (currentEventId.value && data.event_id && data.event_id !== currentEventId.value) return
+  const id = ++toastSeq
+  recordToasts.value.push({ id, ...data })
+  // Auto-dismiss after 8s. User can also click X to clear early.
+  setTimeout(() => {
+    recordToasts.value = recordToasts.value.filter(t => t.id !== id)
+  }, 8000)
+})
+function dismissToast(id) {
+  recordToasts.value = recordToasts.value.filter(t => t.id !== id)
+}
+function scopeLabel(scope) {
+  if (scope === 'personal')   return 'PB'
+  if (scope === 'club')       return 'CLUB RECORD'
+  if (scope === 'federation') return 'FEDERATION RECORD'
+  return scope
+}
+
 socket.on('state_update', data => {
   // Ignore broadcasts until the user has picked an event, and
   // ignore broadcasts for events other than the current one. This
@@ -1110,6 +1140,31 @@ onMounted(async () => {
       <div class="overlay-score">{{ overlayScore }}</div>
       <div class="overlay-label">Points Awarded</div>
     </div>
+
+    <!-- Record-broken toasts. One stacked toast per scope when a
+         dive sets a new personal / club / federation best. Auto-
+         dismiss after 8s; click X to clear early. -->
+    <div v-if="recordToasts.length" class="record-toast-stack">
+      <div v-for="t in recordToasts" :key="t.id"
+           :class="['record-toast', `record-toast-${t.scope}`]">
+        <span class="record-toast-icon">🏆</span>
+        <div class="record-toast-body">
+          <div class="record-toast-head">
+            <span class="record-toast-scope">{{ scopeLabel(t.scope) }}</span>
+            <span class="record-toast-score">{{ Number(t.score).toFixed(2) }}</span>
+          </div>
+          <div class="record-toast-name">
+            {{ t.holder_name }} —
+            <span class="record-toast-dive">{{ t.dive_code }}{{ t.position }} · {{ t.height }}</span>
+          </div>
+          <div v-if="t.prev_score" class="record-toast-prev">
+            beat {{ Number(t.prev_score).toFixed(2) }}
+            <span v-if="t.prev_holder_name">by {{ t.prev_holder_name }}</span>
+          </div>
+        </div>
+        <button class="record-toast-close" @click="dismissToast(t.id)" title="Dismiss">✕</button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1619,6 +1674,69 @@ onMounted(async () => {
   font-family: var(--font-mono); font-size: 10px; font-weight: 700;
   color: var(--cyan); margin-right: 0.25rem;
   cursor: help;
+}
+
+/* =========================================================
+   Record-broken toasts — fired by socket.on('record_broken').
+   Stacked top-right; gold accent for personal, cyan for club,
+   pink for federation so the eye distinguishes scope at a
+   glance. Auto-dismiss, click X to clear early.
+   ========================================================= */
+.record-toast-stack {
+  position: fixed; top: 1rem; right: 1rem; z-index: 200;
+  display: flex; flex-direction: column; gap: 0.5rem;
+  max-width: 360px;
+}
+.record-toast {
+  display: flex; align-items: flex-start; gap: 0.6rem;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-left-width: 4px;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
+  padding: 0.75rem 0.875rem;
+  animation: recordToastIn 0.35s ease-out;
+}
+@keyframes recordToastIn {
+  from { transform: translateX(40px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+.record-toast-personal   { border-left-color: #f59e0b; }
+.record-toast-club       { border-left-color: var(--cyan); }
+.record-toast-federation { border-left-color: #ec4899; }
+
+.record-toast-icon { font-size: 22px; line-height: 1.1; }
+.record-toast-body { flex: 1; min-width: 0; }
+.record-toast-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+.record-toast-scope {
+  font-family: var(--font-display); font-size: 9px; font-weight: 900;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3);
+}
+.record-toast-personal   .record-toast-scope { color: #f59e0b; }
+.record-toast-club       .record-toast-scope { color: var(--cyan); }
+.record-toast-federation .record-toast-scope { color: #ec4899; }
+.record-toast-score {
+  font-family: var(--font-display); font-size: 18px; font-weight: 900;
+  font-style: italic; color: var(--text);
+}
+.record-toast-name {
+  font-family: var(--font-mono); font-size: 12px; color: var(--text);
+  margin-top: 0.2rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.record-toast-dive { color: var(--cyan); }
+.record-toast-prev {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3);
+  margin-top: 0.15rem; font-style: italic;
+}
+.record-toast-close {
+  background: transparent; border: none; cursor: pointer;
+  color: var(--text-3); font-size: 12px; padding: 0;
+}
+.record-toast-close:hover { color: var(--text); }
+
+@media (max-width: 720px) {
+  .record-toast-stack { left: 1rem; right: 1rem; max-width: none; }
 }
 
 /* =========================================================
