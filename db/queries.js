@@ -67,18 +67,26 @@ const PER_DIVE = `
 // CTE chain:
 //   diver_events  — { event_id }   the events the diver competed in
 //   all_per_dive  — every dive in those events, by every competitor
-//   event_totals  — per-(event, competitor) sum of dive points
-//   ranked        — event_totals + RANK over (event_id ORDER BY total DESC)
+//   event_totals  — per-(event, competitor) sum of dive points + a
+//                   `dives_desc` array of the diver's dive points
+//                   sorted descending (used as the tie-break key)
+//   ranked        — event_totals + RANK over the FINA ordering:
+//                     ORDER BY total DESC, dives_desc DESC
+//                   plus an `is_tied_on_total` flag for UI hints
+//                   when two divers share a raw total but the
+//                   secondary criterion separates them.
 //
 // Required params:
 //   $1 = competitor_id (uuid) — the diver of interest
 //   $2 = from_date (date or null)
 //   $3 = to_date   (date or null)
 //
-// The previous version of these queries built a per_dive CTE that
-// was already filtered to the diver, then ranked over it — every
-// meet ended up rank 1-of-1. This helper makes that bug structurally
-// hard to recreate.
+// FINA tie-break: when two divers have the same total, the higher
+// finish goes to whoever has the highest single dive; if those tie,
+// the second-highest; and so on. Postgres element-wise array
+// comparison on `dives_desc DESC` implements that exactly —
+// [9,8,7] > [9,8,6] > [9,8,5]. RANK() with that ordering gives the
+// correct FINA placement for free.
 // =====================================================================
 const FULL_FIELD_RANKING = `
   diver_events AS (
@@ -110,12 +118,24 @@ const FULL_FIELD_RANKING = `
              e.number_of_judges, e.event_type
   ),
   event_totals AS (
-    SELECT event_id, competitor_id, SUM(dive_points) AS total
+    SELECT event_id, competitor_id,
+           SUM(dive_points) AS total,
+           array_agg(dive_points ORDER BY dive_points DESC) AS dives_desc
     FROM all_per_dive
     GROUP BY event_id, competitor_id
   ),
   ranked AS (
-    SELECT et.*, RANK() OVER (PARTITION BY et.event_id ORDER BY et.total DESC) AS rank
+    SELECT et.*,
+           RANK() OVER (
+             PARTITION BY et.event_id
+             ORDER BY et.total DESC, et.dives_desc DESC
+           ) AS rank,
+           /* True when 2+ rows in this event share the SAME total
+              — UI shows an "=" marker so spectators understand why
+              two divers with identical totals were separated. */
+           COUNT(*) OVER (
+             PARTITION BY et.event_id, et.total
+           ) > 1 AS is_tied_on_total
     FROM event_totals et
   )
 `;

@@ -2027,24 +2027,29 @@ app.post(
            GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
          )
          , event_totals AS (
-           SELECT competitor_id, SUM(dive_points) AS total
+           SELECT competitor_id,
+                  SUM(dive_points) AS total,
+                  array_agg(dive_points ORDER BY dive_points DESC) AS dives_desc
            FROM per_dive
            GROUP BY competitor_id
          )
-         /* Tie handling: use RANK() so two divers tied for the
-            advancement cut both go through, instead of postgres
-            silently dropping one based on its arbitrary internal
-            row order. World Aquatics protocols generally advance
-            on tie at the boundary; if a federation needs a
-            stricter tie-break it can clamp downstream. */
+         /* FINA tie-break in stage advancement.
+            Primary key: total DESC.
+            Secondary: dives_desc DESC — element-wise array
+            comparison gives "highest single dive, then second-
+            highest, then …" exactly as FINA prescribes.
+            RANK() means two divers tied even after the tie-break
+            both advance (the cutoff includes everyone at rnk=N). */
          SELECT competitor_id, total
          FROM (
-           SELECT competitor_id, total,
-                  RANK() OVER (ORDER BY total DESC) AS rnk
+           SELECT competitor_id, total, dives_desc,
+                  RANK() OVER (
+                    ORDER BY total DESC, dives_desc DESC
+                  ) AS rnk
            FROM event_totals
          ) ranked
          WHERE rnk <= $2
-         ORDER BY total DESC, competitor_id ASC`,
+         ORDER BY total DESC, dives_desc DESC, competitor_id ASC`,
         [source.id, source.advance_count || 12],
       );
 

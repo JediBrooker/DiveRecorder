@@ -37,14 +37,17 @@ module.exports = function createScoreboardRouter({ pool }) {
              WHERE s.event_id = $1
              GROUP BY s.competitor_id, cdl.team_id, s.round_number, e.number_of_judges, e.event_type
            ),
-           /* Team-event branch: aggregate by team */
+           /* Team-event branch: aggregate by team. dives_desc is
+              the descending-sorted array of dive points used as the
+              FINA tie-break key when two teams share a raw total. */
            team_standings AS (
              SELECT t.name AS full_name,
                     NULL::char(3) AS country_code,
                     t.short_code AS club_name,
                     NULL::varchar AS partner_name,
                     NULL::char(3) AS partner_country,
-                    SUM(pd.dive_points) AS total
+                    SUM(pd.dive_points) AS total,
+                    array_agg(pd.dive_points ORDER BY pd.dive_points DESC) AS dives_desc
              FROM per_dive pd
              JOIN teams t ON t.id = pd.team_id
              WHERE (SELECT event_type FROM events WHERE id = $1) = 'team'
@@ -54,7 +57,8 @@ module.exports = function createScoreboardRouter({ pool }) {
            comp_standings AS (
              SELECT u.full_name, o.country_code, cl.name AS club_name,
                     pu.full_name AS partner_name, pl.country_code AS partner_country,
-                    SUM(pd.dive_points) AS total
+                    SUM(pd.dive_points) AS total,
+                    array_agg(pd.dive_points ORDER BY pd.dive_points DESC) AS dives_desc
              FROM per_dive pd
              JOIN users u ON u.id = pd.competitor_id
              JOIN organisations o ON o.id = u.org_id
@@ -70,11 +74,22 @@ module.exports = function createScoreboardRouter({ pool }) {
              LEFT JOIN organisations pl ON pl.id = pu.org_id
              WHERE (SELECT event_type FROM events WHERE id = $1) <> 'team'
              GROUP BY u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code
+           ),
+           merged AS (
+             SELECT * FROM team_standings
+             UNION ALL
+             SELECT * FROM comp_standings
            )
-           SELECT * FROM team_standings
-           UNION ALL
-           SELECT * FROM comp_standings
-           ORDER BY total DESC`,
+           /* FINA tie-break ordering: total desc, then highest dive,
+              then second-highest, etc. (Postgres element-wise array
+              comparison gives that.) is_tied_on_total flags pairs
+              that shared the raw total but were separated by the
+              tie-break, so the UI can hint at why. */
+           SELECT full_name, country_code, club_name,
+                  partner_name, partner_country, total,
+                  COUNT(*) OVER (PARTITION BY total) > 1 AS is_tied_on_total
+           FROM merged
+           ORDER BY total DESC, dives_desc DESC`,
           [req.params.eventId],
         ),
         // History: each row is a fully-judged dive with its

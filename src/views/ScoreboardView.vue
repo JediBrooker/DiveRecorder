@@ -844,7 +844,16 @@ onMounted(async () => {
                 </div>
                 <div v-if="s.club_name" class="standing-club">{{ s.club_name }}</div>
               </div>
-              <div class="standing-score">{{ parseFloat(s.total).toFixed(1) }}</div>
+              <div class="standing-score">
+                <!-- "=" marker when two divers shared the raw total
+                     but were separated by the FINA tie-break rule
+                     (highest single dive, then second-highest, …).
+                     Spectators and coaches see this and understand
+                     why two identical totals weren't a literal tie. -->
+                <span v-if="s.is_tied_on_total" class="tie-marker"
+                      title="Tied on total — separated by FINA tie-break (highest single dive, then second-highest, etc.)">=</span>
+                {{ parseFloat(s.total).toFixed(1) }}
+              </div>
             </div>
           </template>
 
@@ -1602,6 +1611,15 @@ onMounted(async () => {
 /* Result export buttons (PDF / CSV / start list) — sit in the
    recap header next to the event title. Wrap on narrow screens. */
 .export-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+/* "=" marker for FINA tie-break disambiguation. Cyan accent so
+   it reads as informational, not error. */
+.tie-marker {
+  display: inline-block;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  color: var(--cyan); margin-right: 0.25rem;
+  cursor: help;
+}
 
 /* =========================================================
    Live-stream overlay (?overlay=1) — chroma-key-friendly view
