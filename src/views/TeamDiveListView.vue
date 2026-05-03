@@ -29,6 +29,31 @@ const eventHeight = computed(() => {
   return parseFloat(event.value.height)
 })
 
+// Mirrors the server-side rule in loadEventForEntries() — the
+// team's dive list is editable only while the event is still
+// 'Upcoming' AND the manager-set entries deadline (if any) is
+// still in the future. Late roster changes after that point go
+// through the controller's late-entry feature.
+const isAcceptingEntries = computed(() => {
+  const ev = event.value
+  if (!ev) return false
+  if (ev.status && ev.status !== 'Upcoming') return false
+  if (ev.entries_close_at && new Date(ev.entries_close_at) <= new Date()) return false
+  return true
+})
+
+const closedReason = computed(() => {
+  const ev = event.value
+  if (!ev) return ''
+  if (ev.status && ev.status !== 'Upcoming') {
+    return `"${ev.name}" has already started — entries are closed.`
+  }
+  if (ev.entries_close_at && new Date(ev.entries_close_at) <= new Date()) {
+    return `Entries for "${ev.name}" closed at ${new Date(ev.entries_close_at).toLocaleString()}.`
+  }
+  return ''
+})
+
 const filteredDives = computed(() => {
   const term = diveSearch.value.trim().toLowerCase()
   return directory.value.filter(d => {
@@ -144,6 +169,12 @@ async function save() {
     errorMsg.value = 'Every round needs a dive, a diver, and (for synchro rounds) a partner.'
     return
   }
+  // Server gates this too, but fail fast on a stale tab so the
+  // manager doesn't watch the spinner spin to a 409.
+  if (!isAcceptingEntries.value) {
+    errorMsg.value = closedReason.value
+    return
+  }
   saving.value = true
   errorMsg.value = ''
   try {
@@ -186,15 +217,23 @@ onMounted(load)
     <div v-if="loading" class="empty">Loading…</div>
     <div v-else-if="errorMsg" class="msg msg-error">{{ errorMsg }}</div>
     <template v-else>
+      <div v-if="!isAcceptingEntries" class="msg msg-error" style="margin-bottom:0.75rem">
+        {{ closedReason }} You can no longer edit this dive list.
+      </div>
+      <div v-else-if="event?.entries_close_at" class="hint-line" style="margin-bottom:0.75rem">
+        Entries close {{ new Date(event.entries_close_at).toLocaleString() }}.
+      </div>
       <div class="header-bar">
         <div class="dd-summary">
           <div class="dd-num">{{ totalDD }}</div>
           <div class="dd-label">Total DD</div>
         </div>
         <button class="btn btn-primary"
-                :disabled="saving || !isComplete"
+                :disabled="saving || !isComplete || !isAcceptingEntries"
                 @click="save">
-          {{ saving ? 'Saving…' : 'Save dive list' }}
+          {{ saving ? 'Saving…'
+             : !isAcceptingEntries ? 'Entries closed'
+             : 'Save dive list' }}
         </button>
       </div>
 

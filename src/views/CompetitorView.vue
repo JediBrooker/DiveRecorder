@@ -18,6 +18,41 @@ const activeHeightFilter = ref(null)
 const submitErr = ref('')
 const loading = ref(false)
 
+// Drives the dropdown + the submit-button gate. An event accepts
+// dive-list submissions when its lifecycle is still 'Upcoming' AND
+// either there's no entries_close_at deadline, or the deadline is
+// still in the future. Mirrors the server-side rule in
+// loadEventForEntries() — keep them in sync.
+function isAcceptingEntries(ev) {
+  if (!ev) return false
+  if (ev.status && ev.status !== 'Upcoming') return false
+  if (ev.entries_close_at && new Date(ev.entries_close_at) <= new Date()) return false
+  return true
+}
+
+function notAcceptingReason(ev) {
+  if (!ev) return ''
+  if (ev.status && ev.status !== 'Upcoming') {
+    return `"${ev.name}" has already started — entries are closed.`
+  }
+  if (ev.entries_close_at && new Date(ev.entries_close_at) <= new Date()) {
+    return `Entries for "${ev.name}" closed at ${new Date(ev.entries_close_at).toLocaleString()}.`
+  }
+  return ''
+}
+
+// Show open events first, then closed ones (greyed out and
+// labelled). Hiding closed events outright would leave divers
+// confused about why their event "disappeared", so we keep them
+// visible but un-selectable.
+const eventOptions = computed(() => {
+  const open = events.value.filter(isAcceptingEntries)
+  const closed = events.value.filter((e) => !isAcceptingEntries(e))
+  return { open, closed }
+})
+
+const isCurrentEventOpen = computed(() => isAcceptingEntries(currentEvent.value))
+
 // Synchro support
 const orgDivers = ref([])      // potential partners — fellow divers in your org
 const partnerId = ref('')       // selected partner's user id, '' = none
@@ -289,6 +324,14 @@ async function submitList() {
     submitErr.value = 'Synchronised events require a partner. Pick one above.'
     return
   }
+  // Re-evaluate the gate on the client before round-tripping. A
+  // tab open across the deadline would otherwise blast through to
+  // the server and bounce off the same check. The server still has
+  // the authoritative version, but failing fast is friendlier.
+  if (!isAcceptingEntries(currentEvent.value)) {
+    submitErr.value = notAcceptingReason(currentEvent.value)
+    return
+  }
   loading.value = true
   try {
     const body = {
@@ -349,10 +392,28 @@ watch(currentEvent, async (ev) => {
       <label class="label" style="margin-bottom:0.75rem;display:block">Step 1 — Select Event</label>
       <select class="select" v-model="selectedEventId" @change="onEventChange">
         <option value="">— Choose Active Event —</option>
-        <option v-for="ev in events" :key="ev.id" :value="ev.id">
-          {{ ev.name }}{{ ev.event_type === 'synchro_pair' ? ' (Synchro)' : '' }}
-        </option>
+        <!-- Open events first. Closed events stay listed but
+             :disabled so divers can see them but can't pick. -->
+        <optgroup v-if="eventOptions.open.length" label="Accepting entries">
+          <option v-for="ev in eventOptions.open" :key="ev.id" :value="ev.id">
+            {{ ev.name }}{{ ev.event_type === 'synchro_pair' ? ' (Synchro)' : '' }}
+            <template v-if="ev.entries_close_at">
+              · entries close {{ new Date(ev.entries_close_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}
+            </template>
+          </option>
+        </optgroup>
+        <optgroup v-if="eventOptions.closed.length" label="Entries closed">
+          <option v-for="ev in eventOptions.closed" :key="ev.id" :value="ev.id" disabled>
+            {{ ev.name }} — {{ ev.status !== 'Upcoming' ? ev.status.toLowerCase() : 'closed' }}
+          </option>
+        </optgroup>
       </select>
+      <p v-if="currentEvent && !isCurrentEventOpen" class="msg msg-error" style="margin-top:0.75rem">
+        {{ notAcceptingReason(currentEvent) }}
+      </p>
+      <p v-else-if="currentEvent && currentEvent.entries_close_at" class="hint-line" style="margin-top:0.5rem">
+        Entries close {{ new Date(currentEvent.entries_close_at).toLocaleString() }}.
+      </p>
     </div>
 
     <!-- Synchro partner picker — autocomplete typeahead. Replaces
@@ -479,8 +540,12 @@ watch(currentEvent, async (ev) => {
           </div>
         </div>
         <div v-if="submitErr" class="msg msg-error" style="margin-top:1rem">{{ submitErr }}</div>
-        <button class="btn btn-primary-lg" style="margin-top:1.5rem" @click="submitList" :disabled="loading">
-          {{ loading ? 'Submitting...' : 'Finalise & Submit List' }}
+        <button class="btn btn-primary-lg" style="margin-top:1.5rem"
+                @click="submitList"
+                :disabled="loading || !isCurrentEventOpen">
+          {{ loading ? 'Submitting...'
+             : !isCurrentEventOpen ? 'Entries closed'
+             : 'Finalise & Submit List' }}
         </button>
       </div>
     </div>

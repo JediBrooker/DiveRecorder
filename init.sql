@@ -270,6 +270,11 @@ CREATE TABLE public.events (
     parent_event_id  uuid REFERENCES public.events(id) ON DELETE SET NULL,
     advance_count    integer DEFAULT 12,           -- how many top-N advance from prelim → final
     scheduled_at     timestamptz,                  -- when the event starts (schedules, .ics, notifications)
+    -- Registration deadline. Independent of `status`: lets a manager
+    -- close entries before the event goes Live (e.g. "submissions
+    -- shut at noon, event runs at 6pm"). NULL = no explicit deadline,
+    -- entries simply close when status flips off 'Upcoming'.
+    entries_close_at timestamptz,
     status           event_status DEFAULT 'Upcoming' NOT NULL,
     created_at       timestamptz DEFAULT now(),
     CONSTRAINT events_number_of_judges_check
@@ -764,6 +769,10 @@ CREATE INDEX idx_events_meet               ON public.events (meet_id);
 CREATE INDEX idx_dive_list_templates_user  ON public.dive_list_templates (user_id);
 CREATE INDEX idx_event_templates_org       ON public.event_templates (org_id);
 CREATE INDEX idx_events_scheduled_at       ON public.events (scheduled_at);
+-- Partial: only events that have a deadline set are interesting;
+-- NULLs short-circuit the predicate before the index is consulted.
+CREATE INDEX idx_events_entries_close_at   ON public.events (entries_close_at)
+    WHERE entries_close_at IS NOT NULL;
 CREATE INDEX idx_events_parent_event       ON public.events (parent_event_id);
 CREATE INDEX idx_dive_lists_event_round_order
     ON public.competitor_dive_lists (event_id, round_number, display_order)
@@ -794,7 +803,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 19);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 20);
 
 
 -- =============================================================

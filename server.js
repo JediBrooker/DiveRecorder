@@ -677,6 +677,16 @@ app.post(
           .json({ error: "Cannot manage teams in other organisations" });
       }
 
+      // Gate on event lifecycle / entries deadline. Same rule as the
+      // individual-diver submit endpoint: once the event has gone
+      // Live or the manager-set deadline has passed, the team's
+      // dive list is locked. Late additions go through the
+      // controller's late-entry feature instead.
+      const gate = await loadEventForEntries(client, event_id);
+      if (gate.error) {
+        return res.status(gate.status).json({ error: gate.error });
+      }
+
       // All competitor_id and partner_id values must belong to
       // this team. Pull the membership once.
       const m = await client.query(
@@ -1950,6 +1960,48 @@ app.put(
 // [SECTION: ROUTES — EVENTS]
 // =============================================================
 
+// Gate dive-list submission flows. An event accepts entries when:
+//
+//     status = 'Upcoming'
+//   AND (entries_close_at IS NULL OR entries_close_at > now())
+//
+// Returns the event row on success, or { error, status } the caller
+// can hand straight to res.status(...).json(...). Used by both the
+// individual-diver submit endpoint and the team-manager bulk submit.
+//
+// Important: this is intentionally NOT applied to the controller-side
+// late-entry add (POST /api/events/:id/roster) — late entry is the
+// manager-only override that exists precisely for after-deadline
+// roster changes.
+async function loadEventForEntries(client, eventId) {
+  const r = await client.query(
+    `SELECT id, org_id, event_type, total_rounds, status,
+            entries_close_at, name
+       FROM events WHERE id = $1`,
+    [eventId],
+  );
+  if (!r.rows.length) {
+    return { error: "Event not found", status: 404, event: null };
+  }
+  const ev = r.rows[0];
+  if (ev.status !== "Upcoming") {
+    return {
+      error: `"${ev.name}" has already started — entries are closed.`,
+      status: 409,
+      event: ev,
+    };
+  }
+  if (ev.entries_close_at && new Date(ev.entries_close_at) <= new Date()) {
+    const closed = new Date(ev.entries_close_at).toISOString();
+    return {
+      error: `Entries for "${ev.name}" closed at ${closed}.`,
+      status: 409,
+      event: ev,
+    };
+  }
+  return { error: null, status: 200, event: ev };
+}
+
 app.get("/api/events", async (req, res) => {
   try {
     const authHeader = req.headers["authorization"];
@@ -2264,6 +2316,10 @@ app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
     // New fields (migration 013):
     age_group, scheduled_at, event_format, parent_event_id, advance_count,
     dd_limit_rounds, dd_limit_value,
+    // Migration 020: optional registration deadline. When set,
+    // diver-portal submissions are blocked once now() > this value
+    // (regardless of status).
+    entries_close_at,
   } = req.body || {};
   // Synchronised pairs require 9 or 11 judges (the only panel
   // sizes World Aquatics defines exec/sync judge groups for).
@@ -2337,9 +2393,9 @@ app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
       `INSERT INTO events
          (name, gender, age_group, number_of_judges, total_rounds, height,
           event_type, event_format, parent_event_id, advance_count,
-          dd_limit_rounds, dd_limit_value, scheduled_at,
+          dd_limit_rounds, dd_limit_value, scheduled_at, entries_close_at,
           org_id, meet_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
       [
         name,
         gender,
@@ -2354,6 +2410,7 @@ app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
         dd_limit_rounds || 0,
         dd_limit_value || null,
         scheduled_at || null,
+        entries_close_at || null,
         req.user.org_id,
         meet_id || null,
       ],
@@ -2380,6 +2437,7 @@ app.put("/api/events/:id", requireEventManager(), async (req, res) => {
     name, gender, number_of_judges, total_rounds, height, event_type,
     age_group, scheduled_at, event_format, parent_event_id, advance_count,
     dd_limit_rounds, dd_limit_value,
+    entries_close_at,
   } = req.body || {};
   if (event_type === "synchro_pair" && ![9, 11].includes(number_of_judges)) {
     return res.status(400).json({
@@ -2398,6 +2456,15 @@ app.put("/api/events/:id", requireEventManager(), async (req, res) => {
     // COALESCE on the new fields means undefined inputs leave
     // the existing column untouched, so partial PUTs (e.g. just
     // updating the schedule) keep working.
+    // entries_close_at uses tri-state semantics:
+    //   undefined  → leave column untouched (partial PUT)
+    //   null / ''  → clear the deadline
+    //   string     → set new deadline
+    // The COALESCE($17::text IS NULL, ...) trick lets the same SQL
+    // express both "leave untouched" and "set to NULL" — we pass a
+    // sentinel string to mark "leave untouched".
+    const closeUntouched = entries_close_at === undefined;
+    const closeValue = closeUntouched ? null : (entries_close_at || null);
     const r = await pool.query(
       `UPDATE events SET
          name             = COALESCE($1, name),
@@ -2412,8 +2479,9 @@ app.put("/api/events/:id", requireEventManager(), async (req, res) => {
          advance_count    = COALESCE($10, advance_count),
          dd_limit_rounds  = COALESCE($11, dd_limit_rounds),
          dd_limit_value   = $12,
-         scheduled_at     = $13
-       WHERE id=$14 AND ($15::boolean OR org_id=$16) RETURNING *`,
+         scheduled_at     = $13,
+         entries_close_at = CASE WHEN $14::boolean THEN entries_close_at ELSE $15::timestamptz END
+       WHERE id=$16 AND ($17::boolean OR org_id=$18) RETURNING *`,
       [
         name || null,
         gender || null,
@@ -2428,6 +2496,8 @@ app.put("/api/events/:id", requireEventManager(), async (req, res) => {
         dd_limit_rounds ?? null,
         dd_limit_value ?? null,
         scheduled_at ?? null,
+        closeUntouched,
+        closeValue,
         req.params.id,
         !!req.user.is_system_admin,
         req.user.org_id,
@@ -3518,24 +3588,25 @@ app.post(
     try {
       await client.query("BEGIN");
 
-      // First confirm the event exists and belongs to the diver's
-      // own organisation. Without this, a diver could submit a list
-      // against any event ID they can guess and pollute another
-      // org's roster.
-      const evRes = await client.query(
-        "SELECT event_type, org_id, total_rounds FROM events WHERE id = $1",
-        [event_id],
-      );
-      if (!evRes.rows.length) {
+      // First confirm the event exists, belongs to the diver's own
+      // organisation, AND is still accepting entries (not started,
+      // not past its entries_close_at deadline). Without the org
+      // check a diver could submit against any event ID they can
+      // guess and pollute another org's roster; without the
+      // accepting-entries check a diver could keep editing their
+      // list mid-event or after the manager closed registration.
+      const gate = await loadEventForEntries(client, event_id);
+      if (gate.error) {
         await client.query("ROLLBACK");
-        return res.status(404).json({ error: "Event not found" });
+        return res.status(gate.status).json({ error: gate.error });
       }
-      if (evRes.rows[0].org_id !== req.user.org_id && !req.user.is_system_admin) {
+      const evRow = gate.event;
+      if (evRow.org_id !== req.user.org_id && !req.user.is_system_admin) {
         await client.query("ROLLBACK");
         return res.status(403).json({ error: "Event is not in your organisation" });
       }
-      const eventType = evRes.rows[0].event_type || "individual";
-      const totalRounds = Number(evRes.rows[0].total_rounds) || null;
+      const eventType = evRow.event_type || "individual";
+      const totalRounds = Number(evRow.total_rounds) || null;
 
       // Sanity-check the dives array — must be a non-empty list of
       // {dive_id, round_number} with no duplicate rounds and round

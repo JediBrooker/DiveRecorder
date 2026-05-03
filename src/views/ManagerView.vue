@@ -25,6 +25,7 @@ const createMeetId = ref('')           // optional — bundle this event into a 
 // per-round DD limits.
 const createAgeGroup     = ref('')
 const createScheduledAt  = ref('')      // datetime-local string, '' = unscheduled
+const createEntriesCloseAt = ref('')    // datetime-local string, '' = no deadline
 const createFormat       = ref('final') // 'final' | 'preliminary'
 const createParentEventId = ref('')     // set on a 'final' to link its prelim
 const createAdvanceCount = ref(12)      // FINA standard
@@ -225,6 +226,7 @@ const editHeight = ref('')
 const editJudges = ref(5)
 const editRounds = ref(6)
 const editType = ref('individual')
+const editEntriesCloseAt = ref('')   // datetime-local string, '' = no deadline
 
 // Team enrolment modal — open when "Teams" clicked on a team-event row
 const teamsModalOpen = ref(false)
@@ -400,6 +402,7 @@ async function createEvent() {
         meet_id: createMeetId.value || null,
         age_group: createAgeGroup.value || null,
         scheduled_at: createScheduledAt.value || null,
+        entries_close_at: createEntriesCloseAt.value || null,
         event_format: createFormat.value,
         // Parent link is meaningful for downstream stages —
         // semifinals always feed from a preliminary; finals may
@@ -423,6 +426,7 @@ async function createEvent() {
     createMeetId.value = ''
     createAgeGroup.value = ''
     createScheduledAt.value = ''
+    createEntriesCloseAt.value = ''
     createFormat.value = 'final'
     createParentEventId.value = ''
     createAdvanceCount.value = 12
@@ -442,6 +446,18 @@ function openEdit(ev) {
   editJudges.value = ev.number_of_judges
   editRounds.value = ev.total_rounds || 6
   editType.value = ev.event_type || 'individual'
+  // entries_close_at comes back as an ISO string from the server.
+  // <input type="datetime-local"> wants 'YYYY-MM-DDTHH:mm' in local
+  // time, no zone, no seconds — so format it for display.
+  if (ev.entries_close_at) {
+    const d = new Date(ev.entries_close_at)
+    const pad = (n) => String(n).padStart(2, '0')
+    editEntriesCloseAt.value =
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+      `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  } else {
+    editEntriesCloseAt.value = ''
+  }
   editErr.value = ''
   showEditModal.value = true
 }
@@ -462,6 +478,11 @@ async function saveEdit() {
         number_of_judges: parseInt(editJudges.value),
         total_rounds: parseInt(editRounds.value),
         event_type: editType.value,
+        // Send '' as null so the server clears the deadline; an
+        // ISO string sets it. Server treats undefined (absent key)
+        // as "leave untouched" — but we always send the field
+        // because the user may have just blanked it.
+        entries_close_at: editEntriesCloseAt.value || null,
       }),
     })
     showEditModal.value = false
@@ -685,6 +706,21 @@ onMounted(async () => {
           </p>
         </div>
 
+        <!-- Entries-close deadline. When set, divers can't submit
+             (or change) their dive list past this moment, even
+             though the event is still 'Upcoming'. Blank = the
+             event accepts entries up until status flips to 'Live'. -->
+        <div class="field">
+          <label class="label">Entries Close (optional)</label>
+          <input class="input" type="datetime-local" v-model="createEntriesCloseAt">
+          <p class="hint" v-if="createEntriesCloseAt">
+            Divers can submit until this moment. After it passes, their portal hides the event.
+          </p>
+          <p class="hint" v-else>
+            Leave blank to keep entries open until the event goes Live.
+          </p>
+        </div>
+
         <!-- Event format — three stages, in order:
              preliminary → semifinal → final. World Aquatics
              individual events use all three; synchro and team
@@ -855,6 +891,13 @@ onMounted(async () => {
               <template v-if="ev.scheduled_at">
                 <span>·</span><span>{{ new Date(ev.scheduled_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}</span>
               </template>
+              <template v-if="ev.entries_close_at">
+                <span>·</span>
+                <span :title="`Entries close at ${new Date(ev.entries_close_at).toLocaleString()}`"
+                      :style="{ color: new Date(ev.entries_close_at) <= new Date() ? 'var(--text-3)' : 'var(--cyan)' }">
+                  {{ new Date(ev.entries_close_at) <= new Date() ? 'entries closed' : 'entries close ' + new Date(ev.entries_close_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}
+                </span>
+              </template>
               <span>·</span>
               <span :style="{ color: statusColor(ev.status) }">{{ ev.status }}</span>
             </div>
@@ -939,6 +982,18 @@ onMounted(async () => {
           <select class="select" v-model="editRounds">
             <option v-for="n in 12" :key="n" :value="n">{{ n }} Round{{ n > 1 ? 's' : '' }}</option>
           </select>
+        </div>
+        <!-- Entries-close deadline. Blank to clear, otherwise
+             divers can't submit past this moment. -->
+        <div class="field">
+          <label class="label">Entries Close (optional)</label>
+          <input class="input" type="datetime-local" v-model="editEntriesCloseAt">
+          <p class="hint" v-if="editEntriesCloseAt">
+            Divers can submit until this moment. Clear the field to re-open entries.
+          </p>
+          <p class="hint" v-else>
+            No deadline set — entries close when the event goes Live.
+          </p>
         </div>
         <div v-if="editErr" class="msg msg-error">{{ editErr }}</div>
         <button type="submit" class="btn btn-primary-lg">Save Changes</button>
