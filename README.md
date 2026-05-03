@@ -304,16 +304,115 @@ Open `http://localhost:5173` (dev) or `http://localhost:3000` (built).
 
 ## Roles
 
-| Role | Granted to | What they can do |
-|---|---|---|
-| `spectator` | every user, by default | Read public events and standings |
-| `diver` | competitors | Submit dive lists, view own profile + analytics |
-| `coach` | mentors | View linked divers' profiles + analytics, compare divers head-to-head |
-| `judge` | scoring panel members | Submit scores during live events |
-| `referee` | meet officials | Trigger failed-dive / cap / re-dive actions |
-| `meet_manager` | event organisers | Create/edit events, manage panels, run the Control Room |
-| `org_admin` | federation administrators | Approve role requests, manage members + clubs + teams + coach links |
-| `system_admin` (boolean flag) | platform operators | Cross-org access — see and edit every event in every org |
+DiveRecorder has eight role personas — seven values in the `org_role` enum plus the `is_system_admin` boolean flag. Each persona below describes the role's context and the things that role can actually do in the app.
+
+### `is_system_admin` — Platform operator
+
+The platform operator runs DiveRecorder as a multi-tenant SaaS — the only person who sees across every federation on the system. They're the last line of defence when something goes wrong, whether that's a stuck migration, a suspicious score change, or an org admin who's locked themselves out the morning of a national championship. Their authority is orthogonal to `org_role`: not "in" any single org, but above all of them.
+
+**What they can do:**
+- Approve or reject new federation sign-ups (`/api/orgs/pending`)
+- Run database migrations and inspect `schema_meta` to confirm the deployed version
+- Read `score_audit_log` and `role_audit_log` across every org
+- See every event in every org via `/api/events` (no org filter)
+- Override the org filter on read endpoints (e.g. edit any event regardless of `org_id`)
+- Reset passwords and unlock accounts for any user
+
+### `org_admin` — Federation administrator
+
+Top of the food chain inside one federation — the person whose name is on the records book. They don't typically run meets themselves, but they decide who does: promoting meet managers, certifying judges, approving coach-diver links. They care about the integrity of the records and the credibility of the scoreboard when sponsors look at it.
+
+**What they can do:**
+- Create events and meets (`POST /api/events`, `POST /api/meets`)
+- Promote, demote, and remove org roles within their federation
+- Approve or reject coach⇄diver linking requests
+- Edit or delete any event in their org
+- Set `entries_close_at` on events to enforce registration deadlines
+- Sign off federation records (`records_federation`)
+- Manage clubs and teams within the federation
+
+### `meet_manager` — Meet organiser
+
+The person actually running the meet on the day. They live in ControlView for those eight hours: starting every event on time, keeping the queue clean, and surviving the inevitable late-arriving diver without the controller crashing.
+
+**What they can do:**
+- Schedule events (`scheduled_at`) and set the registration deadline (`entries_close_at`)
+- Import the roster from CSV (`POST /api/events/:id/roster/import`)
+- Lock the dive order, drag-reorder before the event starts, randomise starts
+- Drive ControlView during the meet — advance divers round-by-round
+- Flip event status: `Upcoming → Live → Completed`
+- Add a late-arriving diver via the late-entry override (works after entries close)
+- Edit a team's bulk dive list (`POST /api/teams/:teamId/dive-lists`)
+- Withdraw or scratch divers mid-event
+
+### `referee` — Meet official
+
+The licensed official on deck. They don't score dives themselves — they supervise the panel that does. They confirm the right number of judges are seated, watch the scoreboard for anomalies during the meet (a judge drifting two points low across the panel, a missed drop), and adjudicate when a coach challenges a score.
+
+**What they can do:**
+- View the live ScoreboardView for any event they're assigned to
+- Read the per-event `score_audit_log` to see who entered or changed each score
+- Authorise a score correction (the audit row records them as the actor)
+- Confirm synchro panels have valid exec/sync subgroups (9 or 11 judges)
+- See the full panel composition in `event_judges` before the event starts
+
+### `judge` — Scoring panel member
+
+Part-time scoring staff who work meet by meet. Usually on a phone in landscape — watching the diver, tapping a score, moving on. The app's single job for them is to make scoring frictionless.
+
+**What they can do:**
+- Log into JudgeView on phone for any event they're assigned to (`event_judges`)
+- See the current diver, their dive code, position, and DD as it changes round by round
+- Tap a half-point score (0.0 → 10.0) on the dial
+- Submit the score over the socket (rate-limited per-judge to prevent double-taps)
+- See their own submitted score reflected immediately
+
+### `coach` — Diver mentor
+
+Works most closely with individual diver data. Spotting trends — a 5132D drifting two judges down over three meets — comparing two divers head-to-head before nationals, and saving dive-list templates so a 3m optionals list isn't retyped every weekend.
+
+**What they can do:**
+- Request to be linked to a diver via `coach_diver_links` (subject to org admin approval)
+- View each linked diver's full profile: recent form, judges' individual scores, PB by board height
+- Compare two divers head-to-head in CompareView
+- Save and re-use dive-list templates, scoped per board height
+- See historical scores at the dive-code-and-position level (e.g. their last ten 105Bs)
+
+### `diver` — Athlete
+
+Phone-native and impatient — the app needs to get out of their way. The night before each meet they submit their list; during the meet they watch their own scoreboard between rounds and review judges' scores after each round to calibrate against the panel.
+
+**What they can do:**
+- Submit a dive list for an event (`POST /api/competitor/submit-list`) — only while the event is `Upcoming` *and* `entries_close_at` hasn't passed
+- Save the current list as a named template, scoped to the event's board height
+- Load a saved template and tweak before submitting
+- Pick a synchro partner via the autocomplete (filters fellow divers in the org)
+- Watch the live ScoreboardView for any event they're in
+- Review own profile: recent form, individual judges' scores, PBs by board height
+
+### `spectator` — Public viewer
+
+Friends, family, sponsors. Often anonymous — no account, no token. Frequently watching from a phone on patchy 4G. The app's job for them is zero-friction live spectating.
+
+**What they can do:**
+- Open the public scoreboard URL with no login required
+- Watch scores update live over the socket as judges submit
+- See only events in `Live` or `Completed` status (anonymous filter on `/api/events`)
+- See published records (`records_personal`, `records_club`, `records_federation`)
+- *Cannot* see anyone's dive list before the event goes Live — that's locked to authenticated users
+
+### Summary
+
+| Role enum | Tenancy | Primary surface | Headline capability |
+|---|---|---|---|
+| `is_system_admin` | Cross-org | Admin console + audit logs | Operate the platform across every federation |
+| `org_admin` | One org, full control | ManagerView | Run the federation: events, roles, records, deadlines |
+| `meet_manager` | Events they manage | ManagerView + ControlView | Run the meet on the day, including late-entry override |
+| `referee` | Per-event assignment | ScoreboardView + audit log | Defend panel integrity, authorise score edits |
+| `judge` | Per-event assignment | JudgeView (phone) | Score dives over the socket |
+| `coach` | Linked divers | DiverProfileView + CompareView | Track diver form, compare divers, manage templates |
+| `diver` | Self + linked coach | CompetitorView | Submit dive lists, manage templates, watch own results |
+| `spectator` / anonymous | Public | ScoreboardView | Zero-friction live spectating |
 
 System admin is set with a SQL `UPDATE` (no UI for it intentionally — it's a powerful flag):
 
