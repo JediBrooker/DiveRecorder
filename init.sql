@@ -103,11 +103,11 @@ CREATE TYPE attendance_status AS ENUM (
     'absent'
 );
 
-CREATE TYPE record_scope AS ENUM (
-    'personal',
-    'club',
-    'federation'
-);
+-- The record_scope enum was retired in migration 019 when records
+-- were split into per-scope tables (records_personal /
+-- records_club / records_federation) with proper foreign keys.
+-- Any consumer that previously read records.scope::text now
+-- discriminates by which table the row came from.
 
 
 -- =============================================================
@@ -484,34 +484,91 @@ CREATE TABLE public.event_attendance (
 );
 
 -- =============================================================
--- RECORDS — personal / club / federation best at a
--- (height, dive_code, position) tuple. (migration 017)
+-- RECORDS — split per scope so we can attach proper FKs
+-- (migration 017 introduced a polymorphic scope_id table; 019
+-- split it into the three relations below).
+--
+-- Each scope has a current-best table + a *_history table for
+-- previous holders. History tables don't carry FKs because the
+-- subjects (users / clubs / orgs / events) might be deleted
+-- between when a record was set and when it was superseded —
+-- the historical row needs to survive.
 -- =============================================================
 
-CREATE TABLE public.records (
-    id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    scope         record_scope NOT NULL,
-    scope_id      uuid NOT NULL,            -- user / club / org id depending on scope
-    height        board_height NOT NULL,
-    dive_code     varchar(10) NOT NULL,
-    position      dive_position NOT NULL,
-    score         numeric(8,2) NOT NULL,
-    holder_id     uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-    event_id      uuid REFERENCES public.events(id) ON DELETE SET NULL,
-    set_at        timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (scope, scope_id, height, dive_code, position)
+CREATE TABLE public.records_personal (
+    id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id     uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    height      board_height NOT NULL,
+    dive_code   varchar(10) NOT NULL,
+    position    dive_position NOT NULL,
+    score       numeric(8,2) NOT NULL,
+    event_id    uuid REFERENCES public.events(id) ON DELETE SET NULL,
+    set_at      timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (user_id, height, dive_code, position)
 );
 
-CREATE TABLE public.records_history (
+CREATE TABLE public.records_club (
+    id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    club_id     uuid NOT NULL REFERENCES public.clubs(id) ON DELETE CASCADE,
+    -- Who set the record. The user may have moved clubs since;
+    -- the record still belongs to whoever held them at the time.
+    holder_id   uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    height      board_height NOT NULL,
+    dive_code   varchar(10) NOT NULL,
+    position    dive_position NOT NULL,
+    score       numeric(8,2) NOT NULL,
+    event_id    uuid REFERENCES public.events(id) ON DELETE SET NULL,
+    set_at      timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (club_id, height, dive_code, position)
+);
+
+CREATE TABLE public.records_federation (
+    id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    org_id      uuid NOT NULL REFERENCES public.organisations(id) ON DELETE CASCADE,
+    holder_id   uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    height      board_height NOT NULL,
+    dive_code   varchar(10) NOT NULL,
+    position    dive_position NOT NULL,
+    score       numeric(8,2) NOT NULL,
+    event_id    uuid REFERENCES public.events(id) ON DELETE SET NULL,
+    set_at      timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (org_id, height, dive_code, position)
+);
+
+CREATE TABLE public.records_personal_history (
     id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    scope         record_scope NOT NULL,
-    scope_id      uuid NOT NULL,
+    user_id       uuid NOT NULL,
     height        board_height NOT NULL,
     dive_code     varchar(10) NOT NULL,
     position      dive_position NOT NULL,
     score         numeric(8,2) NOT NULL,
-    holder_id     uuid REFERENCES public.users(id) ON DELETE SET NULL,
-    event_id      uuid REFERENCES public.events(id) ON DELETE SET NULL,
+    event_id      uuid,
+    set_at        timestamptz NOT NULL,
+    superseded_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE public.records_club_history (
+    id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    club_id       uuid NOT NULL,
+    holder_id     uuid,
+    height        board_height NOT NULL,
+    dive_code     varchar(10) NOT NULL,
+    position      dive_position NOT NULL,
+    score         numeric(8,2) NOT NULL,
+    event_id      uuid,
+    set_at        timestamptz NOT NULL,
+    superseded_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE public.records_federation_history (
+    id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    org_id        uuid NOT NULL,
+    holder_id     uuid,
+    height        board_height NOT NULL,
+    dive_code     varchar(10) NOT NULL,
+    position      dive_position NOT NULL,
+    score         numeric(8,2) NOT NULL,
+    event_id      uuid,
     set_at        timestamptz NOT NULL,
     superseded_at timestamptz NOT NULL DEFAULT now()
 );
@@ -712,9 +769,14 @@ CREATE INDEX idx_dive_lists_event_round_order
     ON public.competitor_dive_lists (event_id, round_number, display_order)
     WHERE withdrawn_at IS NULL;
 CREATE INDEX idx_event_attendance_event    ON public.event_attendance (event_id);
-CREATE INDEX idx_records_scope_id          ON public.records (scope, scope_id);
-CREATE INDEX idx_records_holder            ON public.records (holder_id);
-CREATE INDEX idx_records_history_scope_id  ON public.records_history (scope, scope_id);
+CREATE INDEX idx_records_personal_user             ON public.records_personal (user_id);
+CREATE INDEX idx_records_club_club                 ON public.records_club (club_id);
+CREATE INDEX idx_records_club_holder               ON public.records_club (holder_id);
+CREATE INDEX idx_records_federation_org            ON public.records_federation (org_id);
+CREATE INDEX idx_records_federation_holder         ON public.records_federation (holder_id);
+CREATE INDEX idx_records_personal_history_user     ON public.records_personal_history (user_id);
+CREATE INDEX idx_records_club_history_club         ON public.records_club_history (club_id);
+CREATE INDEX idx_records_federation_history_org    ON public.records_federation_history (org_id);
 
 
 -- =============================================================
@@ -732,7 +794,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 18);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 19);
 
 
 -- =============================================================

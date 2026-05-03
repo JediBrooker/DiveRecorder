@@ -4404,16 +4404,48 @@ app.get(
 // dive_code, position). Called from the socket submit_score
 // handler when a dive completes (every judge has submitted).
 //
-// We treat each scope separately so a dive can break a club
-// record and a personal record at the same time. The records
-// table holds the CURRENT best; the previous holder is archived
-// in records_history before we UPDATE.
+// Each scope lives in its own table — records_personal,
+// records_club, records_federation — with proper foreign keys.
+// (See migration 019 for the rationale: the previous polymorphic
+// scope_id column couldn't be FK'd, leading to silently
+// orphaned records when a club was deleted.)
+//
+// The wire format keeps a `scope` string discriminator so the
+// scoreboard's record-broken toast keeps colour-coding without
+// any frontend change.
 // [SECTION: RECORDS]
 // =============================================================
 
-// Returns an array of {scope, scope_id, height, dive_code,
-// position, score, prev_score?, prev_holder_name?} describing
-// every record this dive set. Empty array = nothing broken.
+// Per-scope SQL configuration. The shape difference is small
+// enough that a config table beats three near-duplicate paths.
+//
+//   personal:   user_id IS the holder (no separate holder_id col).
+//   club / fed: scope-id column + a holder_id column for the user.
+const RECORD_TABLES = {
+  personal: {
+    table: "records_personal",
+    history: "records_personal_history",
+    scopeCol: "user_id",
+    hasHolder: false,
+  },
+  club: {
+    table: "records_club",
+    history: "records_club_history",
+    scopeCol: "club_id",
+    hasHolder: true,
+  },
+  federation: {
+    table: "records_federation",
+    history: "records_federation_history",
+    scopeCol: "org_id",
+    hasHolder: true,
+  },
+};
+
+// Returns an array of {scope, scope_id, scope_name, height,
+// dive_code, position, score, holder_id, holder_name, prev_score?,
+// prev_holder_name?, event_id} describing every record this
+// dive set. Empty array = nothing broken.
 async function checkAndApplyRecords({ eventId, competitorId, roundNumber }) {
   try {
     // Fetch the dive's metadata + the diver's club / org so we
@@ -4464,7 +4496,7 @@ async function checkAndApplyRecords({ eventId, competitorId, roundNumber }) {
     const score = Number(c.dive_total);
     const broken = [];
 
-    // Personal + (optionally) club + federation scopes.
+    // Personal always; club only if the diver has one; federation always.
     const scopes = [
       { scope: "personal",   scope_id: c.user_id,  scope_name: c.holder_name },
       ...(c.club_id ? [{ scope: "club",       scope_id: c.club_id, scope_name: c.club_name }] : []),
@@ -4472,61 +4504,88 @@ async function checkAndApplyRecords({ eventId, competitorId, roundNumber }) {
     ];
 
     for (const s of scopes) {
-      // Read existing record (if any) for this scope tuple.
-      const existing = await pool.query(
-        `SELECT id, score, holder_id,
-                (SELECT full_name FROM users WHERE id = records.holder_id) AS holder_name
-         FROM records
-         WHERE scope = $1::record_scope AND scope_id = $2
-           AND height = $3::board_height
-           AND dive_code = $4 AND position = $5::dive_position`,
-        [s.scope, s.scope_id, c.height, c.dive_code, c.position],
-      );
+      const cfg = RECORD_TABLES[s.scope];
+      // SELECT shape varies per scope: personal has no holder_id
+      // column (the user_id IS the holder). For club/fed we look
+      // up the previous holder's name in the same query.
+      const existingSql = cfg.hasHolder
+        ? `SELECT id, score, holder_id,
+                  (SELECT full_name FROM users WHERE id = ${cfg.table}.holder_id) AS holder_name
+           FROM ${cfg.table}
+           WHERE ${cfg.scopeCol} = $1
+             AND height = $2::board_height
+             AND dive_code = $3 AND position = $4::dive_position`
+        : `SELECT id, score, ${cfg.scopeCol} AS holder_id,
+                  (SELECT full_name FROM users WHERE id = ${cfg.table}.${cfg.scopeCol}) AS holder_name
+           FROM ${cfg.table}
+           WHERE ${cfg.scopeCol} = $1
+             AND height = $2::board_height
+             AND dive_code = $3 AND position = $4::dive_position`;
+      const existing = await pool.query(existingSql,
+        [s.scope_id, c.height, c.dive_code, c.position]);
       const prev = existing.rows[0];
+
       // No existing record OR new score strictly greater. Strict
       // greater so equal totals don't displace the original holder.
-      if (!prev || score > Number(prev.score)) {
-        if (prev) {
-          // Archive old holder before overwriting.
-          await pool.query(
-            `INSERT INTO records_history
-               (scope, scope_id, height, dive_code, position,
-                score, holder_id, event_id, set_at)
-             SELECT scope, scope_id, height, dive_code, position,
-                    score, holder_id, event_id, set_at
-             FROM records WHERE id = $1`,
-            [prev.id],
-          );
-        }
-        await pool.query(
-          `INSERT INTO records
-             (scope, scope_id, height, dive_code, position,
-              score, holder_id, event_id, set_at)
-           VALUES ($1::record_scope, $2, $3::board_height, $4, $5::dive_position,
-                   $6, $7, $8, now())
-           ON CONFLICT (scope, scope_id, height, dive_code, position)
-           DO UPDATE SET score = EXCLUDED.score,
-                         holder_id = EXCLUDED.holder_id,
-                         event_id = EXCLUDED.event_id,
-                         set_at = now()`,
-          [s.scope, s.scope_id, c.height, c.dive_code, c.position,
-            score, c.user_id, eventId],
-        );
-        broken.push({
-          scope:        s.scope,
-          scope_id:     s.scope_id,
-          scope_name:   s.scope_name,
-          height:       c.height,
-          dive_code:    c.dive_code,
-          position:     c.position,
-          score,
-          holder_id:    c.user_id,
-          holder_name:  c.holder_name,
-          prev_score:   prev ? Number(prev.score) : null,
-          prev_holder_name: prev ? prev.holder_name : null,
-          event_id:     eventId,
-        });
+      if (prev && score <= Number(prev.score)) continue;
+
+      // Archive the old holder before overwriting (if any).
+      // History tables don't have FKs so we just copy the row body.
+      if (prev) {
+        const archiveSql = cfg.hasHolder
+          ? `INSERT INTO ${cfg.history}
+               (${cfg.scopeCol}, holder_id, height, dive_code, position,
+                score, event_id, set_at)
+             SELECT ${cfg.scopeCol}, holder_id, height, dive_code, position,
+                    score, event_id, set_at
+             FROM ${cfg.table} WHERE id = $1`
+          : `INSERT INTO ${cfg.history}
+               (${cfg.scopeCol}, height, dive_code, position,
+                score, event_id, set_at)
+             SELECT ${cfg.scopeCol}, height, dive_code, position,
+                    score, event_id, set_at
+             FROM ${cfg.table} WHERE id = $1`;
+        await pool.query(archiveSql, [prev.id]);
       }
+
+      // Upsert the new best.
+      const upsertSql = cfg.hasHolder
+        ? `INSERT INTO ${cfg.table}
+             (${cfg.scopeCol}, holder_id, height, dive_code, position,
+              score, event_id, set_at)
+           VALUES ($1, $2, $3::board_height, $4, $5::dive_position, $6, $7, now())
+           ON CONFLICT (${cfg.scopeCol}, height, dive_code, position)
+           DO UPDATE SET holder_id = EXCLUDED.holder_id,
+                         score     = EXCLUDED.score,
+                         event_id  = EXCLUDED.event_id,
+                         set_at    = now()`
+        : `INSERT INTO ${cfg.table}
+             (${cfg.scopeCol}, height, dive_code, position,
+              score, event_id, set_at)
+           VALUES ($1, $2::board_height, $3, $4::dive_position, $5, $6, now())
+           ON CONFLICT (${cfg.scopeCol}, height, dive_code, position)
+           DO UPDATE SET score    = EXCLUDED.score,
+                         event_id = EXCLUDED.event_id,
+                         set_at   = now()`;
+      const upsertParams = cfg.hasHolder
+        ? [s.scope_id, c.user_id, c.height, c.dive_code, c.position, score, eventId]
+        : [s.scope_id,            c.height, c.dive_code, c.position, score, eventId];
+      await pool.query(upsertSql, upsertParams);
+
+      broken.push({
+        scope:        s.scope,
+        scope_id:     s.scope_id,
+        scope_name:   s.scope_name,
+        height:       c.height,
+        dive_code:    c.dive_code,
+        position:     c.position,
+        score,
+        holder_id:    c.user_id,
+        holder_name:  c.holder_name,
+        prev_score:   prev ? Number(prev.score) : null,
+        prev_holder_name: prev ? prev.holder_name : null,
+        event_id:     eventId,
+      });
     }
     return broken;
   } catch (err) {
@@ -4565,19 +4624,82 @@ app.get("/api/records", verifyToken, async (req, res) => {
     if (eventId && !UUID_RE.test(eventId)) {
       return res.status(400).json({ error: "event_id must be a UUID" });
     }
+    // Migration 019 split records into three per-scope tables. The
+    // wire format here intentionally preserves the old shape — every
+    // row still has a string `scope` discriminator and a generic
+    // `scope_id` (mapped from user_id / club_id / org_id depending on
+    // the source table) — so existing clients (ScoreboardView,
+    // profile pages) keep working without change.
+    //
+    // For 'personal' the holder IS the user, so holder_id == user_id
+    // and we read holder_id from the same column. For 'club' /
+    // 'federation' holder_id is a separate column on the table.
     const r = await pool.query(
-      `SELECT r.id, r.scope::text AS scope, r.scope_id,
-              r.height::text AS height, r.dive_code, r.position::text AS position,
-              r.score, r.set_at,
-              r.holder_id, h.full_name AS holder_name,
-              r.event_id, e.name AS event_name
-       FROM records r
-       LEFT JOIN users h ON h.id = r.holder_id
-       LEFT JOIN events e ON e.id = r.event_id
-       WHERE ($1::text IS NULL OR r.scope = $1::record_scope)
-         AND ($2::uuid IS NULL OR r.scope_id = $2::uuid)
-         AND ($3::uuid IS NULL OR r.event_id = $3::uuid)
-       ORDER BY r.height, r.dive_code, r.position`,
+      `SELECT id, scope, scope_id, height, dive_code, position, score, set_at,
+              holder_id, holder_name, event_id, event_name
+       FROM (
+         SELECT rp.id,
+                'personal'::text       AS scope,
+                rp.user_id             AS scope_id,
+                rp.height::text        AS height,
+                rp.dive_code,
+                rp.position::text      AS position,
+                rp.score,
+                rp.set_at,
+                rp.user_id             AS holder_id,
+                h.full_name            AS holder_name,
+                rp.event_id,
+                e.name                 AS event_name
+         FROM records_personal rp
+         LEFT JOIN users  h ON h.id = rp.user_id
+         LEFT JOIN events e ON e.id = rp.event_id
+         WHERE ($1::text IS NULL OR $1 = 'personal')
+           AND ($2::uuid IS NULL OR rp.user_id = $2::uuid)
+           AND ($3::uuid IS NULL OR rp.event_id = $3::uuid)
+
+         UNION ALL
+
+         SELECT rc.id,
+                'club'::text           AS scope,
+                rc.club_id             AS scope_id,
+                rc.height::text        AS height,
+                rc.dive_code,
+                rc.position::text      AS position,
+                rc.score,
+                rc.set_at,
+                rc.holder_id,
+                h.full_name            AS holder_name,
+                rc.event_id,
+                e.name                 AS event_name
+         FROM records_club rc
+         LEFT JOIN users  h ON h.id = rc.holder_id
+         LEFT JOIN events e ON e.id = rc.event_id
+         WHERE ($1::text IS NULL OR $1 = 'club')
+           AND ($2::uuid IS NULL OR rc.club_id = $2::uuid)
+           AND ($3::uuid IS NULL OR rc.event_id = $3::uuid)
+
+         UNION ALL
+
+         SELECT rf.id,
+                'federation'::text     AS scope,
+                rf.org_id              AS scope_id,
+                rf.height::text        AS height,
+                rf.dive_code,
+                rf.position::text      AS position,
+                rf.score,
+                rf.set_at,
+                rf.holder_id,
+                h.full_name            AS holder_name,
+                rf.event_id,
+                e.name                 AS event_name
+         FROM records_federation rf
+         LEFT JOIN users  h ON h.id = rf.holder_id
+         LEFT JOIN events e ON e.id = rf.event_id
+         WHERE ($1::text IS NULL OR $1 = 'federation')
+           AND ($2::uuid IS NULL OR rf.org_id = $2::uuid)
+           AND ($3::uuid IS NULL OR rf.event_id = $3::uuid)
+       ) all_records
+       ORDER BY height, dive_code, position`,
       [scope, scopeId, eventId],
     );
     res.json(r.rows);
