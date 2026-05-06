@@ -170,9 +170,13 @@ const bcrypt = require("bcryptjs");
 
 async function insertUser({ orgId, username, fullName, role }) {
   const hash = await bcrypt.hash("not-used-here", 4); // cost 4 — fixture only
+  // email_verified_at = now() so /api/auth/login doesn't refuse
+  // these synthetic fixtures with the email-verification gate
+  // added in Migration 021. Mirrors "user clicked the email link"
+  // — the production gate is unaffected.
   const u = await pool.query(
-    `INSERT INTO users (username, password, full_name, org_id)
-     VALUES ($1, $2, $3, $4) RETURNING id`,
+    `INSERT INTO users (username, password, full_name, org_id, email_verified_at)
+     VALUES ($1, $2, $3, $4, now()) RETURNING id`,
     [username, hash, fullName, orgId],
   );
   const id = u.rows[0].id;
@@ -208,10 +212,15 @@ test("end-to-end happy path", async (t) => {
     assert.ok(res.body.org_id, "response includes org_id");
     orgId = res.body.org_id;
 
-    // Approve the org so login works (register-org leaves it pending).
+    // Approve the org so login works (register-org leaves it
+    // pending) AND mark the founding admin as email-verified
+    // (Migration 021's login gate would otherwise 403 the
+    // synthetic test user, which has no real inbox to click
+    // a verification link from).
     await pool.query("UPDATE organisations SET status = 'active' WHERE id = $1", [orgId]);
     const u = await pool.query(
-      "SELECT id FROM users WHERE org_id = $1 AND username = $2",
+      `UPDATE users SET email_verified_at = now()
+       WHERE org_id = $1 AND username = $2 RETURNING id`,
       [orgId, `int-admin-${slug}`],
     );
     adminId = u.rows[0]?.id;
