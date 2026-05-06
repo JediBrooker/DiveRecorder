@@ -44,6 +44,11 @@ module.exports = function attachSocket({
   // From lib/live-state:
   activeDivers,
   meetHolds,
+  // From lib/scoreboard-cache: optional, invalidated whenever a
+  // score commits or a referee action lands so the next
+  // /api/scoreboard read rebuilds. Pass null in tests where the
+  // cache isn't relevant; the calls below tolerate it.
+  scoreboardCache,
 }) {
   if (!io || !pool || !JWT_SECRET) {
     throw new Error("attachSocket requires { io, pool, JWT_SECRET, … }");
@@ -329,6 +334,11 @@ module.exports = function attachSocket({
         client.release();
       }
 
+      // Invalidate the cached scoreboard payload so the next
+      // /api/scoreboard read rebuilds with this score included.
+      // The TTL would otherwise let viewers stay 5s stale.
+      scoreboardCache?.invalidate(data.event_id);
+
       io.to(`event:${data.event_id}`).emit("score_received", {
         ...data,
         dive_id: undefined,         // don't leak whatever the client sent
@@ -416,6 +426,10 @@ module.exports = function attachSocket({
       } finally {
         client.release();
       }
+      // Same reasoning as submit_score — fail/cap/redive
+      // changed (or could change) the standings; flush so the
+      // next /api/scoreboard read rebuilds.
+      scoreboardCache?.invalidate(data.event_id);
       return true;
     }
 

@@ -214,6 +214,16 @@ const {
   sendEventResultsEmails,
 } = require("./lib/email")({ pool });
 
+// Scoreboard cache — short-TTL bucket per eventId. The HTTP
+// scoreboard route reads/writes via .get/.set; the socket
+// submit_score handler and the HTTP score-correction handler
+// both invalidate the bucket on commit so the next reader
+// rebuilds. Without this, every connected scoreboard re-runs
+// the same 7-table standings query after every score event.
+// Defined here (before any route mount) so both consumers can
+// take it via dependency injection.
+const scoreboardCache = require("./lib/scoreboard-cache")();
+
 // =============================================================
 // HELPER — Build JWT payload
 // [SECTION: TOKEN PAYLOAD]
@@ -3290,7 +3300,7 @@ app.get("/api/events/:id/history", async (req, res) => {
 // since it's per-diver state, not scoreboard-related.
 // =============================================================
 
-app.use(require("./routes/scoreboard")({ pool }));
+app.use(require("./routes/scoreboard")({ pool, scoreboardCache }));
 
 // =============================================================
 // SCORE CORRECTION
@@ -3368,10 +3378,16 @@ app.put(
         console.error("[Score Correction Audit Skipped]", auditErr.message);
       }
 
+      // Flush the cached scoreboard payload so the next
+      // re-pull rebuilds with the corrected score. Without this
+      // the broadcast below tells viewers to re-fetch but the
+      // first ~5s of those fetches would hit the stale cache.
+      scoreboardCache.invalidate(existing.event_id);
+
       // Broadcast so live consumers re-pull standings. Spectators
       // viewing the recap or live scoreboard will see the
       // corrected total without a manual refresh.
-      io.emit("score_corrected", {
+      io.to(`event:${existing.event_id}`).emit("score_corrected", {
         event_id: existing.event_id,
         competitor_id: existing.competitor_id,
         round_number: existing.round_number,
@@ -4390,6 +4406,7 @@ require("./routes/socket")({
   checkAndApplyRecords,
   activeDivers,
   meetHolds,
+  scoreboardCache,
 });
 
 // =============================================================

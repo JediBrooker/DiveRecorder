@@ -5,15 +5,38 @@
 // /api/scoreboard/:eventId/leaderboard cumulative rank with movement
 //
 // Mounted via:
-//     app.use(require('./routes/scoreboard')({ pool }))
+//     app.use(require('./routes/scoreboard')({ pool, scoreboardCache }))
+//
+// Caching: /api/scoreboard/:eventId is read by every connected
+// spectator + judge + control room ~once per score event. The
+// underlying query joins seven tables and runs the trim UDF per
+// dive, ~150ms in the seeded 50-event dataset. We cache the
+// rendered payload per eventId with a short TTL (~5s); the
+// socket layer invalidates the bucket the moment a new score
+// commits, so the first reader after each score rebuilds and
+// every subsequent reader within the next 5s gets the cached
+// payload. See lib/scoreboard-cache.js for the strategy.
 
 const express = require("express");
 const { publicId } = require("../lib/public-id");
 
-module.exports = function createScoreboardRouter({ pool }) {
+module.exports = function createScoreboardRouter({ pool, scoreboardCache }) {
   const router = express.Router();
 
   router.get("/api/scoreboard/:eventId", async (req, res) => {
+    const eventId = req.params.eventId;
+    // Cache lookup. ?cache=skip forces a rebuild — useful when a
+    // referee has just corrected a score via the HTTP path and
+    // wants to see the result reflected immediately (the HTTP
+    // correction handler also calls invalidate(), so this is
+    // belt-and-braces).
+    if (scoreboardCache && req.query.cache !== "skip") {
+      const hit = scoreboardCache.get(eventId);
+      if (hit) {
+        res.set("X-Scoreboard-Cache", "hit");
+        return res.json(hit);
+      }
+    }
     try {
       const [st, hi, up] = await Promise.all([
         // Standings: per-dive points (trimmed × DD × scaling) summed
@@ -177,7 +200,6 @@ module.exports = function createScoreboardRouter({ pool }) {
       // never see them. The Control Room matches the active
       // diver to a standings row by public_id; the same hash
       // formula runs in the roster handler.
-      const eventId = req.params.eventId;
       const standings = st.rows.map(({ competitor_id, team_id, ...rest }) => ({
         ...rest,
         public_id:
@@ -186,7 +208,10 @@ module.exports = function createScoreboardRouter({ pool }) {
           null,
       }));
 
-      res.json({ standings, history: hi.rows, upcoming: up.rows });
+      const payload = { standings, history: hi.rows, upcoming: up.rows };
+      if (scoreboardCache) scoreboardCache.set(eventId, payload);
+      res.set("X-Scoreboard-Cache", "miss");
+      res.json(payload);
     } catch (err) {
       console.error("[Scoreboard Error]", err.message);
       res.status(500).json({ standings: [], history: [], upcoming: [] });
