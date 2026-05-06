@@ -369,10 +369,7 @@ watch(currentEvent, async (ev) => {
     return
   }
   try {
-    const r = await fetch(`/api/orgs/${auth.user.org_id}/divers`, {
-      headers: { Authorization: `Bearer ${auth.token}` },
-    })
-    const body = await r.json()
+    const body = await auth.apiFetch(`/api/orgs/${auth.user.org_id}/divers`)
     orgDivers.value = (Array.isArray(body) ? body : [])
       .filter(u => u.id !== auth.user.id)
   } catch {

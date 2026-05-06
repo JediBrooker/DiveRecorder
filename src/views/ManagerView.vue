@@ -325,8 +325,7 @@ async function loadEvents() {
 async function loadMeets() {
   if (!auth.user?.org_id) return
   try {
-    const r = await fetch(`/api/orgs/${auth.user.org_id}/meets`)
-    const body = await r.json()
+    const body = await auth.apiFetch(`/api/orgs/${auth.user.org_id}/meets`)
     meets.value = Array.isArray(body) ? body : []
   } catch {
     meets.value = []

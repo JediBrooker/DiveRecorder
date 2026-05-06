@@ -45,10 +45,15 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function getHeaders() {
-    return {
-      'Authorization': `Bearer ${token.value}`,
-      'Content-Type': 'application/json',
-    }
+    // Only attach Authorization when we actually have a token.
+    // Sending "Bearer null" would trigger the 401-on-bad-JWT path
+    // on /api/events (and could trip future tightenings elsewhere)
+    // — turning a clean public GET into a forced re-login for
+    // anonymous spectators. Letting the header drop entirely
+    // matches the server-side "no auth header → anonymous" branch.
+    const h = { 'Content-Type': 'application/json' }
+    if (token.value) h.Authorization = `Bearer ${token.value}`
+    return h
   }
 
   async function apiFetch(url, options = {}) {
@@ -59,7 +64,10 @@ export const useAuthStore = defineStore('auth', () => {
     // 401 = token expired or revoked. Clear the session so the
     // router guard sends the user back to /login, instead of every
     // page just throwing red errors with a stale-but-present token.
-    if (res.status === 401) {
+    // Skip the redirect for users who weren't authenticated to
+    // begin with (no token) — a 401 there is the public endpoint
+    // genuinely refusing them, not a session-expiry signal.
+    if (res.status === 401 && token.value) {
       clearSession()
       // Best-effort hash-route redirect. Direct router import would
       // create a circular import in the SPA bundle, so we go through

@@ -73,7 +73,7 @@ async function loadTeams() {
     if (isSysAdmin.value) {
       // Fetch teams across all orgs by hitting each org's endpoint
       // (no global teams listing yet — wired off of org).
-      const allOrgs = await fetch('/api/orgs/active').then(r => r.json())
+      const allOrgs = await auth.apiFetch('/api/orgs/active')
       const lists = await Promise.all(
         (Array.isArray(allOrgs) ? allOrgs : []).map(o =>
           auth.apiFetch(`/api/orgs/${o.id}/teams`).then(rows =>
@@ -97,8 +97,7 @@ async function loadTeams() {
 async function loadOrgs() {
   if (!isSysAdmin.value) return
   try {
-    const r = await fetch('/api/orgs/active')
-    const body = await r.json()
+    const body = await auth.apiFetch('/api/orgs/active')
     orgs.value = Array.isArray(body) ? body : []
   } catch { orgs.value = [] }
 }
@@ -106,10 +105,7 @@ async function loadOrgs() {
 async function loadOrgDivers(orgId) {
   if (!orgId) { orgDivers.value = []; return }
   try {
-    const r = await fetch(`/api/orgs/${orgId}/divers`, {
-      headers: { Authorization: `Bearer ${auth.token}` },
-    })
-    const body = await r.json()
+    const body = await auth.apiFetch(`/api/orgs/${orgId}/divers`)
     orgDivers.value = Array.isArray(body) ? body : []
   } catch { orgDivers.value = [] }
 }

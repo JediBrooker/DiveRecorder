@@ -155,8 +155,7 @@ async function loadClubs(orgId, currentClubId) {
   drawerNewClubCode.value = ''
   if (!orgId) return
   try {
-    const r = await fetch(`/api/orgs/${orgId}/clubs`)
-    const body = await r.json()
+    const body = await auth.apiFetch(`/api/orgs/${orgId}/clubs`)
     drawerClubs.value = Array.isArray(body) ? body : []
   } catch {
     drawerClubs.value = []

@@ -73,8 +73,7 @@ async function loadClubs() {
 async function loadOrgs() {
   if (!isSysAdmin.value) return
   try {
-    const r = await fetch('/api/orgs/active')
-    const body = await r.json()
+    const body = await auth.apiFetch('/api/orgs/active')
     orgs.value = Array.isArray(body) ? body : []
   } catch {
     orgs.value = []

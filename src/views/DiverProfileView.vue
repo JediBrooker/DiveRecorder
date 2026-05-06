@@ -353,8 +353,7 @@ async function openClubEditor() {
   try {
     const orgId = profile.value?.diver?.org_id
     if (!orgId) { clubs.value = []; return }
-    const r = await fetch(`/api/orgs/${orgId}/clubs`)
-    const body = await r.json()
+    const body = await auth.apiFetch(`/api/orgs/${orgId}/clubs`)
     clubs.value = Array.isArray(body) ? body : []
   } catch {
     clubs.value = []
