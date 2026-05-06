@@ -154,6 +154,17 @@ CREATE TABLE public.users (
     org_id          uuid NOT NULL REFERENCES public.organisations(id) ON DELETE RESTRICT,
     club_id         uuid REFERENCES public.clubs(id) ON DELETE SET NULL,
     is_system_admin boolean DEFAULT false NOT NULL,
+    -- Bumped on every role grant/revoke and every password change.
+    -- The current version is signed into each issued JWT (`tv`);
+    -- verifyToken rejects any token whose tv doesn't match. This
+    -- gives an admin a one-line "log them out everywhere" by
+    -- incrementing this column.
+    token_version   integer NOT NULL DEFAULT 1,
+    -- Email verification gate. New registrations leave this NULL
+    -- until the user clicks the verification link emailed at
+    -- sign-up. init.sql backfills existing rows below so a fresh
+    -- bootstrap doesn't lock anyone out.
+    email_verified_at timestamptz,
     -- Diver-customisable analytics dashboard. Array of widget
     -- IDs (see frontend WIDGET_CATALOG). Defaults to the four
     -- core widgets so a fresh diver has something to look at.
@@ -741,7 +752,10 @@ CREATE INDEX idx_events_org             ON public.events (org_id);
 CREATE INDEX idx_events_status          ON public.events (status);
 CREATE INDEX idx_event_managers_event   ON public.event_managers (event_id);
 CREATE INDEX idx_event_managers_user    ON public.event_managers (user_id);
-CREATE INDEX idx_event_judges_event     ON public.event_judges (event_id);
+-- Composite covers both the "panel for this event" listings and
+-- the per-submission `WHERE event_id = $1 AND judge_id = $2`
+-- lookup that runs on every submit_score.
+CREATE INDEX idx_event_judges_event_judge ON public.event_judges (event_id, judge_id);
 CREATE INDEX idx_dive_lists_event       ON public.competitor_dive_lists (event_id);
 CREATE INDEX idx_dive_lists_competitor  ON public.competitor_dive_lists (competitor_id);
 CREATE INDEX idx_dive_lists_partner     ON public.competitor_dive_lists (partner_id);
@@ -749,7 +763,13 @@ CREATE INDEX idx_dive_lists_team        ON public.competitor_dive_lists (team_id
 CREATE INDEX idx_teams_org              ON public.teams (org_id);
 CREATE INDEX idx_team_members_user      ON public.team_members (user_id);
 CREATE INDEX idx_event_teams_team       ON public.event_teams (team_id);
-CREATE INDEX idx_scores_event           ON public.scores (event_id);
+-- The scores UNIQUE constraint on (event_id, competitor_id,
+-- round_number, judge_id) creates a btree that is already
+-- prefix-usable for event_id-only filters, so a standalone
+-- single-column scores(event_id) index would be redundant. The
+-- additional composite below covers the standings rebuild path
+-- which groups by (event_id, round_number).
+CREATE INDEX idx_scores_event_round     ON public.scores (event_id, round_number);
 CREATE INDEX idx_scores_competitor      ON public.scores (competitor_id);
 CREATE INDEX idx_score_audit_event_round   ON public.score_audit_log (event_id, round_number);
 CREATE INDEX idx_score_audit_event_created ON public.score_audit_log (event_id, created_at DESC);
@@ -803,7 +823,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 20);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 21);
 
 
 -- =============================================================

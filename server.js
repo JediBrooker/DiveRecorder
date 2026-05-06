@@ -183,6 +183,34 @@ async function sendPasswordResetEmail(user, token) {
   }
 }
 
+// "Click here to verify your email" — sent on every new
+// registration. The link carries a 7-day JWT scoped to the user;
+// /api/auth/verify-email stamps users.email_verified_at, which
+// gates login (Migration 021).
+async function sendVerifyEmailEmail(userId, token) {
+  if (!mailer) return;
+  try {
+    const u = await pool.query(
+      "SELECT email, full_name FROM users WHERE id = $1",
+      [userId],
+    );
+    const user = u.rows[0];
+    if (!user?.email) return;
+    const base = process.env.APP_BASE_URL || "";
+    const link = `${base}/verify-email?token=${encodeURIComponent(token)}`;
+    // full_name is sanitised at registration but render via
+    // String() defensively in case any caller passes a non-string.
+    await mailer.sendMail({
+      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      to: user.email,
+      subject: "Verify your Dive Recorder email",
+      text: `Hi ${String(user.full_name || "there")},\n\nThanks for signing up. Click the link below to verify your email — it expires in 7 days.\n\n${link}\n\nIf you didn't register, ignore this message.\n\nDive Recorder`,
+    });
+  } catch (err) {
+    console.error("[Verify Email Error]", err.message);
+  }
+}
+
 // "Your password was just changed" hygiene email. Fires after
 // any successful password change (self-service or via reset).
 async function sendPasswordChangedEmail(userId) {
@@ -391,9 +419,17 @@ const {
   ensureEventPreMeet,
   isInSameOrg,
   socketRequireRole,
+  socketCanManageEvent,
   isValidScore,
   parseDateRange,
+  bumpTokenVersion,
+  invalidateTokenVersion,
 } = require("./lib/middleware")({ pool, JWT_SECRET });
+
+// Convenience aliases — defined once so a typo can't drift the
+// role tuple across 20+ route mountings. Used throughout.
+const requireMeetEditor = requireMeetEditor;
+const requireOrgAdmin   = requireOrgAdmin;
 
 // =============================================================
 // HELPER — Build JWT payload
@@ -401,7 +437,7 @@ const {
 // =============================================================
 async function buildTokenPayload(userId) {
   const u = await pool.query(
-    "SELECT id, username, full_name, org_id, is_system_admin FROM users WHERE id = $1",
+    "SELECT id, username, full_name, org_id, is_system_admin, token_version FROM users WHERE id = $1",
     [userId],
   );
   if (!u.rows.length) throw new Error("User not found");
@@ -418,6 +454,12 @@ async function buildTokenPayload(userId) {
     org_id: user.org_id,
     org_roles: r.rows.map((x) => x.role),
     is_system_admin: user.is_system_admin,
+    // Stamped on every issued JWT. verifyToken (lib/middleware.js)
+    // rejects any token whose `tv` is older than the current row.
+    // Bumping users.token_version invalidates every outstanding
+    // session for that user — used by role grant/revoke and the
+    // password change flow (Migration 021).
+    tv: user.token_version,
   };
 }
 
@@ -438,9 +480,11 @@ app.use(
     buildTokenPayload,
     hashFingerprint,
     sendWelcomeEmail,
+    sendVerifyEmailEmail,
     sendNewRoleRequestEmail,
     sendPasswordChangedEmail,
     sendPasswordResetEmail,
+    bumpTokenVersion,
     JWT_SECRET,
     JWT_EXPIRY,
   }),
@@ -495,7 +539,7 @@ app.put("/api/orgs/:id/status", requireSystemAdmin, async (req, res) => {
 // or meet_manager only.
 app.get(
   "/api/orgs/:id/teams",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     if (!req.user.is_system_admin && req.params.id !== req.user.org_id) {
       return res
@@ -524,7 +568,7 @@ app.get(
 
 app.post(
   "/api/orgs/:id/teams",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     if (!req.user.is_system_admin && req.params.id !== req.user.org_id) {
       return res
@@ -551,7 +595,7 @@ app.post(
 
 app.put(
   "/api/teams/:id",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     const { name, short_code } = req.body || {};
     if (!name || !name.trim())
@@ -586,7 +630,7 @@ app.put(
 
 app.delete(
   "/api/teams/:id",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     try {
       const target = await pool.query(
@@ -628,7 +672,7 @@ app.delete(
 // dive list" links inside the TeamsView drawer.
 app.get(
   "/api/teams/:id/events",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     try {
       const r = await pool.query(
@@ -654,7 +698,8 @@ app.get(
 // (team, event) pair.
 app.post(
   "/api/teams/:teamId/dive-lists",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  bulkWriteLimiter,
+  requireMeetEditor,
   async (req, res) => {
     const { event_id, dives } = req.body || {};
     if (!event_id || !Array.isArray(dives) || !dives.length) {
@@ -761,7 +806,7 @@ app.post(
 // can pre-populate.
 app.get(
   "/api/teams/:teamId/events/:eventId/dive-list",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     try {
       const r = await pool.query(
@@ -786,7 +831,7 @@ app.get(
 
 app.get(
   "/api/teams/:id/members",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     try {
       const target = await pool.query(
@@ -820,7 +865,7 @@ app.get(
 
 app.post(
   "/api/teams/:id/members",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     const { user_id } = req.body || {};
     try {
@@ -861,7 +906,7 @@ app.post(
 
 app.delete(
   "/api/teams/:id/members/:userId",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     try {
       const target = await pool.query(
@@ -892,7 +937,7 @@ app.delete(
 // Teams entered in an event
 app.get(
   "/api/events/:id/teams",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     try {
       if (!(await ensureEventOrgGate(req, res, "id"))) return;
@@ -1122,7 +1167,7 @@ app.get("/api/coach/divers", verifyToken, async (req, res) => {
 // GET returns every link in the org (for the admin view).
 app.get(
   "/api/orgs/:id/coach-links",
-  requireOrgRole(["org_admin"]),
+  requireOrgAdmin,
   async (req, res) => {
     if (!req.user.is_system_admin && req.params.id !== req.user.org_id) {
       return res
@@ -1150,7 +1195,7 @@ app.get(
 
 app.post(
   "/api/orgs/:id/coach-links",
-  requireOrgRole(["org_admin"]),
+  requireOrgAdmin,
   async (req, res) => {
     const { coach_id, diver_id, note } = req.body || {};
     if (!coach_id || !diver_id) {
@@ -1197,7 +1242,7 @@ app.post(
 
 app.delete(
   "/api/coach-links/:id",
-  requireOrgRole(["org_admin"]),
+  requireOrgAdmin,
   async (req, res) => {
     try {
       const r = await pool.query(
@@ -1264,7 +1309,7 @@ app.get("/api/orgs/:id/clubs", async (req, res) => {
 // so admins can spot empty clubs.
 app.get(
   "/api/clubs",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     try {
       const isSysAdmin = !!req.user.is_system_admin;
@@ -1293,7 +1338,7 @@ app.get(
 // Rename / re-code a club. Same scope rules as create.
 app.put(
   "/api/clubs/:id",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     const { name, short_code } = req.body || {};
     if (!name || !name.trim())
@@ -1333,7 +1378,7 @@ app.put(
 // can confirm what just happened.
 app.delete(
   "/api/clubs/:id",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     try {
       const target = await pool.query(
@@ -1372,7 +1417,7 @@ app.delete(
 // can create a club for the new user without prior auth.
 app.post(
   "/api/orgs/:id/clubs",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     if (!req.user.is_system_admin && req.params.id !== req.user.org_id) {
       return res
@@ -1402,7 +1447,7 @@ app.post(
 // [SECTION: ROUTES — USERS]
 // =============================================================
 
-app.get("/api/users", requireOrgRole(["org_admin"]), async (req, res) => {
+app.get("/api/users", requireOrgAdmin, async (req, res) => {
   try {
     // System admins see every user across every org; org_admins
     // see only their own org. Org name + country code are
@@ -1449,7 +1494,7 @@ const VALID_ORG_ROLES = new Set([
 
 app.put(
   "/api/users/:id/roles",
-  requireOrgRole(["org_admin"]),
+  requireOrgAdmin,
   async (req, res) => {
     const { roles } = req.body || {};
     // Validate up front: roles must be an array of strings, every
@@ -1533,6 +1578,16 @@ app.put(
         console.error("[Role Audit Skipped]", auditErr.message);
       }
 
+      // Invalidate the target user's existing JWTs (Migration 021).
+      // Granting OR revoking changes the privilege set, so the
+      // currently-circulating token is no longer accurate. The
+      // helper bumps users.token_version + clears the in-memory
+      // cache; the next request from any of their devices forces
+      // a fresh login.
+      if (granted.length > 0 || revoked.length > 0) {
+        await bumpTokenVersion(client, req.params.id);
+      }
+
       await client.query("COMMIT");
       res.json({ message: "Roles updated" });
     } catch (err) {
@@ -1547,7 +1602,7 @@ app.put(
 
 app.get(
   "/api/role-requests",
-  requireOrgRole(["org_admin"]),
+  requireOrgAdmin,
   async (req, res) => {
     try {
       const isSysAdmin = !!req.user.is_system_admin;
@@ -1571,7 +1626,7 @@ app.get(
 
 app.post(
   "/api/role-requests/:id/review",
-  requireOrgRole(["org_admin"]),
+  requireOrgAdmin,
   async (req, res) => {
     const { decision } = req.body || {}; // 'approved' | 'rejected'
     const client = await pool.connect();
@@ -1624,6 +1679,10 @@ app.post(
         } catch (auditErr) {
           console.error("[Role Audit Skipped]", auditErr.message);
         }
+        // Bump token_version so the freshly-granted role takes
+        // effect on the user's next request without waiting for
+        // their current JWT to expire.
+        await bumpTokenVersion(client, rq.user_id);
       }
 
       await client.query("COMMIT");
@@ -1639,10 +1698,13 @@ app.post(
   },
 );
 
-// Update a user's club. Self-edit allowed (any logged-in user
-// can change their own club to one in their own org, or unset
-// it). Admin override (org_admin in target's org / system_admin)
-// can change anyone in their org.
+// Update a user's club. Two flows allowed:
+//   * Self-edit can ONLY clear the club. A club is meaningful for
+//     visibility scoping (rosters, coach links), so a malicious
+//     diver self-assigning into a rival club would be a tenancy
+//     gap. Switching club is org_admin-only.
+//   * Admin (org_admin in target's org / system_admin) can set or
+//     clear any user's club to one in the target's own org.
 app.put("/api/users/:id/club", verifyToken, async (req, res) => {
   const targetId = req.params.id;
   const { club_id } = req.body || {};
@@ -1665,6 +1727,15 @@ app.put("/api/users/:id/club", verifyToken, async (req, res) => {
       return res
         .status(403)
         .json({ error: "Cannot change another user's club" });
+    }
+    // Migration 021: tighten self-edit. Diver can drop their club
+    // (e.g. they left it) but can't move into a different one
+    // without an admin signing off — otherwise a roster of "Club
+    // Foo divers" can be polluted by anyone in the org.
+    if (isSelf && !isAdmin && club_id) {
+      return res.status(403).json({
+        error: "Switching clubs requires an org admin. You can clear your club yourself.",
+      });
     }
 
     // Only allow assigning a club that belongs to the target's
@@ -1695,7 +1766,7 @@ app.put("/api/users/:id/club", verifyToken, async (req, res) => {
 // user's own org, or to system_admin across all orgs.
 app.get(
   "/api/users/:id/role-audit",
-  requireOrgRole(["org_admin"]),
+  requireOrgAdmin,
   async (req, res) => {
     try {
       const target = await pool.query(
@@ -1740,7 +1811,7 @@ app.get(
 // Judges within the current user's org
 app.get(
   "/api/judges",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     try {
       const r = await pool.query(
@@ -1830,7 +1901,7 @@ app.get("/api/meets/:id", async (req, res) => {
 
 app.post(
   "/api/meets",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     const {
       name, venue, start_date, end_date, description,
@@ -1861,7 +1932,7 @@ app.post(
 
 app.put(
   "/api/meets/:id",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     const {
       name, venue, start_date, end_date, description,
@@ -1898,7 +1969,7 @@ app.put(
 
 app.delete(
   "/api/meets/:id",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     try {
       const r = await pool.query(
@@ -2017,24 +2088,31 @@ app.get("/api/events", async (req, res) => {
       JOIN organisations o ON o.id = e.org_id
     `;
     if (token) {
+      // An auth header was sent, so the caller meant to be
+      // authenticated. If the token is bad/expired we surface
+      // 401 rather than silently downgrading to the public
+      // listing — the previous version produced confusing
+      // "missing meets" support reports because the SPA had no
+      // signal to prompt re-login.
+      let decoded;
       try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        if (decoded.is_system_admin) {
-          // System admin sees every event across every org. The
-          // frontend can group/filter by org_name.
-          result = await pool.query(`${SELECT} ORDER BY e.created_at DESC`);
-        } else {
-          result = await pool.query(
-            `${SELECT} WHERE e.org_id = $1 ORDER BY e.created_at DESC`,
-            [decoded.org_id],
-          );
-        }
+        decoded = jwt.verify(token, JWT_SECRET);
       } catch {
+        return res.status(401).json({ error: "Token expired or invalid; please sign in again" });
+      }
+      if (decoded.is_system_admin) {
+        // System admin sees every event across every org. The
+        // frontend can group/filter by org_name.
+        result = await pool.query(`${SELECT} ORDER BY e.created_at DESC`);
+      } else {
         result = await pool.query(
-          `${SELECT} WHERE e.status IN ('Live','Completed') ORDER BY e.created_at DESC`,
+          `${SELECT} WHERE e.org_id = $1 ORDER BY e.created_at DESC`,
+          [decoded.org_id],
         );
       }
     } else {
+      // No auth header at all → anonymous spectator. Public
+      // surface only.
       result = await pool.query(
         `${SELECT} WHERE e.status IN ('Live','Completed') ORDER BY e.created_at DESC`,
       );
@@ -2058,7 +2136,7 @@ app.get("/api/events", async (req, res) => {
 
 app.post(
   "/api/events/:id/advance",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     const client = await pool.connect();
     try {
@@ -2241,7 +2319,7 @@ app.post(
 
 app.get(
   "/api/event-templates",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     try {
       const r = await pool.query(
@@ -2261,7 +2339,7 @@ app.get(
 
 app.post(
   "/api/event-templates",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     const { name, config } = req.body || {};
     if (!name || !name.trim()) {
@@ -2294,7 +2372,7 @@ app.post(
 
 app.delete(
   "/api/event-templates/:id",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     try {
       const r = await pool.query(
@@ -2310,7 +2388,7 @@ app.delete(
   },
 );
 
-app.post("/api/events", requireOrgRole(["org_admin"]), async (req, res) => {
+app.post("/api/events", requireOrgAdmin, async (req, res) => {
   const {
     name, gender, number_of_judges, total_rounds, height, event_type, meet_id,
     // New fields (migration 013):
@@ -2514,7 +2592,7 @@ app.put("/api/events/:id", requireEventManager(), async (req, res) => {
 
 app.delete(
   "/api/events/:id",
-  requireOrgRole(["org_admin"]),
+  requireOrgAdmin,
   async (req, res) => {
     try {
       // sysadmin bypasses the org filter; org_admin scoped to own org
@@ -2582,7 +2660,7 @@ app.put("/api/events/:id/status", requireEventManager(), async (req, res) => {
 // Event manager management
 app.get(
   "/api/events/:id/managers",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     try {
       if (!(await ensureEventOrgGate(req, res, "id"))) return;
@@ -3119,7 +3197,7 @@ app.put(
 // + round, server inserts.
 app.post(
   "/api/events/:id/roster",
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     const { competitor_id, dive_id, round_number, partner_id, team_id } = req.body || {};
     if (!competitor_id || !dive_id || !round_number) {
@@ -3180,7 +3258,7 @@ app.post(
 app.post(
   "/api/events/:id/roster/import",
   bulkWriteLimiter,
-  requireOrgRole(["org_admin", "meet_manager"]),
+  requireMeetEditor,
   async (req, res) => {
     const { csv } = req.body || {};
     if (typeof csv !== "string" || !csv.trim()) {
@@ -4518,10 +4596,26 @@ const RECORD_TABLES = {
 // prev_holder_name?, event_id} describing every record this
 // dive set. Empty array = nothing broken.
 async function checkAndApplyRecords({ eventId, competitorId, roundNumber }) {
+  // Wrap the whole flow in a single transaction. The previous
+  // version ran read-then-archive-then-upsert as separate pool
+  // queries — two concurrent score completions on the same
+  // (scope, height, dive_code, position) could both read the
+  // prior row, both archive it, and both upsert. Now we acquire
+  // a row lock with SELECT … FOR UPDATE on each scope's existing
+  // record before deciding to write, so the second caller
+  // re-reads our just-committed row and either no-ops or
+  // archives our value cleanly.
+  const client = await pool.connect();
   try {
-    // Fetch the dive's metadata + the diver's club / org so we
-    // can match against the right scope_ids. One round-trip.
-    const ctx = await pool.query(
+    await client.query("BEGIN");
+
+    // Fetch the dive's metadata + the diver's club / org. We
+    // resolve dive_id strictly from cdl now (the COALESCE that
+    // used to fall back to s.dive_id has been moved into the
+    // submit_score handler, which writes the resolved id) so a
+    // mid-event dive-list edit can't leave records pointing at
+    // the new dive while scores reflect the old.
+    const ctx = await client.query(
       `SELECT u.id  AS user_id,
               u.club_id,
               u.org_id,
@@ -4554,20 +4648,22 @@ async function checkAndApplyRecords({ eventId, competitorId, roundNumber }) {
                 d.dive_code, d.position, d.dd, d.description`,
       [eventId, competitorId, roundNumber],
     );
-    if (!ctx.rows.length) return [];
+    if (!ctx.rows.length) {
+      await client.query("ROLLBACK");
+      return [];
+    }
     const c = ctx.rows[0];
 
-    // Skip if the dive isn't complete yet (some judges still to
-    // submit), or if we couldn't resolve the dive metadata (rare
-    // — happens when the dive_directory row is missing).
-    if (c.judges_in < c.number_of_judges) return [];
-    if (!c.dive_code || !c.position || !c.height) return [];
-    if (c.dive_total == null) return [];
+    if (c.judges_in < c.number_of_judges
+        || !c.dive_code || !c.position || !c.height
+        || c.dive_total == null) {
+      await client.query("ROLLBACK");
+      return [];
+    }
 
     const score = Number(c.dive_total);
     const broken = [];
 
-    // Personal always; club only if the diver has one; federation always.
     const scopes = [
       { scope: "personal",   scope_id: c.user_id,  scope_name: c.holder_name },
       ...(c.club_id ? [{ scope: "club",       scope_id: c.club_id, scope_name: c.club_name }] : []),
@@ -4576,32 +4672,30 @@ async function checkAndApplyRecords({ eventId, competitorId, roundNumber }) {
 
     for (const s of scopes) {
       const cfg = RECORD_TABLES[s.scope];
-      // SELECT shape varies per scope: personal has no holder_id
-      // column (the user_id IS the holder). For club/fed we look
-      // up the previous holder's name in the same query.
+      // FOR UPDATE locks the row so concurrent record-checks for
+      // the same (scope, height, dive_code, position) serialise
+      // through this point.
       const existingSql = cfg.hasHolder
         ? `SELECT id, score, holder_id,
                   (SELECT full_name FROM users WHERE id = ${cfg.table}.holder_id) AS holder_name
            FROM ${cfg.table}
            WHERE ${cfg.scopeCol} = $1
              AND height = $2::board_height
-             AND dive_code = $3 AND position = $4::dive_position`
+             AND dive_code = $3 AND position = $4::dive_position
+           FOR UPDATE`
         : `SELECT id, score, ${cfg.scopeCol} AS holder_id,
                   (SELECT full_name FROM users WHERE id = ${cfg.table}.${cfg.scopeCol}) AS holder_name
            FROM ${cfg.table}
            WHERE ${cfg.scopeCol} = $1
              AND height = $2::board_height
-             AND dive_code = $3 AND position = $4::dive_position`;
-      const existing = await pool.query(existingSql,
+             AND dive_code = $3 AND position = $4::dive_position
+           FOR UPDATE`;
+      const existing = await client.query(existingSql,
         [s.scope_id, c.height, c.dive_code, c.position]);
       const prev = existing.rows[0];
 
-      // No existing record OR new score strictly greater. Strict
-      // greater so equal totals don't displace the original holder.
       if (prev && score <= Number(prev.score)) continue;
 
-      // Archive the old holder before overwriting (if any).
-      // History tables don't have FKs so we just copy the row body.
       if (prev) {
         const archiveSql = cfg.hasHolder
           ? `INSERT INTO ${cfg.history}
@@ -4616,10 +4710,9 @@ async function checkAndApplyRecords({ eventId, competitorId, roundNumber }) {
              SELECT ${cfg.scopeCol}, height, dive_code, position,
                     score, event_id, set_at
              FROM ${cfg.table} WHERE id = $1`;
-        await pool.query(archiveSql, [prev.id]);
+        await client.query(archiveSql, [prev.id]);
       }
 
-      // Upsert the new best.
       const upsertSql = cfg.hasHolder
         ? `INSERT INTO ${cfg.table}
              (${cfg.scopeCol}, holder_id, height, dive_code, position,
@@ -4641,7 +4734,7 @@ async function checkAndApplyRecords({ eventId, competitorId, roundNumber }) {
       const upsertParams = cfg.hasHolder
         ? [s.scope_id, c.user_id, c.height, c.dive_code, c.position, score, eventId]
         : [s.scope_id,            c.height, c.dive_code, c.position, score, eventId];
-      await pool.query(upsertSql, upsertParams);
+      await client.query(upsertSql, upsertParams);
 
       broken.push({
         scope:        s.scope,
@@ -4658,12 +4751,14 @@ async function checkAndApplyRecords({ eventId, competitorId, roundNumber }) {
         event_id:     eventId,
       });
     }
+    await client.query("COMMIT");
     return broken;
   } catch (err) {
-    // Non-fatal — records are best-effort. The scoreboard still
-    // works without them.
+    await client.query("ROLLBACK").catch(() => {});
     console.error("[Records Check Error]", err.message);
     return [];
+  } finally {
+    client.release();
   }
 }
 
@@ -4794,12 +4889,32 @@ const activeDivers = {};
 // submission) can be attributed to a verified user rather than
 // trusting the client-supplied judge_id. This is what makes the
 // audit log meaningful.
-io.use((socket, next) => {
+//
+// Migration 021: also pin org_id (so per-event authz can check
+// "is this event in my org?" without re-querying users) and
+// honour the JWT tv (token_version) check — a token whose tv
+// is older than the current users.token_version is treated as
+// anonymous, the same as a malformed JWT.
+io.use(async (socket, next) => {
   const raw = socket.handshake.auth?.token;
   if (raw && raw !== "spectator") {
     try {
       const decoded = jwt.verify(raw, JWT_SECRET);
+      // Validate tv against the DB (cheap on cached path).
+      // A revoked session must lose its socket privileges too.
+      if (decoded.tv != null) {
+        const r = await pool.query(
+          "SELECT token_version FROM users WHERE id = $1",
+          [decoded.id],
+        );
+        const current = r.rows[0]?.token_version;
+        if (current != null && current !== decoded.tv) {
+          // Stale — fall through to anonymous.
+          return next();
+        }
+      }
       socket.userId = decoded.id;
+      socket.userOrgId = decoded.org_id;
       socket.userIsSystemAdmin = !!decoded.is_system_admin;
       socket.userOrgRoles = decoded.org_roles || [];
     } catch {
@@ -4813,9 +4928,32 @@ io.use((socket, next) => {
 // imported at the top alongside the HTTP gates so the auth
 // perimeter (socket and HTTP) sits in one place.
 
+// Trust the XFF chain length the Express side already trusts
+// (TRUST_PROXY env). When `trust proxy` is "true" or a number N,
+// Express takes the right-most N entries of XFF as proxy hops
+// and treats the leftmost-of-the-rest as the real client. Mirror
+// that here so socket audit-log IPs aren't trivially forgeable
+// by a direct connection.
+const TRUST_PROXY_HOPS = (() => {
+  const raw = process.env.TRUST_PROXY;
+  if (raw === undefined || raw === "" || raw === "true") return 1;
+  if (raw === "false" || raw === "0") return 0;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : 1;
+})();
+
 function clientIp(socket) {
   const fwd = socket.handshake.headers["x-forwarded-for"];
-  if (fwd) return fwd.split(",")[0].trim();
+  if (fwd && TRUST_PROXY_HOPS > 0) {
+    const parts = fwd.split(",").map((s) => s.trim()).filter(Boolean);
+    // Drop TRUST_PROXY_HOPS entries from the right (each is a
+    // hop we control); the next entry to the left is the real
+    // client. If there aren't enough entries, fall back to the
+    // leftmost — better than no IP at all.
+    const idx = Math.max(0, parts.length - 1 - TRUST_PROXY_HOPS);
+    if (parts[idx]) return parts[idx];
+    if (parts[0]) return parts[0];
+  }
   return socket.handshake.address || null;
 }
 
@@ -4843,7 +4981,37 @@ function judgeIsRateLimited(judgeId) {
   return false;
 }
 
-// Periodic cleanup so the map doesn't grow forever as judges come
+// Generic per-(user, action) sliding-window limiter for every
+// other privileged socket event. Each (action, userId) pair gets
+// its own bucket. Used by meet_hold/resume, set_active_diver,
+// referee actions — without this a single role-holder can spam
+// hold/resume cycles and DoS a live meet.
+const SOCKET_ACTION_LIMITS = {
+  meet_hold:        { limit: 10, windowMs: 60 * 1000 },
+  meet_resume:      { limit: 10, windowMs: 60 * 1000 },
+  set_active_diver: { limit: 60, windowMs: 60 * 1000 },
+  referee_action:   { limit: 30, windowMs: 60 * 1000 },
+  announce_score:   { limit: 30, windowMs: 60 * 1000 },
+};
+const socketActionWindows = new Map();   // `${action}:${userId}` → [t,…]
+
+function socketActionRateLimited(action, userId) {
+  const cfg = SOCKET_ACTION_LIMITS[action];
+  if (!cfg || !userId) return false;
+  const key = `${action}:${userId}`;
+  const now = Date.now();
+  const cutoff = now - cfg.windowMs;
+  const arr = (socketActionWindows.get(key) || []).filter((t) => t > cutoff);
+  if (arr.length >= cfg.limit) {
+    socketActionWindows.set(key, arr);
+    return true;
+  }
+  arr.push(now);
+  socketActionWindows.set(key, arr);
+  return false;
+}
+
+// Periodic cleanup so the maps don't grow forever as judges come
 // and go. Runs every 5 minutes; drops entries with no submissions
 // inside the window.
 setInterval(() => {
@@ -4853,10 +5021,32 @@ setInterval(() => {
     if (fresh.length === 0) scoreSubmissions.delete(judgeId);
     else scoreSubmissions.set(judgeId, fresh);
   }
+  // Same shape, generic action map. Use the largest window so we
+  // don't drop entries that are still inside their bucket.
+  const maxWindow = Math.max(...Object.values(SOCKET_ACTION_LIMITS).map(c => c.windowMs));
+  const actionCutoff = Date.now() - maxWindow;
+  for (const [key, arr] of socketActionWindows.entries()) {
+    const fresh = arr.filter((t) => t > actionCutoff);
+    if (fresh.length === 0) socketActionWindows.delete(key);
+    else socketActionWindows.set(key, fresh);
+  }
 }, 5 * 60 * 1000).unref?.();
 
 io.on("connection", (socket) => {
   console.log(`[Socket] Connected: ${socket.id}`);
+
+  // Helper: clients join `event:${id}` rooms when they subscribe
+  // to an event (via get_active_diver, get_meet_hold, or by
+  // explicit `subscribe_event`). All event-scoped broadcasts then
+  // emit only to that room — two concurrent meets on the same
+  // instance no longer cross-leak score events to each other's
+  // spectators, and the bandwidth/parse cost stays proportional
+  // to the meet you're watching.
+  function joinEvent(eventId) {
+    if (!eventId) return;
+    socket.join(`event:${eventId}`);
+  }
+  socket.on("subscribe_event", (data) => joinEvent(data?.event_id));
 
   // When a new client connects, immediately send them the current
   // active diver state for any events that are already running.
@@ -4868,13 +5058,17 @@ io.on("connection", (socket) => {
     });
   }
 
-  socket.on("set_active_diver", (data) => {
+  socket.on("set_active_diver", async (data) => {
     // Mutates server-side state — must come from a meet manager,
-    // referee, or org admin (or sysadmin). Anonymous spectators
-    // pulling state via get_active_diver still work.
-    if (!socketRequireRole(socket, ["meet_manager", "referee", "org_admin"])) return;
+    // referee, or org admin for THIS event's org (or sysadmin).
+    // Anonymous spectators pulling state via get_active_diver
+    // still work. The role-only check was insufficient: a referee
+    // in Org A could otherwise drive Org B's events.
+    if (!(await socketCanManageEvent(socket, data?.event_id,
+                                     ["meet_manager", "referee", "org_admin"]))) return;
+    if (socketActionRateLimited("set_active_diver", socket.userId)) return;
     if (data.event_id) activeDivers[data.event_id] = data;
-    io.emit("state_update", data);
+    io.to(`event:${data.event_id}`).emit("state_update", data);
   });
 
   // On-demand pull. The scoreboard requests this when the user
@@ -4884,174 +5078,180 @@ io.on("connection", (socket) => {
   // longer applies (e.g. user picked a different event first).
   socket.on("get_active_diver", (data) => {
     if (!data?.event_id) return;
+    joinEvent(data.event_id);
     const state = activeDivers[data.event_id];
     if (state) socket.emit("state_update", state);
   });
 
   socket.on("submit_score", async (data) => {
+    // ----- Authn / authz / payload validation (no DB yet) -----
+    if (!socket.userId) {
+      socket.emit("score_rejected", {
+        reason: "not_authenticated",
+        message: "You must be signed in to submit scores.",
+      });
+      return;
+    }
+    const judgeId = socket.userId;
+    const roles = socket.userOrgRoles || [];
+    if (!socket.userIsSystemAdmin
+        && !roles.includes("judge")
+        && !roles.includes("referee")) {
+      socket.emit("score_rejected", { reason: "insufficient_role" });
+      return;
+    }
+    if (!data?.event_id || !data?.competitor_id) {
+      socket.emit("score_rejected", { reason: "bad_payload" });
+      return;
+    }
+    const round = Number(data.round_number);
+    if (!Number.isInteger(round) || round < 1) {
+      socket.emit("score_rejected", { reason: "bad_round" });
+      return;
+    }
+    if (!isValidScore(data.score)) {
+      socket.emit("score_rejected", {
+        reason: "bad_score",
+        message: "Score must be between 0 and 10 in 0.5 increments.",
+      });
+      return;
+    }
+    if (judgeIsRateLimited(judgeId)) {
+      console.warn(`[Score] Rate limit exceeded for judge ${judgeId}`);
+      socket.emit("score_rejected", {
+        reason: "rate_limited",
+        message: "Slow down — too many submissions in the last minute.",
+      });
+      return;
+    }
+    const score = Number(data.score);
+
+    // ----- DB work, fully transactional -----
+    //
+    // The previous version ran prior-row read, upsert and audit
+    // insert as three separate pool queries; a crash between the
+    // upsert and the audit insert left a score on file with no
+    // audit trail — defeating the audit log's purpose. Wrap them
+    // in one transaction so the audit row is durable iff the
+    // score is.
+    //
+    // Sysadmin policy: even sysadmins must be on the panel. The
+    // earlier short-circuit let a (potentially stale) sysadmin
+    // post under any judge_number on any panel, breaking the
+    // trim algorithm. judge_number always comes from the DB row,
+    // never from the wire.
+    //
+    // dive_id is resolved server-side from competitor_dive_lists
+    // so a stale client can't smuggle in the wrong dive's DD.
+    const client = await pool.connect();
+    let scoreId, judgeNumber, oldScore = null, isInsert = true;
     try {
-      // Authentication: must be a verified user. We deliberately do
-      // NOT fall back to data.judge_id any more — the previous fallback
-      // let an unauthenticated client emit submit_score with whatever
-      // judge_id they liked, attributing scores to other people.
-      if (!socket.userId) {
-        socket.emit("score_rejected", {
-          reason: "not_authenticated",
-          message: "You must be signed in to submit scores.",
-        });
-        return;
-      }
-      const judgeId = socket.userId;
+      await client.query("BEGIN");
 
-      // Authorisation: judge or referee role (or sysadmin).
-      const roles = socket.userOrgRoles || [];
-      if (!socket.userIsSystemAdmin
-          && !roles.includes("judge")
-          && !roles.includes("referee")) {
-        socket.emit("score_rejected", { reason: "insufficient_role" });
-        return;
-      }
-
-      // Payload sanity. event_id, competitor_id, round_number, score
-      // are all required; score must be in [0, 10] in 0.5 increments.
-      if (!data?.event_id || !data?.competitor_id) {
-        socket.emit("score_rejected", { reason: "bad_payload" });
-        return;
-      }
-      const round = Number(data.round_number);
-      if (!Number.isInteger(round) || round < 1) {
-        socket.emit("score_rejected", { reason: "bad_round" });
-        return;
-      }
-      if (!isValidScore(data.score)) {
-        socket.emit("score_rejected", {
-          reason: "bad_score",
-          message: "Score must be between 0 and 10 in 0.5 increments.",
-        });
-        return;
-      }
-
-      if (judgeIsRateLimited(judgeId)) {
-        console.warn(`[Score] Rate limit exceeded for judge ${judgeId}`);
-        socket.emit("score_rejected", {
-          reason: "rate_limited",
-          message: "Slow down — too many submissions in the last minute.",
-        });
-        return;
-      }
-
-      // Confirm this user is on the panel for this event. This is
-      // both an authorisation check (a judge from event A can't
-      // post into event B's scores) and the source of judge_number,
-      // which the trim algorithm needs.
-      let judgeNumber = data.judge_number || null;
-      const jnRes = await pool.query(
+      const jnRes = await client.query(
         "SELECT judge_number FROM event_judges WHERE event_id = $1 AND judge_id = $2",
         [data.event_id, judgeId],
       );
-      if (!jnRes.rows.length && !socket.userIsSystemAdmin) {
+      if (!jnRes.rows.length) {
+        await client.query("ROLLBACK");
         socket.emit("score_rejected", {
           reason: "not_on_panel",
           message: "You're not on the judging panel for this event.",
         });
         return;
       }
-      if (jnRes.rows.length) judgeNumber = jnRes.rows[0].judge_number;
+      judgeNumber = jnRes.rows[0].judge_number;
 
-      // Read the prior row (if any) so we know whether this write is
-      // an insert or an update, and can capture the previous score
-      // for the audit log. Done outside any transaction — the audit
-      // log is best-effort and must not block the score write itself.
-      // Use the validated `round` (not the unvalidated data.round_number)
-      // and the coerced numeric score, so a string "8.5" stores as 8.5
-      // and not as text in the numeric column.
-      const score = Number(data.score);
+      // Resolve dive_id from cdl rather than trusting data.dive_id.
+      // Falls back to the client-supplied id only when cdl has no
+      // row (rare — happens before the diver's list is submitted,
+      // in which case the FK on scores will reject the insert).
+      const dvRes = await client.query(
+        `SELECT dive_id FROM competitor_dive_lists
+         WHERE event_id = $1 AND competitor_id = $2 AND round_number = $3`,
+        [data.event_id, data.competitor_id, round],
+      );
+      const resolvedDiveId = dvRes.rows[0]?.dive_id ?? data.dive_id ?? null;
 
-      const prior = await pool.query(
+      // Lock the prior row (if any) so a concurrent referee action
+      // on the same (event, competitor, round, judge) can't
+      // interleave with our upsert.
+      const prior = await client.query(
         `SELECT id, score FROM scores
-         WHERE event_id=$1 AND competitor_id=$2 AND round_number=$3 AND judge_id=$4`,
+         WHERE event_id=$1 AND competitor_id=$2 AND round_number=$3 AND judge_id=$4
+         FOR UPDATE`,
         [data.event_id, data.competitor_id, round, judgeId],
       );
       const existing = prior.rows[0] || null;
+      isInsert = !existing;
+      oldScore = existing ? Number(existing.score) : null;
 
-      const upsert = await pool.query(
+      const upsert = await client.query(
         `INSERT INTO scores (event_id, competitor_id, judge_id, dive_id, round_number, score)
          VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (event_id, competitor_id, round_number, judge_id)
          DO UPDATE SET score = EXCLUDED.score, status = 'active'
          RETURNING id`,
         [
-          data.event_id,
-          data.competitor_id,
-          judgeId,
-          data.dive_id || null,
-          round,
-          score,
+          data.event_id, data.competitor_id, judgeId,
+          resolvedDiveId, round, score,
         ],
       );
-      const scoreId = upsert.rows[0].id;
+      scoreId = upsert.rows[0].id;
 
-      // Best-effort audit. We swallow errors here so a missing audit
-      // table (e.g. before the operator runs the migration) does not
-      // break live scoring. The error is logged so the operator
-      // notices and applies the migration.
-      const newScore = score;
-      const oldScore = existing ? Number(existing.score) : null;
-      if (!existing || oldScore !== newScore) {
-        try {
-          await pool.query(
-            `INSERT INTO score_audit_log
-               (score_id, event_id, competitor_id, judge_id, round_number,
-                action, old_score, new_score, actor_user_id, ip_address, user_agent)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-            [
-              scoreId,
-              data.event_id,
-              data.competitor_id,
-              judgeId,
-              round,
-              existing ? "update" : "insert",
-              oldScore,
-              newScore,
-              socket.userId,
-              clientIp(socket),
-              socket.handshake.headers["user-agent"] || null,
-            ],
-          );
-        } catch (auditErr) {
-          console.error("[Audit Log Skipped]", auditErr.message);
-        }
+      // Audit log inside the same txn — see comment above for why.
+      if (isInsert || oldScore !== score) {
+        await client.query(
+          `INSERT INTO score_audit_log
+             (score_id, event_id, competitor_id, judge_id, round_number,
+              action, old_score, new_score, actor_user_id, ip_address, user_agent)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          [
+            scoreId, data.event_id, data.competitor_id, judgeId, round,
+            isInsert ? "insert" : "update",
+            oldScore, score,
+            socket.userId, clientIp(socket),
+            socket.handshake.headers["user-agent"] || null,
+          ],
+        );
       }
 
-      io.emit("score_received", {
-        ...data,
-        judge_id: judgeId,
-        judge_number: judgeNumber,
-      });
-
-      // Records check — runs only on the score that COMPLETES the
-      // dive (the helper bails when judges_in < number_of_judges).
-      // Best-effort and async so a slow records lookup doesn't
-      // block the score broadcast. Each broken record fans out a
-      // dedicated `record_broken` event the scoreboard listens for.
-      checkAndApplyRecords({
-        eventId:      data.event_id,
-        competitorId: data.competitor_id,
-        roundNumber:  round,
-      }).then((broken) => {
-        for (const b of broken) {
-          io.emit("record_broken", b);
-        }
-      }).catch((e) => console.error("[Records broadcast]", e.message));
+      await client.query("COMMIT");
     } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
       console.error("[Score Persist Error]", err.message);
-      // Still broadcast even if DB write fails so UI stays live
-      io.emit("score_received", data);
+      socket.emit("score_rejected", { reason: "server_error" });
+      return;
+    } finally {
+      client.release();
     }
+
+    // ----- Broadcast (event-scoped) + records check -----
+    io.to(`event:${data.event_id}`).emit("score_received", {
+      ...data,
+      dive_id: undefined,         // don't leak whatever the client sent
+      judge_id: judgeId,
+      judge_number: judgeNumber,
+    });
+
+    // Records check is best-effort and async so a slow records
+    // lookup doesn't block the score broadcast. The helper itself
+    // is now transactional with row locks (Migration 021 fix).
+    checkAndApplyRecords({
+      eventId:      data.event_id,
+      competitorId: data.competitor_id,
+      roundNumber:  round,
+    }).then((broken) => {
+      for (const b of broken) {
+        io.to(`event:${data.event_id}`).emit("record_broken", b);
+      }
+    }).catch((e) => console.error("[Records broadcast]", e.message));
   });
-  socket.on("announce_score", (data) => {
-    if (!socketRequireRole(socket, ["meet_manager", "referee", "org_admin"])) return;
-    io.emit("final_score_announced", data);
+  socket.on("announce_score", async (data) => {
+    if (!(await socketCanManageEvent(socket, data?.event_id,
+                                     ["meet_manager", "referee", "org_admin"]))) return;
+    if (socketActionRateLimited("announce_score", socket.userId)) return;
+    io.to(`event:${data.event_id}`).emit("final_score_announced", data);
   });
 
   // Referee actions — UPDATE the actual scores AND persist to
@@ -5133,13 +5333,15 @@ io.on("connection", (socket) => {
   }
 
   socket.on("referee_failed_dive", async (data) => {
-    if (!socketRequireRole(socket, ["referee", "meet_manager", "org_admin"])) return;
+    if (!(await socketCanManageEvent(socket, data?.event_id,
+                                     ["referee", "meet_manager", "org_admin"]))) return;
+    if (socketActionRateLimited("referee_action", socket.userId)) return;
     if (!(await applyRefereeAction("failed", data, socket.userId))) return;
-    io.emit("referee_action_failed", data);
+    io.to(`event:${data.event_id}`).emit("referee_action_failed", data);
     // Also broadcast a generic score_corrected so live consumers
     // re-pull standings without a manual refresh — same channel
     // the HTTP score-correction endpoint uses.
-    io.emit("score_corrected", {
+    io.to(`event:${data.event_id}`).emit("score_corrected", {
       event_id: data.event_id,
       competitor_id: data.competitor_id,
       round_number: data.round_number,
@@ -5147,10 +5349,12 @@ io.on("connection", (socket) => {
     });
   });
   socket.on("referee_cap_scores", async (data) => {
-    if (!socketRequireRole(socket, ["referee", "meet_manager", "org_admin"])) return;
+    if (!(await socketCanManageEvent(socket, data?.event_id,
+                                     ["referee", "meet_manager", "org_admin"]))) return;
+    if (socketActionRateLimited("referee_action", socket.userId)) return;
     if (!(await applyRefereeAction("cap", data, socket.userId))) return;
-    io.emit("referee_action_cap", data);
-    io.emit("score_corrected", {
+    io.to(`event:${data.event_id}`).emit("referee_action_cap", data);
+    io.to(`event:${data.event_id}`).emit("score_corrected", {
       event_id: data.event_id,
       competitor_id: data.competitor_id,
       round_number: data.round_number,
@@ -5158,35 +5362,41 @@ io.on("connection", (socket) => {
     });
   });
   socket.on("referee_redive", async (data) => {
-    if (!socketRequireRole(socket, ["referee", "meet_manager", "org_admin"])) return;
+    if (!(await socketCanManageEvent(socket, data?.event_id,
+                                     ["referee", "meet_manager", "org_admin"]))) return;
+    if (socketActionRateLimited("referee_action", socket.userId)) return;
     if (!(await applyRefereeAction("redive", data, socket.userId))) return;
-    io.emit("referee_action_redive", data);
+    io.to(`event:${data.event_id}`).emit("referee_action_redive", data);
   });
 
   // Hold / resume the meet. The Control Room dispatches these;
   // judges + scoreboard listen and display a banner while the
   // hold is active. Per-event so multiple meets can run in
   // parallel without interfering.
-  socket.on("meet_hold", (data) => {
-    if (!socketRequireRole(socket, ["meet_manager", "referee", "org_admin"])) return;
-    if (!data?.event_id) return;
+  socket.on("meet_hold", async (data) => {
+    if (!(await socketCanManageEvent(socket, data?.event_id,
+                                     ["meet_manager", "referee", "org_admin"]))) return;
+    if (socketActionRateLimited("meet_hold", socket.userId)) return;
     meetHolds[data.event_id] = {
       reason: data.reason || null,
       since: Date.now(),
     };
-    io.emit("meet_held", { event_id: data.event_id, ...meetHolds[data.event_id] });
+    io.to(`event:${data.event_id}`).emit("meet_held",
+      { event_id: data.event_id, ...meetHolds[data.event_id] });
   });
-  socket.on("meet_resume", (data) => {
-    if (!socketRequireRole(socket, ["meet_manager", "referee", "org_admin"])) return;
-    if (!data?.event_id) return;
+  socket.on("meet_resume", async (data) => {
+    if (!(await socketCanManageEvent(socket, data?.event_id,
+                                     ["meet_manager", "referee", "org_admin"]))) return;
+    if (socketActionRateLimited("meet_resume", socket.userId)) return;
     delete meetHolds[data.event_id];
-    io.emit("meet_resumed", { event_id: data.event_id });
+    io.to(`event:${data.event_id}`).emit("meet_resumed", { event_id: data.event_id });
   });
   // Clients that connect after a hold has been set ask for the
   // current state on demand — same on-demand pull pattern as
   // get_active_diver.
   socket.on("get_meet_hold", (data) => {
     if (!data?.event_id) return;
+    joinEvent(data.event_id);
     const state = meetHolds[data.event_id];
     if (state) socket.emit("meet_held", { event_id: data.event_id, ...state });
   });

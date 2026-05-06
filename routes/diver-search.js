@@ -6,8 +6,14 @@
 //   GET /api/orgs/all       — lightweight org list for filter dropdowns
 //
 // All three require a valid JWT (any role, including spectator) but
-// no org-scope check — the data is already public via the meet
-// scoreboards and the archive.
+// no org-scope check — the diver's full name, org and club ARE
+// already public via the meet scoreboards and the archive.
+//
+// SECURITY (Migration 021): we deliberately drop `username` from
+// these payloads. Username is the credential identifier used by
+// /api/auth/login, so leaking it cross-org turns this into a
+// credential-stuffing input. The Compare UI only ever uses
+// (full_name, club_code) as the human label.
 
 const express = require("express");
 
@@ -23,14 +29,14 @@ module.exports = function createDiverSearchRouter({ pool, verifyToken }) {
     if (q.length < 2) return res.json([]);
     try {
       const r = await pool.query(
-        `SELECT u.id, u.full_name, u.username,
+        `SELECT u.id, u.full_name,
                 o.id AS org_id, o.name AS org_name, o.country_code,
                 cl.id AS club_id, cl.name AS club_name, cl.short_code AS club_code
          FROM users u
          JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id AND r.role = 'diver'
          JOIN organisations o  ON o.id = u.org_id
          LEFT JOIN clubs cl    ON cl.id = u.club_id
-         WHERE u.full_name ILIKE $1 OR u.username ILIKE $1
+         WHERE u.full_name ILIKE $1
          ORDER BY
            /* prefix match wins over contains-anywhere */
            CASE WHEN u.full_name ILIKE $2 THEN 0 ELSE 1 END,
@@ -55,7 +61,7 @@ module.exports = function createDiverSearchRouter({ pool, verifyToken }) {
     const offset      = Math.max(Number(req.query.offset) || 0, 0);
     try {
       const r = await pool.query(
-        `SELECT u.id, u.full_name, u.username,
+        `SELECT u.id, u.full_name,
                 o.id AS org_id, o.name AS org_name, o.country_code,
                 cl.id AS club_id, cl.name AS club_name, cl.short_code AS club_code,
                 COUNT(*) OVER ()::int AS total_count
@@ -63,7 +69,7 @@ module.exports = function createDiverSearchRouter({ pool, verifyToken }) {
          JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id AND r.role = 'diver'
          JOIN organisations o  ON o.id = u.org_id
          LEFT JOIN clubs cl    ON cl.id = u.club_id
-         WHERE ($1::text IS NULL OR u.full_name ILIKE $1 OR u.username ILIKE $1)
+         WHERE ($1::text IS NULL OR u.full_name ILIKE $1)
            AND ($2::uuid IS NULL OR u.org_id  = $2::uuid)
            AND ($3::uuid IS NULL OR u.club_id = $3::uuid)
            AND ($4::text IS NULL OR o.country_code = $4::text)
