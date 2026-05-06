@@ -466,6 +466,35 @@ async function buildTokenPayload(userId) {
 
 // =============================================================
 // =============================================================
+// HEALTH CHECK
+// [SECTION: ROUTES — HEALTH]
+// =============================================================
+// Cheap public-readable health probe used by deploy.sh and any
+// external uptime monitor. Confirms two things:
+//   * the process is up and serving HTTP
+//   * the DB pool can issue a trivial query (catches the case
+//     where the process bound a port but Postgres is wedged or
+//     unreachable, which a port-only liveness check would miss).
+//
+// 200 + { ok: true, schema_version } when both pass. 503 + { ok:
+// false } if the DB query throws — the deploy script can refuse
+// to advance past restart on that signal. No auth: monitors and
+// load balancers shouldn't need a credential.
+app.get("/api/health", async (_req, res) => {
+  try {
+    const r = await pool.query(
+      "SELECT version FROM public.schema_meta WHERE id = 1",
+    );
+    res.json({
+      ok: true,
+      schema_version: r.rows[0]?.version ?? null,
+    });
+  } catch {
+    res.status(503).json({ ok: false });
+  }
+});
+
+// =============================================================
 // AUTH ROUTES
 // Moved into routes/auth.js. The factory pattern lets this slice
 // live in its own file without forcing every other slice (events,
