@@ -267,6 +267,69 @@ Open `http://localhost:5173` (dev) or `http://localhost:3000` (built).
 
 ---
 
+## Production deploy
+
+The repo ships everything you need to run on a real server: a checked-in PM2 ecosystem file, a deploy script that fails closed at every step, and a `/api/health` endpoint for monitors.
+
+### First-time setup on a fresh box
+
+After cloning, installing deps and getting `init.sql` loaded (steps 1–6 above), bring the service up under PM2:
+
+```bash
+pm2 start ecosystem.config.js
+pm2 save                                  # persist the process list
+pm2 startup                               # prints a sudo command — run it
+                                          # to register PM2 with systemd
+
+# Log rotation — PM2 appends to logs/pm2-out.log forever by default.
+pm2 install pm2-logrotate
+pm2 set pm2-logrotate:max_size 10M
+pm2 set pm2-logrotate:retain 7
+```
+
+`ecosystem.config.js` runs the app as a single fork process named `dive-recorder` with a 512MB memory ceiling, restart-on-crash, and combined stdout/stderr logs in `./logs/`. **Don't enable PM2 clustering** without first wiring up a Socket.IO adapter (Redis or `@socket.io/cluster-adapter`) and moving the in-memory `activeDivers` / `meetHolds` maps out of the node process — clustering without those would split-brain the live-scoring state across workers.
+
+### Subsequent deploys
+
+```bash
+./deploy.sh
+```
+
+The script:
+
+1. `git pull --ff-only` (refuses non-fast-forward merges)
+2. `npm ci` (deterministic install from the lockfile)
+3. `npm test` (catches TDZ / boot regressions via the boot test)
+4. `npm run build` (builds before migrate so a broken build doesn't leave the DB advanced past code we can't ship)
+5. `npm run migrate -- --dry`, then real migrate
+6. `pm2 restart dive-recorder`
+7. Polls `/api/health` for up to 10s; fails the script if the service didn't come back up, and prints the rollback command (`git reset --hard <prev-sha> && pm2 restart dive-recorder`)
+
+Flags:
+
+| Flag | When |
+|---|---|
+| (none) | normal deploy |
+| `--dry` | preview every step without writing |
+| `--skip-tests` | emergency hotfix path; tests skipped but build + health check still gate |
+
+### Health checks + monitoring
+
+`GET /api/health` returns `{ ok: true, schema_version }` on success or `503 { ok: false }` if the DB pool can't issue a trivial query. No auth — point any uptime monitor (UptimeRobot, BetterStack, etc.) at `https://your-domain/api/health` on a 60s interval.
+
+### Rolling back a bad deploy
+
+If `deploy.sh` fails the health check it prints the exact rollback command:
+
+```bash
+git reset --hard <previous-sha>
+pm2 restart dive-recorder
+```
+
+Migrations in this repo are **additive only** (`ADD COLUMN`, `CREATE INDEX`, `ADD CONSTRAINT IF NOT EXISTS`) so leaving them applied during a code rollback is safe — the old code keeps working against the new schema. If a future PR ever needs a destructive change (drop column, rename), do it as a two-deploy dance: ship the code that works against both shapes first, then the migration in a follow-up release.
+
+---
+
 ## Project structure
 
 ```

@@ -11,6 +11,13 @@
 //     pm2 startup                         # generate the boot-time hook
 //     # …run the command pm2 prints…     # registers it with systemd
 //
+//     # One-time log rotation. PM2 keeps appending to the log
+//     # file forever by default; this keeps the last 7 rotations
+//     # of 10MB each (~70MB max) so the disk doesn't slowly fill.
+//     pm2 install pm2-logrotate
+//     pm2 set pm2-logrotate:max_size 10M
+//     pm2 set pm2-logrotate:retain 7
+//
 // Subsequent deploys go through deploy.sh, which calls
 // `pm2 restart dive-recorder`.
 //
