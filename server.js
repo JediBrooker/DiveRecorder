@@ -424,12 +424,13 @@ const {
   parseDateRange,
   bumpTokenVersion,
   invalidateTokenVersion,
+  isTokenVersionCurrent,
 } = require("./lib/middleware")({ pool, JWT_SECRET });
 
 // Convenience aliases — defined once so a typo can't drift the
 // role tuple across 20+ route mountings. Used throughout.
-const requireMeetEditor = requireMeetEditor;
-const requireOrgAdmin   = requireOrgAdmin;
+const requireMeetEditor = requireOrgRole(["org_admin", "meet_manager"]);
+const requireOrgAdmin   = requireOrgRole(["org_admin"]);
 
 // =============================================================
 // HELPER — Build JWT payload
@@ -4900,19 +4901,11 @@ io.use(async (socket, next) => {
   if (raw && raw !== "spectator") {
     try {
       const decoded = jwt.verify(raw, JWT_SECRET);
-      // Validate tv against the DB (cheap on cached path).
-      // A revoked session must lose its socket privileges too.
-      if (decoded.tv != null) {
-        const r = await pool.query(
-          "SELECT token_version FROM users WHERE id = $1",
-          [decoded.id],
-        );
-        const current = r.rows[0]?.token_version;
-        if (current != null && current !== decoded.tv) {
-          // Stale — fall through to anonymous.
-          return next();
-        }
-      }
+      // Validate tv against the DB via the same 30s cache the
+      // HTTP path uses. A revoked session must lose its socket
+      // privileges too.
+      const tvOk = await isTokenVersionCurrent(decoded.id, decoded.tv);
+      if (!tvOk) return next();        // stale — fall through to anonymous
       socket.userId = decoded.id;
       socket.userOrgId = decoded.org_id;
       socket.userIsSystemAdmin = !!decoded.is_system_admin;

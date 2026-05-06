@@ -15,6 +15,46 @@ test("server.js syntax is valid", () => {
   execSync("node --check server.js", { stdio: "pipe" });
 });
 
+test("server.js loads cleanly (catches TDZ / missing-binding bugs)", () => {
+  // node --check above only validates parser-level syntax. It
+  // does NOT catch a `const x = x` self-reference, a missing
+  // import binding, or any other TDZ-class issue that explodes
+  // at module-evaluation time. We add this so a botched perl
+  // sweep across hundreds of call sites can't ship a server
+  // that won't boot. We pre-set every env var server.js insists
+  // on at boot so the load can complete without a real DB.
+  const env = {
+    ...process.env,
+    JWT_SECRET: "test_test_test_test_test_test_test_test",
+    DB_HOST: "127.0.0.1",
+    DB_PORT: "5432",
+    DB_NAME: "diverecorder_test",
+    DB_USER: "test",
+    DB_PASSWORD: "test",
+    NODE_ENV: "test",
+    SKIP_LISTEN: "1",        // honoured by server.js to skip server.listen()
+  };
+  const cmd = `node -e "process.env.SKIP_LISTEN='1'; require('./server.js')"`;
+  // We accept any exit status that proves module evaluation got
+  // past every top-level binding. server.js intentionally fails
+  // closed if it can't reach the DB on boot — but that's a
+  // runtime branch, not a load-time one. The TDZ failure we're
+  // guarding against would crash before even the env validation.
+  try {
+    execSync(cmd, { env, stdio: "pipe", timeout: 10_000 });
+  } catch (err) {
+    const out = String(err.stdout || "") + String(err.stderr || "");
+    // If we tripped a ReferenceError or "before initialization"
+    // the load itself was broken — fail the test.
+    if (/ReferenceError|before initialization|is not defined/i.test(out)) {
+      assert.fail("server.js failed to load:\n" + out);
+    }
+    // Anything else (DB pool errors, exit codes from the
+    // intentional fail-closed paths) is fine — the load itself
+    // succeeded, which is what we're verifying.
+  }
+});
+
 test("init.sql exists and is non-empty", () => {
   const p = path.join(__dirname, "..", "init.sql");
   assert.ok(fs.existsSync(p), "init.sql should exist at repo root");
