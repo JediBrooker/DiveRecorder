@@ -411,163 +411,21 @@ app.use(require("./routes/events")({
   meetHolds,
 }));
 
-// Event manager management
-app.get(
-  "/api/events/:id/managers",
+// =============================================================
+// EVENT STAFF — managers + judges + per-judge views
+// [SECTION: ROUTES — EVENT STAFF]
+// /api/events/:id/managers (CRUD), /api/events/:id/judges (panel
+// CRUD), /api/events/:eventId/my-judge-number, /api/judge/my-events
+// extracted into routes/event-staff.js.
+// =============================================================
+app.use(require("./routes/event-staff")({
+  pool,
+  requireOrgRole,
   requireMeetEditor,
-  async (req, res) => {
-    try {
-      if (!(await ensureEventOrgGate(req, res, "id"))) return;
-      const r = await pool.query(
-        `SELECT u.id, u.full_name, u.username, em.added_at
-       FROM event_managers em JOIN users u ON em.user_id = u.id
-       WHERE em.event_id = $1`,
-        [req.params.id],
-      );
-      res.json(r.rows);
-    } catch (err) {
-      res.status(500).json({ error: "Internal server error" });
-    }
-  },
-);
-
-app.post(
-  "/api/events/:id/managers",
-  requireEventManager(),
-  async (req, res) => {
-    const { user_id } = req.body || {};
-    try {
-      // The user being added must be in the same org as the event.
-      // Prevents a meet manager from elevating a foreign-org user
-      // into a managerial role on this event.
-      if (!(await isInSameOrg(pool, req.event.org_id, user_id, "users"))) {
-        return res.status(400).json({ error: "User is not in this event's organisation" });
-      }
-      await pool.query(
-        "INSERT INTO event_managers (event_id, user_id, added_by) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
-        [req.params.id, user_id, req.user.id],
-      );
-      res.json({ message: "Manager added" });
-    } catch (err) {
-      res.status(500).json({ error: "Internal server error" });
-    }
-  },
-);
-
-app.delete(
-  "/api/events/:id/managers/:userId",
-  requireEventManager(),
-  async (req, res) => {
-    try {
-      await pool.query(
-        "DELETE FROM event_managers WHERE event_id=$1 AND user_id=$2",
-        [req.params.id, req.params.userId],
-      );
-      res.json({ message: "Manager removed" });
-    } catch (err) {
-      res.status(500).json({ error: "Internal server error" });
-    }
-  },
-);
-
-// =============================================================
-// JUDGE ASSIGNMENT ROUTES
-// [SECTION: ROUTES — JUDGES]
-// =============================================================
-
-app.get(
-  "/api/events/:eventId/judges",
-  requireOrgRole(["org_admin", "meet_manager", "referee"]),
-  async (req, res) => {
-    try {
-      if (!(await ensureEventOrgGate(req, res, "eventId"))) return;
-      // Joined to users so the Control Room can label each judge
-      // tile with the actual person's name (helps the meet
-      // referee chase a slow submitter without checking the
-      // org panel separately).
-      const r = await pool.query(
-        `SELECT ej.judge_id, ej.judge_number, u.full_name
-         FROM event_judges ej
-         JOIN users u ON u.id = ej.judge_id
-         WHERE ej.event_id = $1
-         ORDER BY ej.judge_number ASC`,
-        [req.params.eventId],
-      );
-      res.json(r.rows); // [{ judge_id, judge_number, full_name }, ...]
-    } catch (err) {
-      res.status(500).json({ error: "Internal server error" });
-    }
-  },
-);
-
-app.post("/api/events/:id/judges", requireEventManager(), async (req, res) => {
-  const { judgeIds } = req.body || {}; // ordered array — position = judge number
-  if (!Array.isArray(judgeIds)) {
-    return res.status(400).json({ error: "judgeIds must be an array" });
-  }
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    // Every judge must belong to the event's org. One foreign judge
-    // means we reject the whole assignment — easier to surface the
-    // error than to silently drop part of the panel.
-    for (const jid of judgeIds) {
-      if (!(await isInSameOrg(client, req.event.org_id, jid, "users"))) {
-        await client.query("ROLLBACK");
-        return res.status(400).json({ error: "All judges must belong to the event's organisation" });
-      }
-    }
-    await client.query("DELETE FROM event_judges WHERE event_id = $1", [
-      req.params.id,
-    ]);
-    for (let i = 0; i < judgeIds.length; i++) {
-      await client.query(
-        "INSERT INTO event_judges (event_id, judge_id, judge_number) VALUES ($1,$2,$3)",
-        [req.params.id, judgeIds[i], i + 1], // 1-based judge number
-      );
-    }
-    await client.query("COMMIT");
-    res.json({ message: "Judges assigned" });
-  } catch (err) {
-    await client.query("ROLLBACK");
-    res.status(500).json({ error: "Internal server error" });
-  } finally {
-    client.release();
-  }
-});
-
-// Returns this judge's assigned number for a specific event
-app.get(
-  "/api/events/:eventId/my-judge-number",
-  requireOrgRole(["judge"]),
-  async (req, res) => {
-    try {
-      const r = await pool.query(
-        "SELECT judge_number FROM event_judges WHERE event_id = $1 AND judge_id = $2",
-        [req.params.eventId, req.user.id],
-      );
-      if (!r.rows.length)
-        return res.status(404).json({ error: "Not assigned to this event" });
-      res.json({ judge_number: r.rows[0].judge_number });
-    } catch (err) {
-      res.status(500).json({ error: "Internal server error" });
-    }
-  },
-);
-
-app.get("/api/judge/my-events", requireOrgRole(["judge"]), async (req, res) => {
-  try {
-    const r = await pool.query(
-      `SELECT e.id, e.name, e.number_of_judges, e.total_rounds, e.status
-       FROM events e JOIN event_judges ej ON e.id = ej.event_id
-       WHERE ej.judge_id = $1 ORDER BY e.created_at DESC`,
-      [req.user.id],
-    );
-    res.json(r.rows);
-  } catch (err) {
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
+  requireEventManager,
+  ensureEventOrgGate,
+  isInSameOrg,
+}));
 
 // =============================================================
 // CONTROL ROOM ROUTES
@@ -596,108 +454,22 @@ app.use(require("./routes/control-room")({
 app.use(require("./routes/scoreboard")({ pool, scoreboardCache }));
 
 // =============================================================
-// SCORE CORRECTION
-// [SECTION: ROUTES — SCOREBOARD]
-// Manager / referee amends a previously-submitted score (judge
-// typo, scoring dispute resolution). Goes through the same
-// score_audit_log plumbing the live submit path uses, then
-// broadcasts a `score_corrected` socket event so any live
-// scoreboard / Control Room re-fetches the standings.
+// SCORE CORRECTION + AUDIT LOG
+// [SECTION: ROUTES — SCORE CORRECTION]
+// PUT /api/scores/:id (manager / referee amends a score) and
+// GET /api/events/:id/score-audit (audit trail) extracted into
+// routes/score-correction.js. The HTTP correction handler also
+// invalidates scoreboardCache and broadcasts a `score_corrected`
+// socket event to the event's room — needs both io and the
+// cache as factory deps.
 // =============================================================
-
-app.put(
-  "/api/scores/:id",
-  requireOrgRole(["org_admin", "meet_manager", "referee"]),
-  async (req, res) => {
-    const { score, reason } = req.body || {};
-    const newScore = Number(score);
-    if (Number.isNaN(newScore) || newScore < 0 || newScore > 10) {
-      return res.status(400).json({ error: "Score must be between 0 and 10" });
-    }
-    if (((newScore * 2) % 1) !== 0) {
-      return res.status(400).json({ error: "Score must be in 0.5 increments" });
-    }
-    try {
-      const prior = await pool.query(
-        "SELECT id, score, event_id, competitor_id, judge_id, round_number FROM scores WHERE id = $1",
-        [req.params.id],
-      );
-      if (!prior.rows.length) {
-        return res.status(404).json({ error: "Score not found" });
-      }
-      const existing = prior.rows[0];
-
-      // Org guard: the score must belong to an event in the
-      // caller's org. sysadmin can correct scores in any org.
-      const ev = await pool.query(
-        "SELECT org_id FROM events WHERE id = $1",
-        [existing.event_id],
-      );
-      if (!ev.rows.length) {
-        return res.status(404).json({ error: "Event not found" });
-      }
-      if (!req.user.is_system_admin && ev.rows[0].org_id !== req.user.org_id) {
-        return res.status(403).json({ error: "Cannot correct scores in other organisations" });
-      }
-
-      const oldScore = Number(existing.score);
-      if (oldScore === newScore) {
-        return res.json({ ok: true, unchanged: true });
-      }
-
-      await pool.query("UPDATE scores SET score = $1 WHERE id = $2", [newScore, existing.id]);
-      try {
-        // The `reason` column was added in migration 018. Cap the
-        // free-text length so a malicious / accidentally-pasted
-        // multi-MB blob can't bloat the audit table.
-        const trimmedReason = typeof reason === "string"
-          ? reason.trim().slice(0, 500)
-          : null;
-        await pool.query(
-          `INSERT INTO score_audit_log
-             (score_id, event_id, competitor_id, judge_id, round_number,
-              action, old_score, new_score, actor_user_id, ip_address,
-              user_agent, reason)
-           VALUES ($1,$2,$3,$4,$5,'update',$6,$7,$8,$9,$10,$11)`,
-          [
-            existing.id, existing.event_id, existing.competitor_id,
-            existing.judge_id, existing.round_number,
-            oldScore, newScore, req.user.id,
-            req.ip, req.headers["user-agent"] || null,
-            trimmedReason || null,
-          ],
-        );
-      } catch (auditErr) {
-        console.error("[Score Correction Audit Skipped]", auditErr.message);
-      }
-
-      // Flush the cached scoreboard payload so the next
-      // re-pull rebuilds with the corrected score. Without this
-      // the broadcast below tells viewers to re-fetch but the
-      // first ~5s of those fetches would hit the stale cache.
-      scoreboardCache.invalidate(existing.event_id);
-
-      // Broadcast so live consumers re-pull standings. Spectators
-      // viewing the recap or live scoreboard will see the
-      // corrected total without a manual refresh.
-      io.to(`event:${existing.event_id}`).emit("score_corrected", {
-        event_id: existing.event_id,
-        competitor_id: existing.competitor_id,
-        round_number: existing.round_number,
-        score_id: existing.id,
-        old_score: oldScore,
-        new_score: newScore,
-        reason: reason || null,
-        actor_user_id: req.user.id,
-      });
-
-      res.json({ ok: true, old_score: oldScore, new_score: newScore });
-    } catch (err) {
-      console.error("[Score Correction Error]", err.message);
-      res.status(500).json({ error: "Internal server error" });
-    }
-  },
-);
+app.use(require("./routes/score-correction")({
+  pool,
+  io,
+  scoreboardCache,
+  requireOrgRole,
+  requireEventManager,
+}));
 
 // =============================================================
 // LIVE STATE — activeDivers + meetHolds
@@ -720,135 +492,21 @@ app.use(require("./routes/templates")({ pool, verifyToken }));
 // =============================================================
 // COMPETITOR ROUTES
 // [SECTION: ROUTES — COMPETITOR]
+// /api/competitor/submit-list extracted into routes/competitor.js.
 // =============================================================
-
-app.post(
-  "/api/competitor/submit-list",
+app.use(require("./routes/competitor")({
+  pool,
+  requireOrgRole,
   bulkWriteLimiter,
-  requireOrgRole(["diver"]),
-  async (req, res) => {
-    const { event_id, dives, partner_id } = req.body || {};
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-
-      // First confirm the event exists, belongs to the diver's own
-      // organisation, AND is still accepting entries (not started,
-      // not past its entries_close_at deadline). Without the org
-      // check a diver could submit against any event ID they can
-      // guess and pollute another org's roster; without the
-      // accepting-entries check a diver could keep editing their
-      // list mid-event or after the manager closed registration.
-      const gate = await loadEventForEntries(client, event_id);
-      if (gate.error) {
-        await client.query("ROLLBACK");
-        return res.status(gate.status).json({ error: gate.error });
-      }
-      const evRow = gate.event;
-      if (evRow.org_id !== req.user.org_id && !req.user.is_system_admin) {
-        await client.query("ROLLBACK");
-        return res.status(403).json({ error: "Event is not in your organisation" });
-      }
-      const eventType = evRow.event_type || "individual";
-      const totalRounds = Number(evRow.total_rounds) || null;
-
-      // Sanity-check the dives array — must be a non-empty list of
-      // {dive_id, round_number} with no duplicate rounds and round
-      // numbers within range.
-      if (!Array.isArray(dives) || !dives.length) {
-        await client.query("ROLLBACK");
-        return res.status(400).json({ error: "dives must be a non-empty array" });
-      }
-      const seenRounds = new Set();
-      for (const d of dives) {
-        const rn = Number(d?.round_number);
-        if (!Number.isInteger(rn) || rn < 1) {
-          await client.query("ROLLBACK");
-          return res.status(400).json({ error: "Each dive needs an integer round_number ≥ 1" });
-        }
-        if (totalRounds && rn > totalRounds) {
-          await client.query("ROLLBACK");
-          return res.status(400).json({ error: `round_number ${rn} exceeds total_rounds ${totalRounds}` });
-        }
-        if (seenRounds.has(rn)) {
-          await client.query("ROLLBACK");
-          return res.status(400).json({ error: `Duplicate round_number ${rn}` });
-        }
-        seenRounds.add(rn);
-        if (!d.dive_id) {
-          await client.query("ROLLBACK");
-          return res.status(400).json({ error: "Each dive needs a dive_id" });
-        }
-      }
-
-      // For synchro events, validate the partner exists, isn't
-      // the user themselves, and is a diver in the same org.
-      let resolvedPartnerId = null;
-      if (eventType === "synchro_pair") {
-        if (!partner_id || partner_id === req.user.id) {
-          await client.query("ROLLBACK");
-          return res.status(400).json({
-            error: "A different partner is required for synchronised events",
-          });
-        }
-        const p = await client.query(
-          `SELECT u.id FROM users u
-           JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id AND r.role = 'diver'
-           WHERE u.id = $1 AND u.org_id = $2`,
-          [partner_id, req.user.org_id],
-        );
-        if (!p.rows.length) {
-          await client.query("ROLLBACK");
-          return res
-            .status(400)
-            .json({ error: "Partner must be a diver in your organisation" });
-        }
-        resolvedPartnerId = partner_id;
-      }
-
-      for (const dive of dives) {
-        await client.query(
-          `INSERT INTO competitor_dive_lists (competitor_id, partner_id, event_id, dive_id, round_number)
-           VALUES ($1,$2,$3,$4,$5)`,
-          [
-            req.user.id,
-            resolvedPartnerId,
-            event_id,
-            dive.dive_id,
-            dive.round_number,
-          ],
-        );
-      }
-      await client.query("COMMIT");
-      res.json({ message: "Dive list submitted" });
-    } catch (err) {
-      await client.query("ROLLBACK");
-      console.error("[Submit List Error]", err.message);
-      res
-        .status(500)
-        .json({ error: err.detail || "Failed to submit dive list" });
-    } finally {
-      client.release();
-    }
-  },
-);
+  loadEventForEntries,
+}));
 
 // =============================================================
 // DIVE DIRECTORY
 // [SECTION: ROUTES — DIVE DIRECTORY]
+// /api/dive-directory extracted into routes/dive-directory.js.
 // =============================================================
-
-app.get("/api/dive-directory", verifyToken, async (req, res) => {
-  try {
-    const r = await pool.query(
-      "SELECT * FROM dive_directory ORDER BY dive_code ASC, height ASC",
-    );
-    res.json(r.rows);
-  } catch (err) {
-    res.status(500).json([]);
-  }
-});
-
+app.use(require("./routes/dive-directory")({ pool, verifyToken }));
 
 // =============================================================
 // DIVER PROFILE & HISTORY
@@ -863,45 +521,6 @@ app.use(require("./routes/diver-profile")({
   verifyToken,
   parseDateRange,
 }));
-
-// =============================================================
-// SCORE AUDIT LOG — meet manager / org_admin / system_admin
-// Returns the chronological audit trail for an event so disputes
-// can be resolved with a complete record of who submitted what.
-// =============================================================
-
-app.get(
-  "/api/events/:id/score-audit",
-  requireEventManager(),
-  async (req, res) => {
-    try {
-      const r = await pool.query(
-        `SELECT a.id, a.score_id, a.round_number, a.action,
-                a.old_score, a.new_score,
-                a.ip_address::text AS ip_address,
-                a.user_agent, a.reason, a.created_at,
-                a.competitor_id, comp.full_name AS competitor_name,
-                a.judge_id,      jud.full_name  AS judge_name,
-                ej.judge_number,
-                a.actor_user_id, act.full_name  AS actor_name
-         FROM score_audit_log a
-         LEFT JOIN users comp ON comp.id = a.competitor_id
-         LEFT JOIN users jud  ON jud.id  = a.judge_id
-         LEFT JOIN users act  ON act.id  = a.actor_user_id
-         LEFT JOIN event_judges ej
-           ON ej.event_id = a.event_id AND ej.judge_id = a.judge_id
-         WHERE a.event_id = $1
-         ORDER BY a.created_at DESC, a.id DESC
-         LIMIT 1000`,
-        [req.params.id],
-      );
-      res.json(r.rows);
-    } catch (err) {
-      console.error("[Audit Log Error]", err.message);
-      res.status(500).json({ error: "Failed to load audit log" });
-    }
-  },
-);
 
 // =============================================================
 // RECORDS
