@@ -1,0 +1,488 @@
+// Socket engine — every io.on / socket.on handler the app uses.
+// Extracted from server.js as part of the Phase-3 split. Factory
+// signature mirrors the rest of the route modules: pass in the
+// pieces it needs and the function attaches handlers to `io`.
+//
+// Wires up:
+//   * io.use(handshake)          — soft JWT verify, stash userId,
+//                                   org_id, roles, sysadmin flag,
+//                                   honour token_version (Migration 021)
+//   * connection                 — broadcast current activeDivers,
+//                                   join event rooms, register events
+//   * subscribe_event            — explicit room join
+//   * set_active_diver           — driven by Control Room
+//   * get_active_diver           — on-demand pull for late joiners
+//   * submit_score               — judge scoring (transactional)
+//   * announce_score             — Control Room "say it on screen"
+//   * referee_failed_dive / cap_scores / redive
+//   * meet_hold / meet_resume / get_meet_hold
+//
+// All event-scoped emits use io.to(`event:${id}`) so two
+// concurrent meets on the same instance don't cross-leak score
+// events to each other's spectators.
+//
+// Per-event authz comes from socketCanManageEvent — verifies the
+// event belongs to the caller's org or that they have an
+// event_managers row. Rate limiting is per-(action, user) so a
+// single role-holder can't spam meet_hold cycles.
+
+const jwt = require("jsonwebtoken");
+
+module.exports = function attachSocket({
+  io,
+  pool,
+  JWT_SECRET,
+  // From lib/middleware:
+  socketRequireRole,        // currently re-exported but no longer
+                            // used directly — every privileged event
+                            // calls socketCanManageEvent now.
+  socketCanManageEvent,
+  isValidScore,
+  isTokenVersionCurrent,
+  // From lib/records:
+  checkAndApplyRecords,
+  // From lib/live-state:
+  activeDivers,
+  meetHolds,
+}) {
+  if (!io || !pool || !JWT_SECRET) {
+    throw new Error("attachSocket requires { io, pool, JWT_SECRET, … }");
+  }
+  // Avoid an unused-var lint warning while still naming the
+  // dependency at the call site for clarity.
+  void socketRequireRole;
+
+  // -----------------------------------------------------------
+  // Handshake — soft JWT verify
+  // -----------------------------------------------------------
+  // We don't reject — spectators connect with no token — but if a
+  // valid token is present we stash the user id on the socket so
+  // privileged events can be attributed to a verified user.
+  io.use(async (socket, next) => {
+    const raw = socket.handshake.auth?.token;
+    if (raw && raw !== "spectator") {
+      try {
+        const decoded = jwt.verify(raw, JWT_SECRET);
+        // Validate tv via the same 30s cache the HTTP path uses.
+        // A revoked session must lose its socket privileges too.
+        const tvOk = await isTokenVersionCurrent(decoded.id, decoded.tv);
+        if (!tvOk) return next();        // stale — fall through to anonymous
+        socket.userId = decoded.id;
+        socket.userOrgId = decoded.org_id;
+        socket.userIsSystemAdmin = !!decoded.is_system_admin;
+        socket.userOrgRoles = decoded.org_roles || [];
+      } catch {
+        // Invalid token — treat as anonymous (spectator).
+      }
+    }
+    next();
+  });
+
+  // -----------------------------------------------------------
+  // XFF / IP — mirror the Express side's TRUST_PROXY chain
+  // length so audit-log IPs aren't trivially forgeable.
+  // -----------------------------------------------------------
+  const TRUST_PROXY_HOPS = (() => {
+    const raw = process.env.TRUST_PROXY;
+    if (raw === undefined || raw === "" || raw === "true") return 1;
+    if (raw === "false" || raw === "0") return 0;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n >= 0 ? n : 1;
+  })();
+
+  function clientIp(socket) {
+    const fwd = socket.handshake.headers["x-forwarded-for"];
+    if (fwd && TRUST_PROXY_HOPS > 0) {
+      const parts = fwd.split(",").map((s) => s.trim()).filter(Boolean);
+      const idx = Math.max(0, parts.length - 1 - TRUST_PROXY_HOPS);
+      if (parts[idx]) return parts[idx];
+      if (parts[0]) return parts[0];
+    }
+    return socket.handshake.address || null;
+  }
+
+  // -----------------------------------------------------------
+  // Rate limiters (per-judge for scores, per-(action,user) for
+  // every other privileged event)
+  // -----------------------------------------------------------
+  const SCORE_LIMIT = 60;
+  const SCORE_WINDOW_MS = 60 * 1000;
+  const scoreSubmissions = new Map();   // judgeId → array of timestamps
+
+  function judgeIsRateLimited(judgeId) {
+    if (!judgeId) return false;
+    const now = Date.now();
+    const cutoff = now - SCORE_WINDOW_MS;
+    const arr = (scoreSubmissions.get(judgeId) || []).filter((t) => t > cutoff);
+    if (arr.length >= SCORE_LIMIT) {
+      scoreSubmissions.set(judgeId, arr);
+      return true;
+    }
+    arr.push(now);
+    scoreSubmissions.set(judgeId, arr);
+    return false;
+  }
+
+  const SOCKET_ACTION_LIMITS = {
+    meet_hold:        { limit: 10, windowMs: 60 * 1000 },
+    meet_resume:      { limit: 10, windowMs: 60 * 1000 },
+    set_active_diver: { limit: 60, windowMs: 60 * 1000 },
+    referee_action:   { limit: 30, windowMs: 60 * 1000 },
+    announce_score:   { limit: 30, windowMs: 60 * 1000 },
+  };
+  const socketActionWindows = new Map();   // `${action}:${userId}` → [t,…]
+
+  function socketActionRateLimited(action, userId) {
+    const cfg = SOCKET_ACTION_LIMITS[action];
+    if (!cfg || !userId) return false;
+    const key = `${action}:${userId}`;
+    const now = Date.now();
+    const cutoff = now - cfg.windowMs;
+    const arr = (socketActionWindows.get(key) || []).filter((t) => t > cutoff);
+    if (arr.length >= cfg.limit) {
+      socketActionWindows.set(key, arr);
+      return true;
+    }
+    arr.push(now);
+    socketActionWindows.set(key, arr);
+    return false;
+  }
+
+  // Periodic cleanup so the maps don't grow forever.
+  setInterval(() => {
+    const cutoff = Date.now() - SCORE_WINDOW_MS;
+    for (const [judgeId, arr] of scoreSubmissions.entries()) {
+      const fresh = arr.filter((t) => t > cutoff);
+      if (fresh.length === 0) scoreSubmissions.delete(judgeId);
+      else scoreSubmissions.set(judgeId, fresh);
+    }
+    const maxWindow = Math.max(...Object.values(SOCKET_ACTION_LIMITS).map(c => c.windowMs));
+    const actionCutoff = Date.now() - maxWindow;
+    for (const [key, arr] of socketActionWindows.entries()) {
+      const fresh = arr.filter((t) => t > actionCutoff);
+      if (fresh.length === 0) socketActionWindows.delete(key);
+      else socketActionWindows.set(key, fresh);
+    }
+  }, 5 * 60 * 1000).unref?.();
+
+  // -----------------------------------------------------------
+  // Connection
+  // -----------------------------------------------------------
+  io.on("connection", (socket) => {
+    console.log(`[Socket] Connected: ${socket.id}`);
+
+    // Helper: clients join `event:${id}` rooms when they
+    // subscribe to an event (via get_active_diver, get_meet_hold,
+    // or by explicit `subscribe_event`).
+    function joinEvent(eventId) {
+      if (!eventId) return;
+      socket.join(`event:${eventId}`);
+    }
+    socket.on("subscribe_event", (data) => joinEvent(data?.event_id));
+
+    // Bring late-arriving clients up to speed with whatever's
+    // currently live.
+    if (Object.keys(activeDivers).length > 0) {
+      Object.values(activeDivers).forEach((state) => {
+        socket.emit("state_update", state);
+      });
+    }
+
+    socket.on("set_active_diver", async (data) => {
+      if (!(await socketCanManageEvent(socket, data?.event_id,
+                                       ["meet_manager", "referee", "org_admin"]))) return;
+      if (socketActionRateLimited("set_active_diver", socket.userId)) return;
+      if (data.event_id) activeDivers[data.event_id] = data;
+      io.to(`event:${data.event_id}`).emit("state_update", data);
+    });
+
+    socket.on("get_active_diver", (data) => {
+      if (!data?.event_id) return;
+      joinEvent(data.event_id);
+      const state = activeDivers[data.event_id];
+      if (state) socket.emit("state_update", state);
+    });
+
+    // -----------------------------------------------------------
+    // submit_score — fully transactional. Prior-row read with
+    // FOR UPDATE → upsert → audit insert, all in one txn so the
+    // audit row is durable iff the score is. Sysadmin policy:
+    // even sysadmins must be on the panel; judge_number always
+    // comes from the DB row, never from the wire. dive_id
+    // resolved server-side from competitor_dive_lists so a stale
+    // client can't smuggle in the wrong dive's DD.
+    // -----------------------------------------------------------
+    socket.on("submit_score", async (data) => {
+      if (!socket.userId) {
+        socket.emit("score_rejected", {
+          reason: "not_authenticated",
+          message: "You must be signed in to submit scores.",
+        });
+        return;
+      }
+      const judgeId = socket.userId;
+      const roles = socket.userOrgRoles || [];
+      if (!socket.userIsSystemAdmin
+          && !roles.includes("judge")
+          && !roles.includes("referee")) {
+        socket.emit("score_rejected", { reason: "insufficient_role" });
+        return;
+      }
+      if (!data?.event_id || !data?.competitor_id) {
+        socket.emit("score_rejected", { reason: "bad_payload" });
+        return;
+      }
+      const round = Number(data.round_number);
+      if (!Number.isInteger(round) || round < 1) {
+        socket.emit("score_rejected", { reason: "bad_round" });
+        return;
+      }
+      if (!isValidScore(data.score)) {
+        socket.emit("score_rejected", {
+          reason: "bad_score",
+          message: "Score must be between 0 and 10 in 0.5 increments.",
+        });
+        return;
+      }
+      if (judgeIsRateLimited(judgeId)) {
+        console.warn(`[Score] Rate limit exceeded for judge ${judgeId}`);
+        socket.emit("score_rejected", {
+          reason: "rate_limited",
+          message: "Slow down — too many submissions in the last minute.",
+        });
+        return;
+      }
+      const score = Number(data.score);
+
+      const client = await pool.connect();
+      let scoreId, judgeNumber, oldScore = null, isInsert = true;
+      try {
+        await client.query("BEGIN");
+
+        const jnRes = await client.query(
+          "SELECT judge_number FROM event_judges WHERE event_id = $1 AND judge_id = $2",
+          [data.event_id, judgeId],
+        );
+        if (!jnRes.rows.length) {
+          await client.query("ROLLBACK");
+          socket.emit("score_rejected", {
+            reason: "not_on_panel",
+            message: "You're not on the judging panel for this event.",
+          });
+          return;
+        }
+        judgeNumber = jnRes.rows[0].judge_number;
+
+        const dvRes = await client.query(
+          `SELECT dive_id FROM competitor_dive_lists
+           WHERE event_id = $1 AND competitor_id = $2 AND round_number = $3`,
+          [data.event_id, data.competitor_id, round],
+        );
+        const resolvedDiveId = dvRes.rows[0]?.dive_id ?? data.dive_id ?? null;
+
+        const prior = await client.query(
+          `SELECT id, score FROM scores
+           WHERE event_id=$1 AND competitor_id=$2 AND round_number=$3 AND judge_id=$4
+           FOR UPDATE`,
+          [data.event_id, data.competitor_id, round, judgeId],
+        );
+        const existing = prior.rows[0] || null;
+        isInsert = !existing;
+        oldScore = existing ? Number(existing.score) : null;
+
+        const upsert = await client.query(
+          `INSERT INTO scores (event_id, competitor_id, judge_id, dive_id, round_number, score)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (event_id, competitor_id, round_number, judge_id)
+           DO UPDATE SET score = EXCLUDED.score, status = 'active'
+           RETURNING id`,
+          [
+            data.event_id, data.competitor_id, judgeId,
+            resolvedDiveId, round, score,
+          ],
+        );
+        scoreId = upsert.rows[0].id;
+
+        if (isInsert || oldScore !== score) {
+          await client.query(
+            `INSERT INTO score_audit_log
+               (score_id, event_id, competitor_id, judge_id, round_number,
+                action, old_score, new_score, actor_user_id, ip_address, user_agent)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            [
+              scoreId, data.event_id, data.competitor_id, judgeId, round,
+              isInsert ? "insert" : "update",
+              oldScore, score,
+              socket.userId, clientIp(socket),
+              socket.handshake.headers["user-agent"] || null,
+            ],
+          );
+        }
+
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        console.error("[Score Persist Error]", err.message);
+        socket.emit("score_rejected", { reason: "server_error" });
+        return;
+      } finally {
+        client.release();
+      }
+
+      io.to(`event:${data.event_id}`).emit("score_received", {
+        ...data,
+        dive_id: undefined,         // don't leak whatever the client sent
+        judge_id: judgeId,
+        judge_number: judgeNumber,
+      });
+
+      checkAndApplyRecords({
+        eventId:      data.event_id,
+        competitorId: data.competitor_id,
+        roundNumber:  round,
+      }).then((broken) => {
+        for (const b of broken) {
+          io.to(`event:${data.event_id}`).emit("record_broken", b);
+        }
+      }).catch((e) => console.error("[Records broadcast]", e.message));
+    });
+
+    socket.on("announce_score", async (data) => {
+      if (!(await socketCanManageEvent(socket, data?.event_id,
+                                       ["meet_manager", "referee", "org_admin"]))) return;
+      if (socketActionRateLimited("announce_score", socket.userId)) return;
+      io.to(`event:${data.event_id}`).emit("final_score_announced", data);
+    });
+
+    // -----------------------------------------------------------
+    // Referee actions — UPDATE the actual scores AND persist to
+    // score_audit_log. 'failed' → 0; 'cap' → LEAST(score, cap);
+    // 'redive' → no score change (new dive overwrites via
+    // submit_score on the same UNIQUE key).
+    // -----------------------------------------------------------
+    async function applyRefereeAction(action, data, actorUserId) {
+      if (!data?.event_id || !data?.competitor_id || !data?.round_number) return;
+      let capValue = 2.0;
+      if (action === "cap") {
+        const raw = Number(data.cap_value);
+        if (!Number.isFinite(raw) || raw < 0 || raw > 10) {
+          socket.emit("referee_action_rejected", {
+            reason: "bad_cap_value",
+            message: "cap_value must be between 0 and 10.",
+          });
+          return;
+        }
+        capValue = raw;
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        if (action === "failed") {
+          await client.query(
+            `UPDATE scores SET score = 0
+             WHERE event_id = $1 AND competitor_id = $2 AND round_number = $3`,
+            [data.event_id, data.competitor_id, data.round_number],
+          );
+        } else if (action === "cap") {
+          await client.query(
+            `UPDATE scores SET score = LEAST(score, $4::numeric)
+             WHERE event_id = $1 AND competitor_id = $2 AND round_number = $3`,
+            [data.event_id, data.competitor_id, data.round_number, capValue],
+          );
+        }
+        await client.query(
+          `INSERT INTO score_audit_log
+             (score_id, event_id, competitor_id, judge_id, round_number,
+              action, old_score, new_score, actor_user_id, ip_address, user_agent, reason)
+           SELECT s.id, s.event_id, s.competitor_id, s.judge_id, s.round_number,
+                  'update', s.score, s.score,
+                  $4, $5, $6, $7
+           FROM scores s
+           WHERE s.event_id = $1 AND s.competitor_id = $2 AND s.round_number = $3`,
+          [
+            data.event_id, data.competitor_id, data.round_number,
+            actorUserId || null,
+            clientIp(socket),
+            socket.handshake.headers["user-agent"] || null,
+            `referee:${action}` + (action === "cap" ? `(${capValue})` : ""),
+          ],
+        );
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("[Referee Action Failed]", err.message);
+        socket.emit("referee_action_rejected", { reason: "server_error" });
+        return;
+      } finally {
+        client.release();
+      }
+      return true;
+    }
+
+    socket.on("referee_failed_dive", async (data) => {
+      if (!(await socketCanManageEvent(socket, data?.event_id,
+                                       ["referee", "meet_manager", "org_admin"]))) return;
+      if (socketActionRateLimited("referee_action", socket.userId)) return;
+      if (!(await applyRefereeAction("failed", data, socket.userId))) return;
+      io.to(`event:${data.event_id}`).emit("referee_action_failed", data);
+      io.to(`event:${data.event_id}`).emit("score_corrected", {
+        event_id: data.event_id,
+        competitor_id: data.competitor_id,
+        round_number: data.round_number,
+        reason: "referee:failed",
+      });
+    });
+    socket.on("referee_cap_scores", async (data) => {
+      if (!(await socketCanManageEvent(socket, data?.event_id,
+                                       ["referee", "meet_manager", "org_admin"]))) return;
+      if (socketActionRateLimited("referee_action", socket.userId)) return;
+      if (!(await applyRefereeAction("cap", data, socket.userId))) return;
+      io.to(`event:${data.event_id}`).emit("referee_action_cap", data);
+      io.to(`event:${data.event_id}`).emit("score_corrected", {
+        event_id: data.event_id,
+        competitor_id: data.competitor_id,
+        round_number: data.round_number,
+        reason: `referee:cap(${data.cap_value || 2.0})`,
+      });
+    });
+    socket.on("referee_redive", async (data) => {
+      if (!(await socketCanManageEvent(socket, data?.event_id,
+                                       ["referee", "meet_manager", "org_admin"]))) return;
+      if (socketActionRateLimited("referee_action", socket.userId)) return;
+      if (!(await applyRefereeAction("redive", data, socket.userId))) return;
+      io.to(`event:${data.event_id}`).emit("referee_action_redive", data);
+    });
+
+    // -----------------------------------------------------------
+    // Hold / resume the meet
+    // -----------------------------------------------------------
+    socket.on("meet_hold", async (data) => {
+      if (!(await socketCanManageEvent(socket, data?.event_id,
+                                       ["meet_manager", "referee", "org_admin"]))) return;
+      if (socketActionRateLimited("meet_hold", socket.userId)) return;
+      meetHolds[data.event_id] = {
+        reason: data.reason || null,
+        since: Date.now(),
+      };
+      io.to(`event:${data.event_id}`).emit("meet_held",
+        { event_id: data.event_id, ...meetHolds[data.event_id] });
+    });
+    socket.on("meet_resume", async (data) => {
+      if (!(await socketCanManageEvent(socket, data?.event_id,
+                                       ["meet_manager", "referee", "org_admin"]))) return;
+      if (socketActionRateLimited("meet_resume", socket.userId)) return;
+      delete meetHolds[data.event_id];
+      io.to(`event:${data.event_id}`).emit("meet_resumed", { event_id: data.event_id });
+    });
+    socket.on("get_meet_hold", (data) => {
+      if (!data?.event_id) return;
+      joinEvent(data.event_id);
+      const state = meetHolds[data.event_id];
+      if (state) socket.emit("meet_held", { event_id: data.event_id, ...state });
+    });
+
+    socket.on("disconnect", () =>
+      console.log(`[Socket] Disconnected: ${socket.id}`),
+    );
+  });
+};
