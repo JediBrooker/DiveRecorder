@@ -29,7 +29,7 @@ cd "$(dirname "$0")"
 
 # ---- Config ---------------------------------------------------
 # Adjust these to match your environment.
-PM2_PROCESS_NAME="diverecorder"
+PM2_PROCESS_NAME="dive-recorder"
 HEALTH_URL="http://127.0.0.1:3000/api/health"
 HEALTH_TIMEOUT_S=10            # max time to wait for the service to come up
 

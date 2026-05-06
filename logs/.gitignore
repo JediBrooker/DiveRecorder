@@ -1,0 +1,4 @@
+# Keep the directory present in git so pm2 can write to it on a
+# fresh checkout, but ignore every log file we drop in here.
+*
+!.gitignore
