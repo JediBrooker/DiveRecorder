@@ -3,17 +3,28 @@
 // Postgres connection. The functions are pure and deterministic
 // so we use known FINA-rule examples and assert exact outputs.
 //
-// Connection: uses standard libpq env vars (PGHOST, PGUSER,
-// PGPASSWORD, PGDATABASE) or DATABASE_URL. Tests skip with a
-// console warning if no DB is reachable, so a local dev without
-// Postgres can still `npm test` without failures — CI runs
-// against a Postgres service container.
+// Connection: prefers the app's own DB_* env vars (the ones
+// .env.example documents) and falls back to libpq's PG* names so
+// CI's Postgres service container keeps working unchanged. Empty
+// new Pool() would only see PG* — that's a subtle trap on a dev
+// box where .env has DB_* and the password looks "set" but the
+// Pool gets undefined and pg throws a confusing SASL error.
+// dotenv loaded so the local .env actually reaches us.
 
+require("dotenv").config();
 const { test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const { Pool } = require("pg");
 
-const pool = new Pool();
+const pool = process.env.DATABASE_URL
+  ? new Pool({ connectionString: process.env.DATABASE_URL })
+  : new Pool({
+      user:     process.env.DB_USER     || process.env.PGUSER,
+      host:     process.env.DB_HOST     || process.env.PGHOST,
+      database: process.env.DB_DATABASE || process.env.PGDATABASE,
+      password: process.env.DB_PASSWORD || process.env.PGPASSWORD,
+      port:     process.env.DB_PORT     || process.env.PGPORT,
+    });
 let dbReachable = true;
 
 before(async () => {

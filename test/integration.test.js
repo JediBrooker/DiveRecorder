@@ -54,7 +54,21 @@ let diverIds = [];
 let judgeIds = [];
 
 before(async () => {
-  pool = new Pool();
+  // Prefer the app's documented DB_* env vars; fall back to
+  // libpq's PG* names so CI's Postgres service container keeps
+  // working unchanged. Without this, an empty `new Pool()` would
+  // only see PG* — and a dev with .env using DB_* would get a
+  // confusing "client password must be a string" SASL error
+  // instead of the friendly "skip" message.
+  pool = process.env.DATABASE_URL
+    ? new Pool({ connectionString: process.env.DATABASE_URL })
+    : new Pool({
+        user:     process.env.DB_USER     || process.env.PGUSER,
+        host:     process.env.DB_HOST     || process.env.PGHOST,
+        database: process.env.DB_DATABASE || process.env.PGDATABASE,
+        password: process.env.DB_PASSWORD || process.env.PGPASSWORD,
+        port:     process.env.DB_PORT     || process.env.PGPORT,
+      });
   try {
     await pool.query("SELECT 1");
   } catch (err) {
