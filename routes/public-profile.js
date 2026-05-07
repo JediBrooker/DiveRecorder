@@ -22,6 +22,14 @@
 //   app.use(require('./routes/public-profile')({ … }))
 
 const express = require("express");
+const sharp = require("sharp");
+
+// In-memory cache of rendered OG cards. Each crawler hits the
+// og:image once per share-to-cache (Twitter / FB / LinkedIn all
+// behave this way), so a small LRU is plenty. Bounded by the
+// 1h TTL + the on-demand recomputation when stats change.
+const ogCardCache = new Map();   // public_slug → { png, expiresAt }
+const OG_CARD_TTL_MS = 60 * 60 * 1000;
 
 // Crawler UA detection. Matched anywhere in the User-Agent
 // string. Conservative — we'd rather mis-serve OG-tagged HTML
@@ -187,6 +195,127 @@ module.exports = function createPublicProfileRouter({ pool, readPool }) {
   });
 
   // -------------------------------------------------------------
+  // GET /api/public/divers/:public_slug/og-card.png
+  //
+  // Per-diver social-preview image for og:image. 1200×630 (the
+  // FB / Twitter / LinkedIn sweet spot), branded gradient
+  // background, name + org + best-PB headline. Generated on
+  // demand via sharp's SVG-to-PNG renderer; results cached in
+  // memory for an hour to keep the response fast on warm
+  // crawlers.
+  //
+  // No PII — same data the public profile endpoint already
+  // exposes, just rendered as pixels instead of JSON.
+  // -------------------------------------------------------------
+  router.get("/api/public/divers/:public_slug/og-card.png", async (req, res) => {
+    const slug = req.params.public_slug;
+    if (!/^[0-9a-f]{32}$/i.test(slug)) return res.status(404).end();
+
+    // Cache hit — serve straight from memory.
+    const cached = ogCardCache.get(slug);
+    if (cached && cached.expiresAt > Date.now()) {
+      res.set("Content-Type", "image/png");
+      res.set("Cache-Control", "public, max-age=3600");
+      return res.end(cached.png);
+    }
+
+    try {
+      // Diver row + their best single dive total. One round trip.
+      // The best-dive scalar is fine to send to the replica — the
+      // OG card is intentionally allowed to be a few seconds
+      // stale (hit ratio matters more than freshness here).
+      const r = await reads.query(
+        `SELECT u.id, u.full_name, o.name AS org_name, o.country_code,
+                cl.name AS club_name
+         FROM users u
+         JOIN organisations o ON u.org_id = o.id
+         LEFT JOIN clubs cl ON cl.id = u.club_id
+         WHERE u.public_slug = $1`,
+        [slug],
+      );
+      if (!r.rows.length) return res.status(404).end();
+      const d = r.rows[0];
+
+      const stat = await reads.query(
+        `WITH per_dive AS (
+           SELECT calc_event_dive_points(
+                    array_agg(ej.judge_number ORDER BY ej.judge_number),
+                    array_agg(s.score ORDER BY ej.judge_number),
+                    e.number_of_judges, MAX(dd.dd), e.event_type,
+                    BOOL_OR(cdl.partner_id IS NOT NULL)
+                  ) AS dive_total
+           FROM scores s
+           JOIN events e ON e.id = s.event_id
+           LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+           LEFT JOIN competitor_dive_lists cdl
+             ON cdl.event_id = s.event_id
+            AND cdl.competitor_id = s.competitor_id
+            AND cdl.round_number = s.round_number
+           LEFT JOIN dive_directory dd ON dd.id = COALESCE(s.dive_id, cdl.dive_id)
+           WHERE s.competitor_id = $1
+           GROUP BY s.event_id, s.round_number, e.number_of_judges, e.event_type
+         )
+         SELECT MAX(dive_total)::numeric(6,2) AS best
+         FROM per_dive`,
+        [d.id],
+      );
+      const best = stat.rows[0]?.best
+        ? Number(stat.rows[0].best).toFixed(2)
+        : "—";
+
+      // Defence-in-depth HTML escape — the source rows come from
+      // the DB (sanitised at registration) but a missed code
+      // path that lets a bad string land would otherwise pop
+      // an SVG attribute and either break the render or leak.
+      const e = (s) => String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+
+      const subline = [d.org_name, d.country_code, d.club_name]
+        .filter(Boolean)
+        .map(e)
+        .join("  ·  ");
+
+      // 1200×630 SVG. Helvetica is the safest cross-distro choice
+      // (FreeType resolves it via fontconfig on every Linux base
+      // image we'd plausibly run on). Branded gradient, two
+      // bands of typography, headline stat anchored bottom-left.
+      const svg = `<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#0e7490"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <text x="80" y="120" font-family="Helvetica, Arial, sans-serif"
+        font-size="28" fill="#67e8f9" letter-spacing="3">DIVE RECORDER</text>
+  <text x="80" y="280" font-family="Helvetica, Arial, sans-serif"
+        font-size="84" font-weight="bold" fill="#ffffff">${e(d.full_name)}</text>
+  <text x="80" y="340" font-family="Helvetica, Arial, sans-serif"
+        font-size="32" fill="#94a3b8">${subline}</text>
+  <text x="80" y="500" font-family="Helvetica, Arial, sans-serif"
+        font-size="24" fill="#94a3b8" letter-spacing="2">BEST SINGLE DIVE</text>
+  <text x="80" y="570" font-family="Helvetica, Arial, sans-serif"
+        font-size="72" font-weight="bold" fill="#06b6d4">${e(best)}</text>
+</svg>`;
+
+      const png = await sharp(Buffer.from(svg)).png().toBuffer();
+      ogCardCache.set(slug, { png, expiresAt: Date.now() + OG_CARD_TTL_MS });
+      res.set("Content-Type", "image/png");
+      res.set("Cache-Control", "public, max-age=3600");
+      res.end(png);
+    } catch (err) {
+      console.error("[OG Card Error]", err.message);
+      // Fall back to the static icon — never a broken og:image.
+      res.redirect(302, "/icon-512.png");
+    }
+  });
+
+  // -------------------------------------------------------------
   // GET /diver/:public_slug — server-rendered HTML for crawlers,
   // SPA fallthrough for browsers.
   //
@@ -227,7 +356,7 @@ module.exports = function createPublicProfileRouter({ pool, readPool }) {
       const description = subline
         ? `${subline}. View competitive history, personal bests, and recent meet placings.`
         : "View competitive history, personal bests, and recent meet placings.";
-      const ogImage = `${base}/icon-512.png`; // TODO: dynamic OG card per diver
+      const ogImage = `${base}/api/public/divers/${slug}/og-card.png`;
 
       // Inline HTML — no template engine. Just Open Graph +
       // Twitter card meta. The body is intentionally near-empty:
