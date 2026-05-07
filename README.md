@@ -38,47 +38,157 @@ Built around five audiences:
 <details>
 <summary><h2 id="screenshots">Screenshots</h2></summary>
 
-### Home
+Screenshots are grouped by audience: **Public**, **Spectators**, **Operators**, **Judges**, **Divers + Coaches**, and **Admins**. The full user guide lives in the [DiveRecorder Wiki](https://github.com/JediBrooker/DiveRecorder/wiki).
+
+### Public-facing entry points
+
+#### Home
 
 The public landing page. Anyone can sign in, create an account, watch a live meet, or browse the archive without logging in. Featured tiles surface live + upcoming meets so a spectator who lands here cold can be watching a dive in two clicks.
 
 ![Home](./docs/screenshots/home.png)
 
-### Sign In
+#### Sign In
 
 Three entry points from one screen: existing users sign in, individuals join an existing federation via "Register here", and a brand-new federation admin clicks "Register your org". Forgot-password sends a single-use 30-min reset link.
 
 ![Sign In](./docs/screenshots/login.png)
 
-### Dashboard
+#### Sign Up (individual)
 
-Each user's role-based hub. Tiles only show the surfaces the user can actually open — divers see Diver Portal + My Profile; org admins additionally see Meet Manager, User Manager, Clubs, Teams, Score Audit. The grid collapses to a single column on phone.
+The path for an individual diver, judge, or coach to join an existing federation. Pick the federation from the dropdown, role from the chips, fill in details. New accounts go through email verification and (for non-diver roles) admin approval before they can sign in.
 
-![Dashboard](./docs/screenshots/dashboard.png)
+![Sign Up](./docs/screenshots/register.png)
 
-### Meet Manager
+#### Register a Federation
 
-The operator's event-configuration surface. Left column is the New Event form (event type, gender, board height, panel size, rounds, optional age group + per-round DD caps); right column lists Your Events with one-click access to Import Roster, Audit Log, Edit, Delete. Save a fully-built event configuration as a template once, apply to a new event with one click. Events that bundle into a meet share a public landing page and a printable PDF program.
+The first-time path for a country federation or club to register an organisation on DiveRecorder. Org admin lands here, fills in name + country code + slug + admin credentials, and the request goes to the system administrator's queue for approval before the federation can run meets.
 
-![Meet Manager](./docs/screenshots/meet-manager.png)
+![Register a Federation](./docs/screenshots/register-org.png)
 
-### Live Scoreboard (completed meet recap)
+### Spectators + Public Results
 
-When a meet is over, the Scoreboard switches to a recap layout: podium spotlight, full standings with club + team lines, and a per-diver dive-by-dive breakdown. Per-judge scores are colour-coded by FINA category (excellent → failed) with the trim rule visualised by struck-through dimmed scores. The mid-meet view (not pictured) adds a live judge tile strip, the Up Next list, and a catch-up projection block that tells the audience the average judge score the active diver needs to overtake the leaders — rounded up to the next achievable 0.5 because judges only score in halves.
+#### Public Meet Landing Page
 
-![Scoreboard](./docs/screenshots/scoreboard.png)
+The public hub for a multi-event meet. Federation hero + dates + venue at the top, status counters (`N Live` / `N Upcoming` / `N Completed`), and an event grid grouped by status. Each card jumps to that event's scoreboard or recap. The **Program PDF** button at the top exports the full schedule with judges, age groups, and dive lists.
 
-### Results Archive (now part of the unified Scoreboard)
+![Public Meet Landing Page](./docs/screenshots/meet.png)
+
+#### Live Scoreboard
+
+What the audience sees while a meet is running. Three-column layout: completed dives on the left (each card shows the diver, country chip, club, dive code + DD + description, and per-judge scores with FINA-category colour-coding); current performer (or on-deck preview) in the centre with a **catch-up projection** below the rank line — the average judge score the active diver needs to overtake the leaders, rounded up to the next achievable 0.5; standings on the right with Final / By Round tabs.
+
+![Live Scoreboard](./docs/screenshots/scoreboard-live.png)
+
+#### Completed Meet Recap
+
+When a meet is over, the Scoreboard switches to a recap layout: podium spotlight, full standings with club + team lines, and a per-diver dive-by-dive breakdown. Per-judge scores are colour-coded by FINA category (excellent → failed) with the trim rule visualised by struck-through dimmed scores. **PDF / CSV / Start List** buttons in the header export the recap in print-ready form.
+
+![Completed Meet Recap](./docs/screenshots/scoreboard.png)
+
+#### Results Archive
 
 Browse every completed meet across the platform. Filter by country, year, height, club, or just search across event / org / country. Each event card shows competitor and club counts so you can see meet size at a glance, and per-event PDFs (program, start list, score sheet, results) plus a CSV export of the filtered list are one click away.
 
 ![Results Archive](./docs/screenshots/results-archive.png)
 
-### Diver Profile
+### Operators (Meet Manager + Org Admin)
+
+#### Dashboard
+
+Each user's role-based hub. Tiles only show the surfaces the user can actually open — divers see Diver Portal + My Profile; org admins additionally see Meet Manager, User Manager, Clubs, Teams, Score Audit. The grid collapses to a single column on phone.
+
+![Dashboard](./docs/screenshots/dashboard.png)
+
+#### Meet Manager
+
+The operator's event-configuration surface. Left column is the New Event form (event type, gender, board height, panel size, rounds, optional age group + per-round DD caps); right column lists Your Events with one-click access to Import Roster, Audit Log, Edit, Delete. Save a fully-built event configuration as a template once, apply to a new event with one click. Events that bundle into a meet share a public landing page and a printable PDF program.
+
+![Meet Manager](./docs/screenshots/meet-manager.png)
+
+#### Control Room
+
+The operator's cockpit during a live meet. Left column is the running history of completed dives (click any card to open the Score Correction modal). Centre column is the active diver — name, country chip, club affiliation, dive code + DD + description, the live judge tile strip, the auto-cycling status pill (READY / DIVING / JUDGING), and the 30-second WA shot clock. Right column is the diver queue with Up Next, the full Dive Order panel, the Top 5 Right Now standings, and a catch-up projection. Keyboard shortcuts (←/→ advance, T reset clock, F failed, R redive, H hold, L leaderboard) drive the whole flow without leaving the keyboard.
+
+![Control Room](./docs/screenshots/control-room.png)
+
+#### Assign Judges
+
+Build the panel for an event: pick judges from the federation's user list, drag to reorder so judge_number aligns with panel position. For synchro events the position-to-role mapping (Exec A / Exec B / Sync) is shown next to each slot so the operator can verify the panel before sign-off.
+
+![Assign Judges](./docs/screenshots/assign-judges.png)
+
+#### Score Audit Log
+
+Per-event timeline of every score insert / update / delete with actor, IP, user agent, old / new value, and reason text. Visible to org admins, referees, and meet managers. 30-day retention by default.
+
+![Score Audit Log](./docs/screenshots/score-audit.png)
+
+### Judges
+
+#### Judge View
+
+The single-purpose, phone-friendly screen scoring panel members use during a meet. Top zone shows the current diver, their dive code + DD + description, and the panel's progress (`DIVE PANEL · 0 / 5`). Bottom zone is a numeric keypad accepting half-point increments. **Signal Referee** flags the panel for a meet manager hold; **Lock & Submit** sends the score over the socket. For synchro panels, the header also shows the judge's sub-panel role (Exec A / Exec B / Sync) so they know which slot they're filling.
+
+![Judge View](./docs/screenshots/judge.png)
+
+### Divers + Coaches
+
+#### Diver Portal — Submit Dive List
+
+Where divers build their list for an upcoming event. Step 1 picks the event (autocomplete-driven); Step 2 is per-round dive pickers with autocomplete on the dive code (filtered to the event's board height + per-round DD cap), the running Total DD chip, and a single **Finalise & Submit List** button. Saved lists become templates with one click for re-use across meets at the same height.
+
+![Diver Portal](./docs/screenshots/competitor.png)
+
+#### Diver Profile
 
 Per-diver stats: meets entered, dives performed, average DD attempted, best single dive, an SVG sparkline of total scores across meets, and a personal-bests table keyed by dive code + position + height. The Customize modal lets each diver pick which of 10+ analytics widgets to show (Recent Form, Medal Counts, Height Breakdown, Round-by-Round Form with stamina insight, DD Risk Profile, Compare-to-Peers, Year-over-Year, etc.) — the choices persist per-user. Cmd-P / Ctrl-P prints the dashboard to PDF; `/compare?a=&b=` puts two divers side-by-side.
 
 ![Diver Profile](./docs/screenshots/diver-profile.png)
+
+#### Compare Two Divers
+
+Side-by-side at `/compare?a=<id>&b=<id>` — two divers' headline stats in two columns, plus a per-dive PB diff for every dive code + position both have attempted. Useful before national selections or for coaches comparing rivals.
+
+![Compare Two Divers](./docs/screenshots/compare.png)
+
+#### Coach Dashboard
+
+A coach's hub: their roster of linked divers (subject to org-admin approval) with one-click access to each diver's profile + analytics. Templates the coach saves on a diver's behalf are scoped per board height and per diver.
+
+![Coach Dashboard](./docs/screenshots/coach.png)
+
+### Admins
+
+#### User Manager
+
+Search across the federation's users; filter by role chips and (system admins only) by org; bulk-apply roles by ticking rows; click any row to open the edit drawer with profile, roles, role-audit history, club assignment, and (for divers) coach links. The token-version bump on every role change forces the affected user to re-login the next request.
+
+![User Manager](./docs/screenshots/user-manager.png)
+
+#### Clubs
+
+The federation's club registry. Each club has a name + a 3 – 6 char short code (the cyan pill that surfaces next to the diver's name on the scoreboard). Members count is derived from `users.club_id`; non-empty clubs can't be deleted (prevents orphaning users).
+
+![Clubs](./docs/screenshots/clubs.png)
+
+#### Teams
+
+Teams sit alongside clubs as a separate grouping for FINA Team Event entries. A diver can belong to multiple teams over time. Soft-delete preserves the team's history (existing dive lists keep referencing the team via `ON DELETE SET NULL`).
+
+![Teams](./docs/screenshots/teams.png)
+
+#### Dive Directory
+
+Browse the World Aquatics catalogue (~830 dives shipped in `init.sql`) and add custom rows for poolside / progression / age-group dives. Filter by group, position, height, gender. Custom rows are scoped per-org; standard rows are read-only.
+
+![Dive Directory](./docs/screenshots/dive-directory.png)
+
+#### Sign-Off Codes (Referee)
+
+The referee's sign-off page. Pre-meet, the meet manager generates a 6-digit handoff code on their device; the referee opens this page on their phone and types the code to authorise the panel. Both legs write the same audit row regardless of which path the operator picked.
+
+![Sign-Off Codes](./docs/screenshots/sign-off-codes.png)
 
 ---
 
