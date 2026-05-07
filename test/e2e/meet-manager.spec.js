@@ -53,12 +53,18 @@ const DIVE_PICKS = [
   { dive_code: "301", position: "B" },
 ];
 
-// Pacing knobs. Long enough to be watchable in --headed mode,
-// short enough that CI doesn't grind. Override via env to slow
-// down for demos.
-const PRE_DIVE_MS  = Number(process.env.MM_PRE_DIVE_MS  ?? 400);
-const PER_SCORE_MS = Number(process.env.MM_PER_SCORE_MS ?? 80);
-const POST_DIVE_MS = Number(process.env.MM_POST_DIVE_MS ?? 300);
+// Pacing knobs. Defaults are tuned for human watching (--headed)
+// — the scoring loop takes ~1 minute end-to-end at these
+// values. CI overrides them down via env vars to ~5x faster.
+//
+// Quick speed-up for a CI / smoke pass:
+//   MM_PRE_DIVE_MS=200 MM_PER_SCORE_MS=50 MM_POST_DIVE_MS=200 \
+//   MM_LOGIN_HOLD_MS=200 MM_FINAL_HOLD_MS=200
+const PRE_DIVE_MS    = Number(process.env.MM_PRE_DIVE_MS    ?? 1200);
+const PER_SCORE_MS   = Number(process.env.MM_PER_SCORE_MS   ?? 250);
+const POST_DIVE_MS   = Number(process.env.MM_POST_DIVE_MS   ?? 900);
+const LOGIN_HOLD_MS  = Number(process.env.MM_LOGIN_HOLD_MS  ?? 1500);
+const FINAL_HOLD_MS  = Number(process.env.MM_FINAL_HOLD_MS  ?? 4000);
 
 test.describe.configure({ mode: "serial" });
 
@@ -304,11 +310,14 @@ test("meet-manager full E2E (random variant)", async ({
   await page.locator('input[autocomplete="current-password"]').fill(setup.TEST_PASSWORD);
   await page.getByRole("button", { name: /Sign In/i }).click();
   await page.waitForURL(/\/dashboard$/);
+  // Linger on the dashboard so a watching human sees the
+  // transition before the manager hops into Control Room.
+  await page.waitForTimeout(LOGIN_HOLD_MS);
   await page.goto("/control");
   // The Control Room takes a moment to pick the live event from
   // the dashboard list. Don't block on a specific selector — a
   // brief settle window is enough for the screen to populate.
-  await page.waitForTimeout(800);
+  await page.waitForTimeout(LOGIN_HOLD_MS);
 
   // ============================================================
   // PHASE 5 — Sockets + scoring loop. Round-major: round 1 walks
@@ -470,6 +479,10 @@ test("meet-manager full E2E (random variant)", async ({
     path: `test-results/meet-manager-${VARIANT}-${HEIGHT}.png`,
     fullPage: true,
   });
+
+  // Hold on the recap so a watching human can read the result
+  // before the org gets torn down.
+  await page.waitForTimeout(FINAL_HOLD_MS);
 
   // ============================================================
   // Cleanup.
