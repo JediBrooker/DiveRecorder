@@ -556,6 +556,7 @@ watch(currentEvent, async (ev) => {
         <div style="display:flex;align-items:center;gap:0.75rem">
           <h3 style="font-size:20px;font-style:italic">Find Dive</h3>
           <span v-if="activeEventHeight !== null" class="lock-badge">{{ activeEventHeight }}m board</span>
+          <span v-else-if="currentEvent?.is_mixed_height" class="lock-badge mixed-badge">Mixed boards</span>
         </div>
         <button class="btn btn-ghost btn-sm" @click="showModal = false">Cancel</button>
       </div>
@@ -659,6 +660,9 @@ watch(currentEvent, async (ev) => {
   letter-spacing:0.15em;text-transform:uppercase;
   padding:0.25rem 0.625rem;border-radius:4px;
   background:var(--cyan-dim);color:var(--cyan);border:1px solid rgba(6,182,212,0.3);
+}
+.lock-badge.mixed-badge{
+  background:var(--amber-dim);color:var(--amber);border-color:rgba(245,158,11,0.3);
 }
 
 /* Saved-template strip */

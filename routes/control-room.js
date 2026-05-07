@@ -337,7 +337,8 @@ module.exports = function createControlRoomRouter({
     const eventId = req.params.id;
     try {
       const ev = await pool.query(
-        `SELECT id, status, name, dive_order_randomised_at
+        `SELECT id, status, name, dive_order_randomised_at,
+                enforce_referee_signoff
          FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)`,
         [eventId, !!req.user.is_system_admin, req.user.org_id],
       );
@@ -345,6 +346,17 @@ module.exports = function createControlRoomRouter({
       if (ev.rows[0].status !== "Upcoming") {
         return res.status(409).json({
           error: `Cannot sign off — event "${ev.rows[0].name}" is ${ev.rows[0].status}.`,
+        });
+      }
+      // Enforcement gate. When the event has enforce_referee_signoff = TRUE
+      // the manager-attests path is forbidden — the actual referee must
+      // approve via push, credential entry, or the Cut 3 code handoff.
+      // Defence in depth: the SPA hides the manager-attests tab when
+      // enforced, but a hand-crafted curl shouldn't smuggle past it.
+      if (ev.rows[0].enforce_referee_signoff) {
+        return res.status(403).json({
+          error: "This event requires referee sign-off. Use the push, code, or credential path.",
+          enforced: true,
         });
       }
       const r = await pool.query(
@@ -834,6 +846,191 @@ module.exports = function createControlRoomRouter({
     } catch (err) {
       console.error("[Sign-Off Credential Error]", err.message);
       res.status(500).json({ error: "Sign-off failed" });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // CUT 3 — CODE HANDOFF
+  //
+  // The push and credential paths cover most setups, but they
+  // both require something — push permission OR the referee
+  // physically at the manager's laptop. Cut 3 plugs the gap: the
+  // manager generates a 6-digit code on their screen; the
+  // referee opens DiveRecorder on their own already-signed-in
+  // device, navigates to /sign-off-codes, types the code in.
+  // Server matches code → pending request → stamps signed_off_by
+  // = the referee whose session typed it.
+  //
+  //   POST /api/events/:id/dive-order/sign-off/code
+  //     Body: { referee_id }
+  //     Returns: { request_id, code, expires_at }
+  //
+  //   POST /api/sign-off/code/verify
+  //     Body: { code }
+  //     Auth: must be a referee. Looks up the pending request
+  //     keyed on (target_referee_id = req.user.id, code), stamps
+  //     the event's sign-off in the same txn.
+  // -------------------------------------------------------------
+
+  // 1-in-1,000,000 collision per code per referee, well below
+  // any practical run rate. Cryptographically random rather than
+  // Math.random so the codes aren't predictable from the prior
+  // batch.
+  function generateHandoffCode() {
+    const buf = require("crypto").randomBytes(4);
+    const n = buf.readUInt32BE(0) % 1_000_000;
+    return n.toString().padStart(6, "0");
+  }
+
+  router.post("/api/events/:id/dive-order/sign-off/code",
+              requireMeetController, async (req, res) => {
+    const eventId = req.params.id;
+    const { referee_id } = req.body || {};
+    if (!referee_id) return res.status(400).json({ error: "referee_id required" });
+    try {
+      const ev = await pool.query(
+        `SELECT id, name, status, org_id FROM events
+         WHERE id = $1 AND ($2::boolean OR org_id = $3)`,
+        [eventId, !!req.user.is_system_admin, req.user.org_id],
+      );
+      if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
+      if (ev.rows[0].status !== "Upcoming") {
+        return res.status(409).json({
+          error: `Cannot generate code — event "${ev.rows[0].name}" is ${ev.rows[0].status}.`,
+        });
+      }
+      // Same referee-validation as the push request path.
+      const refQ = await pool.query(
+        `SELECT u.id FROM users u
+         JOIN user_org_roles r ON r.user_id = u.id
+         WHERE u.id = $1 AND u.org_id = $2 AND r.role = 'referee' LIMIT 1`,
+        [referee_id, ev.rows[0].org_id],
+      );
+      if (!refQ.rows.length) {
+        return res.status(400).json({ error: "Selected user is not a referee in this org" });
+      }
+
+      // Expire any prior pending request for the same event so
+      // the modal only ever sees the latest one.
+      await pool.query(
+        `UPDATE referee_signoff_requests
+         SET status = 'expired', responded_at = now()
+         WHERE event_id = $1 AND status = 'pending'`,
+        [eventId],
+      );
+
+      // Retry on the unique-pending-code-per-referee index race.
+      // Three tries is plenty — the cardinality is 1e6 and the
+      // partial index narrows to <1 active code per referee on
+      // average.
+      let attempts = 0;
+      let inserted;
+      while (attempts++ < 3 && !inserted) {
+        const code = generateHandoffCode();
+        try {
+          inserted = await pool.query(
+            `INSERT INTO referee_signoff_requests
+               (event_id, requested_by, target_referee_id, handoff_code)
+             VALUES ($1, $2, $3, $4)
+             RETURNING id, expires_at, handoff_code`,
+            [eventId, req.user.id, referee_id, code],
+          );
+        } catch (err) {
+          if (err.code !== "23505") throw err;
+          // Collision on (target_referee_id, handoff_code) WHERE
+          // pending — try again with a fresh code. Won't happen
+          // in practice but the retry guards against the rare
+          // case where two managers are both generating codes
+          // for the same referee at the exact same instant.
+        }
+      }
+      if (!inserted) {
+        return res.status(503).json({ error: "Could not allocate a handoff code; try again" });
+      }
+
+      res.status(201).json({
+        ok: true,
+        request_id: inserted.rows[0].id,
+        code:       inserted.rows[0].handoff_code,
+        expires_at: inserted.rows[0].expires_at,
+      });
+    } catch (err) {
+      console.error("[Sign-Off Code Generate Error]", err.message);
+      res.status(500).json({ error: "Failed to generate code" });
+    }
+  });
+
+  // POST /api/sign-off/code/verify
+  //   Body: { code }
+  // Used by the referee on their own device (SignOffCodeView).
+  // Looks up the pending request keyed on the caller's user_id,
+  // stamps the event sign-off, fires the same socket broadcast
+  // the push respond endpoint does so the manager modal flips.
+  router.post("/api/sign-off/code/verify",
+              requireOrgRole(["referee", "org_admin"]), async (req, res) => {
+    const code = String(req.body?.code || "").trim();
+    if (!/^\d{6}$/.test(code)) {
+      return res.status(400).json({ error: "Code must be 6 digits" });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const reqQ = await client.query(
+        `SELECT id, event_id, expires_at, status
+         FROM referee_signoff_requests
+         WHERE target_referee_id = $1 AND handoff_code = $2
+         ORDER BY created_at DESC LIMIT 1
+         FOR UPDATE`,
+        [req.user.id, code],
+      );
+      if (!reqQ.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Code not recognised" });
+      }
+      const reqRow = reqQ.rows[0];
+      if (reqRow.status !== "pending") {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: `Code already ${reqRow.status}` });
+      }
+      if (new Date(reqRow.expires_at) < new Date()) {
+        await client.query(
+          `UPDATE referee_signoff_requests SET status='expired', responded_at=now() WHERE id=$1`,
+          [reqRow.id],
+        );
+        await client.query("COMMIT");
+        return res.status(409).json({ error: "Code expired" });
+      }
+      await client.query(
+        `UPDATE referee_signoff_requests
+         SET status='approved', decision_method='code', responded_at=now()
+         WHERE id=$1`,
+        [reqRow.id],
+      );
+      await client.query(
+        `UPDATE events
+         SET dive_order_signed_off_at = now(),
+             dive_order_signed_off_by = $1
+         WHERE id = $2`,
+        [req.user.id, reqRow.event_id],
+      );
+      await client.query("COMMIT");
+
+      // Broadcast so the manager's open Control Room flips out
+      // of "waiting" state — same channel the push respond path
+      // uses.
+      try {
+        push?.emitEvent?.(reqRow.event_id, "referee_signoff_response", {
+          request_id: reqRow.id, decision: "approved", by_user_id: req.user.id,
+        });
+      } catch { /* silent */ }
+
+      res.json({ ok: true, event_id: reqRow.event_id });
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error("[Sign-Off Code Verify Error]", err.message);
+      res.status(500).json({ error: "Verification failed" });
+    } finally {
+      client.release();
     }
   });
 

@@ -328,6 +328,16 @@ CREATE TABLE public.events (
     dive_order_randomised_at  timestamptz,
     dive_order_signed_off_at  timestamptz,
     dive_order_signed_off_by  uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    -- Sign-off policy. When TRUE the simple manager-attests path
+    -- is forbidden — only push approval by the named referee or
+    -- credential entry by the same person count. Default FALSE
+    -- so light-touch club meets keep working.
+    enforce_referee_signoff   boolean NOT NULL DEFAULT FALSE,
+    -- Multi-board flag. When TRUE the height column above is
+    -- informational and every dive picker widens to the full
+    -- directory rather than filtering to one height. Used for
+    -- mixed-board exhibitions / progression sessions.
+    is_mixed_height           boolean NOT NULL DEFAULT FALSE,
     created_at       timestamptz DEFAULT now(),
     CONSTRAINT events_number_of_judges_check
         CHECK (number_of_judges = ANY (ARRAY[3, 5, 7, 9, 11])),
@@ -915,15 +925,25 @@ CREATE TABLE public.referee_signoff_requests (
     status            varchar(16) NOT NULL DEFAULT 'pending'
                         CHECK (status IN ('pending','approved','declined','expired')),
     decision_method   varchar(16)
-                        CHECK (decision_method IN ('push','credential')),
+                        CHECK (decision_method IN ('push','credential','code')),
     created_at        timestamptz NOT NULL DEFAULT now(),
     responded_at      timestamptz,
-    expires_at        timestamptz NOT NULL DEFAULT (now() + interval '5 minutes')
+    expires_at        timestamptz NOT NULL DEFAULT (now() + interval '5 minutes'),
+    -- Cut 3 handoff: a 6-digit code the manager generates on
+    -- their screen and the referee types into a sign-off-codes
+    -- page on their own already-signed-in device. NULL on
+    -- requests created via the push or credential path.
+    handoff_code      varchar(8)
 );
 CREATE INDEX idx_signoff_requests_event_pending
     ON public.referee_signoff_requests (event_id) WHERE status = 'pending';
 CREATE INDEX idx_signoff_requests_referee_pending
     ON public.referee_signoff_requests (target_referee_id) WHERE status = 'pending';
+-- Only one PENDING code at a time per referee — stops two
+-- parallel "generate code" clicks from racing each other.
+CREATE UNIQUE INDEX idx_signoff_pending_code
+    ON public.referee_signoff_requests (target_referee_id, handoff_code)
+    WHERE status = 'pending' AND handoff_code IS NOT NULL;
 
 
 -- =============================================================
@@ -941,7 +961,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 30);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 31);
 
 
 -- =============================================================

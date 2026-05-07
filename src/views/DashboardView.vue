@@ -184,6 +184,18 @@ const allTiles = [
     desc: 'Browse the World Aquatics dive catalog and add your org\'s custom progression / poolside dives.',
     action: 'Open Directory',
   },
+  {
+    // Cut 3 referee sign-off code page. Referee-only — coaches
+    // and divers don't need this surface.
+    id: 'sign-off-codes',
+    roles: ['referee'],
+    to: '/sign-off-codes',
+    colour: 'tile-amber',
+    icon: `<svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c0-1.105.895-2 2-2s2 .895 2 2-.895 2-2 2-2-.895-2-2zM5 7a2 2 0 012-2h10a2 2 0 012 2v10a2 2 0 01-2 2H7a2 2 0 01-2-2V7z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10h.01M9 14h.01M13 14h.01"/></svg>`,
+    title: 'Sign-Off Codes',
+    desc: 'Type the 6-digit handoff code from a meet controller to approve a dive order.',
+    action: 'Enter Code',
+  },
 ]
 
 const visibleTiles = computed(() =>

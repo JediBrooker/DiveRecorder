@@ -511,23 +511,43 @@ async function confirmDiveOrder() {
   }
 }
 
-// Sign-off modal state — two tabs:
-//   'push'        send a push notification to a chosen referee's
-//                 device. Lives until the referee approves/denies
-//                 or 5 minutes elapse.
-//   'credential'  fallback: referee enters their own username +
-//                 password (+ TOTP) on this device. No JWT swap;
-//                 the manager's session is untouched.
+// Sign-off modal state — four tabs:
+//   'push'         send a push notification to a chosen referee's
+//                  device. Lives until the referee approves/denies
+//                  or 5 minutes elapse.
+//   'code'         Cut 3: server generates a 6-digit code, manager
+//                  reads it to the referee, referee types it on
+//                  their own /sign-off-codes page.
+//   'credential'   referee enters their own username + password
+//                  (+ TOTP) on this device. No JWT swap; the
+//                  manager's session is untouched.
+//   'manager'      manager attests on referee's behalf. Hidden +
+//                  refused server-side when the event has
+//                  enforce_referee_signoff = TRUE.
 const signoffOpen        = ref(false)
-const signoffMode        = ref('push')   // 'push' | 'credential'
+const signoffMode        = ref('push')   // 'push' | 'code' | 'credential' | 'manager'
 const signoffReferees    = ref([])
 const signoffPickedRefId = ref('')
-const signoffWaiting     = ref(null)     // { request_id, expires_at, referee_name }
+const signoffWaiting     = ref(null)     // push: { request_id, expires_at, referee_name }
+const signoffCode        = ref(null)     // code: { request_id, code, expires_at, referee_name }
 const signoffError       = ref('')
 const credUsername       = ref('')
 const credPassword       = ref('')
 const credCode           = ref('')
 const credNeedsTotp      = ref(false)
+
+// Whether the simple manager-attests path is allowed for the
+// current event. Server enforces too; this just hides the tab
+// when the event was created with enforce_referee_signoff = TRUE.
+const enforceSignoff = computed(() =>
+  !!currentEvent.value?.enforce_referee_signoff
+)
+// Origin string for the code-handoff hint copy. window isn't
+// available in the SSR-style template scope so we capture it via
+// a computed wrapper.
+const appOrigin = computed(() =>
+  typeof window !== 'undefined' ? window.location.origin : ''
+)
 
 async function signOffDiveOrder() {
   if (!currentEvent.value) return
@@ -535,6 +555,7 @@ async function signOffDiveOrder() {
   signoffMode.value = 'push'
   signoffError.value = ''
   signoffWaiting.value = null
+  signoffCode.value = null
   signoffPickedRefId.value = ''
   credUsername.value = ''
   credPassword.value = ''
@@ -554,6 +575,7 @@ async function signOffDiveOrder() {
 function closeSignoffModal() {
   signoffOpen.value = false
   signoffWaiting.value = null
+  signoffCode.value = null
   signoffError.value = ''
 }
 
@@ -620,10 +642,16 @@ async function submitCredentialSignoff() {
 }
 
 // Listen for the response broadcast the server fires when the
-// referee taps Approve/Deny on their device. Wired in onMounted
-// further down via socket.on('referee_signoff_response', ...).
+// referee taps Approve/Deny on their device, AND when they
+// type a Cut 3 handoff code on their own /sign-off-codes page
+// (server fires the same broadcast). Wired in onMounted further
+// down via socket.on('referee_signoff_response', ...).
 function onRefereeSignoffResponse(data) {
-  if (!signoffWaiting.value || data?.request_id !== signoffWaiting.value.request_id) return
+  // Match against either the push-waiting request OR the code-
+  // waiting request — both store request_id and only one is
+  // active at a time per modal session.
+  const waitingId = signoffWaiting.value?.request_id || signoffCode.value?.request_id
+  if (!waitingId || data?.request_id !== waitingId) return
   if (data.decision === 'approved') {
     patchCurrentEvent({
       dive_order_signed_off_at: new Date().toISOString(),
@@ -631,8 +659,70 @@ function onRefereeSignoffResponse(data) {
     })
     closeSignoffModal()
   } else {
-    signoffError.value = `${signoffWaiting.value.referee_name} declined the request.`
+    const refereeName =
+      signoffWaiting.value?.referee_name || signoffCode.value?.referee_name || 'The referee'
+    signoffError.value = `${refereeName} declined the request.`
     signoffWaiting.value = null
+    signoffCode.value = null
+  }
+}
+
+// Cut 3: ask the server for a 6-digit handoff code for the
+// chosen referee. Display it; the referee types it on their own
+// /sign-off-codes page on their already-signed-in device.
+async function generateSignoffCode() {
+  if (!currentEvent.value || !signoffPickedRefId.value) return
+  signoffError.value = ''
+  orderBusy.value = true
+  try {
+    const r = await auth.apiFetch(
+      `/api/events/${currentEvent.value.id}/dive-order/sign-off/code`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ referee_id: signoffPickedRefId.value }),
+      },
+    )
+    const refRow = signoffReferees.value.find(x => x.id === signoffPickedRefId.value)
+    signoffCode.value = {
+      request_id: r.request_id,
+      code:       r.code,
+      expires_at: r.expires_at,
+      referee_name: refRow?.full_name || 'the referee',
+    }
+  } catch (err) {
+    signoffError.value = err.message
+  } finally {
+    orderBusy.value = false
+  }
+}
+
+// Manager-attests path. Fires the simple endpoint (which the
+// server refuses if the event has enforce_referee_signoff = TRUE).
+// Hidden in the UI under the same condition; this is the
+// belt-and-braces server-trip.
+async function managerAttestSignoff() {
+  if (!currentEvent.value) return
+  if (!confirm(
+    `Sign off as the meet manager?\n\n`
+    + `Your name (${auth.user?.full_name || 'manager'}) will be recorded ` +
+    `against the event audit trail. Use this only when you've already ` +
+    `confirmed the dive order with the referee verbally.`
+  )) return
+  orderBusy.value = true
+  try {
+    const r = await auth.apiFetch(
+      `/api/events/${currentEvent.value.id}/dive-order/sign-off`,
+      { method: 'POST' },
+    )
+    patchCurrentEvent({
+      dive_order_signed_off_at: r.dive_order_signed_off_at || new Date().toISOString(),
+      dive_order_signed_off_by: r.dive_order_signed_off_by,
+    })
+    closeSignoffModal()
+  } catch (err) {
+    signoffError.value = err.message
+  } finally {
+    orderBusy.value = false
   }
 }
 
@@ -2571,17 +2661,38 @@ onUnmounted(() => {
       <button class="btn btn-ghost btn-sm" @click="closeSignoffModal">Close ✕</button>
     </div>
     <div class="lb-body">
-      <!-- Tab strip — push (primary) / credential (fallback) -->
+      <!-- Enforcement banner: visible when the event was created
+           with enforce_referee_signoff = TRUE so the operator
+           understands why the manager-attests tab isn't there. -->
+      <div v-if="enforceSignoff" class="signoff-enforced-banner">
+        🔒 Referee sign-off is enforced for this event. Only the
+        referee's own approval — push, code, or credential — counts.
+      </div>
+
+      <!-- Tab strip — push (primary), Cut 3 code, credential
+           (fallback at this device), and the manager-attests
+           shortcut (hidden when sign-off is enforced). -->
       <div class="signoff-tabs">
         <button :class="['signoff-tab', signoffMode === 'push' ? 'is-active' : '']"
                 @click="signoffMode = 'push'; signoffError = ''"
-                :disabled="!!signoffWaiting">
+                :disabled="!!signoffWaiting || !!signoffCode">
           📱 Send to referee's device
+        </button>
+        <button :class="['signoff-tab', signoffMode === 'code' ? 'is-active' : '']"
+                @click="signoffMode = 'code'; signoffError = ''"
+                :disabled="!!signoffWaiting || !!signoffCode">
+          🔢 Code on referee's device
         </button>
         <button :class="['signoff-tab', signoffMode === 'credential' ? 'is-active' : '']"
                 @click="signoffMode = 'credential'; signoffError = ''"
-                :disabled="!!signoffWaiting">
+                :disabled="!!signoffWaiting || !!signoffCode">
           🔐 Sign at this device
+        </button>
+        <button v-if="!enforceSignoff"
+                :class="['signoff-tab', signoffMode === 'manager' ? 'is-active' : '']"
+                @click="signoffMode = 'manager'; signoffError = ''"
+                :disabled="!!signoffWaiting || !!signoffCode">
+          ✓ I'll attest
         </button>
       </div>
 
@@ -2617,6 +2728,60 @@ onUnmounted(() => {
           <div class="signoff-waiting-hint">
             Or switch tabs and have them sign here on this device.
           </div>
+        </div>
+      </div>
+
+      <!-- Code path (Cut 3) -->
+      <div v-else-if="signoffMode === 'code'" class="signoff-pane">
+        <p class="hint">
+          Pick the referee. Server generates a 6-digit code; read it to
+          the referee, who types it on their own device at
+          <code>/sign-off-codes</code>. The code is good for 5 minutes.
+        </p>
+        <template v-if="!signoffCode">
+          <div v-if="!signoffReferees.length" class="empty-mini">
+            No referees in this org yet.
+          </div>
+          <select v-else class="select" v-model="signoffPickedRefId" :disabled="orderBusy">
+            <option value="">— Pick a referee —</option>
+            <option v-for="r in signoffReferees" :key="r.id" :value="r.id">
+              {{ r.full_name }}
+            </option>
+          </select>
+          <div class="signoff-actions">
+            <button class="btn btn-primary"
+                    :disabled="orderBusy || !signoffPickedRefId"
+                    @click="generateSignoffCode">
+              {{ orderBusy ? 'Generating…' : 'Generate code' }}
+            </button>
+          </div>
+        </template>
+        <div v-else class="signoff-code-display">
+          <div class="signoff-code-label">Read this code to {{ signoffCode.referee_name }}</div>
+          <div class="signoff-code-value">{{ signoffCode.code }}</div>
+          <div class="signoff-code-hint">
+            They type it on their own device at
+            <code>{{ appOrigin }}/sign-off-codes</code>.
+            This panel updates the moment they confirm.
+          </div>
+        </div>
+      </div>
+
+      <!-- Manager-attests path. Hidden in template when enforced;
+           server gate refuses too. -->
+      <div v-else-if="signoffMode === 'manager'" class="signoff-pane">
+        <p class="hint">
+          You're attesting that you've already confirmed the dive order
+          with the referee verbally. Your name is what gets stamped on
+          the audit trail — pick this only when you've genuinely got
+          the referee's go-ahead.
+        </p>
+        <div class="signoff-actions">
+          <button class="btn btn-primary"
+                  :disabled="orderBusy"
+                  @click="managerAttestSignoff">
+            {{ orderBusy ? 'Recording…' : "I'll attest — sign off" }}
+          </button>
         </div>
       </div>
 
@@ -3494,6 +3659,37 @@ onUnmounted(() => {
 .signoff-waiting-hint {
   margin-top: 0.7rem; font-size: 11.5px; color: var(--text-3);
   font-style: normal;
+}
+/* Cut 3 code display — big monospace digits the manager reads
+   off the screen. Letter-spacing wider than usual so neighbours
+   don't run together at a glance. */
+.signoff-code-display {
+  text-align: center; padding: 1.2rem 0.5rem;
+}
+.signoff-code-label {
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-3);
+  margin-bottom: 0.5rem;
+}
+.signoff-code-value {
+  font-family: var(--font-mono); font-size: 56px; font-weight: 800;
+  letter-spacing: 0.25em; color: var(--cyan); line-height: 1;
+  margin: 0.7rem 0 0.9rem;
+}
+.signoff-code-hint {
+  font-size: 11.5px; color: var(--text-3); line-height: 1.5;
+}
+.signoff-code-hint code {
+  background: var(--bg-3); padding: 0.05rem 0.35rem;
+  border-radius: 3px; font-size: 11px;
+}
+.signoff-enforced-banner {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: var(--amber);
+  border-radius: 4px; padding: 0.6rem 0.8rem;
+  font-size: 12.5px; line-height: 1.45;
+  margin-bottom: 0.8rem;
 }
 @keyframes signoff-pulse {
   0%, 100% { opacity: 0.4; transform: scale(1); }

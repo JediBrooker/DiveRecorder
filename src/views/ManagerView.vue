@@ -20,6 +20,13 @@ const createRounds = ref(6)
 const createType = ref('individual')
 const createMeetId = ref('')           // optional — bundle this event into a meet
 
+// Migration 031: sign-off policy + multi-board flag.
+const createEnforceSignoff = ref(false) // hard gate — push or credential only
+const createMixedHeight    = ref(false) // event spans multiple boards
+// Help-popover toggles
+const showSignoffHelp     = ref(false)
+const showMixedHeightHelp = ref(false)
+
 // Migration 013 additions: age group, scheduled start, event
 // format (final / preliminary), prelim/final link, advance count,
 // per-round DD limits.
@@ -227,6 +234,8 @@ const editJudges = ref(5)
 const editRounds = ref(6)
 const editType = ref('individual')
 const editEntriesCloseAt = ref('')   // datetime-local string, '' = no deadline
+const editEnforceSignoff = ref(false)
+const editMixedHeight    = ref(false)
 
 // Team enrolment modal — open when "Teams" clicked on a team-event row
 const teamsModalOpen = ref(false)
@@ -399,7 +408,12 @@ async function createEvent() {
       body: JSON.stringify({
         name: createName.value,
         gender: createGender.value,
-        height: createHeight.value || null,
+        // Mixed-board events leave the height column NULL — the
+        // server does the same coercion server-side, but pre-
+        // emptively clearing it here means the dive picker that
+        // reads form state during validation doesn't see a stale
+        // height pinned in.
+        height: createMixedHeight.value ? null : (createHeight.value || null),
         number_of_judges: parseInt(createJudges.value),
         total_rounds: parseInt(createRounds.value),
         event_type: createType.value,
@@ -419,6 +433,8 @@ async function createEvent() {
         dd_limit_value: createDdLimitValue.value
           ? parseFloat(createDdLimitValue.value)
           : null,
+        enforce_referee_signoff: createEnforceSignoff.value,
+        is_mixed_height:         createMixedHeight.value,
       }),
     })
     createName.value = ''
@@ -436,6 +452,8 @@ async function createEvent() {
     createAdvanceCount.value = 12
     createDdLimitRounds.value = 0
     createDdLimitValue.value = ''
+    createEnforceSignoff.value = false
+    createMixedHeight.value = false
     await Promise.all([loadEvents(), loadMeets()])
   } catch (err) {
     formErr.value = err.message
@@ -450,6 +468,8 @@ function openEdit(ev) {
   editJudges.value = ev.number_of_judges
   editRounds.value = ev.total_rounds || 6
   editType.value = ev.event_type || 'individual'
+  editEnforceSignoff.value = !!ev.enforce_referee_signoff
+  editMixedHeight.value    = !!ev.is_mixed_height
   // entries_close_at comes back as an ISO string from the server.
   // <input type="datetime-local"> wants 'YYYY-MM-DDTHH:mm' in local
   // time, no zone, no seconds — so format it for display.
@@ -478,7 +498,7 @@ async function saveEdit() {
       body: JSON.stringify({
         name: editName.value,
         gender: editGender.value,
-        height: editHeight.value || null,
+        height: editMixedHeight.value ? null : (editHeight.value || null),
         number_of_judges: parseInt(editJudges.value),
         total_rounds: parseInt(editRounds.value),
         event_type: editType.value,
@@ -487,6 +507,8 @@ async function saveEdit() {
         // as "leave untouched" — but we always send the field
         // because the user may have just blanked it.
         entries_close_at: editEntriesCloseAt.value || null,
+        enforce_referee_signoff: editEnforceSignoff.value,
+        is_mixed_height:         editMixedHeight.value,
       }),
     })
     showEditModal.value = false
@@ -652,7 +674,8 @@ onMounted(async () => {
         </div>
         <div class="field">
           <label class="label">Board / Platform Height</label>
-          <select class="select" v-model="createHeight">
+          <select class="select" v-model="createHeight"
+                  :disabled="createMixedHeight">
             <option value="">— Select Height —</option>
             <option value="0m">Poolside (0m)</option>
             <option value="1m">1m Springboard</option>
@@ -661,6 +684,19 @@ onMounted(async () => {
             <option value="7.5m">7.5m Platform</option>
             <option value="10m">10m Platform</option>
           </select>
+          <label class="checkbox-row">
+            <input type="checkbox" v-model="createMixedHeight">
+            Mixed-board event
+            <button type="button" class="help-pill"
+                    @click.prevent="showMixedHeightHelp = !showMixedHeightHelp"
+                    title="What is this?">?</button>
+          </label>
+          <div v-if="showMixedHeightHelp" class="help-popover">
+            Use this for events that span more than one board — e.g. an
+            "Open Mixed" exhibition with 1m + 3m + 5m + 10m dives. The
+            height field above is ignored and divers can pick any height
+            on each of their dives.
+          </div>
         </div>
         <div class="field">
           <label class="label">Judge Panel Size</label>
@@ -793,6 +829,39 @@ onMounted(async () => {
           <p class="hint" v-if="parseInt(createDdLimitRounds) > 0 && createDdLimitValue">
             First {{ createDdLimitRounds }} round{{ parseInt(createDdLimitRounds) === 1 ? '' : 's' }} capped to DD ≤ {{ createDdLimitValue }}.
           </p>
+        </div>
+
+        <div class="field">
+          <label class="checkbox-row">
+            <input type="checkbox" v-model="createEnforceSignoff">
+            Enforce referee sign-off
+            <button type="button" class="help-pill"
+                    @click.prevent="showSignoffHelp = !showSignoffHelp"
+                    title="What is this?">?</button>
+          </label>
+          <div v-if="showSignoffHelp" class="help-popover">
+            <strong>What this does</strong>
+            <p>
+              Locks the pre-meet workflow's referee sign-off step so the
+              actual referee has to approve the dive order — either by
+              tapping the push notification on their device, by entering
+              their username + password on the meet controller's screen,
+              or by typing a 6-digit handoff code on their own device.
+            </p>
+            <strong>What changes</strong>
+            <p>
+              The "Manager attests on referee's behalf" tab in the sign-off
+              modal disappears, and the underlying API refuses any soft
+              attest. The referee's user-id is what gets stamped on the
+              event's audit trail.
+            </p>
+            <strong>When to use it</strong>
+            <p>
+              Sanctioned meets, anything with formal results that need
+              proper attribution. For training / club nights, leave it off
+              and the meet controller can sign off after a verbal nod.
+            </p>
+          </div>
         </div>
 
         <div v-if="formErr" class="msg msg-error">{{ formErr }}</div>
@@ -963,7 +1032,7 @@ onMounted(async () => {
         </div>
         <div class="field">
           <label class="label">Board / Platform Height</label>
-          <select class="select" v-model="editHeight">
+          <select class="select" v-model="editHeight" :disabled="editMixedHeight">
             <option value="">— Select Height —</option>
             <option value="0m">Poolside (0m)</option>
             <option value="1m">1m Springboard</option>
@@ -972,6 +1041,10 @@ onMounted(async () => {
             <option value="7.5m">7.5m Platform</option>
             <option value="10m">10m Platform</option>
           </select>
+          <label class="checkbox-row">
+            <input type="checkbox" v-model="editMixedHeight">
+            Mixed-board event
+          </label>
         </div>
         <div class="field">
           <label class="label">Judge Panel Size</label>
@@ -982,6 +1055,16 @@ onMounted(async () => {
             <option value="9">9 Judges</option>
             <option value="11">11 Judges</option>
           </select>
+        </div>
+        <div class="field">
+          <label class="checkbox-row">
+            <input type="checkbox" v-model="editEnforceSignoff">
+            Enforce referee sign-off
+          </label>
+          <p class="hint">
+            When on, only the referee can sign off — via push, code,
+            or credential entry.
+          </p>
         </div>
         <div class="field">
           <label class="label">Number of Rounds</label>
@@ -1288,4 +1371,32 @@ onMounted(async () => {
 .enrolled-empty { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); padding: 0.4rem 0; font-style: italic; }
 .add-team-row { display: flex; gap: 0.5rem; align-items: center; }
 .add-team-row .select { flex: 1; }
+
+/* Field-bottom checkbox row + a small help pill that toggles a
+   nearby explainer block. Used by the Migration 031 sign-off
+   policy + mixed-board flags. */
+.checkbox-row {
+  display: flex; align-items: center; gap: 0.5rem;
+  margin-top: 0.5rem; font-size: 13px;
+  cursor: pointer; user-select: none;
+}
+.checkbox-row input[type="checkbox"] { margin: 0; }
+.help-pill {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--bg-3); border: 1px solid var(--border);
+  color: var(--text-3); font-size: 11px; font-weight: 700;
+  cursor: pointer; padding: 0;
+}
+.help-pill:hover { color: var(--text); border-color: var(--cyan); }
+.help-popover {
+  margin-top: 0.5rem; padding: 0.7rem 0.9rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-left: 3px solid var(--amber);
+  border-radius: 4px; font-size: 12.5px; line-height: 1.55;
+  color: var(--text-2);
+}
+.help-popover strong { display: block; margin-top: 0.4rem; color: var(--text); }
+.help-popover strong:first-child { margin-top: 0; }
+.help-popover p { margin: 0.2rem 0 0.5rem; }
 </style>

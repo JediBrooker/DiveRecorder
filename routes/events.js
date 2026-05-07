@@ -97,6 +97,14 @@ module.exports = function createEventsRouter({
       dd_limit_rounds, dd_limit_value,
       // Migration 020: optional registration deadline.
       entries_close_at,
+      // Migration 031:
+      //   enforce_referee_signoff — gate the simple manager-attests
+      //                             sign-off path; force push or
+      //                             credential entry by the named
+      //                             referee.
+      //   is_mixed_height         — multi-board event; the picker
+      //                             widens to the full directory.
+      enforce_referee_signoff, is_mixed_height,
     } = req.body || {};
 
     // Synchronised pairs require 9 or 11 judges (the only panel
@@ -168,15 +176,21 @@ module.exports = function createEventsRouter({
            (name, gender, age_group, number_of_judges, total_rounds, height,
             event_type, event_format, parent_event_id, advance_count,
             dd_limit_rounds, dd_limit_value, scheduled_at, entries_close_at,
-            org_id, meet_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+            org_id, meet_id,
+            enforce_referee_signoff, is_mixed_height)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+         RETURNING *`,
         [
           name,
           gender,
           age_group || null,
           number_of_judges || 5,
           total_rounds || 6,
-          height || null,
+          // For mixed-board events the column is informational
+          // only — store NULL so any "filter dives by height"
+          // logic that didn't get the is_mixed_height memo just
+          // returns nothing rather than the wrong subset.
+          is_mixed_height ? null : (height || null),
           type,
           fmt,
           parent_event_id || null,
@@ -187,6 +201,8 @@ module.exports = function createEventsRouter({
           entries_close_at || null,
           req.user.org_id,
           meet_id || null,
+          !!enforce_referee_signoff,
+          !!is_mixed_height,
         ],
       );
       const event = evRes.rows[0];
@@ -220,6 +236,8 @@ module.exports = function createEventsRouter({
       age_group, scheduled_at, event_format, parent_event_id, advance_count,
       dd_limit_rounds, dd_limit_value,
       entries_close_at,
+      // Migration 031 — see POST handler for the rationale.
+      enforce_referee_signoff, is_mixed_height,
     } = req.body || {};
     if (event_type === "synchro_pair" && ![9, 11].includes(number_of_judges)) {
       return res.status(400).json({
@@ -237,6 +255,12 @@ module.exports = function createEventsRouter({
       // "leave untouched" and "set to NULL" in one statement.
       const closeUntouched = entries_close_at === undefined;
       const closeValue = closeUntouched ? null : (entries_close_at || null);
+      // Tri-state on the two new boolean flags too: undefined =
+      // leave untouched, true/false = set explicitly. Done with
+      // CASE so a partial PUT body doesn't accidentally flip a
+      // flag back to its default.
+      const enforceUntouched = enforce_referee_signoff === undefined;
+      const mixedUntouched   = is_mixed_height          === undefined;
       const r = await pool.query(
         `UPDATE events SET
            name             = COALESCE($1, name),
@@ -252,14 +276,18 @@ module.exports = function createEventsRouter({
            dd_limit_rounds  = COALESCE($11, dd_limit_rounds),
            dd_limit_value   = $12,
            scheduled_at     = $13,
-           entries_close_at = CASE WHEN $14::boolean THEN entries_close_at ELSE $15::timestamptz END
+           entries_close_at = CASE WHEN $14::boolean THEN entries_close_at ELSE $15::timestamptz END,
+           enforce_referee_signoff = CASE WHEN $19::boolean THEN enforce_referee_signoff ELSE $20::boolean END,
+           is_mixed_height         = CASE WHEN $21::boolean THEN is_mixed_height         ELSE $22::boolean END
          WHERE id=$16 AND ($17::boolean OR org_id=$18) RETURNING *`,
         [
           name || null,
           gender || null,
           number_of_judges || null,
           total_rounds || null,
-          height || null,
+          // Mixed-board: clobber height to NULL even if the
+          // caller sent a value, so the column doesn't lie.
+          is_mixed_height ? null : (height || null),
           event_type || null,
           age_group ?? null,
           event_format || null,
@@ -273,6 +301,8 @@ module.exports = function createEventsRouter({
           req.params.id,
           !!req.user.is_system_admin,
           req.user.org_id,
+          enforceUntouched, !!enforce_referee_signoff,
+          mixedUntouched,   !!is_mixed_height,
         ],
       );
       if (!r.rows.length)

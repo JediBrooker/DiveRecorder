@@ -131,6 +131,14 @@ const routes = [
     component: () => import('@/views/DiveDirectoryView.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    // Cut 3 referee sign-off — the page where a referee types
+    // the 6-digit handoff code the meet manager generated on
+    // their device.
+    path: '/sign-off-codes',
+    component: () => import('@/views/SignOffCodeView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['referee', 'org_admin'] },
+  },
 ]
 
 const router = createRouter({
