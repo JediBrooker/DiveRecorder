@@ -283,18 +283,24 @@ const canReorderQueue = computed(() =>
 )
 
 // =========================================================
-// DIVER START ORDER — every roster row carries display_order
-// (the 1-based diving position, set when the operator clicks
-// Randomise or by manual reorder). The same diver keeps their
-// order across all rounds, so a single competitor_id → number
-// map drives the "1." prefix shown in front of every name —
-// active diver, completed-dives history cards, roster queue.
+// DIVER START ORDER — the 1-based diving position shown in
+// front of every name (active diver, completed-dive history
+// cards, roster queue). The same diver keeps their order
+// across all rounds, so a single competitor_id → number map
+// is enough.
+//
+// Reads round_order (server-side ROW_NUMBER) ahead of
+// display_order so an event randomised under the pre-fix SQL
+// bug still shows clean 1..N labels rather than the stale
+// values left in display_order. Falls back to display_order
+// when the older response shape is in play.
 // =========================================================
 const competitorOrderMap = computed(() => {
   const map = new Map()
   for (const row of roster.value) {
-    if (row.display_order != null && !map.has(row.competitor_id)) {
-      map.set(row.competitor_id, row.display_order)
+    const pos = row.round_order ?? row.display_order
+    if (pos != null && !map.has(row.competitor_id)) {
+      map.set(row.competitor_id, pos)
     }
   }
   return map
@@ -2599,7 +2605,13 @@ onUnmounted(() => {
                    "code · DD x.x" right-aligned. -->
               <div class="up-next-row-top">
                 <span class="up-next-row-rd">R{{ row.round_number }}</span>
-                <span v-if="row.display_order != null" class="up-next-row-pos">{{ row.display_order }}</span>
+                <!-- Position badge reads round_order (server-side
+                     ROW_NUMBER) before display_order so an event
+                     randomised under the pre-fix bug still shows
+                     1..N labels rather than the stale 4 / 6 / 9
+                     stored in display_order. -->
+                <span v-if="(row.round_order ?? row.display_order) != null"
+                      class="up-next-row-pos">{{ row.round_order ?? row.display_order }}</span>
                 <span class="up-next-row-name">
                   {{ row.full_name }}<span v-if="row.country_code" class="up-next-row-ctry">{{ row.country_code }}</span>
                   <template v-if="row.partner_name">
@@ -2781,7 +2793,10 @@ onUnmounted(() => {
                   @click="setActive(item.originalIdx)"
                 >
                   <div class="roster-name">
-                    <span v-if="item.display_order != null" class="roster-order">{{ item.display_order }}.</span>
+                    <!-- Same round_order-with-display_order-fallback
+                         as the Up Next row above. -->
+                    <span v-if="(item.round_order ?? item.display_order) != null"
+                          class="roster-order">{{ item.round_order ?? item.display_order }}.</span>
                     {{ item.full_name }}<span v-if="item.country_code" class="roster-country">{{ item.country_code }}</span>
                     <template v-if="item.partner_name">
                       <span class="roster-amp">&amp;</span>

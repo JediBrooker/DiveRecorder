@@ -95,9 +95,41 @@ module.exports = function createControlRoomRouter({
       // dive lists for any other org's events by guessing UUIDs.
       if (!(await ensureEventOrgGate(req, res, "id"))) return;
 
+      // round_order is the canonical 1-based diving position
+       // within a round, computed via ROW_NUMBER over the same
+       // sort key the ORDER BY uses. Mirrors the spectator
+       // scoreboard's upcoming query — see routes/scoreboard.js.
+       // Two reasons to compute it server-side rather than have
+       // the SPA render display_order verbatim:
+       //   1. Self-healing against historic data corrupted by the
+       //      pre-fix randomise SQL bug (display_order values
+       //      could end up like 4 / 6 / 9 for a 3-pair event).
+       //      ROW_NUMBER ignores the actual stored value and
+       //      produces clean 1..N from the relative order, so the
+       //      Control Room renders correct position badges even
+       //      for events randomised before the fix landed.
+       //   2. Withdrawn rows can leave gaps in display_order;
+       //      round_order skips them so spectators don't see
+       //      "Diver 1 · Diver 3 · Diver 4" with no #2.
       const r = await pool.query(
-        `SELECT cdl.id AS dive_list_id,
+        `WITH ordered AS (
+           SELECT cdl.id, cdl.event_id, cdl.competitor_id,
+                  cdl.round_number, cdl.display_order, cdl.dive_id,
+                  cdl.partner_id, cdl.team_id, cdl.withdrawn_at,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY cdl.round_number
+                    ORDER BY cdl.display_order NULLS LAST,
+                             u_inner.full_name,
+                             cdl.competitor_id
+                  ) AS round_order
+           FROM competitor_dive_lists cdl
+           JOIN users u_inner ON u_inner.id = cdl.competitor_id
+           WHERE cdl.event_id = $1
+             AND cdl.withdrawn_at IS NULL
+         )
+         SELECT cdl.id AS dive_list_id,
                 cdl.display_order, cdl.withdrawn_at,
+                COALESCE(ordered.round_order, NULL) AS round_order,
                 u.id AS competitor_id, u.full_name, o.country_code,
                 cl.name AS club_name, cl.short_code AS club_code,
                 cdl.partner_id, pu.full_name AS partner_name, po.country_code AS partner_country,
@@ -113,6 +145,12 @@ module.exports = function createControlRoomRouter({
                 e.event_type, e.number_of_judges
          FROM users u
          JOIN competitor_dive_lists cdl ON u.id = cdl.competitor_id
+         /* LEFT JOIN ordered — withdrawn rows aren't in the CTE
+            (which excludes them so the position numbering stays
+            tight) but we still want them in the response so the
+            SPA can render scratched divers as a separate band.
+            round_order is NULL for withdrawn rows. */
+         LEFT JOIN ordered ON ordered.id = cdl.id
          /* LEFT JOIN dive_directory — a competitor_dive_lists row
             with cdl.dive_id IS NULL (diver hasn't filed their
             full list yet) or pointing at a deleted directory
