@@ -56,13 +56,56 @@ const liveEvents = computed(() => events.value.filter(e => e.status === 'Live'))
 // "up next"). Returns the FULL remaining queue — the panel below
 // scrolls when the list overflows ~10 rows. Empty array → panel
 // hides.
+//
+// Also drops the head-of-queue when the centre block is rendering
+// it as the "On Deck" placeholder (no live active diver yet) so
+// the same diver doesn't appear in both spots.
 const upcomingDisplay = computed(() => {
   if (!upcoming.value?.length) return []
   const active = activeDiver.value?.diverName
   const round  = activeDiver.value?.round_number
-  return upcoming.value.filter(u => !(
-    active && u.full_name === active && u.round_number === round
-  ))
+  let list = upcoming.value
+  // Active diver currently mid-dive — exclude their queue row.
+  if (active) {
+    list = list.filter(u => !(u.full_name === active && u.round_number === round))
+  } else {
+    // No active diver — the head of the queue is being shown in
+    // the centre as "On Deck", so drop it from this list.
+    list = list.slice(1)
+  }
+  return list
+})
+
+// Centre-block performer: the live active diver when one is
+// announced, otherwise the head of the upcoming queue rendered
+// as "On Deck". Keeps the spectator scoreboard from sitting on
+// "Waiting..." mid-meet — between rounds, or before the operator
+// has clicked Next Diver, the audience can still see who's about
+// to dive. Normalised to the shape activeDiver carries so the
+// downstream template doesn't branch on data source.
+const centrePerformer = computed(() => {
+  if (activeDiver.value) {
+    return { kind: 'active', ...activeDiver.value }
+  }
+  const next = upcoming.value?.[0]
+  if (next) {
+    return {
+      kind: 'next',
+      round_number: next.round_number,
+      competitor_id: next.competitor_id || null,
+      partner_id:    next.partner_id    || null,
+      diverName:     next.full_name,
+      partner_name:  next.partner_name  || null,
+      country_code:  next.country_code  || null,
+      club_name:     next.club_name     || null,
+      team_name:     next.team_name     || null,
+      diveCode:      next.dive_code ? `${next.dive_code}${next.position || ''}` : null,
+      dd:            next.dd ?? null,
+      description:   next.description || null,
+      position:      next.position || null,
+    }
+  }
+  return null
 })
 
 const countries = computed(() => {
@@ -940,34 +983,43 @@ onMounted(async () => {
            is guaranteed to be set. -->
       <div class="sb-col active-centre">
         <div style="width:100%;text-align:center">
-          <div v-if="activeDiver?.round_number" class="sb-round-pill">
-            Round {{ activeDiver.round_number }}<span v-if="currentEvent?.total_rounds"> / {{ currentEvent.total_rounds }}</span>
+          <div v-if="centrePerformer?.round_number" class="sb-round-pill">
+            Round {{ centrePerformer.round_number }}<span v-if="currentEvent?.total_rounds"> / {{ currentEvent.total_rounds }}</span>
           </div>
-          <div class="sb-label">Current Performer</div>
-          <div class="sb-name" :style="{ opacity: activeDiver ? '1' : '0.2' }">
-            <template v-if="activeDiver?.partner_name">
-              <RouterLink v-if="activeDiver?.competitor_id" :to="`/profile/${activeDiver.competitor_id}`" class="diver-link">{{ activeDiver.diverName }}</RouterLink>
-              <template v-else>{{ activeDiver.diverName }}</template>
+          <!-- Label flips between live ("Current Performer") and
+               on-deck ("On Deck — Up Next") so the audience knows
+               whether the named diver is actively performing or
+               just queued. -->
+          <div class="sb-label">
+            <template v-if="centrePerformer?.kind === 'active'">Current Performer</template>
+            <template v-else-if="centrePerformer?.kind === 'next'">On Deck — Up Next</template>
+            <template v-else>Current Performer</template>
+          </div>
+          <div :class="['sb-name', centrePerformer?.kind === 'next' ? 'sb-name-next' : '']"
+               :style="{ opacity: centrePerformer ? (centrePerformer.kind === 'next' ? '0.7' : '1') : '0.2' }">
+            <template v-if="centrePerformer?.partner_name">
+              <RouterLink v-if="centrePerformer?.competitor_id" :to="`/profile/${centrePerformer.competitor_id}`" class="diver-link">{{ centrePerformer.diverName }}</RouterLink>
+              <template v-else>{{ centrePerformer.diverName }}</template>
               <span class="sb-name-amp">&amp;</span>
-              <RouterLink v-if="activeDiver?.partner_id" :to="`/profile/${activeDiver.partner_id}`" class="diver-link">{{ activeDiver.partner_name }}</RouterLink>
-              <template v-else>{{ activeDiver.partner_name }}</template>
+              <RouterLink v-if="centrePerformer?.partner_id" :to="`/profile/${centrePerformer.partner_id}`" class="diver-link">{{ centrePerformer.partner_name }}</RouterLink>
+              <template v-else>{{ centrePerformer.partner_name }}</template>
             </template>
             <template v-else>
-              <RouterLink v-if="activeDiver?.competitor_id" :to="`/profile/${activeDiver.competitor_id}`" class="diver-link">{{ activeDiver.diverName }}</RouterLink>
-              <template v-else>{{ activeDiver?.diverName || 'Waiting...' }}</template>
+              <RouterLink v-if="centrePerformer?.competitor_id" :to="`/profile/${centrePerformer.competitor_id}`" class="diver-link">{{ centrePerformer.diverName }}</RouterLink>
+              <template v-else>{{ centrePerformer?.diverName || 'Waiting...' }}</template>
             </template>
           </div>
-          <div v-if="activeDiver?.country_code || activeDiver?.club_name || activeDiver?.team_name"
-               class="sb-country-line" :style="{ opacity: activeDiver ? '1' : '0.2' }">
-            <span v-if="activeDiver.country_code">{{ activeDiver.country_code }}</span>
-            <span v-if="activeDiver.team_name" class="sb-team-line">{{ activeDiver.team_name }}</span>
-            <span v-if="activeDiver.club_name && !activeDiver.team_name" class="sb-club-line">{{ activeDiver.club_name }}</span>
+          <div v-if="centrePerformer?.country_code || centrePerformer?.club_name || centrePerformer?.team_name"
+               class="sb-country-line" :style="{ opacity: centrePerformer ? (centrePerformer.kind === 'next' ? '0.7' : '1') : '0.2' }">
+            <span v-if="centrePerformer.country_code">{{ centrePerformer.country_code }}</span>
+            <span v-if="centrePerformer.team_name" class="sb-team-line">{{ centrePerformer.team_name }}</span>
+            <span v-if="centrePerformer.club_name && !centrePerformer.team_name" class="sb-club-line">{{ centrePerformer.club_name }}</span>
           </div>
-          <div class="sb-badges" :style="{ opacity: activeDiver ? '1' : '0.2' }">
-            <div class="sb-code">{{ activeDiver?.diveCode || '—' }}</div>
-            <div class="sb-dd">{{ activeDiver?.dd ? `DD ${activeDiver.dd}` : 'DD —' }}</div>
+          <div class="sb-badges" :style="{ opacity: centrePerformer ? (centrePerformer.kind === 'next' ? '0.7' : '1') : '0.2' }">
+            <div class="sb-code">{{ centrePerformer?.diveCode || '—' }}</div>
+            <div class="sb-dd">{{ centrePerformer?.dd ? `DD ${centrePerformer.dd}` : 'DD —' }}</div>
           </div>
-          <div v-if="activeDiver?.description" class="sb-desc">{{ diveDescription(activeDiver) }}</div>
+          <div v-if="centrePerformer?.description" class="sb-desc">{{ diveDescription(centrePerformer) }}</div>
 
           <!-- Live judges' scores for the active diver. Pills are
                styled with the same .j-score / .j-dropped classes
@@ -1756,6 +1808,10 @@ onMounted(async () => {
 }
 .sb-label { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.4em; text-transform: uppercase; color: var(--cyan); margin-bottom: 1rem; }
 .sb-name { font-family: var(--font-display); font-size: clamp(36px,6vw,72px); font-weight: 900; font-style: italic; color: var(--text); line-height: 1; margin-bottom: 1.5rem; }
+/* Mid-meet "On Deck — Up Next" placeholder. Slightly desaturated
+   so the audience reads it as queued-not-diving without losing
+   the visual prominence of the centre block. */
+.sb-name.sb-name-next { color: var(--text-2); }
 .sb-badges { display: flex; justify-content: center; gap: 1.5rem; margin-bottom: 1rem; }
 .sb-code { font-family: var(--font-mono); font-size: clamp(24px,4vw,36px); color: var(--text); }
 .sb-dd { font-family: var(--font-display); font-size: clamp(18px,3vw,28px); font-weight: 700; color: var(--cyan); }
