@@ -176,6 +176,12 @@ CREATE TABLE public.users (
     -- shown to the user once at setup; we never store the readable
     -- form. A used code is removed from the array on consume.
     totp_recovery_codes jsonb,
+    -- Stable opaque identifier for public profile URLs (Migration
+    -- 023). 16 random hex chars at user creation; never changes.
+    -- See routes/public-profile.js for how it's used. NOT NULL
+    -- after the migration backfill; init.sql generates one per
+    -- inserted row via the trigger below.
+    public_slug         varchar(32) NOT NULL DEFAULT REPLACE(gen_random_uuid()::text, '-', ''),
     -- Diver-customisable analytics dashboard. Array of widget
     -- IDs (see frontend WIDGET_CATALOG). Defaults to the four
     -- core widgets so a fresh diver has something to look at.
@@ -804,6 +810,7 @@ CREATE INDEX idx_events_scheduled_at       ON public.events (scheduled_at);
 -- NULLs short-circuit the predicate before the index is consulted.
 CREATE INDEX idx_events_entries_close_at   ON public.events (entries_close_at)
     WHERE entries_close_at IS NOT NULL;
+CREATE UNIQUE INDEX idx_users_public_slug   ON public.users (public_slug);
 CREATE INDEX idx_events_parent_event       ON public.events (parent_event_id);
 CREATE INDEX idx_dive_lists_event_round_order
     ON public.competitor_dive_lists (event_id, round_number, display_order)
@@ -834,7 +841,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 22);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 23);
 
 
 -- =============================================================

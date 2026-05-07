@@ -628,6 +628,16 @@ app.use(require("./routes/archive")({ pool, readPool }));
 app.use(require("./routes/pdf")({ pool }));
 
 // =============================================================
+// PUBLIC DIVER PROFILE
+// [SECTION: ROUTES — PUBLIC PROFILE]
+// /api/public/divers/:public_slug (JSON) and /diver/:public_slug
+// (server-rendered OG-tagged HTML for social-network crawlers,
+// SPA fall-through for browsers). Mounted BEFORE the SPA static
+// fallback so the crawler path can next() into it.
+// =============================================================
+app.use(require("./routes/public-profile")({ pool, readPool }));
+
+// =============================================================
 // SPA FALLBACK — must come after all API routes
 // [SECTION: SPA FALLBACK]
 //
