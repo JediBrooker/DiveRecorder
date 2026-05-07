@@ -2039,7 +2039,8 @@ VALUES (
 );
 
 INSERT INTO public.users
-    (id, username, password, full_name, email, org_id, club_id, is_system_admin, created_at)
+    (id, username, password, full_name, email, org_id, club_id, is_system_admin,
+     email_verified_at, created_at)
 VALUES (
     '00000000-0000-0000-0000-000000000002',
     'admin',
@@ -2049,6 +2050,11 @@ VALUES (
     '00000000-0000-0000-0000-000000000001',
     NULL,
     true,
+    -- email_verified_at non-null so the bootstrap admin can log in
+    -- straight away on a fresh install. Without this, /api/auth/login
+    -- refuses with "please verify your email" and there's no inbox
+    -- to receive the link from on a brand-new system.
+    now(),
     now()
 );
 

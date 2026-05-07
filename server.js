@@ -220,12 +220,26 @@ const {
   invalidateTokenVersion,
   isTokenVersionCurrent,
   loadEventForEntries,
+  requireTotpForPrivilegedRoles,
 } = require("./lib/middleware")({ pool, JWT_SECRET });
 
 // Convenience aliases — defined once so a typo can't drift the
 // role tuple across 20+ route mountings. Used throughout.
-const requireMeetEditor = requireOrgRole(["org_admin", "meet_manager"]);
-const requireOrgAdmin   = requireOrgRole(["org_admin"]);
+//
+// Each is an array of middleware (Express accepts arrays anywhere
+// a single function is accepted, so the call sites that take
+// these as factory deps don't need to know). The TOTP gate is
+// pre-wired but no-ops unless TOTP_REQUIRED_FOR_ADMINS=true is
+// set in the env — see lib/middleware.js for the rollout
+// rationale.
+const requireMeetEditor = [
+  requireOrgRole(["org_admin", "meet_manager"]),
+  requireTotpForPrivilegedRoles,
+];
+const requireOrgAdmin = [
+  requireOrgRole(["org_admin"]),
+  requireTotpForPrivilegedRoles,
+];
 
 // Email helpers — moved into lib/email.js. Factory takes the pool
 // so the test runner can swap it. Every helper is best-effort and
