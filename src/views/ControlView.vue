@@ -1451,38 +1451,15 @@ onUnmounted(() => {
           <span>{{ connStatus ? 'Connected' : 'Connecting' }}</span>
         </span>
       </div>
-      <!-- Header context — meet name + at-a-glance round/diver
-           position so the operator never has to glance away. -->
+      <!-- Header context — just the meet name now. The round/
+           diver counters and the Auto-next picker moved into
+           the active-diver block so they're adjacent to the
+           thing they describe (the dive currently on board)
+           rather than buried in the page chrome. -->
       <div class="ctrl-header-ctx">
         <span class="ctx-meet">{{ meetName }}</span>
-        <span v-if="activeInfo.round_number" class="ctx-badge">
-          ROUND {{ activeInfo.round_number }} / {{ currentEvent?.total_rounds || '?' }}
-        </span>
-        <span v-if="roster.length" class="ctx-badge">
-          DIVER {{ currentIndex + 1 }} / {{ roster.length }}
-        </span>
       </div>
       <div style="display:flex;align-items:center;gap:0.75rem">
-        <!-- Auto-advance — controls how the queue moves on once
-             all judges have submitted. Manual = operator clicks
-             Next; otherwise the timer fires nextDiver() after
-             the chosen delay. Same setting governs the round-end
-             "Announce standings" prompt. The .auto-advance-select
-             class also shares .event-select-sm visual styling
-             but stays uniquely identifiable for tests. -->
-        <select
-          class="event-select-sm auto-advance-select"
-          v-model.number="autoAdvanceSeconds"
-          title="Auto-advance to the next diver after all scores are in. Same delay applies to the round-end announcement."
-        >
-          <option :value="0">Auto-next: Manual</option>
-          <option :value="5">Auto-next: 5s</option>
-          <option :value="10">Auto-next: 10s</option>
-          <option :value="15">Auto-next: 15s</option>
-          <option :value="20">Auto-next: 20s</option>
-          <option :value="25">Auto-next: 25s</option>
-          <option :value="30">Auto-next: 30s</option>
-        </select>
         <!-- Hold / Resume — broadcasts a paused state to judges
              + spectator scoreboard. Cyan when running, amber
              when held. -->
@@ -1638,10 +1615,41 @@ onUnmounted(() => {
 
         <div class="active-zone">
           <div class="active-label-row">
-            <span class="active-label">
-              Currently on Board<span v-if="activeInfo.round_number" class="active-round">— Round {{ activeInfo.round_number }}</span>
-            </span>
-            <div style="display:flex;align-items:center;gap:0.5rem">
+            <div class="active-label-left">
+              <span class="active-label">Currently on Board</span>
+              <!-- Round / diver counters — moved out of the header
+                   so they sit next to the active-diver label they
+                   actually describe. -->
+              <span v-if="activeInfo.round_number" class="ctx-badge">
+                ROUND {{ activeInfo.round_number }} / {{ currentEvent?.total_rounds || '?' }}
+              </span>
+              <span v-if="roster.length" class="ctx-badge">
+                DIVER {{ currentIndex + 1 }} / {{ roster.length }}
+              </span>
+            </div>
+            <div class="active-label-right">
+              <!-- Auto-advance — moved out of the header into the
+                   active-diver block so the operator's flow knobs
+                   live next to the action they govern. Manual =
+                   operator clicks Next; otherwise the timer fires
+                   nextDiver() after the chosen delay. Same setting
+                   governs the round-end "Announce standings"
+                   prompt. The .auto-advance-select class shares
+                   .event-select-sm visual styling but stays
+                   uniquely identifiable for tests. -->
+              <select
+                class="event-select-sm auto-advance-select"
+                v-model.number="autoAdvanceSeconds"
+                title="Auto-advance to the next diver after all scores are in. Same delay applies to the round-end announcement."
+              >
+                <option :value="0">Auto-next: Manual</option>
+                <option :value="5">Auto-next: 5s</option>
+                <option :value="10">Auto-next: 10s</option>
+                <option :value="15">Auto-next: 15s</option>
+                <option :value="20">Auto-next: 20s</option>
+                <option :value="25">Auto-next: 25s</option>
+                <option :value="30">Auto-next: 30s</option>
+              </select>
               <!-- Active diver status (#10): READY / DIVING / JUDGING.
                    Cycles on click; broadcasts to scoreboard via
                    set_active_diver so the audience sees what's
@@ -2458,7 +2466,6 @@ onUnmounted(() => {
 }
 .round-divider:first-child { margin-top: 0; }
 
-.active-round { color: var(--text-3); margin-left: 0.5rem; letter-spacing: 0.15em; }
 .active-amp { color: var(--cyan); margin: 0 0.4em; font-weight: 400; }
 .active-team {
   display: inline-block; margin-bottom: 1rem;
@@ -2609,6 +2616,15 @@ onUnmounted(() => {
 .active-label-row {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 0.75rem; gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.active-label-left {
+  display: flex; align-items: center; gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.active-label-right {
+  display: flex; align-items: center; gap: 0.5rem;
+  flex-wrap: wrap;
 }
 .shot-clock {
   display: flex; align-items: center; gap: 0.4rem;
