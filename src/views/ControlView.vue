@@ -1232,6 +1232,14 @@ function setActive(idx) {
     // incomplete.
     description: currentActive.value.description || null,
     position:    currentActive.value.position    || null,
+    // Profile-link IDs surfaced explicitly: the spectator
+    // scoreboard wraps both diverName and partner_name in
+    // /profile/<id> RouterLinks. The spread above already
+    // carries these from the roster query, but listing them
+    // by name documents the contract and survives any future
+    // refactor that changes how currentActive is shaped.
+    competitor_id: currentActive.value.competitor_id || null,
+    partner_id:    currentActive.value.partner_id    || null,
     eventName: currentEvent.value?.name || '—',
   })
   resetJudgeTiles()

@@ -42,11 +42,25 @@ module.exports = defineConfig({
         // a fixed 1280×720 viewport plus a deviceScaleFactor,
         // which clamp the page to that resolution even when the
         // operator manually resizes the --headed Chrome window.
-        // browserName + viewport:null gives us a plain Chromium
-        // that uses the window's natural inner size, so resizing
-        // also resizes the rendered page like normal Chrome.
+        //
+        // viewport:null disables Playwright's viewport emulation
+        // so the page renders at the actual Chromium window's
+        // inner size — meaning a manual window resize also
+        // resizes the rendered page (like normal Chrome).
+        //
+        // BUT: viewport:null on its own doesn't tell Chromium
+        // what size to OPEN the window at. Headed Chromium
+        // defaults to ~800×600 and headless defaults to a
+        // similarly small frame, which is why the dashboard
+        // overflowed under e2e but rendered fine in Safari /
+        // user's normal Chrome (which open at a sensible size).
+        // --window-size sets the initial frame; the user is
+        // still free to resize.
         browserName: "chromium",
         viewport: null,
+        launchOptions: {
+          args: ["--window-size=1440,900"],
+        },
       },
     },
   ],

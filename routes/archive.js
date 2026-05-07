@@ -162,6 +162,7 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
              SELECT t.name AS full_name,
                     NULL::char(3) AS country_code,
                     t.short_code AS club_name,
+                    NULL::uuid AS partner_id,
                     NULL::varchar AS partner_name,
                     NULL::char(3) AS partner_country,
                     SUM(pd.dive_points) AS total
@@ -174,9 +175,12 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
              /* Group by u.id (not just u.full_name) so two divers
                 sharing a name don't merge into one inflated row.
                 u.id is the competitor_id the SPA uses to deep-
-                link a standings row → /profile/<id>. */
+                link a standings row → /profile/<id>. partner_id is
+                exposed alongside partner_name so the synchro
+                partner gets the same /profile/<id> link. */
              SELECT u.id AS competitor_id,
                     u.full_name, o.country_code, cl.name AS club_name,
+                    p.partner_id AS partner_id,
                     pu.full_name AS partner_name, pl.country_code AS partner_country,
                     SUM(pd.dive_points) AS total,
                     array_agg(pd.dive_points ORDER BY pd.dive_points DESC) AS dives_desc
@@ -192,7 +196,8 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
              LEFT JOIN users pu ON pu.id = p.partner_id
              LEFT JOIN organisations pl ON pl.id = pu.org_id
              WHERE (SELECT event_type FROM events WHERE id = $1) <> 'team'
-             GROUP BY u.id, u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code
+             GROUP BY u.id, u.full_name, o.country_code, cl.name,
+                      p.partner_id, pu.full_name, pl.country_code
            ),
            team_standings_padded AS (
              /* Pad the team-standings shape so the UNION below
@@ -201,7 +206,8 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
              SELECT NULL::uuid AS competitor_id, * , NULL::numeric[] AS dives_desc
              FROM team_standings
            )
-           SELECT competitor_id, full_name, country_code, club_name, partner_name, partner_country, total
+           SELECT competitor_id, full_name, country_code, club_name,
+                  partner_id, partner_name, partner_country, total
            FROM (
              SELECT * FROM team_standings_padded
              UNION ALL
@@ -219,7 +225,7 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
              position), not judge_id (random UUID), so the chip
              order matches the actual panel layout the audience saw. */
           `SELECT u.id AS competitor_id, u.full_name, o.country_code, cl.name AS club_name,
-                  pu.full_name AS partner_name, pl.country_code AS partner_country,
+                  pu.id AS partner_id, pu.full_name AS partner_name, pl.country_code AS partner_country,
                   t.id AS team_id, t.name AS team_name,
                   s.round_number,
                   d.dive_code, d.position, d.description, d.dd,
@@ -243,7 +249,8 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
            LEFT JOIN organisations pl ON pl.id = pu.org_id
            LEFT JOIN teams t ON t.id = cdl.team_id
            WHERE s.event_id = $1
-           GROUP BY u.id, u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code,
+           GROUP BY u.id, u.full_name, o.country_code, cl.name,
+                    pu.id, pu.full_name, pl.country_code,
                     t.id, t.name,
                     s.round_number, d.dive_code, d.position, d.description, d.dd,
                     e.number_of_judges, e.event_type

@@ -76,6 +76,7 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
                     NULL::char(3) AS country_code,
                     t.short_code AS club_name,
                     NULL::varchar AS partner_name,
+                    NULL::uuid AS partner_id,
                     NULL::char(3) AS partner_country,
                     SUM(pd.dive_points) AS total,
                     array_agg(pd.dive_points ORDER BY pd.dive_points DESC) AS dives_desc
@@ -84,10 +85,14 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
              WHERE (SELECT event_type FROM events WHERE id = $1) = 'team'
              GROUP BY t.id, t.name, t.short_code
            ),
-           /* Individual / synchro branch: aggregate by competitor */
+           /* Individual / synchro branch: aggregate by competitor.
+              partner_id is exposed on the row so the spectator
+              scoreboard can render the synchro partner's name as
+              a profile link (parallels the lead diver's link). */
            comp_standings AS (
              SELECT u.id AS competitor_id,
                     u.full_name, o.country_code, cl.name AS club_name,
+                    p.partner_id AS partner_id,
                     pu.full_name AS partner_name, pl.country_code AS partner_country,
                     SUM(pd.dive_points) AS total,
                     array_agg(pd.dive_points ORDER BY pd.dive_points DESC) AS dives_desc
@@ -105,17 +110,18 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
              LEFT JOIN users pu ON pu.id = p.partner_id
              LEFT JOIN organisations pl ON pl.id = pu.org_id
              WHERE (SELECT event_type FROM events WHERE id = $1) <> 'team'
-             GROUP BY u.id, u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code
+             GROUP BY u.id, u.full_name, o.country_code, cl.name,
+                      p.partner_id, pu.full_name, pl.country_code
            ),
            merged AS (
              SELECT competitor_id, NULL::uuid AS team_id,
                     full_name, country_code, club_name,
-                    partner_name, partner_country, total, dives_desc
+                    partner_id, partner_name, partner_country, total, dives_desc
              FROM comp_standings
              UNION ALL
              SELECT NULL::uuid AS competitor_id, team_id,
                     full_name, country_code, club_name,
-                    partner_name, partner_country, total, dives_desc
+                    partner_id, partner_name, partner_country, total, dives_desc
              FROM team_standings
            )
            /* FINA tie-break ordering: total desc, then highest dive,
@@ -125,7 +131,7 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
               tie-break, so the UI can hint at why. */
            SELECT competitor_id, team_id,
                   full_name, country_code, club_name,
-                  partner_name, partner_country, total,
+                  partner_id, partner_name, partner_country, total,
                   COUNT(*) OVER (PARTITION BY total) > 1 AS is_tied_on_total
            FROM merged
            ORDER BY total DESC, dives_desc DESC`,
@@ -135,7 +141,7 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
         // official dive points.
         pool.query(
           `SELECT s.competitor_id, u.full_name, o.country_code, cl.name AS club_name,
-                  pu.full_name AS partner_name, pl.country_code AS partner_country,
+                  pu.id AS partner_id, pu.full_name AS partner_name, pl.country_code AS partner_country,
                   t.id AS team_id, t.name AS team_name,
                   d.dive_code, d.position, d.description, d.dd, s.round_number,
                   calc_event_dive_points(
@@ -161,7 +167,7 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
            LEFT JOIN teams t ON t.id = cdl.team_id
            WHERE s.event_id = $1
            GROUP BY s.competitor_id, u.full_name, o.country_code, cl.name,
-                    pu.full_name, pl.country_code, t.id, t.name,
+                    pu.id, pu.full_name, pl.country_code, t.id, t.name,
                     d.dive_code, d.position, d.description, d.dd,
                     s.round_number, e.number_of_judges, e.event_type
            ORDER BY MAX(s.created_at) DESC LIMIT 10`,

@@ -238,17 +238,27 @@ const divesByDiver = computed(() => {
   }
   return [...grouped.entries()]
     .sort((a, b) => (order.get(a[0]) ?? 999) - (order.get(b[0]) ?? 999))
-    .map(([key, dives]) => ({
-      name: key,
-      country: teamMode ? null : (dives[0]?.country_code || null),
-      club: teamMode ? null : (dives[0]?.club_name || null),
-      partner: teamMode ? null : (dives[0]?.partner_name || null),
-      partner_country: teamMode ? null : (dives[0]?.partner_country || null),
-      isTeam: teamMode,
-      total: archiveResults.value.standings.find(s => s.full_name === key)?.total ?? null,
-      rank: (order.get(key) ?? -1) + 1,
-      dives,
-    }))
+    .map(([key, dives]) => {
+      // Pull partner_id off the matching standings row (the
+      // archive standings query exposes it for synchro events).
+      // Falls back to scanning the dive rows if standings doesn't
+      // surface it for some reason — partner_id from competitor
+      // _dive_lists rides on every dive of that diver.
+      const standRow = archiveResults.value.standings
+        .find(s => s.full_name === key)
+      return {
+        name: key,
+        country: teamMode ? null : (dives[0]?.country_code || null),
+        club: teamMode ? null : (dives[0]?.club_name || null),
+        partner: teamMode ? null : (dives[0]?.partner_name || null),
+        partner_id: teamMode ? null : (standRow?.partner_id || dives.find(d => d.partner_id)?.partner_id || null),
+        partner_country: teamMode ? null : (dives[0]?.partner_country || null),
+        isTeam: teamMode,
+        total: standRow?.total ?? null,
+        rank: (order.get(key) ?? -1) + 1,
+        dives,
+      }
+    })
 })
 
 const eventStats = computed(() => {
@@ -1086,7 +1096,12 @@ onMounted(async () => {
                   <span v-if="s.country_code" class="standing-country">{{ s.country_code }}</span>
                 </div>
                 <div v-if="s.partner_name" class="standing-partner">
-                  &amp; {{ s.partner_name }}<span v-if="s.partner_country" class="standing-country">{{ s.partner_country }}</span>
+                  &amp;
+                  <RouterLink v-if="s.partner_id"
+                              :to="`/profile/${s.partner_id}`"
+                              class="diver-link">{{ s.partner_name }}</RouterLink>
+                  <template v-else>{{ s.partner_name }}</template>
+                  <span v-if="s.partner_country" class="standing-country">{{ s.partner_country }}</span>
                 </div>
                 <div v-if="s.club_name" class="standing-club">{{ s.club_name }}</div>
               </div>
@@ -1121,7 +1136,11 @@ onMounted(async () => {
                     {{ movementSymbol(r.movement) }}
                   </div>
                   <div class="lb-name">
-                    {{ r.full_name }}<span v-if="r.country_code" class="standing-country">{{ r.country_code }}</span>
+                    <RouterLink v-if="r.competitor_id"
+                                :to="`/profile/${r.competitor_id}`"
+                                class="diver-link">{{ r.full_name }}</RouterLink>
+                    <template v-else>{{ r.full_name }}</template>
+                    <span v-if="r.country_code" class="standing-country">{{ r.country_code }}</span>
                   </div>
                   <div class="lb-cum">{{ r.cumulative_total.toFixed(1) }}</div>
                 </div>
@@ -1170,23 +1189,42 @@ onMounted(async () => {
            (top 3) → tabbed leaderboard (per-diver dives or
            round-by-round) → meet highlights. -->
       <div class="completed-recap">
-        <!-- Podium spotlight: top 3, slightly elevated treatment -->
+        <!-- Podium spotlight: top 3, slightly elevated treatment.
+             Each podium-name is a /profile/<id> link when we have
+             a competitor_id for that row (individual + synchro
+             events). Team rows have NULL competitor_id so the
+             team name renders as plain text. -->
         <div v-if="standings.length >= 3" class="podium">
           <div class="podium-step podium-2">
             <div class="podium-medal silver">2</div>
-            <div class="podium-name">{{ standings[1].full_name }}</div>
+            <div class="podium-name">
+              <RouterLink v-if="standings[1].competitor_id"
+                          :to="`/profile/${standings[1].competitor_id}`"
+                          class="diver-link">{{ standings[1].full_name }}</RouterLink>
+              <template v-else>{{ standings[1].full_name }}</template>
+            </div>
             <div class="podium-country">{{ standings[1].country_code || '' }}</div>
             <div class="podium-total">{{ parseFloat(standings[1].total).toFixed(1) }}</div>
           </div>
           <div class="podium-step podium-1">
             <div class="podium-medal gold">1</div>
-            <div class="podium-name">{{ standings[0].full_name }}</div>
+            <div class="podium-name">
+              <RouterLink v-if="standings[0].competitor_id"
+                          :to="`/profile/${standings[0].competitor_id}`"
+                          class="diver-link">{{ standings[0].full_name }}</RouterLink>
+              <template v-else>{{ standings[0].full_name }}</template>
+            </div>
             <div class="podium-country">{{ standings[0].country_code || '' }}</div>
             <div class="podium-total">{{ parseFloat(standings[0].total).toFixed(1) }}</div>
           </div>
           <div class="podium-step podium-3">
             <div class="podium-medal bronze">3</div>
-            <div class="podium-name">{{ standings[2].full_name }}</div>
+            <div class="podium-name">
+              <RouterLink v-if="standings[2].competitor_id"
+                          :to="`/profile/${standings[2].competitor_id}`"
+                          class="diver-link">{{ standings[2].full_name }}</RouterLink>
+              <template v-else>{{ standings[2].full_name }}</template>
+            </div>
             <div class="podium-country">{{ standings[2].country_code || '' }}</div>
             <div class="podium-total">{{ parseFloat(standings[2].total).toFixed(1) }}</div>
           </div>
@@ -1232,7 +1270,11 @@ onMounted(async () => {
                         <span v-if="block.country" class="diver-country">{{ block.country }}</span>
                         <template v-if="block.partner">
                           <span class="diver-amp">&amp;</span>
-                          {{ block.partner }}<span v-if="block.partner_country" class="diver-country">{{ block.partner_country }}</span>
+                          <RouterLink v-if="block.partner_id"
+                                      :to="`/profile/${block.partner_id}`"
+                                      class="diver-link">{{ block.partner }}</RouterLink>
+                          <template v-else>{{ block.partner }}</template>
+                          <span v-if="block.partner_country" class="diver-country">{{ block.partner_country }}</span>
                         </template>
                       </div>
                       <div class="diver-total" v-if="block.total != null">{{ parseFloat(block.total).toFixed(1) }} pts</div>
@@ -1310,7 +1352,11 @@ onMounted(async () => {
                     </div>
                     <div class="lb-id">
                       <div class="lb-name">
-                        {{ r.full_name }}<span v-if="r.country_code" class="standing-country">{{ r.country_code }}</span>
+                        <RouterLink v-if="r.competitor_id"
+                                    :to="`/profile/${r.competitor_id}`"
+                                    class="diver-link">{{ r.full_name }}</RouterLink>
+                        <template v-else>{{ r.full_name }}</template>
+                        <span v-if="r.country_code" class="standing-country">{{ r.country_code }}</span>
                       </div>
                       <div v-if="r.club_name" class="lb-club">{{ r.club_name }}</div>
                     </div>
