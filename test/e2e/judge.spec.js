@@ -345,6 +345,32 @@ test("judge full E2E (random variant)", async ({
         await page.waitForTimeout(PRE_DIVE_MS * 2);
       }
 
+      // 3b. Other-judge-signals scenario — once per run, on
+      //     the THIRD dive. A different panel member emits
+      //     judge_signal {true} via socket; this judge SHOULD
+      //     see the .judge-panel-alert banner appear above the
+      //     dive panel. After a beat the other judge clears.
+      const isOtherSignalScenario = (round === 1 && cIdx === 2);
+      if (isOtherSignalScenario) {
+        otherJudgeSockets[0].emit("judge_signal", {
+          event_id:      eventId,
+          competitor_id: c.userId,
+          round_number:  round,
+          signaled:      true,
+        });
+        await expect(page.locator(".judge-panel-alert"))
+          .toBeVisible({ timeout: 5000 });
+        await page.waitForTimeout(PRE_DIVE_MS * 2);
+        otherJudgeSockets[0].emit("judge_signal", {
+          event_id:      eventId,
+          competitor_id: c.userId,
+          round_number:  round,
+          signaled:      false,
+        });
+        await expect(page.locator(".judge-panel-alert"))
+          .toBeHidden({ timeout: 5000 });
+      }
+
       // 4. Test judge taps a score on the keypad. Pick from
       //    the cycling SCORE_SEQUENCE so the user sees variety.
       const score = SCORE_SEQUENCE[scoreIdx % SCORE_SEQUENCE.length];

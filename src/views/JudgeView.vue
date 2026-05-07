@@ -34,6 +34,11 @@ const panelScores = ref({})
 // referee on the current dive (e.g. didn't see, wants a
 // review). Toggleable; resets on every state_update.
 const signaled = ref(false)
+// Per-judge signal state from the rest of the panel — populated
+// off the judge_signal broadcasts. Lets THIS judge see when
+// another panel member has flagged the referee, so they can
+// pause / coordinate before locking their own score in.
+const panelSignals = ref({})
 
 const displayValue = computed(() => {
   const val = currentScore.value + (isHalf.value ? 0.5 : 0)
@@ -52,6 +57,16 @@ const panelSize = computed(() =>
 // keypad so the judge can correct the score, and submitting
 // the new score auto-clears the signal.
 const keypadLocked = computed(() => submitted.value && !signaled.value)
+// List of OTHER judges (excludes this judge's own number) who
+// currently have an active signal. Drives the "Judge X flagged
+// the referee" banner above the dive panel.
+const signalingOthers = computed(() => {
+  const me = judgeNumber.value
+  return Object.entries(panelSignals.value)
+    .filter(([num, sig]) => sig && Number(num) !== me)
+    .map(([num]) => Number(num))
+    .sort((a, b) => a - b)
+})
 const panelInCount = computed(() => Object.keys(panelScores.value).length)
 
 // Synchro role — derived from this judge's position in the panel.
@@ -128,6 +143,7 @@ socket.on('state_update', async (data) => {
   // both irrelevant. The signal would otherwise carry over to
   // the next diver and confuse the referee.
   panelScores.value = {}
+  panelSignals.value = {}
   signaled.value = false
 
   if (data.event_id) {
@@ -142,6 +158,23 @@ socket.on('state_update', async (data) => {
         judgeLabel.value = `${user?.full_name} — J${judge_number}`
       }
     } catch { /* show name only */ }
+  }
+})
+
+// judge_signal broadcasts from other panel members. Mirror the
+// state into panelSignals so the panel tile turns red and a
+// banner surfaces telling THIS judge that someone else needs
+// the referee. Resets to false when a judge clears their flag
+// (or auto-clears when they submit a fresh score, server-side).
+socket.on('judge_signal', (data) => {
+  if (!activeDiver.value) return
+  if (data.event_id      !== activeDiver.value.event_id)      return
+  if (data.competitor_id !== activeDiver.value.competitor_id) return
+  if (Number(data.round_number) !== Number(activeDiver.value.round_number)) return
+  if (data.judge_number == null) return
+  panelSignals.value = {
+    ...panelSignals.value,
+    [data.judge_number]: !!data.signaled,
   }
 })
 
@@ -304,6 +337,19 @@ const submitLabel = computed(() => {
            judge's own tile so they read the spread including
            their own contribution at a glance. -->
       <div v-if="activeDiver && panelSize" class="judge-panel">
+        <!-- Other-judge signal alert. Surfaces the moment another
+             panel member taps "Signal Referee" — this judge
+             knows to pause / coordinate before locking their
+             score in. Hidden when no other judge has flagged. -->
+        <div v-if="signalingOthers.length" class="judge-panel-alert">
+          🚩
+          <template v-if="signalingOthers.length === 1">
+            Judge {{ signalingOthers[0] }} flagged the referee
+          </template>
+          <template v-else>
+            Judges {{ signalingOthers.join(', ') }} flagged the referee
+          </template>
+        </div>
         <div class="judge-panel-label">
           DIVE PANEL · {{ panelInCount }} / {{ panelSize }}
         </div>
@@ -313,6 +359,7 @@ const submitLabel = computed(() => {
                  'judge-panel-tile',
                  n === judgeNumber ? 'mine' : '',
                  panelScores[n] != null ? 'in' : '',
+                 panelSignals[n] ? 'signaled' : '',
                ]">
             <div class="judge-panel-tile-label">J{{ n }}</div>
             <div class="judge-panel-tile-score">
@@ -597,6 +644,37 @@ const submitLabel = computed(() => {
   color: var(--text-3); margin-top: 0.1rem;
 }
 .judge-panel-tile.in .judge-panel-tile-score { color: var(--text); }
+/* Another panel member tapped Signal Referee — bright-red ring
+   draws this judge's eye so they pause before locking in
+   their own score. Wins over .scored / .mine when both apply
+   so a signaling judge stands out regardless of state. */
+.judge-panel-tile.signaled {
+  border-color: var(--red);
+  box-shadow: 0 0 0 2px var(--red), 0 0 14px rgba(239,68,68,0.4);
+  animation: judgePanelSignalPulse 1.4s ease-in-out infinite;
+}
+@keyframes judgePanelSignalPulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--red), 0 0 14px rgba(239,68,68,0.4); }
+  50%      { box-shadow: 0 0 0 2px var(--red), 0 0 4px  rgba(239,68,68,0.15); }
+}
+.judge-panel-tile.signaled .judge-panel-tile-label,
+.judge-panel-tile.signaled .judge-panel-tile-score { color: var(--red); }
+
+/* Banner above the panel calling out which other judge(s)
+   have flagged. Stays compact so it doesn't push the keypad
+   below the fold on phones / small tablets. */
+.judge-panel-alert {
+  display: flex; align-items: center; gap: 0.4rem;
+  margin-bottom: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--red-dim);
+  border: 1px solid var(--red);
+  border-left-width: 3px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  color: var(--red);
+  animation: judgePanelSignalPulse 1.4s ease-in-out infinite;
+}
 
 .score-zone {
   display: flex;

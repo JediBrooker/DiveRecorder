@@ -57,13 +57,29 @@
 /* ── Reset ────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  /* Belt + braces: no view in this app needs horizontal
+     scrolling, and a stray descendant with min-content wider
+     than the viewport (long welcome name in a chunky display
+     font, an event card title, …) would otherwise force a
+     horizontal scrollbar AND let body extend past the
+     viewport. Clamping at the document root catches every
+     route. Per-view overflow-x: hidden is still in place
+     where needed. */
+  overflow-x: hidden;
+}
 
 body {
   font-family: var(--font-mono);
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
+  /* Match html's overflow clamp + cap width to the viewport so
+     a descendant's intrinsic size can't push the body wider. */
+  overflow-x: hidden;
+  max-width: 100vw;
   /* Subtle grid texture */
   background-image:
     linear-gradient(rgba(6,182,212,0.03) 1px, transparent 1px),
