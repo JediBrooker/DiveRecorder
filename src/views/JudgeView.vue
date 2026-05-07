@@ -481,12 +481,20 @@ const submitLabel = computed(() => {
   margin-bottom: 0.4rem;
 }
 .judge-panel-tiles {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.35rem;
 }
 .judge-panel-tile {
+  /* Fixed width so the panel's overall footprint stays the
+     same whether the tile reads "—" (empty) or "10.0" (max).
+     Without this the cells dynamically resized between dives,
+     shifting the surrounding layout left and right as scores
+     came in. 52px fits "10.0" at the chosen mono font with
+     room for padding; flex-shrink: 0 stops grid/flex parents
+     from squeezing them. */
+  width: 52px;
+  flex-shrink: 0;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
