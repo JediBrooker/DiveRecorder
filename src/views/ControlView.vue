@@ -4335,13 +4335,15 @@ onUnmounted(() => {
   white-space: normal; word-break: break-word;
   line-height: 1.25;
 }
-.up-next-row-name-lead {
+/* Lead + partner share the same colour, weight, and size — a
+   synchro pair is two equal performers, not a hero with a
+   sidekick. The "&" connector keeps its cyan accent so the eye
+   still reads them as one entry, but the names themselves carry
+   identical visual weight. */
+.up-next-row-name-lead,
+.up-next-row-name-partner {
   color: var(--text);
   font-weight: 600;
-}
-.up-next-row-name-partner {
-  color: var(--text-2);
-  font-size: 11.5px;
 }
 .up-next-row-ctry {
   /* Pinned top-right of the tile — a one-row chip that doesn't
