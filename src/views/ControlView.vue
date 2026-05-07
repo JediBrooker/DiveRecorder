@@ -2599,10 +2599,13 @@ onUnmounted(() => {
               @click="setActive(row.originalIdx)"
               title="Jump to this diver"
             >
-              <!-- Two visual rows so the data isn't squeezed
-                   horizontally — top reads "R# pos NAME" with
-                   the name expanding to fill, bottom reads
-                   "code · DD x.x" right-aligned. -->
+              <!-- Layout — top row reads "R# pos NAME(s) ... [CTRY]"
+                   with the country / club / team badge pinned to
+                   the top-right of the tile. Synchro pairs put the
+                   partner on a second visual line under the lead
+                   so the "&" doesn't bury the badge between two
+                   names. The bottom row carries dive code + DD,
+                   right-aligned. -->
               <div class="up-next-row-top">
                 <span class="up-next-row-rd">R{{ row.round_number }}</span>
                 <!-- Position badge reads round_order (server-side
@@ -2612,11 +2615,19 @@ onUnmounted(() => {
                      stored in display_order. -->
                 <span v-if="(row.round_order ?? row.display_order) != null"
                       class="up-next-row-pos">{{ row.round_order ?? row.display_order }}</span>
-                <span class="up-next-row-name">
-                  {{ row.full_name }}<span v-if="row.country_code" class="up-next-row-ctry">{{ row.country_code }}</span>
-                  <template v-if="row.partner_name">
+                <div class="up-next-row-names">
+                  <div class="up-next-row-name-lead">{{ row.full_name }}</div>
+                  <div v-if="row.partner_name" class="up-next-row-name-partner">
                     <span class="up-next-row-amp">&amp;</span>{{ row.partner_name }}
-                  </template>
+                  </div>
+                </div>
+                <!-- Affiliation badge: prefer country_code, fall
+                     back to team short_code or club short_code so
+                     the top-right always carries the same kind of
+                     identity tag. Hidden when none are present. -->
+                <span v-if="row.country_code || row.team_code || row.club_code"
+                      class="up-next-row-ctry">
+                  {{ row.country_code || row.team_code || row.club_code }}
                 </span>
               </div>
               <div v-if="row.dive_code || row.dd != null" class="up-next-row-bot">
@@ -4279,44 +4290,72 @@ onUnmounted(() => {
   background: var(--cyan-dim);
 }
 .up-next-row-btn:disabled { cursor: default; opacity: 0.5; }
-/* Top row: R# · pos · NAME — name expands to fill so long names
-   wrap rather than truncate. Round + position are kept narrow on
-   the left so the eye reads "R1 4 Diver Name" left-to-right. */
+/* Top row of an Up Next tile.
+   Columns:
+     - R# (small label, 24px-ish)
+     - position number (auto-width — no fixed reservation, so
+       a missing number doesn't leave a gap, and a 2-digit
+       number expands without crushing the name)
+     - names (1fr, expands)
+     - affiliation badge (auto, pinned top-right via
+       align-self: start)
+   Tight gap so the eye reads "R1 3 Diver Bravo  TST" left-to-
+   right with no dead air. */
 .up-next-row-top {
   display: grid;
-  grid-template-columns: 26px 22px 1fr;
-  align-items: baseline; gap: 0.5rem;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: start; gap: 0.35rem;
 }
 /* Bottom row: dive code + DD, right-aligned so the columns line
    up vertically across stacked Up Next rows. */
 .up-next-row-bot {
   display: flex; gap: 0.6rem; justify-content: flex-end;
-  align-items: baseline; padding-left: 54px;
+  align-items: baseline;
 }
 .up-next-row-rd {
   font-family: var(--font-display); font-size: 10px; font-weight: 700;
   letter-spacing: 0.04em; color: var(--text-3);
+  /* Match the lead-name's baseline so R1 / 3 / Name align. */
+  line-height: 1.25;
 }
 .up-next-row-pos {
   font-family: var(--font-display); font-size: 11px; font-weight: 800;
-  font-style: italic; color: var(--cyan); text-align: right;
+  font-style: italic; color: var(--cyan);
+  line-height: 1.25;
+  /* Stays as wide as its content — single digit packs tight,
+     double digit (10+) expands without breaking the layout. */
 }
-.up-next-row-name {
-  /* Allow long synchro pair names ("Diver Bravo & Diver Beatrix")
-     to wrap onto a second visual line rather than be cut off
-     mid-word. The button's flex-column layout absorbs the extra
-     height cleanly. */
+/* Stacked names — lead on the first line, partner on the second
+   line for synchro pairs. The wrapper grows to the available
+   1fr column width and lets long names wrap rather than
+   truncate. */
+.up-next-row-names {
+  display: flex; flex-direction: column; gap: 0.05rem;
+  min-width: 0;
   white-space: normal; word-break: break-word;
-  line-height: 1.25; min-width: 0;
+  line-height: 1.25;
+}
+.up-next-row-name-lead {
+  color: var(--text);
+  font-weight: 600;
+}
+.up-next-row-name-partner {
+  color: var(--text-2);
+  font-size: 11.5px;
 }
 .up-next-row-ctry {
+  /* Pinned top-right of the tile — a one-row chip that doesn't
+     change height with the name wrap below it. align-self:
+     start keeps it anchored even if the partner name pushes the
+     names column down to two lines. */
+  align-self: start;
   font-family: var(--font-display); font-size: 9px; font-weight: 700;
   letter-spacing: 0.08em; color: var(--text-3);
   background: var(--bg); border: 1px solid var(--border);
-  border-radius: 3px; padding: 0.05rem 0.3rem; margin-left: 0.4rem;
-  vertical-align: middle;
+  border-radius: 3px; padding: 0.1rem 0.4rem;
+  white-space: nowrap;
 }
-.up-next-row-amp { color: var(--cyan); margin: 0 0.2em; }
+.up-next-row-amp { color: var(--cyan); margin: 0 0.25em 0 0; }
 .up-next-row-code {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
 }
