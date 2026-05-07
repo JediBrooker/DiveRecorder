@@ -618,8 +618,8 @@ org in cleanup so parallel runs don't collide.
 | `competitor.spec.js` | Diver self-registers, login is blocked with `code: "email_not_verified"`, verify-then-login works, diver submits a 2-round dive list |
 | `2fa.spec.js` | TOTP setup → confirm → two-step login → recovery-code login → disable. Recovery codes are one-time |
 | `scoreboard-ui.spec.js` | UI-driven simulation of a 3-diver × 3-round meet. Login → `/scoreboard/<id>` → live judge tiles fill with each socket event → standings re-sort → Completed flip → recap renders |
-| `meet-manager.spec.js` | Full meet-manager pipeline: pick event from Control Room dropdown, randomise start order via the UI button, judges score (admin clicks Next Diver between dives), Finalise → recap. Random `event_type` per run (individual / synchro_pair / team) |
-| `judge.spec.js` | Judge persona: log in → dashboard surfaces "Your Assigned Events" → click → `/judge?event=<id>` → tap numbers + Submit on the keypad as the admin walks through 3 rounds × 3 divers. Random variant — synchro runs randomise the test judge's role between Exec A / Exec B / Synchronisation |
+| `meet-manager.spec.js` | Full meet-manager pipeline. Login → `/control` → pick event → walk the 4-state pre-meet workflow button (red Check In → orange Randomise → yellow Sign-Off → green Start) → judges score over 3 rounds × N divers as the admin clicks "Next Diver →" between dives → Finalise → recap. Yellow Sign-Off step opens the modal and exercises the **credential** path: a referee user (created in setup) types their username + password on the manager's screen and the server stamps `signed_off_by = referee.id`. Random `event_type` per run (individual / synchro_pair / team); synchro defaults to **11 judges** so the bigger panel layout (Exec A 1–3, Exec B 4–6, Sync 7–11) is the path under CI |
+| `judge.spec.js` | Judge persona. Log in → dashboard surfaces "Your Assigned Events" → click → `/judge?event=<id>` → tap numbers + Submit on the keypad as the admin walks through 3 rounds × 3 divers. Includes two **referee-signal** scenarios: round 2 the test judge taps Signal-Referee then submits to clear; round 3 a side-channel judge socket emits `judge_signal` and the test judge's panel renders the alert + the matching tile gets the red ring. Synchro runs default to **11 judges**; the role label that surfaces under the test judge's number is `EXEC A` (1–3), `EXEC B` (4–6) or `SYNCHRONISATION` (7–11) and is asserted against the random `J_NUMBER` |
 
 ### Running
 
@@ -643,40 +643,48 @@ PWDEBUG=1 npx playwright test test/e2e/scoreboard-ui.spec.js
 npx playwright test --ui
 ```
 
-Headed runs open a normal Chromium window — `viewport: null` in
-the project config lets the page resize with the window like a
-regular browser.
+Headed runs open a real Chromium window. The `playwright.config.js`
+project sets `viewport: null` plus `--window-size=1440,900` via
+launchOptions, so the page renders at a sensible default and you
+can drag the window edge to test responsive behaviour mid-run.
 
 ### Variant overrides for the random specs
 
 The `meet-manager` and `judge` specs randomise the meet shape
-each run. Pin a specific variant for repro / demos:
+each run. Pin a specific variant for repro or demos:
 
 ```bash
 # Meet manager — pick event_type, height, pacing
 MM_VARIANT=synchro_pair MM_HEIGHT=10m \
   npx playwright test test/e2e/meet-manager.spec.js --headed --workers=1
 
-# Judge — pick variant + the judge's panel position
-J_VARIANT=synchro_pair J_NUMBER=1 \
+# Judge — pick variant + the judge's panel position. Synchro
+# defaults to an 11-judge panel; the layout is:
+#   Exec A → 1, 2, 3
+#   Exec B → 4, 5, 6
+#   Sync   → 7, 8, 9, 10, 11
+J_VARIANT=synchro_pair J_NUMBER=2  \
   npx playwright test test/e2e/judge.spec.js --headed --workers=1   # Exec A
-J_VARIANT=synchro_pair J_NUMBER=3 \
+J_VARIANT=synchro_pair J_NUMBER=5  \
   npx playwright test test/e2e/judge.spec.js --headed --workers=1   # Exec B
-J_VARIANT=synchro_pair J_NUMBER=7 \
+J_VARIANT=synchro_pair J_NUMBER=10 \
   npx playwright test test/e2e/judge.spec.js --headed --workers=1   # Synchronisation
 ```
 
 ### Pacing knobs
 
 The UI-driven specs (`scoreboard-ui`, `meet-manager`, `judge`)
-default to human-watchable timings (~1 minute per dive). Override
-via env vars for a fast CI / smoke pass — every knob is
+default to human-watchable timings (~1–2 minutes per dive).
+Override via env vars for a fast CI / smoke pass — every knob is
 documented at the top of each spec file:
 
 ```bash
-# Faster pass through meet-manager
+# Faster pass through meet-manager. WORKFLOW_HOLD_MS sits between
+# every click in the 4-state pre-meet button so the headed colour
+# transitions (red → orange → yellow → green) are visible to a
+# watching human; CI shrinks it to 200ms.
 MM_PRE_DIVE_MS=200 MM_PER_SCORE_MS=50 MM_POST_DIVE_MS=200 \
-MM_LOGIN_HOLD_MS=200 MM_FINAL_HOLD_MS=200 \
+MM_LOGIN_HOLD_MS=200 MM_FINAL_HOLD_MS=200 MM_WORKFLOW_HOLD_MS=200 \
   npx playwright test test/e2e/meet-manager.spec.js
 ```
 
@@ -693,22 +701,39 @@ behaviour is unchanged.
 ### What you'll see in `--headed` mode
 
 * `scoreboard-ui` — Chrome opens to `/login`, fills credentials,
-  redirects to `/dashboard`, then `/scoreboard/<id>`. Five judge
-  pills light up for each diver, the score-overlay flashes the
-  dive total, standings re-sort. After 9 dives the meet flips
-  Completed and the recap renders with podium + per-diver
+  redirects to `/dashboard`, then `/scoreboard/<id>`. Judge pills
+  light up for each diver, dive totals appear under the active
+  diver block, and standings re-sort. After 9 dives the meet
+  flips Completed and the recap renders with podium + per-diver
   leaderboard.
 * `meet-manager` — login as admin, navigate to `/control`, pick
-  the event from the dropdown, click "🎲 Randomise", flip Live
-  via API, walk through every diver clicking "Next Diver →"
-  between dives. Round-end modal auto-dismisses by clicking
-  "Announce standings". Finalise click at the end.
-* `judge` — login as a judge, see "Your Assigned Events"
-  notification on the dashboard, click through to `/judge?event=<id>`,
-  watch the diver name + dive code arrive via socket, tap a score
-  on the keypad, click Submit. Repeat for nine dives. Synchro runs
-  show the role badge ("EXEC A" / "EXEC B" / "SYNCHRONISATION")
-  for the randomly-assigned judge_number.
+  the event from the dropdown. The pre-meet workflow button
+  cycles through its four states with `MM_WORKFLOW_HOLD_MS` of
+  dwell between each click, so the colour transitions are
+  visible:
+    1. **🟥 Check In Divers** opens the check-in modal; the
+       footer's *"Check-in Complete — Continue"* stamps the gate
+       and closes back to the queue header.
+    2. **🟧 Randomise Dive Order** shuffles via the existing
+       endpoint (or *Use current order →* skips the shuffle).
+    3. **🟨 Referee Sign Off** opens the sign-off modal; the
+       test switches to the *Sign at this device* tab and types
+       the referee user's username + password. The server
+       verifies (referee role + same-org gate + email-verified)
+       and stamps `signed_off_by` as that referee.
+    4. **🟩 Start Event** flips the event Live; the workflow
+       chip becomes *● Live* and the scoring loop begins. Admin
+       clicks "Next Diver →" after each panel completes; the
+       round-end modal auto-dismisses by clicking
+       "Announce standings". Finalise click at the end → recap.
+* `judge` — login as a judge, see "Your Assigned Events" on the
+  dashboard, click through to `/judge?event=<id>`, watch the diver
+  name + dive code arrive via socket, tap a score on the keypad,
+  click Submit. Repeat for nine dives. Synchro runs render the
+  role badge (`EXEC A` / `EXEC B` / `SYNCHRONISATION`) for the
+  randomly-assigned judge_number; the round 2 + round 3 referee-
+  signal scenarios run inline so you'll see the red signal-active
+  border + the panel alert banner mid-round.
 
 ---
 

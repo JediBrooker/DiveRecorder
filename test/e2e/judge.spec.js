@@ -36,7 +36,10 @@ const HEIGHT   = process.env.J_HEIGHT
 const HEIGHT_NUMERIC = parseFloat(HEIGHT);
 
 // Synchro must be 9 or 11 judges (FINA gate). Individual stays 5.
-const NUM_JUDGES = VARIANT === "synchro_pair" ? 9 : 5;
+// Synchro defaults to 11 so the bigger panel layout (Exec A 1-3,
+// Exec B 4-6, Sync 7-11) is exercised on every run — the 9-panel
+// shape is structurally a strict subset.
+const NUM_JUDGES = VARIANT === "synchro_pair" ? 11 : 5;
 const TOTAL_ROUNDS = 3;
 
 // Test judge's panel position. The judge_number is assigned by
@@ -275,12 +278,20 @@ test("judge full E2E (random variant)", async ({
     otherJudgeSockets.push(s);
   }
 
-  // Map keypad button labels back to roles for assertions.
+  // Map keypad button labels back to roles for assertions. WA
+  // synchro panels:
+  //    9-judge → A {1,2}    B {3,4}    Sync {5..9}
+  //   11-judge → A {1,2,3}  B {4,5,6}  Sync {7..11}
   const synchroRoleForJudge = (n) => {
     if (VARIANT !== "synchro_pair") return null;
     if (NUM_JUDGES === 9) {
       if (n <= 2) return "EXEC A";
       if (n <= 4) return "EXEC B";
+      return "SYNCHRONISATION";
+    }
+    if (NUM_JUDGES === 11) {
+      if (n <= 3) return "EXEC A";
+      if (n <= 6) return "EXEC B";
       return "SYNCHRONISATION";
     }
     return null;
@@ -439,6 +450,7 @@ test("judge full E2E (random variant)", async ({
   await setup.deleteOrg(orgId);
 });
 
-test.afterAll(async () => {
-  await setup.pool.end();
-});
+// pool teardown left to process exit (Playwright tears down the
+// worker process anyway). Calling pool.end() here was a foot-gun
+// when two specs landed in the same worker — the second hit a
+// closed pool. node-postgres handles process exit gracefully.

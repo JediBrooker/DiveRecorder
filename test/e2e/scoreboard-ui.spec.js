@@ -124,21 +124,28 @@ test("watch a 3-diver, 3-round meet end-to-end with realistic pacing", async ({
   // is rendered as soon as the view mounts, before any data arrives.
   await expect(page.locator(".sb-name")).toBeVisible({ timeout: 10_000 });
 
-  // The Up Next panel should list every remaining dive — 9 total
-  // (3 divers × 3 rounds), since no scores have been submitted
-  // yet and there's no active diver to exclude.
+  // The Up Next panel + the centre On-Deck slot together show
+  // every remaining dive. With no active diver yet, the centre
+  // hoists the head of the queue into its own block (labelled
+  // "On Deck — Up Next") and the row list excludes that diver,
+  // so we see 8 rows here + Diver Alpha in the centre block.
+  // 3 divers × 3 rounds = 9 total upcoming.
   const upNextRows = page.locator(".up-next-row");
-  await expect(upNextRows).toHaveCount(9, { timeout: 5_000 });
-  // First row should be the leader of round 1 (alphabetical
-  // since display_order is unset in the fixture). Diver Alpha
-  // sorts before Bravo + Charlie, so they're round 1, position 1.
+  await expect(upNextRows).toHaveCount(8, { timeout: 5_000 });
+  // Centre on-deck block should show Diver Alpha (alphabetical
+  // first since display_order is unset in the fixture) along
+  // with the 101 B dive at DD 1.5.
+  const centreLabel = page.locator(".sb-label");
+  await expect(centreLabel).toContainText(/On Deck/i);
+  const centreName = page.locator(".sb-name");
+  await expect(centreName).toContainText("Diver Alpha");
+  await expect(page.locator(".sb-code").first()).toContainText("101");
+  await expect(page.locator(".sb-dd").first()).toContainText("1.5");
+  // First Up-Next row is the SECOND in the queue — Diver Bravo
+  // R1 dive 2.
   await expect(upNextRows.nth(0)).toContainText("R1");
-  await expect(upNextRows.nth(0).locator(".up-next-pos")).toHaveText("1");
-  await expect(upNextRows.nth(0).locator(".up-next-name")).toContainText("Diver Alpha");
-  await expect(upNextRows.nth(0).locator(".up-next-code")).toContainText("101");
-  await expect(upNextRows.nth(0).locator(".up-next-letter")).toHaveText("B");
-  await expect(upNextRows.nth(0).locator(".up-next-dd")).toContainText("1.5");
-  await expect(upNextRows.nth(0).locator(".up-next-desc")).toContainText("Forward Dive Pike");
+  await expect(upNextRows.nth(0).locator(".up-next-pos")).toHaveText("2");
+  await expect(upNextRows.nth(0).locator(".up-next-name")).toContainText("Diver Bravo");
 
   // Screenshot the live view so a watching human can compare the
   // up-next panel against the eventual recap. Saved alongside
@@ -367,6 +374,7 @@ test("watch a 3-diver, 3-round meet end-to-end with realistic pacing", async ({
   await setup.deleteOrg(orgId);
 });
 
-test.afterAll(async () => {
-  await setup.pool.end();
-});
+// pool teardown left to process exit (Playwright tears down the
+// worker process anyway). Calling pool.end() here was a foot-gun
+// when two specs landed in the same worker — the second hit a
+// closed pool. node-postgres handles process exit gracefully.

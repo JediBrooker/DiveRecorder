@@ -150,6 +150,7 @@ test("admin enables 2FA, logs in via TOTP and via recovery code", async ({
   await setup.deleteOrg(orgId);
 });
 
-test.afterAll(async () => {
-  await setup.pool.end();
-});
+// pool teardown left to process exit (Playwright tears down the
+// worker process anyway). Calling pool.end() here was a foot-gun
+// when two specs landed in the same worker — the second hit a
+// closed pool. node-postgres handles process exit gracefully.

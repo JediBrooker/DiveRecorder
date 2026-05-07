@@ -43,7 +43,10 @@ const VARIANT  = process.env.MM_VARIANT
   || VARIANTS[Math.floor(Math.random() * VARIANTS.length)];
 
 // Synchro panels are 9 or 11 (FINA gate); everything else is 5.
-const NUM_JUDGES = VARIANT === "synchro_pair" ? 9 : 5;
+// Synchro defaults to 11 so the bigger panel layout (Exec A 1-3,
+// Exec B 4-6, Sync 7-11) is exercised on every run — the 9-panel
+// shape is structurally a strict subset.
+const NUM_JUDGES = VARIANT === "synchro_pair" ? 11 : 5;
 
 // Random board height. The dive directory has 101/201/301 at
 // every height with positions A/B/C, so any height works for
@@ -648,6 +651,7 @@ test("meet-manager full E2E (random variant)", async ({
   await setup.deleteOrg(orgId);
 });
 
-test.afterAll(async () => {
-  await setup.pool.end();
-});
+// pool teardown left to process exit (Playwright tears down the
+// worker process anyway). Calling pool.end() here was a foot-gun
+// when two specs landed in the same worker — the second hit a
+// closed pool. node-postgres handles process exit gracefully.
