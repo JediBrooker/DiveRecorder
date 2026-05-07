@@ -61,10 +61,19 @@ function canViewDiverPrivate(viewer, diverRow) {
 
 module.exports = function createDiverProfileRouter({
   pool,
+  readPool,
   verifyToken,
   parseDateRange,
 }) {
   if (!pool) throw new Error("createDiverProfileRouter requires { pool, … }");
+  // Profile + analytics are heavy historical reads — per_dive
+  // CTEs across the whole scores table, FULL_FIELD_RANKING
+  // window functions. Route through the optional read replica
+  // so analytics dashboards don't compete with live-scoring
+  // writes for primary connections. Slight replication lag is
+  // fine here: nobody clicks "show me my stats" in the same
+  // second they submit a dive list.
+  const reads = readPool || pool;
   const router = express.Router();
 
   // -------------------------------------------------------------
@@ -77,7 +86,7 @@ module.exports = function createDiverProfileRouter({
       catch (err) { return res.status(err.status || 400).json({ error: err.message }); }
       const { from: fromDate, to: toDate } = dateRange;
 
-      const diverRes = await pool.query(
+      const diverRes = await reads.query(
         `SELECT u.id, u.full_name, u.org_id, o.name AS org_name, o.country_code,
                 u.club_id, cl.name AS club_name, cl.short_code AS club_code,
                 u.dashboard_widgets
@@ -102,7 +111,7 @@ module.exports = function createDiverProfileRouter({
 
       // Top-level stats: total events, total dives, average DD,
       // best single dive total.
-      const stats = await pool.query(
+      const stats = await reads.query(
         `WITH dive_totals AS (
            SELECT s.event_id, s.round_number,
                   calc_event_dive_points(
@@ -135,7 +144,7 @@ module.exports = function createDiverProfileRouter({
 
       // Personal best per (dive code + position + height), under
       // World Aquatics trim + DD rules.
-      const pb = await pool.query(
+      const pb = await reads.query(
         `WITH dive_totals AS (
            SELECT s.event_id, s.round_number,
                   d.dive_code, d.position, d.height, d.dd, d.description,
@@ -186,7 +195,7 @@ module.exports = function createDiverProfileRouter({
 
       // Score trend: per-event total + final placing, oldest first
       // so a chart can plot it as a line.
-      const trend = await pool.query(
+      const trend = await reads.query(
         `WITH diver_events AS (
            SELECT DISTINCT s.event_id
            FROM scores s
@@ -300,7 +309,7 @@ module.exports = function createDiverProfileRouter({
       catch (err) { return res.status(err.status || 400).json({ error: err.message }); }
       const { from: fromDate, to: toDate } = dateRange;
 
-      const diverRes = await pool.query(
+      const diverRes = await reads.query(
         "SELECT id, org_id FROM users WHERE id = $1",
         [req.params.id],
       );
@@ -326,7 +335,7 @@ module.exports = function createDiverProfileRouter({
       // that widget and the rest of the dashboard still works.
       const runQuery = async (label, sql, params) => {
         try {
-          const r = await pool.query(sql, params);
+          const r = await reads.query(sql, params);
           return r.rows;
         } catch (err) {
           console.error(`[Analytics ${label}]`, err.message);

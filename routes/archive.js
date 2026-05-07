@@ -17,8 +17,14 @@
 
 const express = require("express");
 
-module.exports = function createArchiveRouter({ pool }) {
+module.exports = function createArchiveRouter({ pool, readPool }) {
   if (!pool) throw new Error("createArchiveRouter requires { pool }");
+  // Archive payloads are entirely "what happened" reads. Route
+  // through the optional read replica so a long meet day's
+  // archive browsing doesn't compete with live-scoring writes
+  // for primary connections. Falls back to the writer when no
+  // replica is configured.
+  const reads = readPool || pool;
   const router = express.Router();
 
   // -------------------------------------------------------------
@@ -45,7 +51,7 @@ module.exports = function createArchiveRouter({ pool }) {
       // these to read "Round 3 · Phoenix Patel diving" instead of
       // a generic placeholder, which is far more compelling for a
       // spectator deciding whether to tap in.
-      const events = await pool.query(
+      const events = await reads.query(
         `SELECT e.id, e.name, e.gender, e.height, e.total_rounds, e.number_of_judges,
                 e.event_type, e.status,
                 e.created_at, o.id AS org_id, o.name AS org_name, o.country_code,
@@ -100,7 +106,7 @@ module.exports = function createArchiveRouter({ pool }) {
   // -------------------------------------------------------------
   router.get("/api/archive/clubs", async (req, res) => {
     try {
-      const r = await pool.query(
+      const r = await reads.query(
         `SELECT DISTINCT cl.id, cl.name, cl.short_code,
                 cl.org_id, o.name AS org_name, o.country_code
          FROM clubs cl
@@ -131,8 +137,8 @@ module.exports = function createArchiveRouter({ pool }) {
   router.get("/api/archive/:eventId/results", async (req, res) => {
     try {
       const [ev, standings, history] = await Promise.all([
-        pool.query("SELECT e.name, e.gender, e.height, e.total_rounds, e.number_of_judges, e.event_type, o.name AS org_name FROM events e JOIN organisations o ON e.org_id = o.id WHERE e.id = $1", [req.params.eventId]),
-        pool.query(
+        reads.query("SELECT e.name, e.gender, e.height, e.total_rounds, e.number_of_judges, e.event_type, o.name AS org_name FROM events e JOIN organisations o ON e.org_id = o.id WHERE e.id = $1", [req.params.eventId]),
+        reads.query(
           `WITH per_dive AS (
              SELECT s.competitor_id, cdl.team_id, s.round_number,
                     calc_event_dive_points(
@@ -200,7 +206,7 @@ module.exports = function createArchiveRouter({ pool }) {
            ORDER BY total DESC, dives_desc DESC NULLS LAST`,
           [req.params.eventId],
         ),
-        pool.query(
+        reads.query(
           /* Group by u.id (not full_name) so same-named divers stay
              separate. STRING_AGG ordered by judge_number (panel
              position), not judge_id (random UUID), so the chip

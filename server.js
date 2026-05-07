@@ -152,6 +152,29 @@ const pool = process.env.DATABASE_URL
       port:     process.env.DB_PORT     || process.env.PGPORT,
     });
 
+// -------------------------------------------------------------
+// Optional read replica
+// -------------------------------------------------------------
+// When DATABASE_READ_URL is set, heavy read paths (analytics,
+// archive listing, per-event recap) route to a Postgres streaming
+// replica so they don't contend with live writes on the primary.
+// Live-scoring reads (scoreboard, attendance, queue) intentionally
+// stay on the primary — replication lag (typically <1s but
+// variable) is acceptable for "what was the diver's PB last year"
+// but not for "did my score just land?"
+//
+// Falls back to the primary when DATABASE_READ_URL isn't set, so
+// single-node deployments keep working with no config change. The
+// factory pattern means a route's code is identical regardless of
+// whether the dep is the writer or a replica.
+const readPool = process.env.DATABASE_READ_URL
+  ? new Pool({ connectionString: process.env.DATABASE_READ_URL })
+  : pool;
+if (readPool !== pool) {
+  logger.info({ host: new URL(process.env.DATABASE_READ_URL).host },
+    "read replica configured");
+}
+
 // Refuse to boot with no JWT secret or the well-known placeholder —
 // either case means tokens are trivially forgeable. We DON'T fail on
 // short-but-unique secrets: existing deployments may have a working
@@ -545,6 +568,7 @@ app.use(require("./routes/dive-directory")({ pool, verifyToken }));
 // =============================================================
 app.use(require("./routes/diver-profile")({
   pool,
+  readPool,
   verifyToken,
   parseDateRange,
 }));
@@ -591,7 +615,7 @@ require("./routes/socket")({
 // /api/archive, /api/archive/clubs, /api/archive/:eventId/results
 // extracted into routes/archive.js.
 // =============================================================
-app.use(require("./routes/archive")({ pool }));
+app.use(require("./routes/archive")({ pool, readPool }));
 
 // =============================================================
 // PDF + CSV EXPORT
