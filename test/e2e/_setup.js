@@ -256,12 +256,11 @@ const HIGHLIGHT_ENABLED = process.env.E2E_HIGHLIGHT !== "0";
 async function installClickHighlight(page) {
   if (!HIGHLIGHT_ENABLED) return;
 
-  // Surface every captured click in the Playwright stdout
-  // (along with x,y) so a watching human can see in the test
-  // log whether the listener is actually firing. Useful when
-  // the visual marker is somehow being clipped / hidden by an
-  // SPA modal — confirms the click was caught even if the
-  // ring isn't visible on the screenshot/video.
+  // Forward [e2e-click] coordinate logs from the page to the
+  // test runner stdout so a watching human can correlate "ring
+  // popped at X,Y" with the test step that triggered it. Other
+  // [e2e-…] prefixes (init / error) are also surfaced as a
+  // debugging aid if the marker ever stops showing up.
   page.on("console", (msg) => {
     const t = msg.text();
     if (t.startsWith("[e2e-")) {
@@ -270,65 +269,42 @@ async function installClickHighlight(page) {
   });
 
   await page.addInitScript(() => {
-    // ----- 0. Init-script heartbeat ----------------------------
-    // Fires before any DOM exists. If this log doesn't show up
-    // in the test runner stdout, addInitScript isn't being
-    // applied to this page (e.g. page was closed and a new one
-    // opened without re-installing the helper). Everything else
-    // depends on this firing — debug from here first.
-    try { console.log(`[e2e-init] script loaded @ ${location.href}`); }
-    catch { /* console may not exist yet at document_start */ }
-    document.addEventListener("DOMContentLoaded", () => {
-      try { console.log(`[e2e-init] DOMContentLoaded @ ${location.href}`); }
-      catch { /* ignore */ }
-    });
-    // ----- 1. Click listeners (DOM-free, attach NOW) -----------
-    // These hang off `window` + `document`, both of which exist
-    // at document_start before any HTML is parsed. Attach first
-    // so even if the DOM-painting code below throws (e.g.
-    // documentElement is null this early), we still log every
-    // click that happens on the page.
+    // ----- 1. Click listener (DOM-free, attach NOW) ------------
+    // window + document are both valid EventTargets at
+    // document_start; attach here so the listener exists even
+    // if the stylesheet injection below has nothing to attach
+    // to yet (documentElement can be null this early).
+    //
+    // Listen on pointerdown ONLY. Earlier we belt-and-braces'd
+    // pointerdown + mousedown + click, but every Playwright
+    // click fires all three within ~5ms — so even with dedup
+    // the rendering work happened multiple times. pointerdown
+    // is the earliest in the sequence, which makes the marker
+    // appear at the moment the click is registered (not after
+    // the SPA's click-handler logic has already run).
     let lastTs = 0;
     const STYLE_ID = "__e2e-click-style";
-    const handler = (e) => {
-      if (e.timeStamp - lastTs < 80) return;
+    document.addEventListener("pointerdown", (e) => {
+      // Cheap dedup so a stray duplicate event from a synthetic
+      // testbench can't double-paint. 30ms is shorter than any
+      // human / Playwright click cadence.
+      if (e.timeStamp - lastTs < 30) return;
       lastTs = e.timeStamp;
       paintMarker(e.clientX, e.clientY);
-    };
-    for (const target of [window, document]) {
-      for (const evt of ["pointerdown", "mousedown", "click"]) {
-        target.addEventListener(evt, handler, true);
-      }
-    }
+    }, true);
 
-    // ----- 2. Visible "I am alive" banner ----------------------
-    // Pinned-top-right pill that proves the init script is
-    // running on the current document. If you don't see this in
-    // headed mode, the script never loaded — debug from there
-    // rather than chasing the click handler.
-    function ensureBanner() {
-      if (!document.body) return;
-      if (document.getElementById("__e2e-banner")) return;
-      const b = document.createElement("div");
-      b.id = "__e2e-banner";
-      b.textContent = "● E2E click-highlight active";
-      b.style.cssText = [
-        "position:fixed", "top:8px", "right:8px",
-        "z-index:2147483647", "pointer-events:none",
-        "background:#ff2dd6", "color:#fff",
-        "font:700 11px/1 system-ui,sans-serif",
-        "letter-spacing:0.08em",
-        "padding:6px 10px", "border-radius:999px",
-        "box-shadow:0 0 12px rgba(255,45,214,0.7)",
-      ].join(";");
-      document.body.appendChild(b);
-    }
-
-    // ----- 3. Stylesheet --------------------------------------
+    // ----- 2. Stylesheet --------------------------------------
     // Defer attachment until something exists to attach to. At
     // document_start neither documentElement nor head are
     // present yet, so installing the <style> immediately throws
     // and would silently truncate the rest of the init script.
+    //
+    // The marker is a single circle that pops + fades in
+    // ~360ms. No banner, no full-screen flash, no persistent
+    // dot — earlier loud variants stayed on screen 2 seconds
+    // after the click, which made successive clicks visually
+    // overlap and read as "delayed". Snappy + small + gone is
+    // easier to follow.
     function ensureStyle() {
       if (document.getElementById(STYLE_ID)) return;
       const host = document.head || document.documentElement;
@@ -337,106 +313,51 @@ async function installClickHighlight(page) {
       style.id = STYLE_ID;
       style.textContent = `
         @keyframes e2eClickRing {
-          0%   { transform: scale(0.15); opacity: 1;    }
-          25%  { transform: scale(1.0);  opacity: 0.95; }
-          100% { transform: scale(3.5);  opacity: 0;    }
-        }
-        @keyframes e2eClickFlash {
-          0%   { opacity: 0.40; }
-          100% { opacity: 0;    }
-        }
-        @keyframes e2eClickDot {
-          0%, 70%   { opacity: 1;   transform: scale(1);   }
-          100%      { opacity: 0;   transform: scale(0.6); }
-        }
-        .__e2e-click-flash {
-          position: fixed; inset: 0;
-          z-index: 2147483646; pointer-events: none;
-          background: radial-gradient(circle at var(--cx, 50%) var(--cy, 50%),
-                                      rgba(255,45,214,0.55) 0%,
-                                      rgba(255,45,214,0.0) 35%);
-          animation: e2eClickFlash 0.45s ease-out forwards;
+          0%   { transform: scale(0.35); opacity: 0;    }
+          15%  { transform: scale(0.55); opacity: 0.95; }
+          100% { transform: scale(1.4);  opacity: 0;    }
         }
         .__e2e-click-marker {
           position: fixed; z-index: 2147483647; pointer-events: none;
-          width: 96px; height: 96px;
-          margin-left: -48px; margin-top: -48px;
-        }
-        .__e2e-click-marker .ring {
-          position: absolute; inset: 0;
-          border: 6px solid #ff2dd6;
+          width: 38px; height: 38px;
+          margin-left: -19px; margin-top: -19px;
+          border: 2px solid rgba(6, 182, 212, 0.95);
           border-radius: 50%;
           box-shadow:
-            0 0 24px rgba(255, 45, 214, 1),
-            0 0 48px rgba(255, 45, 214, 0.7),
-            inset 0 0 16px rgba(255, 45, 214, 0.6);
-          animation: e2eClickRing 1.6s cubic-bezier(0.2,0.6,0.3,1) forwards;
-        }
-        .__e2e-click-marker .core {
-          position: absolute; left: 50%; top: 50%;
-          width: 22px; height: 22px;
-          margin-left: -11px; margin-top: -11px;
-          background: #ff2dd6;
-          border: 3px solid #fff;
-          border-radius: 50%;
-          box-shadow: 0 0 14px #fff, 0 0 28px rgba(255,45,214,0.9);
-          animation: e2eClickDot 2.0s ease-out forwards;
-        }
-        /* Plus-sign crosshair through the dot — exact pixel. */
-        .__e2e-click-marker .core::before,
-        .__e2e-click-marker .core::after {
-          content: ""; position: absolute; background: #fff;
-          box-shadow: 0 0 6px rgba(255,255,255,0.9);
-        }
-        .__e2e-click-marker .core::before {
-          left: 50%; top: -14px; bottom: -14px;
-          width: 3px; margin-left: -1.5px;
-        }
-        .__e2e-click-marker .core::after {
-          top: 50%; left: -14px; right: -14px;
-          height: 3px; margin-top: -1.5px;
+            0 0 6px rgba(6, 182, 212, 0.55),
+            inset 0 0 4px rgba(6, 182, 212, 0.35);
+          animation: e2eClickRing 360ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+          will-change: transform, opacity;
         }
       `;
       host.appendChild(style);
     }
 
-    // ----- 4. paintMarker — used by the listener attached in §1
     function paintMarker(x, y) {
       ensureStyle();
-      ensureBanner();
       const target = document.body;
       if (!target) {
-        // No body yet (click before HTML parsed?). Just log so
-        // the test runner can still see the listener fired.
+        // Click landed before <body> existed — log only.
         try { console.log(`[e2e-click] ${Math.round(x)},${Math.round(y)} (no body)`); } catch {}
         return;
       }
-      // Full-screen tint flash.
-      const flash = document.createElement("div");
-      flash.className = "__e2e-click-flash";
-      flash.style.setProperty("--cx", x + "px");
-      flash.style.setProperty("--cy", y + "px");
-      target.appendChild(flash);
-      setTimeout(() => flash.remove(), 500);
-      // Pointer marker with ring + dot + crosshair.
-      const wrap = document.createElement("div");
-      wrap.className = "__e2e-click-marker";
-      wrap.style.left = x + "px";
-      wrap.style.top  = y + "px";
-      wrap.innerHTML = '<div class="ring"></div><div class="core"></div>';
-      target.appendChild(wrap);
-      setTimeout(() => wrap.remove(), 2100);
-      // Log so the test runner can confirm the listener fired.
-      try { console.log(`[e2e-click] ${Math.round(x)},${Math.round(y)}`); }
-      catch { /* console may be muted */ }
+      const ring = document.createElement("div");
+      ring.className = "__e2e-click-marker";
+      ring.style.left = x + "px";
+      ring.style.top  = y + "px";
+      target.appendChild(ring);
+      // Remove just after the animation finishes (360ms anim
+      // + 60ms slack). Keeping the DOM lean prevents stale
+      // markers from overlapping a fast-paced sequence of
+      // clicks and reading as "delayed feedback".
+      setTimeout(() => ring.remove(), 420);
+      try { console.log(`[e2e-click] ${Math.round(x)},${Math.round(y)}`); } catch {}
     }
 
-    // ----- 5. Run banner + style installation when DOM is ready
-    if (document.body) { ensureStyle(); ensureBanner(); }
-    document.addEventListener("DOMContentLoaded", () => {
-      ensureStyle();
-      ensureBanner();
-    });
+    // Install the stylesheet eagerly when the DOM is ready so
+    // the FIRST click doesn't pay an extra paint cost.
+    if (document.head || document.body) ensureStyle();
+    document.addEventListener("DOMContentLoaded", ensureStyle);
   });
 }
 
