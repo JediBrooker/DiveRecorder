@@ -651,18 +651,59 @@ can drag the window edge to test responsive behaviour mid-run.
 ### Variant overrides for the random specs
 
 The `meet-manager` and `judge` specs randomise the meet shape
-each run. Pin a specific variant for repro or demos:
+each run so CI exercises every event_type / height / judge
+position over time. Every random pick is overridable so a
+failing run is reproducible, and a demo run is repeatable.
+
+#### `meet-manager.spec.js` — `MM_*`
+
+| Env var | Allowed values | Default | What it controls |
+|---|---|---|---|
+| `MM_VARIANT` | `individual` \| `synchro_pair` \| `team` | random | Event type the meet runs as |
+| `MM_HEIGHT` | `1m` \| `3m` \| `5m` \| `7.5m` \| `10m` | random | Board / platform height |
+| `MM_PRE_DIVE_MS` | int (ms) | `1200` | Dwell after announcing each diver, before scoring |
+| `MM_PER_SCORE_MS` | int (ms) | `250` | Dwell between consecutive judge score submits |
+| `MM_POST_DIVE_MS` | int (ms) | `900` | Dwell after the last score lands, before the next diver |
+| `MM_LOGIN_HOLD_MS` | int (ms) | `1500` | Dwell after login + after each Control Room navigation |
+| `MM_FINAL_HOLD_MS` | int (ms) | `4000` | Hold on the recap screen at the end before teardown |
+| `MM_WORKFLOW_HOLD_MS` | int (ms) | `2500` | Dwell between each click of the 4-state pre-meet button (red → orange → yellow → green) |
+
+Synchro defaults to **11 judges**; that's not env-overridable —
+the panel size is a function of `MM_VARIANT`.
+
+#### `judge.spec.js` — `J_*`
+
+| Env var | Allowed values | Default | What it controls |
+|---|---|---|---|
+| `J_VARIANT` | `individual` \| `synchro_pair` | random | Event type the meet runs as |
+| `J_HEIGHT` | `1m` \| `3m` \| `5m` \| `7.5m` \| `10m` | random | Board / platform height |
+| `J_NUMBER` | `1`..`N` (`N`=5 individual / 11 synchro) | random | The test judge's panel position. Drives which synchro role they get |
+| `J_LOGIN_HOLD_MS` | int (ms) | `1500` | Dwell after login |
+| `J_PRE_DIVE_MS` | int (ms) | `1500` | Dwell after the diver block updates, before the test judge starts tapping |
+| `J_PER_KEYPRESS_MS` | int (ms) | `350` | Dwell between consecutive keypad button presses |
+| `J_POST_SUBMIT_MS` | int (ms) | `1000` | Dwell after the test judge clicks Submit |
+| `J_POST_DIVE_MS` | int (ms) | `700` | Dwell between dives |
+| `J_FINAL_HOLD_MS` | int (ms) | `3000` | Hold on the final scored state before teardown |
+
+Synchro panel layout the test judge maps into:
+
+| `NUM_JUDGES` | Exec A | Exec B | Synchronisation |
+|---|---|---|---|
+| 9 (only via explicit setup) | 1, 2 | 3, 4 | 5–9 |
+| 11 (default) | 1, 2, 3 | 4, 5, 6 | 7–11 |
+
+#### Common repros
 
 ```bash
-# Meet manager — pick event_type, height, pacing
+# Meet manager — synchro 11-judge at 10m, full headed run
 MM_VARIANT=synchro_pair MM_HEIGHT=10m \
   npx playwright test test/e2e/meet-manager.spec.js --headed --workers=1
 
-# Judge — pick variant + the judge's panel position. Synchro
-# defaults to an 11-judge panel; the layout is:
-#   Exec A → 1, 2, 3
-#   Exec B → 4, 5, 6
-#   Sync   → 7, 8, 9, 10, 11
+# Meet manager — team event at 5m
+MM_VARIANT=team MM_HEIGHT=5m \
+  npx playwright test test/e2e/meet-manager.spec.js --headed --workers=1
+
+# Judge — pin the test judge to each synchro role
 J_VARIANT=synchro_pair J_NUMBER=2  \
   npx playwright test test/e2e/judge.spec.js --headed --workers=1   # Exec A
 J_VARIANT=synchro_pair J_NUMBER=5  \
@@ -673,19 +714,27 @@ J_VARIANT=synchro_pair J_NUMBER=10 \
 
 ### Pacing knobs
 
-The UI-driven specs (`scoreboard-ui`, `meet-manager`, `judge`)
-default to human-watchable timings (~1–2 minutes per dive).
-Override via env vars for a fast CI / smoke pass — every knob is
-documented at the top of each spec file:
+The UI-driven specs default to human-watchable timings (~1–2
+minutes per dive). The full env-var reference for `meet-manager`
+and `judge` lives in the tables above. The third UI spec —
+`scoreboard-ui` — uses a separate `PW_*` namespace because it
+predates the others:
+
+| Env var | Default (ms) | What it controls |
+|---|---|---|
+| `PW_PRE_DIVE_MS` | `1500` | Dwell after announcing each diver |
+| `PW_PER_SCORE_MS` | `250` | Dwell between consecutive judges |
+| `PW_POST_DIVE_MS` | `2500` | Dwell after the dive's last score lands |
+| `PW_FINAL_HOLD_MS` | `5000` | Hold on the final standings before teardown |
 
 ```bash
-# Faster pass through meet-manager. WORKFLOW_HOLD_MS sits between
-# every click in the 4-state pre-meet button so the headed colour
-# transitions (red → orange → yellow → green) are visible to a
-# watching human; CI shrinks it to 200ms.
+# Fast CI pass — every knob, every spec, set to 200ms
 MM_PRE_DIVE_MS=200 MM_PER_SCORE_MS=50 MM_POST_DIVE_MS=200 \
 MM_LOGIN_HOLD_MS=200 MM_FINAL_HOLD_MS=200 MM_WORKFLOW_HOLD_MS=200 \
-  npx playwright test test/e2e/meet-manager.spec.js
+J_LOGIN_HOLD_MS=200 J_PRE_DIVE_MS=200 J_PER_KEYPRESS_MS=50 \
+J_POST_SUBMIT_MS=200 J_POST_DIVE_MS=200 J_FINAL_HOLD_MS=200 \
+PW_PRE_DIVE_MS=200 PW_PER_SCORE_MS=50 PW_POST_DIVE_MS=200 PW_FINAL_HOLD_MS=200 \
+  npm run test:e2e
 ```
 
 ### Rate limiter
