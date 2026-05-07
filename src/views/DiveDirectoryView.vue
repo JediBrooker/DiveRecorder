@@ -69,10 +69,22 @@ const filteredDives = computed(() => {
     if (heightFilter.value && fmtHeight(d.height) !== heightFilter.value) return false
     if (posFilter.value && d.position !== posFilter.value) return false
     if (!term) return true
+    // Concatenated forms — "101B", "101 B", "101b 3m" etc all
+    // resolve. The bare dive_code / description / position
+    // checks were missing the natural way a coach types it
+    // (code+position together, no separator) which left a search
+    // for "101B" finding nothing even though dive 101 + position
+    // B is in the catalog.
+    const codePos = `${d.dive_code || ''}${d.position || ''}`.toLowerCase()
+    const codePosSp = `${d.dive_code || ''} ${d.position || ''}`.toLowerCase()
+    const heightStr = fmtHeight(d.height).toLowerCase()
     return (
       (d.dive_code   || '').toLowerCase().includes(term) ||
       (d.description || '').toLowerCase().includes(term) ||
-      (d.position    || '').toLowerCase().includes(term)
+      (d.position    || '').toLowerCase().includes(term) ||
+      codePos.includes(term)   ||
+      codePosSp.includes(term) ||
+      heightStr.includes(term)
     )
   })
 })
@@ -480,17 +492,24 @@ onMounted(loadDives)
   font-size: 12px; padding: 0.5rem 0;
 }
 
-.dive-row td { vertical-align: middle; }
+/* Condense the table — the catalog has 460+ rows so the default
+   1rem / 1.25rem cell padding made the page scroll forever. Only
+   target rows in this scoped view via :deep so the global
+   data-table styling other pages depend on isn't affected. */
+:deep(.data-table th) { padding: 0.55rem 0.85rem; font-size: 9.5px; }
+:deep(.data-table td) { padding: 0.4rem 0.85rem; }
+
+.dive-row td { vertical-align: middle; font-size: 12.5px; }
 .dive-row-custom { background: rgba(6, 182, 212, 0.04); }
-.dive-row-editing td { padding: 0.4rem 0.6rem; }
+.dive-row-editing td { padding: 0.3rem 0.6rem; }
 .dive-code, .dive-height { font-family: var(--font-mono); }
 .dive-dd { font-family: var(--font-display); font-weight: 700; color: var(--cyan); }
-.desc-cell { color: var(--text-2); font-size: 13px; }
+.desc-cell { color: var(--text-2); font-size: 12px; }
 
 .src-pill {
-  display: inline-block; padding: 0.15rem 0.5rem;
-  font-family: var(--font-display); font-size: 10px; font-weight: 700;
-  letter-spacing: 0.12em; text-transform: uppercase;
+  display: inline-block; padding: 0.1rem 0.45rem;
+  font-family: var(--font-display); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
   border-radius: 999px; border: 1px solid;
 }
 .src-pill-core   { color: var(--text-3);  border-color: var(--border); }
