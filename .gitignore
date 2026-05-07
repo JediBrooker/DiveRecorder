@@ -5,6 +5,11 @@ node_modules/
 dist/
 *.log
 
+# Playwright e2e artifacts (only when a test fails)
+test-results/
+playwright-report/
+playwright/.cache/
+
 # Environment & secrets — NEVER commit these
 .env
 .env.*
