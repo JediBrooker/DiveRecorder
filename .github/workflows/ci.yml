@@ -80,3 +80,97 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  e2e:
+    name: Playwright e2e
+    runs-on: ubuntu-latest
+    needs: build
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: diver
+          POSTGRES_PASSWORD: diver
+          POSTGRES_DB: diverecorder_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # libpq vars — pg's Pool falls back to these when the DB_*
+      # alternatives aren't set. Same shape the test job uses.
+      PGHOST: localhost
+      PGUSER: diver
+      PGPASSWORD: diver
+      PGDATABASE: diverecorder_test
+      # DB_DATABASE explicit so the integration-test fixture
+      # (which prefers DB_* over PG*) targets the same database.
+      DB_DATABASE: diverecorder_test
+      # Required for server.js to boot — see the test job's
+      # comment for why we use a long deterministic dummy.
+      JWT_SECRET: ci-test-secret-do-not-use-in-prod-aaaaaaaaaaaaaaaa
+      # Bind the test webServer to a non-default port so it can
+      # never collide with anything else the runner happens to
+      # have on :3000.
+      PORT: "3097"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply schema (init.sql)
+        run: psql -v ON_ERROR_STOP=1 -h localhost -U diver -d diverecorder_test -f init.sql
+
+      # Cache the Chromium binary (~140MB) keyed by the lockfile.
+      # Most runs hit cache and skip the download entirely; runs
+      # that bumped the playwright dep download fresh.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      # First run: download the browser AND its system deps.
+      # Cached run: only re-install the system deps (apt packages
+      # like libnss3, libatk1.0-0, etc — these aren't in the
+      # ~/.cache path so they re-install every time).
+      - name: Install Playwright (browsers + deps, fresh)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system deps (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      # playwright.config.js boots `npm run build && node server.js`
+      # itself via webServer — no separate "start the app" step.
+      # process.env.CI flips the config to retries=2 + GitHub
+      # reporter + single worker.
+      - name: Run e2e
+        run: npm run test:e2e
+
+      # Failure artifacts — when an e2e flakes or breaks, this
+      # uploads the trace + screenshots + video so we can
+      # diagnose without re-running locally.
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
