@@ -598,7 +598,7 @@ app.use(require("./routes/competitor")({
 // [SECTION: ROUTES — DIVE DIRECTORY]
 // /api/dive-directory extracted into routes/dive-directory.js.
 // =============================================================
-app.use(require("./routes/dive-directory")({ pool, verifyToken }));
+app.use(require("./routes/dive-directory")({ pool, verifyToken, requireOrgRole }));
 
 // =============================================================
 // DIVER PROFILE & HISTORY

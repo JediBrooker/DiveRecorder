@@ -83,10 +83,22 @@ const stats = computed(() => ({
   custom: dives.value.filter(d => d.is_custom).length,
 }))
 
+// Roles allowed to create / edit / delete custom dives. Mirrors
+// the server-side requireStaff gate in routes/dive-directory.js;
+// kept identical here so the UI doesn't dangle buttons that the
+// API would reject. Divers + spectators see read-only browse.
+const STAFF_ROLES = ['org_admin', 'meet_manager', 'referee', 'judge', 'coach']
+const canWrite = computed(() =>
+  !!auth.user?.is_system_admin || auth.hasAnyRole(STAFF_ROLES)
+)
+
 // Can the current user edit/delete this row? Server enforces it
-// too — this just hides the buttons.
+// too — this just hides the buttons. Three checks: row must be
+// custom (core is read-only), viewer must hold a staff role, and
+// the row must belong to the viewer's org (sysadmin bypass).
 function canManage(d) {
   if (!d.is_custom) return false
+  if (!canWrite.value) return false
   if (auth.user?.is_system_admin) return true
   return d.created_org_id === auth.user?.org_id
 }
@@ -251,7 +263,10 @@ onMounted(loadDives)
       <span class="result-count">
         {{ filteredDives.length.toLocaleString() }} of {{ dives.length.toLocaleString() }}
       </span>
-      <button class="btn btn-primary btn-sm" @click="openCreate">+ Add Custom Dive</button>
+      <!-- Add affordance only for staff roles (org_admin / meet_manager /
+           referee / judge / coach + sysadmin). Divers see read-only browse. -->
+      <button v-if="canWrite" class="btn btn-primary btn-sm" @click="openCreate">+ Add Custom Dive</button>
+      <span v-else class="readonly-pill" title="Read-only — your role can browse but not modify">View only</span>
     </div>
 
     <!-- Inline create form -->
@@ -434,6 +449,12 @@ onMounted(loadDives)
   font-size: 12px; color: var(--text-2); user-select: none;
 }
 .result-count { font-size: 11px; color: var(--text-3); margin-left: auto; }
+.readonly-pill {
+  display: inline-block; padding: 0.3rem 0.7rem;
+  font-size: 11px; font-family: var(--font-display); font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--text-3); border: 1px solid var(--border); border-radius: 999px;
+}
 
 .create-block {
   background: var(--bg-2); border: 1px solid var(--border);

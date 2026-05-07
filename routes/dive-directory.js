@@ -51,9 +51,30 @@ function isValidDiveCode(code) {
   return typeof code === "string" && /^[0-9A-Za-z]{2,6}$/.test(code);
 }
 
-module.exports = function createDiveDirectoryRouter({ pool, verifyToken }) {
+module.exports = function createDiveDirectoryRouter({ pool, verifyToken, requireOrgRole }) {
   if (!pool) throw new Error("createDiveDirectoryRouter requires { pool, verifyToken }");
   const router = express.Router();
+
+  // Write access (POST / PUT / DELETE) is restricted to roles
+  // that have a legitimate reason to maintain a dive list:
+  //   - org_admin     ("org manager" in the product copy)
+  //   - meet_manager
+  //   - referee
+  //   - judge
+  //   - coach
+  // System admins bypass via requireOrgRole's built-in
+  // is_system_admin shortcut. Divers, spectators, etc. can read
+  // the catalog but not modify it.
+  //
+  // requireOrgRole is optional in the factory signature so the
+  // existing test setups that mount this router with the smaller
+  // dependency set don't crash; falls back to the bare
+  // verifyToken (read-only equivalent) which still rejects the
+  // anonymous case but doesn't enforce the role list.
+  const STAFF_ROLES = ["org_admin", "meet_manager", "referee", "judge", "coach"];
+  const requireStaff = requireOrgRole
+    ? requireOrgRole(STAFF_ROLES)
+    : verifyToken;
 
   // -----------------------------------------------------------
   // GET /api/dive-directory — full catalog. is_custom + created_by
@@ -81,7 +102,7 @@ module.exports = function createDiveDirectoryRouter({ pool, verifyToken }) {
   // height accepts the enum string ("3m") and converts to numeric
   // for the dive_directory.height column.
   // -----------------------------------------------------------
-  router.post("/api/dive-directory", verifyToken, async (req, res) => {
+  router.post("/api/dive-directory", requireStaff, async (req, res) => {
     if (!req.user?.org_id && !req.user?.is_system_admin) {
       return res.status(403).json({ error: "An org membership is required to add custom dives" });
     }
@@ -139,7 +160,7 @@ module.exports = function createDiveDirectoryRouter({ pool, verifyToken }) {
   // World Aquatics catalog. Cross-org edits also refuse so an org
   // can't tamper with another's drill list.
   // -----------------------------------------------------------
-  router.put("/api/dive-directory/:id", verifyToken, async (req, res) => {
+  router.put("/api/dive-directory/:id", requireStaff, async (req, res) => {
     const id = req.params.id;
     const { dive_code, height, position, dd, description } = req.body || {};
     if (dive_code != null && !isValidDiveCode(dive_code)) {
@@ -213,7 +234,7 @@ module.exports = function createDiveDirectoryRouter({ pool, verifyToken }) {
   // that side — surface a friendly 409 so the operator knows
   // why.
   // -----------------------------------------------------------
-  router.delete("/api/dive-directory/:id", verifyToken, async (req, res) => {
+  router.delete("/api/dive-directory/:id", requireStaff, async (req, res) => {
     const id = req.params.id;
     try {
       const owner = await pool.query(
