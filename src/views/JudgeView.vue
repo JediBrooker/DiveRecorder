@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
@@ -8,6 +8,12 @@ import { diveDescription } from '@/composables/useDiveLabel'
 const route = useRoute()
 const auth = useAuthStore()
 const socket = useSocket()
+
+// Event id from /judge?event=<id>. Required so the socket can
+// subscribe to the right room — without it, state_update +
+// meet_held broadcasts (which the server emits to
+// io.to('event:<id>')) never reach this client.
+const eventIdFromUrl = computed(() => route.query.event || null)
 
 const user = auth.user
 
@@ -47,17 +53,35 @@ const synchroRole = computed(() => {
   return null
 })
 
+function joinEventRoom() {
+  // Use the URL's event id first (set when the judge clicked
+  // through from the dashboard), fall back to whatever
+  // activeDiver carries (set after the first state_update).
+  const evId = eventIdFromUrl.value || activeDiver.value?.event_id
+  if (!evId) return
+  // subscribe_event joins the room; get_active_diver also joins
+  // AND replays the current active state if any. Calling both
+  // covers late joiners who load the page after a meet has
+  // already started.
+  socket.emit('subscribe_event',  { event_id: evId })
+  socket.emit('get_active_diver', { event_id: evId })
+  socket.emit('get_meet_hold',    { event_id: evId })
+}
+
 socket.on('connect', () => {
   connStatus.value = true
   if (pendingScore.value) {
     socket.emit('submit_score', pendingScore.value)
     pendingScore.value = null
   }
-  // Re-pull hold state so a judge who reloads mid-pause sees
-  // the banner.
-  if (activeDiver.value?.event_id) {
-    socket.emit('get_meet_hold', { event_id: activeDiver.value.event_id })
-  }
+  joinEventRoom()
+})
+
+onMounted(() => {
+  // The socket may already be connected (composable reuses a
+  // singleton across views). Subscribe on mount as well so the
+  // room join doesn't depend on a reconnect.
+  if (socket.connected) joinEventRoom()
 })
 socket.on('disconnect', () => { connStatus.value = false })
 
