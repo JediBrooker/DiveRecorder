@@ -1268,20 +1268,47 @@ async function refreshStandingsPreview() {
 // projection logic.
 const standingsTop5 = computed(() => standingsPreview.value.slice(0, 5))
 
-// "[Active] needs +N pts to take #1 from [Leader]" — or, if the
-// active diver is already first, "Leading by N over [#2]".
-// Returns { kind: 'lead' | 'chase' | null, gap: number, ... }.
+// "Anna Smith & Bella Jones" for a synchro pair, just the lead's
+// full name otherwise. Used everywhere a standings row needs a
+// human-readable label so synchro pairs aren't represented by
+// only one of their names.
+function pairLabel(row) {
+  if (!row) return ''
+  if (row.partner_name) return `${row.full_name} & ${row.partner_name}`
+  return row.full_name || ''
+}
+
+// Effective "judges that contribute to the dive total" count for
+// the current panel. Drives the per-dive max contribution when
+// every judge gives the same score X. For individual events this
+// is just the post-trim kept count. For synchro 9 / 11 the
+// rescale that calc_event_dive_points applies (3 / kept_in_group)
+// reduces every panel size to a 9-equivalent.
+function panelMultiplier(numJudges, isSynchro) {
+  if (isSynchro) return 9
+  const drop = trimCount(numJudges)
+  return Math.max(1, (parseInt(numJudges) || 5) - 2 * drop)
+}
+
+// Catch-up panel — replaces the old "+N pts; #/dive (~#/judge)"
+// blob with a target-by-target table:
+//
+//   Catch-up — 4 dives left
+//   1st (Anna Smith & Bella Jones)    avg 8.5
+//   2nd (Carla Doe & Eve Smith)       avg 7.2
+//   3rd (Felix Liu)                   avg 6.0
+//
+// When even all-10s would not catch a target the row reads
+// "Not possible — even straight 10s falls short". For the leader
+// the table flips to "would need to overtake you" framed at #2's
+// avg score.
 const projectedLine = computed(() => {
   const active = currentActive.value
   const standings = standingsPreview.value
   if (!active || !standings.length) return null
-  // Primary match: the per-event public_id hash (sha256 of
-  // event_id + competitor_id, server-side). Both endpoints emit
-  // it so a single string equality check is enough, and it works
-  // even when two divers share a full name. For team events we
-  // match team_public_id against the team row's public_id.
-  // Fallback to the old name+country match for any older client
-  // / older roster cache that might not have public_id yet.
+
+  // Primary match: the per-event public_id hash. See earlier
+  // comment for the matching fallback chain.
   const activePublic =
     (active.event_type === 'team' && active.team_public_id) ||
     active.public_id ||
@@ -1300,64 +1327,92 @@ const projectedLine = computed(() => {
     })
     idx = standings.findIndex(s => matchKey(s) === activeKey)
   }
+
   const leader = standings[0]
   if (!leader) return null
   if (idx === -1) {
-    // Active diver not in standings yet (no scored dives). Show
-    // a minimal cue to keep the panel useful.
     return {
       kind: 'pre',
-      activeName: active.full_name,
-      leaderName: leader.full_name,
+      activeName: pairLabel({ full_name: active.full_name, partner_name: active.partner_name }),
+      leaderName: pairLabel(leader),
       leaderTotal: Number(leader.total || 0),
     }
   }
+
   const me = standings[idx]
   const myTotal = Number(me.total || 0)
-  const leaderTotal = Number(leader.total || 0)
-  // Per-dive + per-judge averages needed to close the gap. We use
-  // the current dive's DD as a proxy for the remaining dives'
-  // average DD (the roster has the rest but querying it here
-  // would tighten the coupling for marginal accuracy gain). Kept
-  // judge count comes from FINA trim rules — see trimCount().
   const totalRounds = parseInt(currentEvent.value?.total_rounds) || 0
-  const numJudges = parseInt(currentEvent.value?.number_of_judges) || 5
-  const drop = trimCount(numJudges)
-  const keptCount = Math.max(1, numJudges - 2 * drop)
-  const ddProxy = parseFloat(active.dd) || null
-  const remaining = totalRounds
+  const numJudges  = parseInt(currentEvent.value?.number_of_judges) || 5
+  const isSynchro  = currentEvent.value?.event_type === 'synchro_pair'
+  const ddProxy    = parseFloat(active.dd) || null
+  const remaining  = totalRounds
     ? totalRounds - (parseInt(active.round_number) || 1) + 1
     : 0
-  function avgsForGap(gap) {
-    if (gap <= 0 || remaining <= 0) return { perDive: null, perJudge: null }
-    const perDive = gap / remaining
-    if (!ddProxy) return { perDive, perJudge: null }
-    return { perDive, perJudge: perDive / ddProxy / keptCount }
+  const mult = panelMultiplier(numJudges, isSynchro)
+
+  // Average judge score X needed across `remaining` dives, given
+  // the points gap and a DD proxy. Returns null when remaining/DD
+  // are unavailable — the table row will fall back to a points
+  // figure only.
+  //
+  // Derivation: per-dive contribution if every judge scores X is
+  // X × mult × DD. So gap G across R dives at avg DD D solves to
+  // X = G / (mult × D × R). 10 is the ceiling — any X > 10 means
+  // even straight 10s wouldn't close the gap.
+  function avgJudgeForGap(gap) {
+    if (gap <= 0)              return { score: 0,    possible: true  }
+    if (remaining <= 0 || !ddProxy) return { score: null, possible: null  }
+    const x = gap / (mult * ddProxy * remaining)
+    return { score: x, possible: x <= 10 }
   }
+
+  // Self-referential preface for both kinds.
+  const myLabel = pairLabel(me)
+
   if (idx === 0) {
-    // Active diver IS leading. Show the gap to #2 if there is one.
+    // Active diver is leading. Build the chase view from #2's
+    // perspective — what they'd need to overtake. If there's no
+    // #2, surface the unopposed cue.
     const second = standings[1]
-    if (!second) return { kind: 'unopposed', activeName: active.full_name }
+    if (!second) {
+      return { kind: 'unopposed', activeName: myLabel }
+    }
     const gap = myTotal - Number(second.total || 0)
+    const { score, possible } = avgJudgeForGap(gap)
     return {
       kind: 'lead',
-      activeName: active.full_name,
-      runnerUp: second.full_name,
+      activeName: myLabel,
+      runnerUp: pairLabel(second),
       gap,
       remaining,
-      // Defensive framing: how much would the runner-up need on
-      // average to overtake them.
-      ...avgsForGap(gap),
+      avgJudge: score,
+      possible,
     }
   }
-  const gap = leaderTotal - myTotal
+
+  // Active diver is chasing. Build a target row for every rank
+  // strictly above them — capped to 1st / 2nd / 3rd because rows
+  // beyond that aren't podium-relevant and the panel gets dense.
+  const targets = []
+  const targetRanks = [0, 1, 2].filter(r => r < idx)
+  for (const r of targetRanks) {
+    const opponent = standings[r]
+    const gap = Number(opponent.total || 0) - myTotal
+    const { score, possible } = avgJudgeForGap(gap)
+    targets.push({
+      rank: r + 1,
+      name: pairLabel(opponent),
+      gap,
+      avgJudge: score,
+      possible,
+    })
+  }
   return {
     kind: 'chase',
-    activeName: active.full_name,
-    leaderName: leader.full_name,
-    gap,
+    activeName: myLabel,
+    currentRank: idx + 1,
     remaining,
-    ...avgsForGap(gap),
+    targets,
   }
 })
 
@@ -2473,38 +2528,66 @@ onUnmounted(() => {
             <span :class="['sp-rank', i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '']">
               {{ i + 1 }}
             </span>
-            <span class="sp-name">{{ s.full_name }}</span>
+            <span class="sp-name">
+              {{ s.full_name }}
+              <template v-if="s.partner_name">
+                <span class="sp-amp">&amp;</span>{{ s.partner_name }}
+              </template>
+            </span>
             <span class="sp-total">{{ parseFloat(s.total).toFixed(1) }}</span>
           </div>
-          <!-- Projected-leader hint. Only shows when there's an
-               active diver and the standings have something useful
-               to compare against. -->
+          <!-- Catch-up panel. Replaces the old "+N pts; #/dive
+               (~#/judge)" blob with a target-by-target table that
+               surfaces the average judge score the active diver
+               needs across the remaining dives to reach 1st / 2nd
+               / 3rd. Caps at 10 — anything above and the row
+               reads "Not possible". For the leader the table
+               flips to "what #2 would need to overtake". -->
           <div v-if="projectedLine" :class="['projection-line', `projection-${projectedLine.kind}`]">
-            <template v-if="projectedLine.kind === 'lead'">
-              🏆 <strong>{{ projectedLine.activeName }}</strong>
-              leading by <strong>+{{ projectedLine.gap.toFixed(1) }}</strong>
-              over {{ projectedLine.runnerUp }}
-              <div v-if="projectedLine.perDive != null" class="projection-detail">
-                {{ projectedLine.runnerUp }} would need
-                <strong>{{ projectedLine.perDive.toFixed(1) }}</strong>/dive
-                <span v-if="projectedLine.perJudge != null">
-                  (~<strong>{{ projectedLine.perJudge.toFixed(1) }}</strong>/judge)
+            <template v-if="projectedLine.kind === 'chase'">
+              <div class="projection-head">
+                Catch-up — <strong>{{ projectedLine.remaining }}</strong>
+                {{ projectedLine.remaining === 1 ? 'dive' : 'dives' }} left
+                · currently {{ projectedLine.currentRank }}
+              </div>
+              <div v-for="t in projectedLine.targets" :key="t.rank" class="catchup-row">
+                <span class="catchup-rank">{{ t.rank }}{{ ['st','nd','rd'][t.rank - 1] || 'th' }}</span>
+                <span class="catchup-name">{{ t.name }}</span>
+                <span :class="['catchup-target', t.possible === false ? 'catchup-impossible' : '']">
+                  <template v-if="t.avgJudge == null">
+                    +{{ t.gap.toFixed(1) }} pts
+                  </template>
+                  <template v-else-if="t.possible === false">
+                    not possible
+                  </template>
+                  <template v-else-if="t.avgJudge === 0">
+                    already there
+                  </template>
+                  <template v-else>
+                    avg {{ t.avgJudge.toFixed(1) }}
+                  </template>
                 </span>
-                across {{ projectedLine.remaining }} remaining
-                {{ projectedLine.remaining === 1 ? 'dive' : 'dives' }}
               </div>
             </template>
-            <template v-else-if="projectedLine.kind === 'chase'">
-              <strong>{{ projectedLine.activeName }}</strong>
-              needs <strong>+{{ projectedLine.gap.toFixed(1) }}</strong>
-              to overtake {{ projectedLine.leaderName }}
-              <div v-if="projectedLine.perDive != null" class="projection-detail">
-                <strong>{{ projectedLine.perDive.toFixed(1) }}</strong>/dive
-                <span v-if="projectedLine.perJudge != null">
-                  (~<strong>{{ projectedLine.perJudge.toFixed(1) }}</strong>/judge)
+            <template v-else-if="projectedLine.kind === 'lead'">
+              <div class="projection-head">
+                🏆 <strong>{{ projectedLine.activeName }}</strong> leading
+                by <strong>+{{ projectedLine.gap.toFixed(1) }}</strong>
+              </div>
+              <div class="catchup-row">
+                <span class="catchup-rank">2nd</span>
+                <span class="catchup-name">{{ projectedLine.runnerUp }}</span>
+                <span :class="['catchup-target', projectedLine.possible === false ? 'catchup-impossible' : '']">
+                  <template v-if="projectedLine.avgJudge == null">
+                    +{{ projectedLine.gap.toFixed(1) }} pts
+                  </template>
+                  <template v-else-if="projectedLine.possible === false">
+                    can't overtake
+                  </template>
+                  <template v-else>
+                    needs avg {{ projectedLine.avgJudge.toFixed(1) }}
+                  </template>
                 </span>
-                across {{ projectedLine.remaining }}
-                {{ projectedLine.remaining === 1 ? 'dive' : 'dives' }}
               </div>
             </template>
             <template v-else-if="projectedLine.kind === 'pre'">
@@ -4080,6 +4163,38 @@ onUnmounted(() => {
   color: var(--text-2);
   font-weight: 700;
 }
+/* Catch-up table — one row per podium target with the average
+   judge score the active diver needs across the remaining dives.
+   Layout is rank | name | target so the eye reads "1st (Anna &
+   Bella) avg 8.5" left to right at a glance. */
+.projection-head {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-3); margin-bottom: 0.4rem;
+  letter-spacing: 0.02em;
+}
+.catchup-row {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: baseline; gap: 0.5rem;
+  padding: 0.2rem 0; font-size: 12px;
+}
+.catchup-rank {
+  font-family: var(--font-display); font-weight: 800; font-style: italic;
+  font-size: 11px; letter-spacing: 0.04em; color: var(--text-2);
+}
+.catchup-name {
+  color: var(--text); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+  min-width: 0;
+}
+.catchup-target {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  color: var(--cyan);
+}
+.catchup-target.catchup-impossible {
+  color: var(--red); font-weight: 600; font-style: italic;
+}
+.sp-amp { color: var(--cyan); margin: 0 0.25em; font-weight: 400; }
 .sp-row {
   display: flex; align-items: baseline; gap: 0.5rem;
   padding: 0.2rem 0; font-size: 12px;

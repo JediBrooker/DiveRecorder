@@ -621,8 +621,26 @@ const activeDiverRank = computed(() => {
 //   * average judge score per kept score those dives need
 // DD proxy is the active diver's current dive (we don't have
 // the full upcoming roster on the audience scoreboard, just the
-// state_update payload that drives the active block). Judge-
-// kept count comes from FINA trim rules — see trimCount().
+// state_update payload that drives the active block). Catch-up
+// table mirrors the Control Room — surfaces the average judge
+// score needed across the remaining dives to reach 1st / 2nd /
+// 3rd, with "not possible" for targets that even straight 10s
+// wouldn't catch.
+function pairLabel(row) {
+  if (!row) return ''
+  if (row.partner_name) return `${row.full_name} & ${row.partner_name}`
+  return row.full_name || ''
+}
+
+function panelMultiplier(numJudges, isSynchro) {
+  // Synchro 9/11 collapse to a 9-judge equivalent after the
+  // calc_event_dive_points 3/n_kept rescale; individual events
+  // multiply by the post-trim kept count.
+  if (isSynchro) return 9
+  const drop = trimCount(numJudges)
+  return Math.max(1, (parseInt(numJudges) || 5) - 2 * drop)
+}
+
 const activeProjection = computed(() => {
   if (!activeDiver.value || !standings.value.length) return null
   const target = activeDiver.value.full_name || activeDiver.value.diverName
@@ -631,50 +649,75 @@ const activeProjection = computed(() => {
   const leader = standings.value[0]
   if (!leader) return null
   const totalRounds = parseInt(currentEvent.value?.total_rounds) || 0
-  const numJudges = parseInt(currentEvent.value?.number_of_judges) || 5
-  const drop = trimCount(numJudges)
-  const keptCount = Math.max(1, numJudges - 2 * drop)
-  const ddProxy = parseFloat(activeDiver.value.dd) || null
-  const remaining = totalRounds
+  const numJudges   = parseInt(currentEvent.value?.number_of_judges) || 5
+  const isSynchro   = currentEvent.value?.event_type === 'synchro_pair'
+  const ddProxy     = parseFloat(activeDiver.value.dd) || null
+  const remaining   = totalRounds
     ? totalRounds - (parseInt(activeDiver.value.round_number) || 1) + 1
     : 0
-  function avgsForGap(gap) {
-    if (gap <= 0 || remaining <= 0) return { perDive: null, perJudge: null }
-    const perDive = gap / remaining
-    if (!ddProxy) return { perDive, perJudge: null }
-    return { perDive, perJudge: perDive / ddProxy / keptCount }
+  const mult = panelMultiplier(numJudges, isSynchro)
+
+  // Per-dive contribution if every judge scores X is X × mult ×
+  // DD. So gap G across R dives at avg DD D solves to
+  // X = G / (mult × D × R). 10 is the ceiling — any X > 10 means
+  // straight 10s wouldn't close the gap.
+  function avgJudgeForGap(gap) {
+    if (gap <= 0)                   return { score: 0,    possible: true  }
+    if (remaining <= 0 || !ddProxy) return { score: null, possible: null  }
+    const x = gap / (mult * ddProxy * remaining)
+    return { score: x, possible: x <= 10 }
   }
+
   if (idx === -1) {
-    // No completed dives yet — show only the leader's mark.
     return {
       kind: 'pre',
       activeName: target,
-      leaderName: leader.full_name,
+      leaderName: pairLabel(leader),
       leaderTotal: Number(leader.total || 0),
     }
   }
-  const myTotal = Number(standings.value[idx].total || 0)
+
+  const me = standings.value[idx]
+  const myTotal = Number(me.total || 0)
+  const myLabel = pairLabel(me)
+
   if (idx === 0) {
     const second = standings.value[1]
-    if (!second) {
-      return { kind: 'unopposed', activeName: target }
-    }
+    if (!second) return { kind: 'unopposed', activeName: myLabel }
     const gap = myTotal - Number(second.total || 0)
+    const { score, possible } = avgJudgeForGap(gap)
     return {
       kind: 'lead',
-      activeName: target,
-      runnerUp: second.full_name,
+      activeName: myLabel,
+      runnerUp: pairLabel(second),
       gap, remaining,
-      ...avgsForGap(gap),
+      avgJudge: score, possible,
     }
   }
-  const gap = Number(leader.total || 0) - myTotal
+
+  // Chase: build a row for each podium rank above the active
+  // diver (max 1st / 2nd / 3rd). Beyond #3 the panel gets dense
+  // and the spectator-facing scoreboard is supposed to skim, not
+  // read deeply.
+  const targets = []
+  for (const r of [0, 1, 2].filter(r => r < idx)) {
+    const opponent = standings.value[r]
+    const gap = Number(opponent.total || 0) - myTotal
+    const { score, possible } = avgJudgeForGap(gap)
+    targets.push({
+      rank: r + 1,
+      name: pairLabel(opponent),
+      gap,
+      avgJudge: score,
+      possible,
+    })
+  }
   return {
     kind: 'chase',
-    activeName: target,
-    leaderName: leader.full_name,
-    gap, remaining,
-    ...avgsForGap(gap),
+    activeName: myLabel,
+    currentRank: idx + 1,
+    remaining,
+    targets,
   }
 })
 
@@ -1041,36 +1084,64 @@ onMounted(async () => {
           <div v-if="activeDiver && activeDiverRank" class="sb-live-rank">
             Currently <strong>{{ ordinal(activeDiverRank) }}</strong>
           </div>
-          <!-- Catch-up projection (mirrors the Control Room
-               operator's standings hint). Surfaces what the
-               active diver needs in total points, per remaining
-               dive, and per kept judge score so the audience
-               can read the chase at a glance. -->
+          <!-- Catch-up projection — table per podium target with
+               the average judge score the active diver needs over
+               the remaining dives. Caps at 10 (anything above
+               reads "Not possible"). Mirrors the Control Room
+               panel so the audience and the operator see the
+               same chase math. -->
           <div v-if="activeProjection" :class="['sb-projection', `sb-projection-${activeProjection.kind}`]">
-            <template v-if="activeProjection.kind === 'lead'">
-              Leading by <strong>+{{ activeProjection.gap.toFixed(1) }}</strong>
-              over {{ activeProjection.runnerUp }}
-              <div v-if="activeProjection.perDive != null" class="sb-projection-detail">
-                {{ activeProjection.runnerUp }} would need
-                <strong>{{ activeProjection.perDive.toFixed(1) }}</strong>/dive
-                <span v-if="activeProjection.perJudge != null">
-                  (~<strong>{{ activeProjection.perJudge.toFixed(1) }}</strong>/judge)
+            <template v-if="activeProjection.kind === 'chase'">
+              <div class="sb-projection-head">
+                Catch-up — <strong>{{ activeProjection.remaining }}</strong>
+                {{ activeProjection.remaining === 1 ? 'dive' : 'dives' }} left
+                · currently {{ ordinal(activeProjection.currentRank) }}
+              </div>
+              <div v-for="t in activeProjection.targets" :key="t.rank" class="sb-catchup-row">
+                <span class="sb-catchup-rank">{{ ordinal(t.rank) }}</span>
+                <span class="sb-catchup-name">{{ t.name }}</span>
+                <span :class="['sb-catchup-target', t.possible === false ? 'sb-catchup-impossible' : '']">
+                  <template v-if="t.avgJudge == null">
+                    +{{ t.gap.toFixed(1) }} pts
+                  </template>
+                  <template v-else-if="t.possible === false">
+                    not possible
+                  </template>
+                  <template v-else-if="t.avgJudge === 0">
+                    already there
+                  </template>
+                  <template v-else>
+                    avg {{ t.avgJudge.toFixed(1) }}
+                  </template>
                 </span>
-                across {{ activeProjection.remaining }}
-                {{ activeProjection.remaining === 1 ? 'dive' : 'dives' }}
               </div>
             </template>
-            <template v-else-if="activeProjection.kind === 'chase'">
-              Needs <strong>+{{ activeProjection.gap.toFixed(1) }}</strong>
-              to overtake {{ activeProjection.leaderName }}
-              <div v-if="activeProjection.perDive != null" class="sb-projection-detail">
-                <strong>{{ activeProjection.perDive.toFixed(1) }}</strong>/dive
-                <span v-if="activeProjection.perJudge != null">
-                  (~<strong>{{ activeProjection.perJudge.toFixed(1) }}</strong>/judge)
-                </span>
-                across {{ activeProjection.remaining }}
-                {{ activeProjection.remaining === 1 ? 'dive' : 'dives' }}
+            <template v-else-if="activeProjection.kind === 'lead'">
+              <div class="sb-projection-head">
+                Leading by <strong>+{{ activeProjection.gap.toFixed(1) }}</strong>
               </div>
+              <div class="sb-catchup-row">
+                <span class="sb-catchup-rank">2nd</span>
+                <span class="sb-catchup-name">{{ activeProjection.runnerUp }}</span>
+                <span :class="['sb-catchup-target', activeProjection.possible === false ? 'sb-catchup-impossible' : '']">
+                  <template v-if="activeProjection.avgJudge == null">
+                    +{{ activeProjection.gap.toFixed(1) }} pts
+                  </template>
+                  <template v-else-if="activeProjection.possible === false">
+                    can't overtake
+                  </template>
+                  <template v-else>
+                    needs avg {{ activeProjection.avgJudge.toFixed(1) }}
+                  </template>
+                </span>
+              </div>
+            </template>
+            <template v-else-if="activeProjection.kind === 'pre'">
+              No completed dives yet. {{ activeProjection.leaderName }} leads at
+              <strong>{{ activeProjection.leaderTotal.toFixed(1) }}</strong>.
+            </template>
+            <template v-else-if="activeProjection.kind === 'unopposed'">
+              {{ activeProjection.activeName }} unopposed — only diver entered.
             </template>
           </div>
 
@@ -1904,6 +1975,39 @@ onMounted(async () => {
   margin-top: 0.25rem;
 }
 .sb-projection-detail strong { color: var(--text-2); }
+/* Catch-up table — one row per podium target showing the
+   average judge score the active diver needs over the remaining
+   dives. Layout matches the Control Room (rank | name | target)
+   so the audience and the operator read the same shape. */
+.sb-projection-head {
+  font-size: clamp(11px, 1.3vw, 13px);
+  color: var(--text-3);
+  margin-bottom: 0.4rem;
+  letter-spacing: 0.02em;
+}
+.sb-catchup-row {
+  display: grid;
+  grid-template-columns: clamp(28px, 4vw, 40px) 1fr auto;
+  align-items: baseline; gap: 0.6rem;
+  padding: 0.25rem 0;
+  font-size: clamp(12px, 1.4vw, 16px);
+}
+.sb-catchup-rank {
+  font-family: var(--font-display); font-weight: 800; font-style: italic;
+  color: var(--text-2); letter-spacing: 0.04em;
+}
+.sb-catchup-name {
+  color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0;
+}
+.sb-catchup-target {
+  font-family: var(--font-display); font-weight: 800; font-style: italic;
+  color: var(--cyan);
+}
+.sb-catchup-target.sb-catchup-impossible {
+  color: var(--red); font-weight: 700; font-style: italic;
+}
 
 /* Up Next panel — sits below the active diver block. Contains
    every remaining dive in the meet, scrollable when the list
