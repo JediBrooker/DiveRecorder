@@ -9,17 +9,55 @@ const auth = useAuthStore()
 const judgeEvents = ref([])
 const showJudgeSection = computed(() => auth.hasRole('judge'))
 
+// =========================================================
+// Find Diver — global typeahead so anyone on the dashboard
+// can jump to another diver's profile. Hits the existing
+// /api/divers/search endpoint (verifyToken-gated, returns up
+// to 20 matching divers) and routes to /profile/<id> on
+// click. Min 2 chars before searching to keep the typeahead
+// noise-free.
+// =========================================================
+const diverSearch    = ref('')
+const diverResults   = ref([])
+const diverSearching = ref(false)
+const diverDropdown  = ref(false)
+let   diverSearchT   = null
+function onDiverSearchInput() {
+  diverDropdown.value = true
+  if (diverSearchT) clearTimeout(diverSearchT)
+  const q = diverSearch.value.trim()
+  if (q.length < 2) {
+    diverResults.value = []
+    return
+  }
+  // Debounce so the typeahead doesn't fire on every keystroke.
+  diverSearchT = setTimeout(async () => {
+    diverSearching.value = true
+    try {
+      diverResults.value = await auth.apiFetch(
+        `/api/divers/search?q=${encodeURIComponent(q)}`,
+      )
+    } catch {
+      diverResults.value = []
+    } finally {
+      diverSearching.value = false
+    }
+  }, 200)
+}
+function openDiverProfile(id) {
+  diverDropdown.value = false
+  diverSearch.value = ''
+  diverResults.value = []
+  router.push(`/profile/${id}`)
+}
+function onDiverSearchBlur() {
+  // Delay so a click on a result registers before the dropdown
+  // disappears. Mousedown fires before blur on the same
+  // click — this gives the click handler 150ms to win.
+  setTimeout(() => { diverDropdown.value = false }, 150)
+}
+
 const allTiles = [
-  {
-    id: 'diver',
-    roles: ['diver'],
-    to: '/competitor',
-    colour: 'tile-green',
-    icon: `<svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>`,
-    title: 'Diver Portal',
-    desc: 'Submit your dive list and verify DD requirements for the meet.',
-    action: 'Submit Dive List',
-  },
   {
     id: 'profile',
     roles: ['diver'],
@@ -29,6 +67,16 @@ const allTiles = [
     title: 'My Profile',
     desc: 'Personal bests, average DD, and your score progression across meets.',
     action: 'View Profile',
+  },
+  {
+    id: 'diver',
+    roles: ['diver'],
+    to: '/competitor',
+    colour: 'tile-green',
+    icon: `<svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>`,
+    title: 'Submit Dive Sheets',
+    desc: 'Submit your dive list and verify DD requirements for the meet.',
+    action: 'Submit Dive Sheets',
   },
   {
     id: 'coach',
@@ -153,6 +201,42 @@ onMounted(async () => {
       <div class="role-line">{{ roleLine }}</div>
     </div>
     <button class="btn btn-ghost" @click="logout">Sign Out</button>
+  </div>
+
+  <!-- Find Diver — type a name, click a result, jump to that
+       diver's profile. Visible to everyone on the dashboard
+       since any logged-in user can browse profiles. -->
+  <div class="find-diver">
+    <input
+      class="input find-diver-input"
+      type="text"
+      v-model="diverSearch"
+      @input="onDiverSearchInput"
+      @focus="diverDropdown = true"
+      @blur="onDiverSearchBlur"
+      placeholder="Find a diver — type a name to view their profile"
+      autocomplete="off"
+    >
+    <div v-if="diverDropdown && (diverResults.length || diverSearching || diverSearch.trim().length >= 2)"
+         class="find-diver-dropdown">
+      <div v-if="diverSearching" class="find-diver-empty">Searching…</div>
+      <div v-else-if="!diverResults.length" class="find-diver-empty">
+        No divers match that.
+      </div>
+      <button
+        v-for="r in diverResults"
+        :key="r.id"
+        type="button"
+        class="find-diver-row"
+        @mousedown.prevent="openDiverProfile(r.id)"
+      >
+        <span class="find-diver-name">{{ r.full_name }}</span>
+        <span v-if="r.country_code" class="find-diver-country">{{ r.country_code }}</span>
+        <span v-if="r.club_name" class="find-diver-club">
+          {{ r.club_name }}<span v-if="r.club_code" class="find-diver-club-code">{{ r.club_code }}</span>
+        </span>
+      </button>
+    </div>
   </div>
 
   <div v-if="showJudgeSection" class="judge-section" style="padding-top:2rem">
@@ -306,6 +390,70 @@ onMounted(async () => {
   display: flex; align-items: center; gap: 0.5rem;
 }
 .tile-action::after { content: '→'; }
+
+/* Find Diver — typeahead bar + dropdown, full-width capped at
+   the dashboard's content max-width so it lines up with the
+   tile grid below. */
+.find-diver {
+  position: relative;
+  padding: 1.25rem 2rem 0;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+.find-diver-input {
+  width: 100%;
+  font-size: 14px;
+  padding: 0.75rem 1rem;
+}
+.find-diver-dropdown {
+  position: absolute;
+  top: calc(100% - 0.25rem);
+  left: 2rem;
+  right: 2rem;
+  z-index: 50;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  box-shadow: 0 16px 36px rgba(0,0,0,0.45);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.find-diver-empty {
+  padding: 0.75rem 1rem;
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-3);
+  font-style: italic;
+}
+.find-diver-row {
+  display: flex; align-items: baseline; gap: 0.5rem;
+  width: 100%; text-align: left;
+  padding: 0.6rem 1rem;
+  background: transparent; border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  color: var(--text);
+  font-family: var(--font-mono);
+  transition: background 0.1s;
+}
+.find-diver-row:last-child { border-bottom: none; }
+.find-diver-row:hover { background: var(--bg-3); }
+.find-diver-name {
+  font-family: var(--font-display); font-size: 14px; font-weight: 700;
+  color: var(--text);
+}
+.find-diver-country {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.05em; color: var(--text-3);
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 3px; padding: 0.05rem 0.3rem;
+}
+.find-diver-club {
+  font-size: 11px; color: var(--text-3);
+  margin-left: auto;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.find-diver-club-code {
+  font-weight: 700; color: var(--cyan); margin-left: 0.4rem;
+}
 
 .judge-section { padding: 0 2rem 0; max-width: 1400px; margin: 0 auto; }
 .section-header {

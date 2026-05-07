@@ -887,7 +887,11 @@ onMounted(async () => {
           <div v-for="(h, idx) in historyItems" :key="idx" class="hist-card">
             <div class="hist-round">Round {{ h.round_number }}{{ currentEvent?.total_rounds ? ` / ${currentEvent.total_rounds}` : '' }}</div>
             <div class="hist-header">
-              <div class="hist-name">{{ h.full_name }}<span v-if="h.country_code" class="hist-country">{{ h.country_code }}</span></div>
+              <div class="hist-name">
+                <RouterLink v-if="h.competitor_id" :to="`/profile/${h.competitor_id}`" class="diver-link" @click.stop>{{ h.full_name }}</RouterLink>
+                <template v-else>{{ h.full_name }}</template>
+                <span v-if="h.country_code" class="hist-country">{{ h.country_code }}</span>
+              </div>
               <div class="hist-total">{{ parseFloat(h.total_dive_score).toFixed(1) }}</div>
             </div>
             <div class="hist-dive-line">
@@ -932,12 +936,15 @@ onMounted(async () => {
           <div class="sb-label">Current Performer</div>
           <div class="sb-name" :style="{ opacity: activeDiver ? '1' : '0.2' }">
             <template v-if="activeDiver?.partner_name">
-              {{ activeDiver.diverName }}
+              <RouterLink v-if="activeDiver?.competitor_id" :to="`/profile/${activeDiver.competitor_id}`" class="diver-link">{{ activeDiver.diverName }}</RouterLink>
+              <template v-else>{{ activeDiver.diverName }}</template>
               <span class="sb-name-amp">&amp;</span>
-              {{ activeDiver.partner_name }}
+              <RouterLink v-if="activeDiver?.partner_id" :to="`/profile/${activeDiver.partner_id}`" class="diver-link">{{ activeDiver.partner_name }}</RouterLink>
+              <template v-else>{{ activeDiver.partner_name }}</template>
             </template>
             <template v-else>
-              {{ activeDiver?.diverName || 'Waiting...' }}
+              <RouterLink v-if="activeDiver?.competitor_id" :to="`/profile/${activeDiver.competitor_id}`" class="diver-link">{{ activeDiver.diverName }}</RouterLink>
+              <template v-else>{{ activeDiver?.diverName || 'Waiting...' }}</template>
             </template>
           </div>
           <div v-if="activeDiver?.country_code || activeDiver?.club_name || activeDiver?.team_name"
@@ -1202,7 +1209,16 @@ onMounted(async () => {
                   <div class="diver-id">
                     <div class="diver-id-row">
                       <div class="diver-name">
-                        {{ block.name }}<span v-if="block.country" class="diver-country">{{ block.country }}</span>
+                        <!-- For team-mode blocks the name is the
+                             team, not a single diver — skip the
+                             link. For individual + synchro the
+                             leader's competitor_id sits on every
+                             one of their dive rows. -->
+                        <RouterLink v-if="!block.isTeam && block.dives[0]?.competitor_id"
+                                    :to="`/profile/${block.dives[0].competitor_id}`"
+                                    class="diver-link">{{ block.name }}</RouterLink>
+                        <template v-else>{{ block.name }}</template>
+                        <span v-if="block.country" class="diver-country">{{ block.country }}</span>
                         <template v-if="block.partner">
                           <span class="diver-amp">&amp;</span>
                           {{ block.partner }}<span v-if="block.partner_country" class="diver-country">{{ block.partner_country }}</span>
@@ -1870,6 +1886,21 @@ onMounted(async () => {
 .hist-round { font-size: 10px; color: var(--text-3); margin-bottom: 0.3rem; font-family: var(--font-mono); }
 .hist-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.3rem; }
 .hist-name { font-family: var(--font-display); font-size: 13px; font-weight: 700; color: var(--text); }
+
+/* Diver-name links — clickable diver names everywhere they
+   appear, jumping to /profile/<id>. Inherits the surrounding
+   font / size / colour so the underline-on-hover is the only
+   visual cue at rest. */
+.diver-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dashed transparent;
+  transition: color 0.12s, border-color 0.12s;
+}
+.diver-link:hover {
+  color: var(--cyan);
+  border-bottom-color: var(--cyan);
+}
 .hist-total { font-family: var(--font-mono); font-size: 16px; font-weight: 500; color: var(--cyan); flex-shrink: 0; margin-left: 0.5rem; }
 .hist-dive-line { display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 0.3rem; }
 .hist-code { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: var(--text); }

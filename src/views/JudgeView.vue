@@ -222,12 +222,18 @@ const submitLabel = computed(() => {
           <div class="event-name">{{ activeDiver?.eventName || '—' }}</div>
           <div class="diver-name">
             <template v-if="activeDiver?.partner_name">
-              {{ activeDiver.diverName }}<span v-if="activeDiver?.country_code" class="diver-country">{{ activeDiver.country_code }}</span>
+              <RouterLink v-if="activeDiver?.competitor_id" :to="`/profile/${activeDiver.competitor_id}`" class="diver-link">{{ activeDiver.diverName }}</RouterLink>
+              <template v-else>{{ activeDiver.diverName }}</template>
+              <span v-if="activeDiver?.country_code" class="diver-country">{{ activeDiver.country_code }}</span>
               <span class="diver-amp">&amp;</span>
-              {{ activeDiver.partner_name }}<span v-if="activeDiver?.partner_country" class="diver-country">{{ activeDiver.partner_country }}</span>
+              <RouterLink v-if="activeDiver?.partner_id" :to="`/profile/${activeDiver.partner_id}`" class="diver-link">{{ activeDiver.partner_name }}</RouterLink>
+              <template v-else>{{ activeDiver.partner_name }}</template>
+              <span v-if="activeDiver?.partner_country" class="diver-country">{{ activeDiver.partner_country }}</span>
             </template>
             <template v-else>
-              {{ activeDiver?.diverName || 'Waiting for diver...' }}<span v-if="activeDiver?.country_code" class="diver-country">{{ activeDiver.country_code }}</span>
+              <RouterLink v-if="activeDiver?.competitor_id" :to="`/profile/${activeDiver.competitor_id}`" class="diver-link">{{ activeDiver.diverName }}</RouterLink>
+              <template v-else>{{ activeDiver?.diverName || 'Waiting for diver...' }}</template>
+              <span v-if="activeDiver?.country_code" class="diver-country">{{ activeDiver.country_code }}</span>
             </template>
           </div>
           <div v-if="activeDiver?.team_name" class="judge-team-line">
@@ -400,6 +406,19 @@ const submitLabel = computed(() => {
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+}
+/* Diver-name links inherit the surrounding font/style so the
+   link is invisible at rest — only the dashed underline on
+   hover signals that the name is clickable. */
+.diver-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dashed transparent;
+  transition: color 0.12s, border-color 0.12s;
+}
+.diver-link:hover {
+  color: var(--cyan);
+  border-bottom-color: var(--cyan);
 }
 .diver-country {
   font-family: var(--font-mono);
