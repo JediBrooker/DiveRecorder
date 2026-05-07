@@ -30,6 +30,10 @@ const pendingScore = ref(null)
 // Lets THIS judge see the full panel (e.g. their own 8.5 next
 // to J1's 8.0, J3's 7.5 …) once everyone has submitted.
 const panelScores = ref({})
+// Referee-signal flag — true when this judge has flagged the
+// referee on the current dive (e.g. didn't see, wants a
+// review). Toggleable; resets on every state_update.
+const signaled = ref(false)
 
 const displayValue = computed(() => {
   const val = currentScore.value + (isHalf.value ? 0.5 : 0)
@@ -115,8 +119,11 @@ socket.on('meet_resumed', (data) => {
 socket.on('state_update', async (data) => {
   activeDiver.value = data
   resetScore()
-  // New diver / round → previous panel is irrelevant.
+  // New diver / round → previous panel + referee signal are
+  // both irrelevant. The signal would otherwise carry over to
+  // the next diver and confuse the referee.
   panelScores.value = {}
+  signaled.value = false
 
   if (data.event_id) {
     try {
@@ -188,6 +195,25 @@ function submitScore() {
     pendingScore.value = payload
   }
   submitted.value = true
+}
+
+// Toggle the "I need the referee's attention" signal. Emits a
+// judge_signal event the server re-broadcasts to the event
+// room; the Control Room's panel display picks it up and rings
+// the matching judge tile in red. Tapping again clears the
+// signal (e.g. judge resolved their query without referee
+// involvement).
+function toggleRefereeSignal() {
+  if (!activeDiver.value) return
+  signaled.value = !signaled.value
+  socket.emit('judge_signal', {
+    event_id:      activeDiver.value.event_id,
+    competitor_id: activeDiver.value.competitor_id,
+    round_number:  activeDiver.value.round_number,
+    judge_id:      user?.id,
+    judge_number:  activeDiver.value.judge_number || null,
+    signaled:      signaled.value,
+  })
 }
 
 const submitLabel = computed(() => {
@@ -287,18 +313,37 @@ const submitLabel = computed(() => {
       <div class="score-hint">Current Score Entry</div>
     </div>
 
-    <!-- Keypad -->
+    <!-- Keypad — number buttons overwrite the current entry, so
+         a judge who fat-fingers a 7 instead of 8 just taps 8 to
+         correct it. The Clear button used to live in this grid
+         but it was redundant given that behaviour and easy to
+         hit by accident. -->
     <div class="keypad">
       <!-- 1-9 -->
-      <button v-for="n in 9" :key="n" class="key" @click="pressNumber(n)">{{ n }}</button>
+      <button v-for="n in 9" :key="n" class="key" :disabled="submitted" @click="pressNumber(n)">{{ n }}</button>
       <!-- ½ -->
-      <button :class="['key', 'key-half', isHalf ? 'active' : '']" @click="toggleHalf">½</button>
+      <button :class="['key', 'key-half', isHalf ? 'active' : '']" :disabled="submitted" @click="toggleHalf">½</button>
       <!-- 0 -->
-      <button class="key key-zero" @click="pressNumber(0)">0</button>
+      <button class="key key-zero" :disabled="submitted" @click="pressNumber(0)">0</button>
       <!-- 10 -->
-      <button class="key key-ten" @click="pressNumber(10)">10</button>
-      <!-- Clear -->
-      <button class="key key-clear" @click="resetScore">Clear</button>
+      <button class="key key-ten" :disabled="submitted" @click="pressNumber(10)">10</button>
+    </div>
+
+    <!-- Signal referee — judges tap this to flag the referee
+         (e.g. they didn't see the dive, want a re-dive review,
+         scoreboard mismatch). Toggles a bright-red highlight on
+         this judge's tile in the Control Room judge grid until
+         the next diver lands or the judge taps again to clear. -->
+    <div class="signal-footer">
+      <button
+        :class="['signal-btn', signaled ? 'signal-btn-on' : '']"
+        :disabled="!activeDiver || isHeld"
+        @click="toggleRefereeSignal"
+        :title="signaled ? 'Tap to clear the signal' : 'Flag the referee — e.g. did not see the dive, request a review'"
+      >
+        <span class="signal-dot"></span>
+        {{ signaled ? '✓ Signal sent — tap to cancel' : '🚩 Signal Referee' }}
+      </button>
     </div>
 
     <!-- Submit -->
@@ -605,18 +650,62 @@ const submitLabel = computed(() => {
 .key:active { background: var(--cyan); color: var(--bg); border-color: var(--cyan); transform: scale(0.94); }
 .key-half { font-size: clamp(14px, 4vw, 18px); color: var(--cyan); border-color: rgba(6,182,212,0.3); }
 .key-half.active { background: var(--cyan); color: var(--bg); border-color: var(--cyan); }
-.key-clear {
-  grid-column: span 3;
-  font-size: 12px;
-  letter-spacing: 0.2em;
-  color: var(--red);
-  border-color: rgba(239,68,68,0.25);
-  background: var(--red-dim);
-  font-family: var(--font-display);
-  font-weight: 700;
-  text-transform: uppercase;
+/* Disabled key state — engaged once the judge has submitted.
+   Greyed-out + non-interactive so an accidental tap doesn't
+   look like it landed but actually no-ops. */
+.key:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
-.key-clear:active { background: var(--red); color: white; }
+.key:disabled:active { transform: none; background: var(--surface); color: var(--text); border-color: var(--border); }
+
+/* Signal Referee — sits between the keypad and the submit
+   footer. Outline style so it doesn't compete with the cyan
+   submit button visually; goes solid red once tapped so the
+   judge sees "I sent the flag" at a glance. */
+.signal-footer {
+  padding: 0 0.75rem;
+  flex-shrink: 0;
+}
+.signal-btn {
+  width: 100%;
+  display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+  background: var(--red-dim);
+  color: var(--red);
+  font-family: var(--font-display);
+  font-size: clamp(13px, 3vw, 15px);
+  font-weight: 900;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid rgba(239,68,68,0.4);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.signal-btn:hover:not(:disabled) {
+  background: rgba(239,68,68,0.18);
+  border-color: var(--red);
+}
+.signal-btn:active:not(:disabled) { transform: scale(0.98); }
+.signal-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.signal-btn.signal-btn-on {
+  background: var(--red);
+  color: white;
+  border-color: var(--red);
+  box-shadow: 0 0 0 2px rgba(239,68,68,0.35), 0 0 20px rgba(239,68,68,0.4);
+  animation: signalBtnPulse 1.4s ease-in-out infinite;
+}
+@keyframes signalBtnPulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(239,68,68,0.35), 0 0 20px rgba(239,68,68,0.4); }
+  50%      { box-shadow: 0 0 0 2px rgba(239,68,68,0.15), 0 0 8px  rgba(239,68,68,0.15); }
+}
+.signal-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 6px var(--red);
+}
+.signal-btn-on .signal-dot { background: white; box-shadow: 0 0 8px white; }
 
 .submit-footer {
   padding: 0.625rem 0.75rem 0.875rem;

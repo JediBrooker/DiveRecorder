@@ -1086,10 +1086,26 @@ socket.on('live_result_calculated', (data) => {
   resetJudgeTiles()
 })
 
+// judge_signal — judge tapped "Signal Referee" on their
+// keypad (or tapped again to clear). Match to the active dive
+// + judge_number, flip the tile's signaled flag. The tile
+// renders a red ring when the flag is on.
+socket.on('judge_signal', (data) => {
+  if (!currentActive.value) return
+  if (data.event_id      !== currentActive.value.event_id)      return
+  if (data.competitor_id !== currentActive.value.competitor_id) return
+  if (Number(data.round_number) !== Number(currentActive.value.round_number)) return
+  const tile = judgeTiles.value.find(t => t.judgeIndex === parseInt(data.judge_number))
+  if (tile) tile.signaled = !!data.signaled
+})
+
 function initJudgeTiles(n) {
   judgeTiles.value = []
   for (let i = 1; i <= n; i++) {
-    judgeTiles.value.push({ judgeIndex: i, judgeId: null, score: '—', scored: false })
+    // signaled flag → red ring on the tile when this judge has
+    // tapped "Signal Referee" on their keypad. Cleared on every
+    // setActive() / resetJudgeTiles() pass.
+    judgeTiles.value.push({ judgeIndex: i, judgeId: null, score: '—', scored: false, signaled: false })
   }
 }
 
@@ -1098,6 +1114,7 @@ function resetJudgeTiles() {
     t.scored = false
     t.judgeId = null
     t.score = '—'
+    t.signaled = false
   })
 }
 
@@ -1719,8 +1736,14 @@ onUnmounted(() => {
               <div
                 v-for="tile in judgeTiles"
                 :key="tile.judgeIndex"
-                :class="['judge-tile', tile.scored ? 'scored' : '']"
-                :title="judgeNameByNumber[tile.judgeIndex] || `Judge ${tile.judgeIndex}`"
+                :class="[
+                  'judge-tile',
+                  tile.scored ? 'scored' : '',
+                  tile.signaled ? 'signaled' : '',
+                ]"
+                :title="tile.signaled
+                  ? `${judgeNameByNumber[tile.judgeIndex] || 'Judge'} ${tile.judgeIndex} — wants the referee`
+                  : (judgeNameByNumber[tile.judgeIndex] || `Judge ${tile.judgeIndex}`)"
               >
                 <div class="judge-tile-label">J{{ tile.judgeIndex }}</div>
                 <div class="judge-tile-score">{{ tile.score }}</div>
@@ -2345,6 +2368,23 @@ onUnmounted(() => {
   transition: all 0.15s;
 }
 .judge-tile.scored { background: var(--green-dim); border-color: var(--green); box-shadow: 0 0 12px rgba(16,185,129,0.2); }
+/* Judge has tapped Signal Referee on their keypad. Bright red
+   ring around the tile + pulsing glow draws the operator's eye
+   regardless of what's currently scored / unscored on the
+   panel. Wins over .scored when both are set (a judge can
+   submit AND signal — e.g. they want a video review of the
+   dive they just judged). */
+.judge-tile.signaled {
+  border-color: var(--red);
+  box-shadow: 0 0 0 2px var(--red), 0 0 18px rgba(239,68,68,0.5);
+  animation: judgeSignalPulse 1.4s ease-in-out infinite;
+}
+@keyframes judgeSignalPulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--red), 0 0 18px rgba(239,68,68,0.5); }
+  50%      { box-shadow: 0 0 0 2px var(--red), 0 0 6px  rgba(239,68,68,0.2); }
+}
+.judge-tile.signaled .judge-tile-label,
+.judge-tile.signaled .judge-tile-score { color: var(--red); }
 .judge-tile-label { font-family: var(--font-display); font-size: 9px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); text-transform: uppercase; }
 .judge-tile.scored .judge-tile-label { color: var(--green); }
 .judge-tile-score { font-family: var(--font-mono); font-size: 16px; font-weight: 500; color: var(--text-3); }

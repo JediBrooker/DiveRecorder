@@ -138,6 +138,11 @@ module.exports = function attachSocket({
     set_active_diver: { limit: 60, windowMs: 60 * 1000 },
     referee_action:   { limit: 30, windowMs: 60 * 1000 },
     announce_score:   { limit: 30, windowMs: 60 * 1000 },
+    // judge_signal: 30 toggles/min/judge — generous because a
+    // judge might toggle on/off a few times legitimately, but
+    // tight enough to stop a malicious client spamming the
+    // Control Room with red flashes.
+    judge_signal:     { limit: 30, windowMs: 60 * 1000 },
   };
   const socketActionWindows = new Map();   // `${action}:${userId}` → [t,…]
 
@@ -367,6 +372,46 @@ module.exports = function attachSocket({
                                        ["meet_manager", "referee", "org_admin"]))) return;
       if (socketActionRateLimited("announce_score", socket.userId)) return;
       io.to(`event:${data.event_id}`).emit("final_score_announced", data);
+    });
+
+    // -----------------------------------------------------------
+    // judge_signal — judge taps "Signal Referee" on the keypad
+    // (e.g. didn't see the dive, wants a re-dive review,
+    // disagrees with the scoreboard). Server validates the
+    // sender is a judge on this event's panel, then rebroadcasts
+    // to the event room. Control Room highlights the judge's
+    // tile in red until the next state_update or another signal
+    // toggling it off.
+    //
+    // judge_id + judge_number come from the server's view of
+    // event_judges, never from the wire — same posture as
+    // submit_score.
+    // -----------------------------------------------------------
+    socket.on("judge_signal", async (data) => {
+      if (!socket.userId) return;
+      if (socketActionRateLimited("judge_signal", socket.userId)) return;
+      if (!data?.event_id || !data?.competitor_id) return;
+      const round = Number(data.round_number);
+      if (!Number.isInteger(round) || round < 1) return;
+      try {
+        const r = await pool.query(
+          `SELECT judge_number FROM event_judges
+           WHERE event_id = $1 AND judge_id = $2`,
+          [data.event_id, socket.userId],
+        );
+        if (!r.rows.length) return;        // not on this panel
+        const judgeNumber = r.rows[0].judge_number;
+        io.to(`event:${data.event_id}`).emit("judge_signal", {
+          event_id:      data.event_id,
+          competitor_id: data.competitor_id,
+          round_number:  round,
+          judge_id:      socket.userId,
+          judge_number:  judgeNumber,
+          signaled:      !!data.signaled,
+        });
+      } catch (err) {
+        console.error("[Judge Signal Error]", err.message);
+      }
     });
 
     // -----------------------------------------------------------
