@@ -1,55 +1,80 @@
-// UI-driven version of the scoring pipeline test. The other
-// scoring spec (scoring.spec.js) verifies the API + socket
-// pipeline as fast as possible — this one drives the actual SPA
-// so you can WATCH the result render.
+// UI-driven version of the scoring pipeline test, paced like a
+// real meet: 3 divers × 3 rounds = 9 dives, with the active-diver
+// banner pushed to the scoreboard a moment BEFORE the judges'
+// scores land, so a watching human can see who's up, watch the
+// scores come in, and watch the standings shift.
 //
-// Run it headed to see Chrome open and click through:
+// The headless scoring.spec.js verifies the same pipeline as fast
+// as possible. This spec optimises for *visibility*, not speed —
+// don't run it in CI.
+//
+// Run it headed to watch:
 //   npx playwright test test/e2e/scoreboard-ui.spec.js --headed --workers=1
-//   npx playwright test test/e2e/scoreboard-ui.spec.js --ui
 //
-// Or with slow-mo so each action is visible:
-//   npx playwright test test/e2e/scoreboard-ui.spec.js --headed --workers=1 --project=chromium
-//   PWDEBUG=1 npx playwright test test/e2e/scoreboard-ui.spec.js
-//
-// What you'll see on screen:
-//   1. Browser opens to /login
-//   2. Username + password get typed in field-by-field
-//   3. Sign In button is clicked, page redirects to /dashboard
-//   4. Page navigates to /scoreboard/<eventId>
-//   5. Diver A's name + total appear in the standings panel
-//   6. (Pause briefly so you can read it before cleanup.)
+// Tunable timings — env-overridable so you can speed it up or
+// slow it down without editing the file:
+//   PW_PRE_DIVE_MS    delay between active-diver banner appearing
+//                     and the first judge's score (default 1500)
+//   PW_PER_SCORE_MS   delay between consecutive judges (default 250)
+//   PW_POST_DIVE_MS   delay after a diver's last score before the
+//                     next diver gets the active banner (default 1200)
+//   PW_FINAL_HOLD_MS  hold on the final standings before teardown
+//                     (default 5000)
 
 const { test, expect } = require("@playwright/test");
 const { io } = require("socket.io-client");
 const setup = require("./_setup");
 
+const PRE_DIVE_MS    = Number(process.env.PW_PRE_DIVE_MS    ?? 1500);
+const PER_SCORE_MS   = Number(process.env.PW_PER_SCORE_MS   ?? 250);
+// Smaller default than the pre-dive pause: the SPA's score
+// overlay already runs for 4s after announce_score, so this is
+// just the gap between standings refresh and the next diver
+// being announced.
+const POST_DIVE_MS   = Number(process.env.PW_POST_DIVE_MS   ?? 600);
+const FINAL_HOLD_MS  = Number(process.env.PW_FINAL_HOLD_MS  ?? 5000);
+
+// Drop highest + lowest from a 5-judge panel and return the
+// middle three sorted ascending. Same algorithm
+// lib/score-trim.js uses on the server — we just don't import it
+// because that would couple the e2e suite to the lib path.
+function sortedTrim(scores) {
+  const sorted = [...scores].sort((a, b) => a - b);
+  return sorted.slice(1, -1);
+}
+
 test.describe.configure({ mode: "serial" });
 
-test("watch a meet end-to-end: login → scoreboard renders Diver A's total", async ({
+test("watch a 3-diver, 3-round meet end-to-end with realistic pacing", async ({
   request, page, baseURL,
 }) => {
-  test.setTimeout(90_000);
+  // Plenty of head-room: 9 dives × ~3.5s per dive = ~32s, plus
+  // setup + final hold + teardown.
+  test.setTimeout(180_000);
 
   // ============================================================
-  // PHASE 1 — silent API setup (no UI). Same fixtures as the
-  // headless scoring test, just so we have something for the SPA
-  // to render in PHASE 2.
+  // PHASE 1 — silent API setup (no UI). 3 divers, 3 rounds, a
+  // different dive each round so the DDs (and therefore totals)
+  // vary realistically.
   // ============================================================
   const { orgId, username: adminUsername, adminToken } =
     await setup.createOrgAndAdmin(request);
 
+  const TOTAL_ROUNDS = 3;
   const event = await setup.createEvent(request, {
     adminToken,
-    name: "E2E Live Scoreboard Demo",
+    name: "E2E Live Meet — 3 divers × 3 rounds",
     number_of_judges: 5,
-    total_rounds: 1,
+    total_rounds: TOTAL_ROUNDS,
     height: "3m",
   });
   const eventId = event.id;
 
-  const diverA = await setup.insertUser({
-    orgId, role: "diver", fullName: "Diver A",
-  });
+  const divers = [];
+  for (const name of ["Diver Alpha", "Diver Bravo", "Diver Charlie"]) {
+    const d = await setup.insertUser({ orgId, role: "diver", fullName: name });
+    divers.push({ ...d, fullName: name });
+  }
 
   const judges = [];
   for (let i = 1; i <= 5; i++) {
@@ -63,107 +88,226 @@ test("watch a meet end-to-end: login → scoreboard renders Diver A's total", as
     adminToken, eventId, judgeIds: judges.map((j) => j.userId),
   });
 
-  const diveId = await setup.pickDiveId({
-    height: 3.0, dive_code: "101", position: "B",
-  });
-  await setup.insertDiveList({
-    eventId,
-    competitorId: diverA.userId,
-    dives: [{ round_number: 1, dive_id: diveId }],
-  });
+  // Three dives the dive_directory has at 3m / position B. Mix of
+  // groups so the DDs aren't identical — Front, Back, Reverse.
+  // The hard-coded DDs match what the directory ships in init.sql
+  // (101B=1.5, 201B=1.8, 301B=1.9 at 3m); we use them to compute
+  // the per-dive total client-side so we can flash it on the
+  // SPA's score-overlay via announce_score.
+  const diveCodes = [
+    { dive_code: "101", position: "B", dd: 1.5 },   // Forward 1½ pike
+    { dive_code: "201", position: "B", dd: 1.8 },   // Back 1½ pike
+    { dive_code: "301", position: "B", dd: 1.9 },   // Reverse 1½ pike
+  ];
+  const dives = [];
+  for (const dc of diveCodes) {
+    dives.push(await setup.pickDiveId({
+      height: 3.0, dive_code: dc.dive_code, position: dc.position,
+    }));
+  }
+
+  // Each diver gets the same 3 dives across the 3 rounds. Real
+  // meets vary by diver — fine for a demo.
+  for (const d of divers) {
+    await setup.insertDiveList({
+      eventId,
+      competitorId: d.userId,
+      dives: dives.map((dive_id, i) => ({ round_number: i + 1, dive_id })),
+    });
+  }
 
   await setup.setEventStatus(request, { adminToken, eventId, status: "Live" });
 
-  // 5 judges submit via sockets. Same pattern as scoring.spec.js
-  // — see comments there for why we wire the listeners before
-  // emitting the score.
-  const scoreValues = [7.0, 7.5, 8.0, 8.5, 9.0];
-  for (let i = 0; i < judges.length; i++) {
-    const sock = io(baseURL, {
-      auth: { token: judges[i].token },
-      transports: ["websocket"],
-      reconnection: false,
-    });
-    await new Promise((resolve, reject) => {
-      sock.on("connect", resolve);
+  // ============================================================
+  // PHASE 2 — drive the SPA. THIS is what shows on screen.
+  // ============================================================
+  await page.goto("/login");
+  await page.locator('input[autocomplete="username"]').fill(adminUsername);
+  await page.locator('input[autocomplete="current-password"]').fill(setup.TEST_PASSWORD);
+  await page.getByRole("button", { name: /Sign In/i }).click();
+  await page.waitForURL(/\/dashboard$/);
+  await page.goto(`/scoreboard/${eventId}`);
+
+  // Wait for the scoreboard SPA to mount + connect its socket so
+  // the state_update broadcasts we're about to fire actually
+  // reach a subscribed client. The .sb-name placeholder ("Waiting...")
+  // is rendered as soon as the view mounts, before any data arrives.
+  await expect(page.locator(".sb-name")).toBeVisible({ timeout: 10_000 });
+
+  // ============================================================
+  // PHASE 3 — simulate the meet. Round-major order (round 1 for
+  // every diver, then round 2, …) — that's how real meets run.
+  // ============================================================
+  //
+  // We need:
+  //   * one admin socket to emit set_active_diver (gated to
+  //     org_admin / meet_manager / referee role)
+  //   * five judge sockets to submit scores
+  //
+  // Open them once up front, reuse across rounds. Pulling them
+  // up into outer scope also lets us close them cleanly at the
+  // end.
+  async function adminLogin() {
+    const r = await setup.loginAs(request, adminUsername);
+    return r.token;
+  }
+  const freshAdminToken = await adminLogin();
+
+  function openSocket(token) {
+    return new Promise((resolve, reject) => {
+      const sock = io(baseURL, {
+        auth: { token },
+        transports: ["websocket"],
+        reconnection: false,
+      });
+      sock.on("connect", () => resolve(sock));
       sock.on("connect_error", reject);
-      setTimeout(() => reject(new Error(`connect timeout judge ${i}`)), 5000);
+      setTimeout(() => reject(new Error("connect timeout")), 5000);
     });
-    sock.emit("subscribe_event", { event_id: eventId });
-    const ack = new Promise((resolve, reject) => {
-      sock.on("score_received", resolve);
-      sock.on("score_rejected", (m) =>
-        reject(new Error(`rejected judge ${i}: ${JSON.stringify(m)}`)));
-      setTimeout(() => reject(new Error(`no ack judge ${i}`)), 5000);
+  }
+
+  const adminSocket = await openSocket(freshAdminToken);
+  adminSocket.emit("subscribe_event", { event_id: eventId });
+
+  const judgeSockets = [];
+  for (const j of judges) {
+    const s = await openSocket(j.token);
+    s.emit("subscribe_event", { event_id: eventId });
+    judgeSockets.push(s);
+  }
+
+  // Score profiles per diver — different "skill levels" so the
+  // standings actually have a meaningful order. Diver Bravo wins,
+  // Alpha is mid-pack, Charlie struggles.
+  const scoreProfiles = {
+    "Diver Alpha":   [7.0, 7.5, 8.0, 7.5, 7.0],   // sum trim = 22.5
+    "Diver Bravo":   [8.5, 9.0, 9.0, 8.5, 9.0],   // sum trim = 26.5 (wins)
+    "Diver Charlie": [5.5, 6.0, 6.5, 6.0, 5.5],   // sum trim = 17.5
+  };
+
+  function scoreReceivedOnce(sock) {
+    return new Promise((resolve, reject) => {
+      const onAck = () => {
+        sock.off("score_received", onAck);
+        sock.off("score_rejected", onRej);
+        resolve();
+      };
+      const onRej = (m) => {
+        sock.off("score_received", onAck);
+        sock.off("score_rejected", onRej);
+        reject(new Error(`rejected: ${JSON.stringify(m)}`));
+      };
+      sock.on("score_received", onAck);
+      sock.on("score_rejected", onRej);
+      setTimeout(() => {
+        sock.off("score_received", onAck);
+        sock.off("score_rejected", onRej);
+        reject(new Error("no ack"));
+      }, 5000);
     });
-    sock.emit("submit_score", {
-      event_id: eventId,
-      competitor_id: diverA.userId,
-      round_number: 1,
-      score: scoreValues[i],
-      dive_id: diveId,
-    });
-    await ack;
-    sock.disconnect();
+  }
+
+  for (let round = 1; round <= TOTAL_ROUNDS; round++) {
+    for (const diver of divers) {
+      // 1. Push the active-diver banner. The SPA's .sb-name
+      //    updates from "Waiting..." to "Diver Alpha" (etc.)
+      //    and the round pill shows "Round 1 / 3".
+      adminSocket.emit("set_active_diver", {
+        event_id:      eventId,
+        competitor_id: diver.userId,
+        diverName:     diver.fullName,
+        full_name:     diver.fullName,
+        round_number:  round,
+        diveCode:      `${diveCodes[round - 1].dive_code}${diveCodes[round - 1].position}`,
+        eventName:     event.name,
+      });
+
+      // Wait for the SPA to paint the new active diver, plus a
+      // human-pacing pause so a watcher sees "Diver X is up"
+      // before the scores start flying in.
+      await expect(page.locator(".sb-name")).toContainText(diver.fullName, {
+        timeout: 5000,
+      });
+      await page.waitForTimeout(PRE_DIVE_MS);
+
+      // 2. Five judges submit, one at a time with a tiny gap
+      //    between each so the watcher can SEE the scores
+      //    accumulating rather than landing in one frame.
+      const profile = scoreProfiles[diver.fullName];
+      for (let i = 0; i < judges.length; i++) {
+        const ack = scoreReceivedOnce(judgeSockets[i]);
+        judgeSockets[i].emit("submit_score", {
+          event_id:      eventId,
+          competitor_id: diver.userId,
+          round_number:  round,
+          score:         profile[i],
+          dive_id:       dives[round - 1],
+        });
+        await ack;
+        await page.waitForTimeout(PER_SCORE_MS);
+      }
+
+      // 3. Announce the dive total. The SPA listens for
+      //    final_score_announced and flashes the total in a big
+      //    centre overlay for 4 seconds, then re-pulls the
+      //    scoreboard so the standings reflect this dive. Without
+      //    this announce, /api/scoreboard wouldn't be re-fetched
+      //    and the standings panel would stay stuck on its
+      //    initial state. (In a real meet, the Control Room
+      //    operator clicks "Announce" when all 5 lights are in;
+      //    we automate that here.)
+      const trimmed = sortedTrim(profile);
+      const diveTotal = (trimmed.reduce((a, b) => a + b, 0)) * diveCodes[round - 1].dd;
+      adminSocket.emit("announce_score", {
+        event_id:      eventId,
+        competitor_id: diver.userId,
+        round_number:  round,
+        total:         diveTotal,
+        diverName:     diver.fullName,
+      });
+
+      // Wait for the overlay to appear, then disappear (4s timer
+      // in the SPA), then a small grace pause for the post-overlay
+      // refreshData() round-trip + DOM update.
+      await expect(page.locator(".score-overlay")).toBeVisible({ timeout: 2000 });
+      await expect(page.locator(".score-overlay")).toBeHidden({ timeout: 6000 });
+      await page.waitForTimeout(POST_DIVE_MS);
+    }
   }
 
   // ============================================================
-  // PHASE 2 — drive the actual UI. THIS is what shows on screen.
+  // PHASE 4 — assert + hold so the watcher can read the result.
   // ============================================================
+  // After 3 rounds, Bravo should be ranked 1, Alpha 2, Charlie 3.
+  // We assert via the API to keep this deterministic, then read
+  // the rendered DOM (which has lost the cache race occasionally).
+  const sb = await request.get(`/api/scoreboard/${eventId}?cache=skip`);
+  const sbData = await sb.json();
+  expect(sbData.standings).toHaveLength(3);
+  expect(sbData.standings[0].full_name).toBe("Diver Bravo");
+  expect(sbData.standings[1].full_name).toBe("Diver Alpha");
+  expect(sbData.standings[2].full_name).toBe("Diver Charlie");
 
-  // 1. Open the login page.
-  await page.goto("/login");
-  await expect(page.getByRole("heading", { name: "Sign In" })).toBeVisible();
+  // Sanity-check the DOM matches.
+  const rows = page.locator(".standing");
+  await expect(rows).toHaveCount(3, { timeout: 5000 });
+  await expect(rows.nth(0).locator(".standing-name")).toContainText("Diver Bravo");
+  await expect(rows.nth(1).locator(".standing-name")).toContainText("Diver Alpha");
+  await expect(rows.nth(2).locator(".standing-name")).toContainText("Diver Charlie");
 
-  // 2. Fill username + password. The <label>s in the SPA aren't
-  //    associated to the inputs via for=/aria-labelledby, so
-  //    getByLabel can't find them — use the autocomplete-attribute
-  //    selectors that the markup already carries.
-  await page.locator('input[autocomplete="username"]').fill(adminUsername);
-  await page.locator('input[autocomplete="current-password"]').fill(setup.TEST_PASSWORD);
-
-  // 3. Click the Sign In button. The SPA POSTs /api/auth/login,
-  //    saves the JWT into the auth store (localStorage under the
-  //    hood), then routes to /dashboard.
-  await page.getByRole("button", { name: /Sign In/i }).click();
-  await page.waitForURL(/\/dashboard$/);
-  await expect(page).toHaveURL(/\/dashboard$/);
-
-  // 4. Navigate to the scoreboard for our event. The SPA pulls
-  //    /api/scoreboard/:id on mount and renders the standings.
-  await page.goto(`/scoreboard/${eventId}`);
-
-  // 5. The standings row should appear with Diver A's name + a
-  //    total in the 20–60 range (after high/low trim of 7+9, the
-  //    median three sum to 24, multiplied by the 101B DD ≈ 40+).
-  const firstStanding = page.locator(".standing").first();
-  await expect(firstStanding).toBeVisible({ timeout: 10_000 });
-  await expect(firstStanding.locator(".standing-name")).toContainText("Diver A");
-
-  const scoreText = await firstStanding.locator(".standing-score").innerText();
-  // The score cell may also include a "=" tie-marker prefix; just
-  // pull the first decimal number out of the text.
-  const total = Number((scoreText.match(/[\d.]+/) || [])[0]);
-  expect(total).toBeGreaterThan(20);
-  expect(total).toBeLessThan(60);
-
-  // 6. Save a screenshot so you have a record to look at after
-  //    the test exits (the org gets cleaned up below).
   await page.screenshot({
     path: `test-results/scoreboard-${eventId}.png`,
     fullPage: true,
   });
 
-  // Pause so a watching human can read the screen before the
-  // teardown wipes the org. Skip when running in CI — there's no
-  // human to watch and CI sets E2E_HEADED=false (or unset).
-  if (process.env.PWDEBUG || process.env.PW_PAUSE) {
-    await page.waitForTimeout(5000);
-  }
+  // Hold on the final standings so a watching human can read them.
+  await page.waitForTimeout(FINAL_HOLD_MS);
 
   // ============================================================
   // Cleanup.
   // ============================================================
+  for (const s of judgeSockets) s.disconnect();
+  adminSocket.disconnect();
   await setup.deleteOrg(orgId);
 });
 
