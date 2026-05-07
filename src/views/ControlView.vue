@@ -25,23 +25,29 @@ const route = useRoute()
 // can flip a back-of-house screen without leaving the page.
 const opsBroadcast = computed(() => route.query.broadcast === '1')
 
-// Active diver status: the operator advances through three
-// phases for each dive. READY = announced & on the board,
-// DIVING = actively performing, JUDGING = mid-score. Surfaces
-// in the spectator scoreboard via the existing state_update
-// event so the audience sees what's happening.
-const activeStatus = ref('ready')      // 'ready' | 'diving' | 'judging'
-function cycleStatus() {
-  if (activeStatus.value === 'ready') activeStatus.value = 'diving'
-  else if (activeStatus.value === 'diving') activeStatus.value = 'judging'
-  else activeStatus.value = 'ready'
-  if (currentActive.value) {
-    socket.emit('set_active_diver', {
-      ...currentActive.value,
-      status: activeStatus.value,
-    })
-  }
-}
+// Active diver status — auto-derived from real signals so the
+// operator never has to remember to click anything:
+//   READY    — announced & on the board, no scores yet, the
+//              30-second WA shot clock is still running
+//   DIVING   — shot clock has expired (per WA the diver MUST
+//              have started by then), still no scores in
+//   JUDGING  — at least one judge has submitted a score for
+//              this round
+//
+// Surfaces in the spectator scoreboard via set_active_diver
+// emissions; a watcher below this declaration pushes a new
+// emission every time the derived status flips so the
+// audience-facing strip stays in sync without polling.
+const activeStatus = computed(() => {
+  if (!currentActive.value) return 'ready'
+  // JUDGING wins: even if a single judge has tapped a score,
+  // the dive is over and the panel is entering scores.
+  if (Object.keys(scoresThisRound.value).length > 0) return 'judging'
+  // Shot clock has hit zero (or was paused at zero) → diver
+  // has begun their dive (WA's 30-second rule guarantees it).
+  if (shotClockExpired.value) return 'diving'
+  return 'ready'
+})
 
 const events = ref([])
 const selectedEventId = ref('')
@@ -118,6 +124,21 @@ const shotClockClass = computed(() => {
   if (shotClock.value <= 5) return 'shot-clock-warn'
   if (shotClock.value <= 10) return 'shot-clock-amber'
   return ''
+})
+
+// Push status changes out to the spectator scoreboard. The
+// initial set_active_diver emission (in setActive() below)
+// already includes the starting status; this watcher covers
+// every transition after that — clock-expired flip from READY
+// to DIVING, first-score flip from DIVING to JUDGING, etc.
+// Without this the audience-facing pill would freeze on
+// whatever status was true the moment the diver was announced.
+watch(activeStatus, (newStatus) => {
+  if (!currentActive.value) return
+  socket.emit('set_active_diver', {
+    ...currentActive.value,
+    status: newStatus,
+  })
 })
 
 // =============================================================
@@ -1799,9 +1820,10 @@ function setActive(idx) {
   updateNextButton(false)
   // Reset + auto-start the 30-second shot clock for this diver.
   // Operator can pause / extend if needed (warm-up, equipment).
+  // activeStatus is a computed that derives off scoresThisRound +
+  // shotClockExpired — both reset above, so the status falls
+  // back to 'ready' on its own without an explicit assignment.
   startShotClock()
-  // New diver = back to "ready" state.
-  activeStatus.value = 'ready'
 }
 
 function updateNextButton(allScoresIn) {
@@ -1910,11 +1932,6 @@ function onKeydown(e) {
     case 'F':                 // failed dive
       e.preventDefault()
       refAction('failed')
-      break
-    case 's':
-    case 'S':                 // cycle active status (Ready→Diving→Judging)
-      e.preventDefault()
-      cycleStatus()
       break
     case 't':
     case 'T':                 // reset shot clock
@@ -2267,18 +2284,21 @@ onUnmounted(() => {
                 <option :value="25">Auto-next: 25s</option>
                 <option :value="30">Auto-next: 30s</option>
               </select>
-              <!-- Active diver status (#10): READY / DIVING / JUDGING.
-                   Cycles on click; broadcasts to scoreboard via
-                   set_active_diver so the audience sees what's
-                   happening in real time. -->
-              <button
+              <!-- Active diver status — display only. Auto-
+                   derived: READY while the shot clock is
+                   ticking, DIVING when the clock has expired
+                   (WA's 30s rule means the diver must have
+                   begun by then), JUDGING the moment any
+                   judge submits a score for this round. The
+                   value flows out to the spectator scoreboard
+                   via set_active_diver whenever it changes. -->
+              <div
                 v-if="currentActive"
                 :class="['status-pill', `status-${activeStatus}`]"
-                @click="cycleStatus"
-                title="Cycle status (S)"
+                title="Auto-updates as the dive progresses"
               >
                 {{ activeStatus.toUpperCase() }}
-              </button>
+              </div>
               <!-- Shot clock — 30-second WA rule. Auto-starts when
                    a new diver is set; click face to pause/resume,
                    ↻ to reset. -->
@@ -2455,7 +2475,6 @@ onUnmounted(() => {
               <span><kbd>←</kbd> prev</span>
               <span><kbd>→</kbd>/<kbd>Space</kbd> next</span>
               <span><kbd>1</kbd>–<kbd>9</kbd> jump</span>
-              <span><kbd>S</kbd> status</span>
               <span><kbd>T</kbd> reset clock</span>
               <span><kbd>F</kbd> failed</span>
               <span><kbd>R</kbd> redive</span>

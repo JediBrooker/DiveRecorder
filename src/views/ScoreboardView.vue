@@ -643,8 +643,16 @@ function panelMultiplier(numJudges, isSynchro) {
 }
 
 const activeProjection = computed(() => {
-  if (!activeDiver.value || !standings.value.length) return null
-  const target = activeDiver.value.full_name || activeDiver.value.diverName
+  // Subject — the diver the projection table is computed FOR.
+  // We use the active diver when one is on the board, and fall
+  // back to the on-deck (next-up) performer otherwise so the
+  // catch-up table stays visible BEFORE the diver is officially
+  // on the board too. Same shape covers both: round_number, dd,
+  // full_name / diverName all come through on each.
+  const subject = activeDiver.value
+    || (centrePerformer.value?.kind === 'next' ? centrePerformer.value : null)
+  if (!subject || !standings.value.length) return null
+  const target = subject.full_name || subject.diverName
   if (!target) return null
   const idx = standings.value.findIndex(s => s.full_name === target)
   const leader = standings.value[0]
@@ -652,9 +660,9 @@ const activeProjection = computed(() => {
   const totalRounds = parseInt(currentEvent.value?.total_rounds) || 0
   const numJudges   = parseInt(currentEvent.value?.number_of_judges) || 5
   const isSynchro   = currentEvent.value?.event_type === 'synchro_pair'
-  const ddProxy     = parseFloat(activeDiver.value.dd) || null
+  const ddProxy     = parseFloat(subject.dd) || null
   const remaining   = totalRounds
-    ? totalRounds - (parseInt(activeDiver.value.round_number) || 1) + 1
+    ? totalRounds - (parseInt(subject.round_number) || 1) + 1
     : 0
   const mult = panelMultiplier(numJudges, isSynchro)
 
@@ -1965,15 +1973,17 @@ onMounted(async () => {
   font-weight: 700;
 }
 
-/* Catch-up projection beneath the rank line. Cyan tint when the
-   diver is chasing, gold when leading; small but legible from
-   pool deck. */
+/* Catch-up projection — sits between the current performer
+   block and Up Next. Cyan-tinted block (gold when leading) with
+   a confident font size + chunky border so it reads clearly
+   from across a pool deck, not just the front row. */
 .sb-projection {
-  margin-top: 0.6rem;
-  padding: 0.4rem 0.75rem;
+  margin: 1rem auto 0.5rem;
+  padding: 0.7rem 1rem;
   border-radius: var(--radius-sm);
+  border-left-width: 4px;
   font-family: var(--font-mono);
-  font-size: clamp(12px, 1.5vw, 16px);
+  font-size: clamp(14px, 1.7vw, 18px);
   line-height: 1.45;
   display: inline-block;
   max-width: 100%;
@@ -2001,10 +2011,12 @@ onMounted(async () => {
    dives. Layout matches the Control Room (rank | name | target)
    so the audience and the operator read the same shape. */
 .sb-projection-head {
-  font-size: clamp(11px, 1.3vw, 13px);
+  font-size: clamp(12px, 1.4vw, 14px);
   color: var(--text-3);
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.5rem;
   letter-spacing: 0.02em;
+  text-transform: uppercase;
+  font-weight: 700;
 }
 .sb-catchup-row {
   display: grid;
