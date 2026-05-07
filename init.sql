@@ -165,6 +165,17 @@ CREATE TABLE public.users (
     -- sign-up. init.sql backfills existing rows below so a fresh
     -- bootstrap doesn't lock anyone out.
     email_verified_at timestamptz,
+    -- 2FA (TOTP) — Migration 022. NULL totp_secret = 2FA off.
+    -- totp_enabled_at flips set when the user completes the setup
+    -- flow (verifies a code from their authenticator). The login
+    -- gate checks enabled_at, not the secret, so a half-finished
+    -- setup doesn't lock the user out.
+    totp_secret         varchar(64),
+    totp_enabled_at     timestamptz,
+    -- Array of bcrypt hashes of one-time recovery codes. Plaintext
+    -- shown to the user once at setup; we never store the readable
+    -- form. A used code is removed from the array on consume.
+    totp_recovery_codes jsonb,
     -- Diver-customisable analytics dashboard. Array of widget
     -- IDs (see frontend WIDGET_CATALOG). Defaults to the four
     -- core widgets so a fresh diver has something to look at.
@@ -823,7 +834,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 21);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 22);
 
 
 -- =============================================================

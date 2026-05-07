@@ -69,9 +69,9 @@ test("seed_test_data.sql exists and is non-empty", () => {
   assert.ok(stat.size > 1000);
 });
 
-test("init.sql declares schema version 21", () => {
+test("init.sql declares schema version 22", () => {
   const sql = fs.readFileSync(path.join(__dirname, "..", "init.sql"), "utf8");
-  assert.match(sql, /INSERT INTO public\.schema_meta \(id, version\) VALUES \(1, 21\)/);
+  assert.match(sql, /INSERT INTO public\.schema_meta \(id, version\) VALUES \(1, 22\)/);
 });
 
 test("scoreCategory boundaries match FINA buckets", () => {
