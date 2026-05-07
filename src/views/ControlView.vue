@@ -254,24 +254,6 @@ async function announceRoundEnd() {
 // =============================================================
 
 // =========================================================
-// ON-DECK STRIP — Now / Next / On-deck
-// Surfaces the next two divers so the announcer can pre-call,
-// the divers know when to mount the platform, and the operator
-// has a visible cue without scrolling the queue. Skips withdrawn
-// rows automatically.
-// =========================================================
-const upcomingDivers = computed(() => {
-  if (!roster.value.length) return { now: null, next: null, onDeck: null }
-  const start = Math.max(currentIndex.value, 0)
-  const queue = []
-  for (let i = start; i < roster.value.length && queue.length < 3; i++) {
-    if (roster.value[i].withdrawn_at) continue
-    queue.push(roster.value[i])
-  }
-  return { now: queue[0] || null, next: queue[1] || null, onDeck: queue[2] || null }
-})
-
-// =========================================================
 // QUEUE LOCK — drag-reorder + ▲/▼ + randomise are only valid
 // before the meet starts. Once the event flips out of
 // 'Upcoming' the published start order is committed and any
@@ -2230,50 +2212,12 @@ onUnmounted(() => {
 
       <!-- Centre: Active diver -->
       <div class="ctrl-centre">
-
-        <!-- On-Deck strip — Now / Next / On-deck so the announcer
-             can pre-call and divers know when to walk to the
-             platform. Auto-skips withdrawn rows. Hidden until a
-             diver is active so it doesn't shout "no one" at boot. -->
-        <div v-if="upcomingDivers.now" class="on-deck-strip">
-          <div :class="['od-cell', 'od-now']">
-            <div class="od-label">Now</div>
-            <div class="od-name">
-              {{ upcomingDivers.now.full_name }}
-              <span v-if="upcomingDivers.now.country_code" class="od-country">{{ upcomingDivers.now.country_code }}</span>
-            </div>
-            <div class="od-meta">
-              R{{ upcomingDivers.now.round_number }} · {{ upcomingDivers.now.dive_code }}{{ upcomingDivers.now.position }}
-            </div>
-          </div>
-          <div :class="['od-cell', 'od-next', upcomingDivers.next ? '' : 'od-empty']">
-            <div class="od-label">Next</div>
-            <template v-if="upcomingDivers.next">
-              <div class="od-name">
-                {{ upcomingDivers.next.full_name }}
-                <span v-if="upcomingDivers.next.country_code" class="od-country">{{ upcomingDivers.next.country_code }}</span>
-              </div>
-              <div class="od-meta">
-                R{{ upcomingDivers.next.round_number }} · {{ upcomingDivers.next.dive_code }}{{ upcomingDivers.next.position }}
-              </div>
-            </template>
-            <div v-else class="od-name od-dim">—</div>
-          </div>
-          <div :class="['od-cell', 'od-deck', upcomingDivers.onDeck ? '' : 'od-empty']">
-            <div class="od-label">On-deck</div>
-            <template v-if="upcomingDivers.onDeck">
-              <div class="od-name">
-                {{ upcomingDivers.onDeck.full_name }}
-                <span v-if="upcomingDivers.onDeck.country_code" class="od-country">{{ upcomingDivers.onDeck.country_code }}</span>
-              </div>
-              <div class="od-meta">
-                R{{ upcomingDivers.onDeck.round_number }} · {{ upcomingDivers.onDeck.dive_code }}{{ upcomingDivers.onDeck.position }}
-              </div>
-            </template>
-            <div v-else class="od-name od-dim">—</div>
-          </div>
-        </div>
-
+        <!-- The Now / Next / On-deck strip used to live here as
+             a quick-glance ribbon for the announcer. Removed —
+             the right panel's Up Next list (next 5, expandable)
+             plus the centre's own active-diver block carry the
+             same information without duplicating the same names
+             three different ways across two columns. -->
         <div class="active-zone">
           <div class="active-label-row">
             <div class="active-label-left">
@@ -3347,7 +3291,13 @@ onUnmounted(() => {
 .ctrl-body {
   flex: 1;                              /* fill the layout vertically */
   display: grid;
-  grid-template-columns: 280px 1fr 280px;
+  /* Left + right side panels widened from 280px → 350px (+25%)
+     so the history cards and Up Next tiles aren't cramped on a
+     1440-class display. Centre stays 1fr — it gets whatever's
+     left over and is internally min-width: 0 so the active-
+     diver block can shrink past the badge column when a window
+     is narrow. */
+  grid-template-columns: 350px 1fr 350px;
   grid-template-rows: 1fr;              /* row fills the grid container's height */
 }
 .ctrl-panel {
@@ -3967,58 +3917,6 @@ onUnmounted(() => {
   display: flex; align-items: stretch; gap: 0.25rem;
 }
 
-/* =========================================================
-   On-Deck strip — Now / Next / On-deck above the active zone.
-   Each cell is a compact info card; "Now" is cyan-accented to
-   match the active diver block below; the others fade out
-   slightly so the eye sees the progression.
-   ========================================================= */
-.on-deck-strip {
-  display: grid;
-  grid-template-columns: 1.2fr 1fr 1fr;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem 0.6rem;
-  background: var(--bg-3);
-  border-bottom: 1px solid var(--border);
-}
-.od-cell {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0.45rem 0.7rem;
-  min-width: 0;
-}
-.od-cell.od-now {
-  border-color: var(--cyan);
-  background: var(--cyan-dim);
-}
-.od-cell.od-empty { opacity: 0.5; }
-.od-label {
-  font-family: var(--font-display); font-size: 9px; font-weight: 700;
-  letter-spacing: 0.22em; text-transform: uppercase; color: var(--text-3);
-}
-.od-cell.od-now .od-label { color: var(--cyan); }
-.od-name {
-  font-family: var(--font-display); font-weight: 700; font-style: italic;
-  color: var(--text); font-size: 14px; line-height: 1.2;
-  margin-top: 0.15rem;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.od-cell.od-now .od-name { font-size: 16px; color: var(--cyan); }
-.od-name.od-dim { color: var(--text-3); font-style: normal; font-weight: 400; }
-.od-country {
-  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
-  color: var(--text-3); margin-left: 0.3rem;
-}
-.od-meta {
-  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3);
-  margin-top: 0.1rem;
-}
-
-@media (max-width: 720px) {
-  .on-deck-strip { grid-template-columns: 1fr; gap: 0.35rem; padding: 0.5rem; }
-  .od-cell { padding: 0.4rem 0.6rem; }
-}
 
 .late-modal { max-width: 600px; }
 
