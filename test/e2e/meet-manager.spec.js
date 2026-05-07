@@ -265,45 +265,31 @@ test("meet-manager full E2E (random variant)", async ({
   });
 
   // ============================================================
-  // PHASE 3 — Manager closes entries (deadline → past) and
-  // randomises the start order.
+  // PHASE 3 — Manager closes entries (deadline → past) via API.
+  // The SPA has no UI for this — managers either let the
+  // entries_close_at deadline pass naturally or flip event
+  // status. Here we just push the deadline into the past so the
+  // dive lists are locked.
   // ============================================================
-  // Push entries_close_at into the past via direct UPDATE — the
-  // /api/events/:id PUT route accepts entries_close_at but
-  // requires it to be a future timestamp; setting a past one is
-  // a manager-late-cutoff move best done direct.
   await setup.pool.query(
     "UPDATE events SET entries_close_at = now() - interval '1 minute' WHERE id = $1",
     [eventId],
   );
 
-  const randRes = await request.post(
-    `/api/events/${eventId}/dive-lists/randomize`,
-    { headers: { Authorization: `Bearer ${adminToken}` } },
-  );
-  expect(randRes.status(), "randomize start order").toBe(200);
-  const randBody = await randRes.json();
-  expect(randBody.ok).toBe(true);
-  expect(randBody.updated).toBeGreaterThan(0);
-
-  // Pull the roster back so we know the actual diving order.
-  // The roster endpoint sorts by display_order then name, so the
-  // rows come back in the exact order set_active_diver should
-  // walk them through each round.
-  const rosterRes = await request.get(
-    `/api/events/${eventId}/roster`,
-    { headers: { Authorization: `Bearer ${adminToken}` } },
-  );
-  expect(rosterRes.status(), "roster").toBe(200);
-  const roster = await rosterRes.json();
-  expect(roster.length).toBeGreaterThan(0);
-
   // ============================================================
-  // PHASE 4 — Manager flips Live. Browser navigates to /control
-  // so a watching human sees the meet manager's view alongside
-  // the action.
+  // PHASE 4 — Manager opens Chrome, logs in, and walks through
+  // the Control Room workflow:
+  //   * pick the event from the dropdown (auto-loads roster +
+  //     calls setActive(0))
+  //   * click "🎲 Randomise" to shuffle start order
+  //   * click the first roster row after randomise (the SPA
+  //     clears currentActive on randomise, prompting the
+  //     operator to re-pick)
   // ============================================================
-  await setup.setEventStatus(request, { adminToken, eventId, status: "Live" });
+  // Auto-accept any window.confirm() the SPA pops up — Randomise
+  // and Finalise both ask "are you sure?" via confirm(), and
+  // Playwright suspends the page until a dialog is dismissed.
+  page.on("dialog", (d) => d.accept());
 
   await page.goto("/login");
   await page.locator('input[autocomplete="username"]').fill(adminUsername);
@@ -314,25 +300,58 @@ test("meet-manager full E2E (random variant)", async ({
   // transition before the manager hops into Control Room.
   await page.waitForTimeout(LOGIN_HOLD_MS);
   await page.goto("/control");
-  // The Control Room takes a moment to pick the live event from
-  // the dashboard list. Don't block on a specific selector — a
-  // brief settle window is enough for the screen to populate.
+
+  // The Control Room renders the event-picker <select> at the
+  // top. Wait for our event's <option> to appear, then choose it.
+  const eventSelect = page.locator(".event-select-sm");
+  await expect(eventSelect).toBeVisible({ timeout: 10_000 });
+  await expect(
+    eventSelect.locator(`option[value="${eventId}"]`),
+  ).toBeAttached({ timeout: 10_000 });
+  await page.waitForTimeout(LOGIN_HOLD_MS);
+  await eventSelect.selectOption(eventId);
+
+  // onEventChange fires: roster + judges load, setActive(0)
+  // auto-runs (so the centre column shows the first diver). Wait
+  // for the roster panel to populate before clicking Randomise.
+  await expect(page.locator(".roster-jump").first()).toBeVisible({
+    timeout: 10_000,
+  });
+  await page.waitForTimeout(LOGIN_HOLD_MS);
+
+  // Click "🎲 Randomise" — the dialog auto-accepts via the
+  // listener above.
+  await page.getByRole("button", { name: /Randomise/i }).click();
+  // Wait for the SPA's roster.value reset (currentActive → null,
+  // the .roster-jump button stops being highlighted) before we
+  // re-pick the active diver. A short settle window is enough.
   await page.waitForTimeout(LOGIN_HOLD_MS);
 
   // ============================================================
-  // PHASE 5 — Sockets + scoring loop. Round-major: round 1 walks
-  // every roster row, then round 2, etc. For each (round, diver):
-  //
-  //   * admin emits set_active_diver
-  //   * judges submit_score with a small per-judge delay
-  //   * admin emits announce_score → SPA refreshes standings
-  //
-  // Score profile: a slight downward gradient by roster index so
-  // the standings have a stable order without being identical.
+  // PHASE 5 — Manager flips the event Live (API only — there's
+  // no UI button for this in the Control Room today).
   // ============================================================
-  async function adminLogin() {
-    return (await setup.loginAs(request, adminUsername)).token;
-  }
+  await setup.setEventStatus(request, { adminToken, eventId, status: "Live" });
+  await page.waitForTimeout(500);
+
+  // Re-pick the first diver via the roster row click — the SPA
+  // cleared currentActive when Randomise reshuffled the order.
+  await page.locator(".roster-jump").first().click();
+  await page.waitForTimeout(PRE_DIVE_MS);
+
+  // ============================================================
+  // PHASE 6 — Scoring loop, manager-driven. The Control Room
+  // owns set_active_diver (emitted from setActive() — called
+  // either by the initial event-pick or by clicking the "Next
+  // Diver →" button). This test only owns the JUDGE sockets;
+  // each judge submits a score and the SPA's score_received
+  // listener lights up the matching judge tile in the centre
+  // column.
+  //
+  // Once all 5 (or NUM_JUDGES) tiles are filled, the SPA enables
+  // the "Next Diver →" button. We click it to advance and
+  // setActive emits the next diver to all subscribers.
+  // ============================================================
   function openSocket(token) {
     return new Promise((resolve, reject) => {
       const sock = io(baseURL, {
@@ -358,10 +377,6 @@ test("meet-manager full E2E (random variant)", async ({
       setTimeout(() => { cleanup(); reject(new Error("no ack")); }, 5000);
     });
   }
-
-  const adminSocket = await openSocket(await adminLogin());
-  adminSocket.emit("subscribe_event", { event_id: eventId });
-
   const judgeSockets = [];
   for (const j of judges) {
     const s = await openSocket(j.token);
@@ -369,82 +384,95 @@ test("meet-manager full E2E (random variant)", async ({
     judgeSockets.push(s);
   }
 
-  // Walk through the roster once per round. Each roster row
-  // already represents one (competitor, round) pair; group by
-  // round and then by display_order to emit set_active_diver in
-  // the expected meet order.
-  const byRound = new Map();
-  for (const r of roster) {
-    if (!byRound.has(r.round_number)) byRound.set(r.round_number, []);
-    byRound.get(r.round_number).push(r);
-  }
-  for (const arr of byRound.values()) {
-    // Roster already sorted server-side, but sort defensively.
-    arr.sort((a, b) =>
-      (a.display_order ?? 1e9) - (b.display_order ?? 1e9)
-      || a.full_name.localeCompare(b.full_name));
-  }
-  const rounds = [...byRound.keys()].sort((a, b) => a - b);
+  // Pull the post-randomise roster so the test knows the (event,
+  // competitor, round, dive_id) tuples needed for submit_score.
+  // The Control Room's local roster has the same shape; pulling
+  // again here keeps the test independent of SPA internals.
+  const rosterRes = await request.get(
+    `/api/events/${eventId}/roster`,
+    { headers: { Authorization: `Bearer ${adminToken}` } },
+  );
+  const roster = await rosterRes.json();
+  expect(roster.length).toBeGreaterThan(0);
 
-  for (const round of rounds) {
-    const queue = byRound.get(round);
-    for (let idx = 0; idx < queue.length; idx++) {
-      const row = queue[idx];
+  const nextBtn = page.getByRole("button", { name: /Next Diver|Event Complete/i });
+  const finaliseBtn = page.locator(".btn-finalise");
 
-      adminSocket.emit("set_active_diver", {
+  for (let i = 0; i < roster.length; i++) {
+    const row = roster[i];
+
+    // Score profile: judges vary by ±0.5 around a per-diver
+    // baseline; each diver gets a slightly lower baseline by
+    // roster index so totals separate cleanly. All values stay
+    // on 0.5 increments — submit_score rejects anything off the
+    // half-step grid.
+    const baseline = 8.0 - ((i % roster.length) * 0.5);
+    for (let j = 0; j < judges.length; j++) {
+      const score = Math.max(
+        5.0,
+        Math.min(9.5, baseline + ((j % 3) - 1) * 0.5),
+      );
+      const ack = ackOnce(judgeSockets[j]);
+      judgeSockets[j].emit("submit_score", {
         event_id:      eventId,
         competitor_id: row.competitor_id,
-        diverName:     row.full_name,
-        full_name:     row.full_name,
-        round_number:  round,
-        diveCode:      row.dive_code ? `${row.dive_code}${row.position || ""}` : "",
-        dd:            row.dd,
-        description:   row.description,
-        position:      row.position,
-        eventName:     event.name,
+        round_number:  row.round_number,
+        score,
+        dive_id:       row.dive_id,
       });
-      await page.waitForTimeout(PRE_DIVE_MS);
+      await ack;
+      // Pause between judges so the human watcher sees each
+      // tile light up in sequence rather than all five flashing
+      // on at once.
+      await page.waitForTimeout(PER_SCORE_MS);
+    }
 
-      // Score profile: judges vary by ±0.5 around a per-diver
-      // baseline so trim drops something, and each diver gets a
-      // slightly lower baseline by roster index so totals
-      // separate cleanly. All values stay on 0.5 increments —
-      // submit_score rejects anything off the half-step grid.
-      const baseline = 8.0 - (idx * 0.5);
-      for (let i = 0; i < judges.length; i++) {
-        const score = Math.max(
-          5.0,
-          Math.min(9.5, baseline + ((i % 3) - 1) * 0.5),
-        );
-        const ack = ackOnce(judgeSockets[i]);
-        judgeSockets[i].emit("submit_score", {
-          event_id:      eventId,
-          competitor_id: row.competitor_id,
-          round_number:  round,
-          score,
-          dive_id:       row.dive_id,
-        });
-        await ack;
-        await page.waitForTimeout(PER_SCORE_MS);
-      }
-
-      adminSocket.emit("announce_score", {
-        event_id:      eventId,
-        competitor_id: row.competitor_id,
-        round_number:  round,
-        diverName:     row.full_name,
-      });
+    // The Control Room pops a "Round Complete" modal at the end
+    // of every round (detectRoundEnd → roundEndPromptOpen).
+    // Dismiss it before reaching for the Next button — its
+    // backdrop intercepts clicks. We click "📣 Announce
+    // standings" which both closes the modal AND emits
+    // announce_score so audience scoreboards know the round is
+    // done; matches what a real meet manager would do.
+    const roundEndModal = page.locator(".lb-modal");
+    if (await roundEndModal.isVisible().catch(() => false)) {
       await page.waitForTimeout(POST_DIVE_MS);
+      await page.getByRole("button", { name: /Announce standings/i }).click();
+      await page.waitForTimeout(PRE_DIVE_MS);
+    }
+
+    // Wait for the SPA to enable the Next button (all N scores
+    // processed, history card pushed, judge tiles all .scored).
+    await expect(nextBtn).toBeEnabled({ timeout: 10_000 });
+    // Hold so the watcher can read the just-completed dive in
+    // the history panel before we advance.
+    await page.waitForTimeout(POST_DIVE_MS);
+
+    if (i < roster.length - 1) {
+      // Click "Next Diver →" — setActive(currentIndex + 1) emits
+      // set_active_diver to all subscribers and clears the tiles.
+      await nextBtn.click();
+      await page.waitForTimeout(PRE_DIVE_MS);
     }
   }
 
   // ============================================================
-  // PHASE 6 — Flip Completed and verify the recap renders. The
-  // Control Room view is a manager surface; the audience-facing
-  // recap lives on /scoreboard/:id, so navigate there for the
-  // assertion.
+  // PHASE 7 — Manager clicks "Finalise" (button text now reads
+  // "Event Complete — Finalise & View Results"). The SPA flips
+  // status to Completed and pops the in-room leaderboard.
   // ============================================================
-  await setup.setEventStatus(request, { adminToken, eventId, status: "Completed" });
+  // The Next button morphs into a Finalise variant; clicking it
+  // calls finaliseEvent() which fires the same status flip the
+  // top-right Finalise button does.
+  await nextBtn.click();
+  // The Control Room's lbShow modal opens; the underlying status
+  // flip propagates so the audience scoreboard's recap is ready.
+  await page.waitForTimeout(LOGIN_HOLD_MS);
+
+  // ============================================================
+  // PHASE 8 — Switch to the audience-facing recap view to verify
+  // the leaderboard rendered.
+  // ============================================================
   await page.goto(`/scoreboard/${eventId}`);
 
   // Recap should show one diver-block per "competitor" — but
@@ -488,7 +516,6 @@ test("meet-manager full E2E (random variant)", async ({
   // Cleanup.
   // ============================================================
   for (const s of judgeSockets) s.disconnect();
-  adminSocket.disconnect();
   await setup.deleteOrg(orgId);
 });
 
