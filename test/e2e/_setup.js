@@ -256,38 +256,93 @@ const HIGHLIGHT_ENABLED = process.env.E2E_HIGHLIGHT !== "0";
 async function installClickHighlight(page) {
   if (!HIGHLIGHT_ENABLED) return;
   await page.addInitScript(() => {
-    // Inject the ring keyframes once per document. The ring
-    // animates outward + fades; pointer-events: none keeps it
-    // from intercepting subsequent clicks while it's animating.
+    // Click-highlight overlay. Earlier iteration used a thin
+    // cyan ring that was too subtle to see on a dark theme; this
+    // version is intentionally loud — bright magenta, big ring,
+    // crosshair through the middle, ~1.6s animation. The whole
+    // thing sits at z-index 2147483647 with pointer-events:none
+    // so it never intercepts the click that fired it or the
+    // next one. Two listeners (mousedown + pointerdown) plus
+    // capture-phase + window-level so we catch the click
+    // regardless of whether the SPA's modal backdrop / pointer-
+    // events overrides swallow either event.
     const style = document.createElement("style");
     style.id = "__e2e-click-style";
     style.textContent = `
       @keyframes e2eClickRing {
-        0%   { transform: scale(0.4); opacity: 0.95; }
-        50%  { transform: scale(1.3); opacity: 0.7;  }
-        100% { transform: scale(2.4); opacity: 0;    }
+        0%   { transform: scale(0.2); opacity: 1;   }
+        25%  { transform: scale(1.1); opacity: 0.95; }
+        100% { transform: scale(3.0); opacity: 0;    }
+      }
+      @keyframes e2eClickCore {
+        0%   { transform: scale(0.5); opacity: 1;   }
+        70%  { transform: scale(1.3); opacity: 0.85; }
+        100% { transform: scale(0.6); opacity: 0;    }
+      }
+      .__e2e-click-marker {
+        position: fixed; z-index: 2147483647; pointer-events: none;
+        width: 64px; height: 64px;
+        margin-left: -32px; margin-top: -32px;
+      }
+      .__e2e-click-marker .ring {
+        position: absolute; inset: 0;
+        border: 4px solid #ff2dd6;
+        border-radius: 50%;
+        box-shadow:
+          0 0 16px rgba(255, 45, 214, 0.9),
+          0 0 32px rgba(255, 45, 214, 0.55);
+        animation: e2eClickRing 1.6s cubic-bezier(0.2,0.6,0.3,1) forwards;
+      }
+      .__e2e-click-marker .core {
+        position: absolute; left: 50%; top: 50%;
+        width: 18px; height: 18px;
+        margin-left: -9px; margin-top: -9px;
+        background: #ff2dd6;
+        border: 2px solid #fff;
+        border-radius: 50%;
+        box-shadow: 0 0 10px #fff;
+        animation: e2eClickCore 1.6s ease-out forwards;
+      }
+      /* Plus-sign crosshair so the exact pixel is unambiguous. */
+      .__e2e-click-marker .core::before,
+      .__e2e-click-marker .core::after {
+        content: ""; position: absolute;
+        background: #fff;
+      }
+      .__e2e-click-marker .core::before {
+        left: 50%; top: -10px; bottom: -10px;
+        width: 2px; margin-left: -1px;
+      }
+      .__e2e-click-marker .core::after {
+        top: 50%; left: -10px; right: -10px;
+        height: 2px; margin-top: -1px;
       }
     `;
     (document.head || document.documentElement).appendChild(style);
 
-    document.addEventListener("pointerdown", (e) => {
-      const ring = document.createElement("div");
-      ring.style.cssText = [
-        "position:fixed",
-        "z-index:2147483647",
-        "pointer-events:none",
-        `left:${e.clientX - 22}px`,
-        `top:${e.clientY - 22}px`,
-        "width:44px",
-        "height:44px",
-        "border:3px solid #06b6d4",
-        "border-radius:50%",
-        "box-shadow:0 0 12px rgba(6,182,212,0.7)",
-        "animation:e2eClickRing 0.85s ease-out forwards",
-      ].join(";");
-      document.body.appendChild(ring);
-      setTimeout(() => ring.remove(), 900);
-    }, true);
+    function paintMarker(x, y) {
+      const wrap = document.createElement("div");
+      wrap.className = "__e2e-click-marker";
+      wrap.style.left = x + "px";
+      wrap.style.top  = y + "px";
+      wrap.innerHTML = '<div class="ring"></div><div class="core"></div>';
+      (document.body || document.documentElement).appendChild(wrap);
+      setTimeout(() => wrap.remove(), 1700);
+    }
+
+    // Belt + braces: capture-phase + bubble-phase, on both
+    // pointerdown and mousedown, on document AND window. If
+    // ANY of those fires we paint a marker. Dedup with a
+    // 50ms guard so a single click doesn't render twice when
+    // both event types fire.
+    let lastTs = 0;
+    const handler = (e) => {
+      if (e.timeStamp - lastTs < 50) return;
+      lastTs = e.timeStamp;
+      paintMarker(e.clientX, e.clientY);
+    };
+    window.addEventListener("pointerdown", handler, true);
+    window.addEventListener("mousedown",   handler, true);
   });
 }
 
