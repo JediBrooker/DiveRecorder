@@ -35,36 +35,48 @@ Built around five audiences:
 
 ---
 
-<details open>
+<details>
 <summary><h2 id="screenshots">Screenshots</h2></summary>
 
 ### Home
 
-The public landing page. Anyone can sign in, create an account, watch a live meet, or browse the archive without logging in.
+The public landing page. Anyone can sign in, create an account, watch a live meet, or browse the archive without logging in. Featured tiles surface live + upcoming meets so a spectator who lands here cold can be watching a dive in two clicks.
 
 ![Home](./docs/screenshots/home.png)
 
+### Sign In
+
+Three entry points from one screen: existing users sign in, individuals join an existing federation via "Register here", and a brand-new federation admin clicks "Register your org". Forgot-password sends a single-use 30-min reset link.
+
+![Sign In](./docs/screenshots/login.png)
+
 ### Dashboard
 
-Each user's role-based hub. Tiles surface only the areas the user has access to — divers see "My Profile" and "Diver Portal", admins additionally see User Manager, Clubs, Teams, etc.
+Each user's role-based hub. Tiles only show the surfaces the user can actually open — divers see Diver Portal + My Profile; org admins additionally see Meet Manager, User Manager, Clubs, Teams, Score Audit. The grid collapses to a single column on phone.
 
 ![Dashboard](./docs/screenshots/dashboard.png)
 
+### Meet Manager
+
+The operator's event-configuration surface. Left column is the New Event form (event type, gender, board height, panel size, rounds, optional age group + per-round DD caps); right column lists Your Events with one-click access to Import Roster, Audit Log, Edit, Delete. Save a fully-built event configuration as a template once, apply to a new event with one click. Events that bundle into a meet share a public landing page and a printable PDF program.
+
+![Meet Manager](./docs/screenshots/meet-manager.png)
+
 ### Live Scoreboard (completed meet recap)
 
-When a meet is over, the Scoreboard switches to a recap layout: podium spotlight, full standings with club lines, and a per-diver dive-by-dive breakdown. Per-judge scores are colour-coded by FINA category (excellent → failed) with the trim rule visualised by struck-through dimmed scores.
+When a meet is over, the Scoreboard switches to a recap layout: podium spotlight, full standings with club + team lines, and a per-diver dive-by-dive breakdown. Per-judge scores are colour-coded by FINA category (excellent → failed) with the trim rule visualised by struck-through dimmed scores. The mid-meet view (not pictured) adds a live judge tile strip, the Up Next list, and a catch-up projection block that tells the audience the average judge score the active diver needs to overtake the leaders — rounded up to the next achievable 0.5 because judges only score in halves.
 
 ![Scoreboard](./docs/screenshots/scoreboard.png)
 
 ### Results Archive (now part of the unified Scoreboard)
 
-Browse every completed meet. Filter by country, year, height, club, or just search across event/org/country. Each event card shows competitor and club counts so you can see meet size at a glance, and PDFs are one click away.
+Browse every completed meet across the platform. Filter by country, year, height, club, or just search across event / org / country. Each event card shows competitor and club counts so you can see meet size at a glance, and per-event PDFs (program, start list, score sheet, results) plus a CSV export of the filtered list are one click away.
 
 ![Results Archive](./docs/screenshots/results-archive.png)
 
 ### Diver Profile
 
-Per-diver stats: meets entered, dives performed, average DD attempted, best single dive, an SVG sparkline of total scores across meets, and a personal-bests table keyed by dive code + position + height. Each diver picks which of 10+ analytics widgets to show via a "Customize" modal — the choices persist per-user.
+Per-diver stats: meets entered, dives performed, average DD attempted, best single dive, an SVG sparkline of total scores across meets, and a personal-bests table keyed by dive code + position + height. The Customize modal lets each diver pick which of 10+ analytics widgets to show (Recent Form, Medal Counts, Height Breakdown, Round-by-Round Form with stamina insight, DD Risk Profile, Compare-to-Peers, Year-over-Year, etc.) — the choices persist per-user. Cmd-P / Ctrl-P prints the dashboard to PDF; `/compare?a=&b=` puts two divers side-by-side.
 
 ![Diver Profile](./docs/screenshots/diver-profile.png)
 
