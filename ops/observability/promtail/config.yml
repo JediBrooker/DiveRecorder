@@ -1,0 +1,62 @@
+# Promtail — tails the PM2 log files in /var/log/dive-recorder
+# (mounted from the host's project /logs directory) and pushes
+# every line to Loki.
+#
+# Each Pino line is JSON like:
+#   {"level":"info","time":"2026-05-07T04:11:00.123Z","msg":"…",…}
+# We extract level + msg into Loki labels/fields so Grafana
+# can filter on them ergonomically.
+
+server:
+  http_listen_port: 9080
+  log_level: warn
+
+# Where Promtail remembers how far it's read in each file. Lives
+# in the named volume so a `docker compose down -v` keeps the
+# state across restarts.
+positions:
+  filename: /var/lib/promtail/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    tenant_id: dive-recorder
+
+scrape_configs:
+  - job_name: dive-recorder
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: dive-recorder
+          # Tag with hostname so a future multi-instance setup
+          # can still route per-box. Picked up via __path__ glob
+          # so we get logfile = "pm2-out.log" / "pm2-err.log".
+          __path__: /var/log/dive-recorder/*.log
+    pipeline_stages:
+      # Parse Pino's JSON shape. Anything that doesn't parse
+      # (e.g. a bare console.log() that slipped through the
+      # net) lands as a string entry under msg.
+      - json:
+          expressions:
+            level: level
+            time:  time
+            msg:   msg
+            module: module      # set when a child logger is used
+      # Promote level + module to indexed labels so Grafana's
+      # query bar can filter on them. Cardinality stays low —
+      # level is one of trace/debug/info/warn/error/fatal,
+      # module is whatever a child logger sets.
+      - labels:
+          level:
+          module:
+      # Use the JSON's `time` field as the log entry timestamp.
+      # Pino emits ISO 8601 (RFC 3339); Promtail's RFC3339Nano
+      # parser accepts that with or without sub-second precision.
+      - timestamp:
+          source: time
+          format: RFC3339Nano
+      # The output stage decides what becomes the rendered line
+      # body in Grafana. We use msg so a developer reading
+      # Explore sees the human message first, with all the
+      # structured fields available via "show derived fields".
+      - output:
+          source: msg

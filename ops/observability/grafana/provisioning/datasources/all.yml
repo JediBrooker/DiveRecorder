@@ -1,0 +1,30 @@
+# Grafana auto-loads anything in /etc/grafana/provisioning at
+# startup. This file declares both datasources so an operator
+# never has to click through the UI.
+#
+# Reachable via the docker network DNS — the service name from
+# docker-compose.yml is the hostname.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+
+  - name: Loki
+    type: loki
+    uid: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      # Header tells Loki which tenant we're querying. Matches
+      # the tenant_id in promtail/config.yml.
+      httpHeaderName1: X-Scope-OrgID
+    secureJsonData:
+      httpHeaderValue1: dive-recorder

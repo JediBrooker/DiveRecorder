@@ -1,0 +1,17 @@
+# Tells Grafana to load every JSON dashboard in
+# /var/lib/grafana/dashboards on boot, and reload the file from
+# disk every 30s if it changes (so a `git pull` followed by a
+# Grafana refresh picks up edits without a container restart).
+
+apiVersion: 1
+
+providers:
+  - name: dive-recorder
+    folder: Dive Recorder
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

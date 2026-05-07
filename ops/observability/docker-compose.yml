@@ -1,0 +1,112 @@
+# Observability stack — Loki (logs), Promtail (log shipper),
+# Prometheus (metrics), Grafana (UI for both).
+#
+# Runs alongside the dive-recorder app on the same VPS. Each
+# service is bound to 127.0.0.1 so they're only reachable from
+# the host — pair with Cloudflare Tunnel or SSH-forward when
+# you want to reach Grafana from your laptop.
+#
+# Bring it up:
+#     cd ops/observability && docker compose up -d
+#
+# Configs are mounted read-only from this directory so a
+# `git pull && docker compose restart <service>` is the canonical
+# upgrade path. Persistent state (Loki indices, Prometheus TSDB,
+# Grafana DB) lives in named volumes so a `docker compose down`
+# doesn't drop your dashboards.
+
+services:
+  # -----------------------------------------------------------
+  # Loki — log store. Single-binary mode, BoltDB index +
+  # filesystem chunks. Plenty for one VPS; if you ever scale to
+  # multiple instances, swap in S3 + memberlist.
+  # -----------------------------------------------------------
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: dive-recorder-loki
+    ports: ["127.0.0.1:3100:3100"]
+    volumes:
+      - ./loki/local-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+
+  # -----------------------------------------------------------
+  # Promtail — tails the PM2 log files on the host, parses each
+  # line as JSON (Pino output), pushes to Loki. Runs in network
+  # 'host' mode so it can read the host's filesystem AND reach
+  # loki:3100 via the docker network at the same time.
+  # -----------------------------------------------------------
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: dive-recorder-promtail
+    volumes:
+      - ./promtail/config.yml:/etc/promtail/config.yml:ro
+      # Map the project's logs/ directory in. The default
+      # ecosystem.config.js writes ./logs/pm2-out.log and
+      # ./logs/pm2-err.log in the project root; we mount that
+      # whole directory read-only so Promtail can tail both
+      # current files AND any rotated _YYYY-MM-DD…log children.
+      - ../../logs:/var/log/dive-recorder:ro
+      - promtail-positions:/var/lib/promtail
+    command: -config.file=/etc/promtail/config.yml
+    depends_on: [loki]
+    restart: unless-stopped
+
+  # -----------------------------------------------------------
+  # Prometheus — pulls /metrics off the dive-recorder app
+  # every 30s. 30-day retention is plenty for capacity planning;
+  # extend with --storage.tsdb.retention.time if you want more.
+  # -----------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: dive-recorder-prometheus
+    ports: ["127.0.0.1:9090:9090"]
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    extra_hosts:
+      # Lets the in-container target `host.docker.internal:3000`
+      # resolve to the host's IP — that's where the dive-recorder
+      # /metrics endpoint lives. On Docker Desktop (Mac/Win) this
+      # is automatic; on Linux Docker engine we map it explicitly.
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # -----------------------------------------------------------
+  # Grafana — single UI for both datasources. Datasources +
+  # the starter dashboard are provisioned from files (no
+  # click-ops needed on first boot). Default admin password is
+  # overridable via GRAFANA_ADMIN_PASSWORD in .env beside this
+  # compose file; change it on first login.
+  # -----------------------------------------------------------
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: dive-recorder-grafana
+    ports: ["127.0.0.1:3030:3000"]
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me-on-first-login}
+      # Dial back the noise — we don't need anonymous access
+      # or signups on a private observability stack.
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # Friendlier on a fresh boot — skip the "explore plugin
+      # catalog" home page we'd never use.
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+    depends_on: [loki, prometheus]
+    restart: unless-stopped
+
+volumes:
+  loki-data:
+  prometheus-data:
+  grafana-data:
+  promtail-positions:

@@ -23,3 +23,6 @@ playwright/.cache/
 
 # Claude Code local settings
 .claude/
+
+# Observability stack — local secrets (Grafana password, etc.)
+ops/observability/.env
