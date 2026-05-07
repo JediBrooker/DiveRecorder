@@ -334,34 +334,109 @@ Migrations in this repo are **additive only** (`ADD COLUMN`, `CREATE INDEX`, `AD
 
 ```
 .
-├── server.js                # Express app — auth + REST + sockets + PDF
-├── routes/
-│   ├── auth.js              # /api/auth/* (login, register, password reset)
-│   └── scoreboard.js        # /api/scoreboard/:eventId + /leaderboard
-├── init.sql                 # One-shot bootstrap: schema + dive directory + admin user
-├── seed_test_data.sql       # Optional test-data seed (orgs, users, events, scores)
-├── migrations/              # Append-only schema changes since v1
-├── src/
-│   ├── views/               # One Vue component per route
-│   ├── lib/
-│   │   └── idbCache.js      # IndexedDB stale-while-revalidate helper
-│   ├── stores/auth.js       # Pinia auth store (JWT in sessionStorage)
-│   ├── composables/         # useSocket, useOfflineApi, useScoreCategories
-│   ├── router/              # vue-router config
+├── server.js                       # 650-line bootstrap shell — pool, middleware,
+│                                   # factory mounts for 19 route modules,
+│                                   # /api/health, SPA fallback, listener
+│
+├── routes/                         # Every API surface, one module per concern.
+│   │                               # Each file exports a factory that takes the
+│   │                               # deps it needs and returns an Express router.
+│   ├── auth.js                     # /api/auth/* (login, register, verify-email,
+│   │                               # forgot/reset password)
+│   ├── orgs.js                     # /api/orgs/*, /api/clubs/*, per-org divers
+│   ├── teams.js                    # team CRUD + members + dive-lists + event_teams
+│   ├── coach.js                    # /api/coach/dashboard, /divers, link admin
+│   ├── meets.js                    # meet CRUD + event-to-meet assignment
+│   ├── users.js                    # user listing + role grants + role requests
+│   ├── events.js                   # event CRUD + status flips
+│   ├── event-staff.js              # event managers + judge panel + per-judge views
+│   ├── control-room.js             # roster + reorder + randomise + check-in + CSV
+│   ├── scoreboard.js               # /api/scoreboard/:eventId + /leaderboard
+│   ├── score-correction.js         # PUT /api/scores/:id + /api/events/:id/score-audit
+│   ├── archive.js                  # public results archive
+│   ├── pdf.js                      # 4 PDFs (program, start-list, score-sheet,
+│   │                               # results) + 1 CSV export
+│   ├── diver-profile.js            # /api/divers/:id/profile + /analytics + dashboard
+│   ├── diver-search.js             # cross-org diver autocomplete + browse
+│   ├── competitor.js               # POST /api/competitor/submit-list
+│   ├── templates.js                # per-diver dive-list templates
+│   ├── dive-directory.js           # GET /api/dive-directory
+│   └── socket.js                   # every io.use / socket.on handler
+│
+├── lib/                            # Shared backend modules consumed by routes/*.
+│   ├── middleware.js               # verifyToken, requireOrgRole, event gates,
+│   │                               # token-version cache, score validation
+│   ├── email.js                    # send-* helpers + bcrypt-hash fingerprint
+│   ├── records.js                  # checkAndApplyRecords + GET /api/records
+│   ├── live-state.js               # activeDivers + meetHolds maps (single-process)
+│   ├── scoreboard-cache.js         # 5s TTL with explicit invalidation on commits
+│   └── public-id.js                # opaque id hashing for spectator UI
+│
+├── db/queries.js                   # Reusable SQL CTE strings (PER_DIVE,
+│                                   # FULL_FIELD_RANKING) shared by analytics +
+│                                   # archive queries
+│
+├── init.sql                        # One-shot bootstrap: every table + enum +
+│                                   # function + index + the dive directory
+│                                   # (~830 rows) + the system-admin account.
+│                                   # Stamps schema_meta to the current version.
+├── seed_test_data.sql              # Optional: 20 federations, 80 clubs,
+│                                   # 1000 users, 80 events, 18k scores. Idempotent.
+├── migrations/                     # Append-only schema changes (008 onwards).
+│                                   # Each is idempotent (CREATE … IF NOT EXISTS,
+│                                   # backfills gated on DO blocks).
+│
+├── scripts/migrate.js              # Migration runner — reads schema_meta.version,
+│                                   # applies pending files in order. Wraps each
+│                                   # file in its own txn. --dry / --to N flags.
+│
+├── deploy.sh                       # Production deploy script: pull → npm ci →
+│                                   # npm test → npm run build → npm run migrate →
+│                                   # pm2 restart → /api/health probe. Fails the
+│                                   # script (with rollback hint) on any step.
+├── ecosystem.config.js             # PM2 config — single fork process, 512MB
+│                                   # memory ceiling, restart-on-crash. Notes
+│                                   # why we don't cluster (Socket.IO + in-memory
+│                                   # state would split-brain).
+│
+├── src/                            # Vue 3 SPA (Vite, Composition API)
+│   ├── views/                      # One Vue component per route
+│   ├── components/                 # Shared building blocks
+│   ├── composables/                # useSocket, useOfflineApi, useScoreCategories,
+│   │                               # useScoreTrim
+│   ├── stores/auth.js              # Pinia auth store (apiFetch helper, 401 →
+│   │                               # /login redirect, JWT in sessionStorage)
+│   ├── lib/idbCache.js             # IndexedDB stale-while-revalidate helper
+│   ├── router/index.js             # vue-router config
 │   └── main.js, App.vue
+│
 ├── public/
-│   ├── css/app.css          # Shared design tokens (one stylesheet)
-│   ├── icon.svg / icon-*.png# PWA icons
-│   ├── manifest.webmanifest # Web app manifest
-│   └── sw.js                # Service worker (network-first nav)
-├── test/
-│   ├── calc.test.js         # World Aquatics scoring tests vs Postgres
-│   └── syntax.test.js       # No-DB sanity (server.js parses, init.sql exists)
+│   ├── css/app.css                 # Shared design tokens (one stylesheet)
+│   ├── icon.svg / icon-*.png       # PWA icons
+│   ├── manifest.webmanifest        # Web app manifest
+│   └── sw.js                       # Service worker (network-first navigation,
+│                                   # cache-first hashed assets)
+│
+├── test/                           # Node test runner — `npm test` runs all four.
+│   ├── syntax.test.js              # Parser + boot test (catches TDZ /
+│   │                               # missing-binding regressions) + schema
+│   │                               # version pin + scoreCategory boundaries
+│   ├── calc.test.js                # World Aquatics scoring tests vs Postgres
+│   ├── score-trim.test.js          # Trim algorithm parity (matches the
+│   │                               # SQL function across 3/5/7/9/11 panels)
+│   └── integration.test.js         # End-to-end: register-org → login →
+│                                   # event create → analytics → recent_form
+│                                   # ranking regression (#67a5708)
+│
+├── logs/                           # PM2 log target (gitignored content;
+│                                   # directory committed for first-boot)
+│
 └── .github/
-    ├── workflows/ci.yml     # Lint + build + Postgres test matrix
-    └── ISSUE_TEMPLATE/
-        └── bug_report.md    # Bug report template
+    ├── workflows/ci.yml            # Lint + build + Postgres test matrix
+    └── ISSUE_TEMPLATE/bug_report.md
 ```
+
+The split is the result of an incremental refactor from a single 6,400-line `server.js` to the current 650-line shell + 19 route modules + 6 lib modules. Every module is independently mountable; the `Phase N of server.js split` commits in the git history walk through each extraction with tests passing between every step.
 
 ---
 
