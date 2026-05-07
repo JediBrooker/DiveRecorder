@@ -66,6 +66,14 @@ module.exports = function createControlRoomRouter({
   requireMeetEditor,
   bulkWriteLimiter,
   ensureEventOrgGate,
+  // Cut 2 deps: push for the request → notify hop, bcrypt + totp
+  // for the credential-fallback verification path. All three are
+  // optional in the factory signature so existing test setups
+  // that mount this router with the smaller dep list don't break;
+  // the relevant endpoints 503 when their deps aren't present.
+  push,
+  bcrypt,
+  totp,
 }) {
   if (!pool) throw new Error("createControlRoomRouter requires { pool, … }");
   const router = express.Router();
@@ -452,6 +460,380 @@ module.exports = function createControlRoomRouter({
     } catch (err) {
       console.error("[Dive Order Confirm Error]", err.message);
       res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // CUT 2 — REFEREE SIGN-OFF VIA PUSH + CREDENTIAL FALLBACK
+  //
+  // Three endpoints replace the simple POST /dive-order/sign-off:
+  //
+  //   GET  /events/:id/referees        — picker dropdown source
+  //   POST /events/:id/sign-off/request    — manager picks ref;
+  //          creates a request row + fires the push notification
+  //   POST /events/:id/sign-off/respond    — referee taps Approve/Deny
+  //          via the in-app banner; closes the loop
+  //   POST /events/:id/sign-off/credential — fallback when the
+  //          referee can't get the push (no device registered,
+  //          permissions denied). Referee enters their username +
+  //          password (+ TOTP if enabled) on the manager's laptop;
+  //          server verifies and stamps signed_off_by = referee.id
+  //
+  // The simple POST /dive-order/sign-off (manager pre-confirms
+  // verbally, no attribution) stays in place as the lightest-
+  // touch option. The new endpoints add proper attribution when
+  // the meet calls for it.
+  // -------------------------------------------------------------
+
+  // GET /api/events/:id/referees — list referees in the event's
+  // org so the manager modal has something to populate. Names +
+  // ids only; no contact info, no role tuples.
+  router.get("/api/events/:id/referees", requireMeetController, async (req, res) => {
+    try {
+      if (!(await ensureEventOrgGate(req, res, "id"))) return;
+      const r = await pool.query(
+        `SELECT u.id, u.full_name, u.username
+         FROM users u
+         JOIN user_org_roles r ON r.user_id = u.id
+         WHERE u.org_id = (SELECT org_id FROM events WHERE id = $1)
+           AND r.role = 'referee'
+         ORDER BY u.full_name ASC`,
+        [req.params.id],
+      );
+      res.json(r.rows);
+    } catch (err) {
+      console.error("[Referees List Error]", err.message);
+      res.status(500).json([]);
+    }
+  });
+
+  // POST /api/events/:id/dive-order/sign-off/request
+  //   Body: { referee_id }
+  // Creates a referee_signoff_requests row + fires a notification
+  // through the reusable push engine. Returns the request id so
+  // the manager's modal can subscribe to its outcome.
+  router.post("/api/events/:id/dive-order/sign-off/request",
+              requireMeetController, async (req, res) => {
+    if (!push) {
+      return res.status(503).json({ error: "Push backend not configured" });
+    }
+    const eventId = req.params.id;
+    const { referee_id } = req.body || {};
+    if (!referee_id) return res.status(400).json({ error: "referee_id required" });
+    try {
+      const ev = await pool.query(
+        `SELECT id, name, status, org_id FROM events
+         WHERE id = $1 AND ($2::boolean OR org_id = $3)`,
+        [eventId, !!req.user.is_system_admin, req.user.org_id],
+      );
+      if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
+      if (ev.rows[0].status !== "Upcoming") {
+        return res.status(409).json({
+          error: `Cannot request sign-off — event "${ev.rows[0].name}" is ${ev.rows[0].status}.`,
+        });
+      }
+      // Verify the referee exists, belongs to the event's org,
+      // and actually holds the referee role. A meet manager
+      // shouldn't be able to "ask the diver" to sign off.
+      const refQ = await pool.query(
+        `SELECT u.id, u.full_name
+         FROM users u
+         JOIN user_org_roles r ON r.user_id = u.id
+         WHERE u.id = $1 AND u.org_id = $2 AND r.role = 'referee'
+         LIMIT 1`,
+        [referee_id, ev.rows[0].org_id],
+      );
+      if (!refQ.rows.length) {
+        return res.status(400).json({ error: "Selected user is not a referee in this org" });
+      }
+
+      // Expire any prior pending request for the same event so
+      // the modal only ever sees the latest one.
+      await pool.query(
+        `UPDATE referee_signoff_requests
+         SET status = 'expired', responded_at = now()
+         WHERE event_id = $1 AND status = 'pending'`,
+        [eventId],
+      );
+
+      // Fetch the manager's name now so we can put it in the
+      // notification body without another join later.
+      const managerQ = await pool.query(
+        "SELECT full_name FROM users WHERE id = $1",
+        [req.user.id],
+      );
+      const managerName = managerQ.rows[0]?.full_name || "A meet manager";
+
+      // Insert request first (without notification_id) so we
+      // have an id to include in the push payload. Notification
+      // gets linked back via UPDATE below.
+      const reqIns = await pool.query(
+        `INSERT INTO referee_signoff_requests
+           (event_id, requested_by, target_referee_id)
+         VALUES ($1, $2, $3)
+         RETURNING id, expires_at`,
+        [eventId, req.user.id, referee_id],
+      );
+      const requestId = reqIns.rows[0].id;
+
+      // Fire the notification — push (where subscribed) plus
+      // socket emit (always). 5-min TTL matches the request row's
+      // expires_at default.
+      const result = await push.sendNotification([referee_id], {
+        category: "referee_signoff",
+        title: "Referee sign-off requested",
+        body: `${managerName} asked you to approve the dive order for ${ev.rows[0].name}.`,
+        data: {
+          event_id: eventId,
+          event_name: ev.rows[0].name,
+          request_id: requestId,
+          requested_by_name: managerName,
+        },
+        action_url: `/control?signoff_request=${requestId}`,
+        actions: [
+          { action: "approve", title: "Approve" },
+          { action: "deny",    title: "Deny"    },
+        ],
+        ttl_seconds: 300,
+      });
+
+      const notificationId = result.notification_ids[0] || null;
+      if (notificationId) {
+        await pool.query(
+          `UPDATE referee_signoff_requests
+           SET notification_id = $1
+           WHERE id = $2`,
+          [notificationId, requestId],
+        );
+      }
+
+      res.status(201).json({
+        ok: true,
+        request_id: requestId,
+        expires_at: reqIns.rows[0].expires_at,
+        dispatched: result.dispatched,
+      });
+    } catch (err) {
+      console.error("[Sign-Off Request Error]", err.message);
+      res.status(500).json({ error: "Failed to request sign-off" });
+    }
+  });
+
+  // POST /api/events/:id/dive-order/sign-off/respond
+  //   Body: { request_id, decision: 'approve' | 'deny' }
+  // Referee's SPA hits this from the in-app banner Approve/Deny
+  // buttons (or from a deep-linked /control?signoff_request=...).
+  // Auth attributes the action to whoever's signed in — must
+  // match referee_signoff_requests.target_referee_id.
+  router.post("/api/events/:id/dive-order/sign-off/respond",
+              requireMeetController, async (req, res) => {
+    const { request_id, decision } = req.body || {};
+    if (!request_id || !["approve", "deny"].includes(decision)) {
+      return res.status(400).json({ error: "request_id + decision (approve|deny) required" });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const reqQ = await client.query(
+        `SELECT id, event_id, target_referee_id, status, expires_at
+         FROM referee_signoff_requests
+         WHERE id = $1 AND event_id = $2
+         FOR UPDATE`,
+        [request_id, req.params.id],
+      );
+      if (!reqQ.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Request not found" });
+      }
+      const reqRow = reqQ.rows[0];
+      if (reqRow.target_referee_id !== req.user.id && !req.user.is_system_admin) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ error: "Not the targeted referee for this request" });
+      }
+      if (reqRow.status !== "pending") {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          error: `Request already ${reqRow.status}`,
+          status: reqRow.status,
+        });
+      }
+      if (new Date(reqRow.expires_at) < new Date()) {
+        await client.query(
+          `UPDATE referee_signoff_requests
+           SET status = 'expired', responded_at = now()
+           WHERE id = $1`,
+          [request_id],
+        );
+        await client.query("COMMIT");
+        return res.status(409).json({ error: "Request expired" });
+      }
+
+      const newStatus = decision === "approve" ? "approved" : "declined";
+      await client.query(
+        `UPDATE referee_signoff_requests
+         SET status = $1, decision_method = 'push', responded_at = now()
+         WHERE id = $2`,
+        [newStatus, request_id],
+      );
+
+      if (decision === "approve") {
+        await client.query(
+          `UPDATE events
+           SET dive_order_signed_off_at = now(),
+               dive_order_signed_off_by = $1
+           WHERE id = $2`,
+          [req.user.id, req.params.id],
+        );
+      }
+      await client.query("COMMIT");
+
+      // Notify the manager + anyone else watching the event so
+      // their modal flips out of "waiting for referee" state.
+      // Doesn't go through the push engine (no need to OS-notify
+      // the manager — they're staring at the screen).
+      const io = push?.io || null;
+      if (push) {
+        // Best-effort emit. We don't have a direct handle to the
+        // manager's user_id here, but the SPA listens for any
+        // referee_signoff_response on its event room.
+        try {
+          // event_id room is already joined by the Control Room
+          // (existing subscribe_event call), so that's where we
+          // emit.
+          push.emitEvent?.(reqRow.event_id, "referee_signoff_response", {
+            request_id, decision: newStatus, by_user_id: req.user.id,
+          });
+        } catch { /* silent */ }
+      }
+      res.json({ ok: true, status: newStatus });
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error("[Sign-Off Respond Error]", err.message);
+      res.status(500).json({ error: "Failed to record response" });
+    } finally {
+      client.release();
+    }
+  });
+
+  // POST /api/events/:id/dive-order/sign-off/credential
+  //   Body: { username, password, code? }
+  // Fallback path: meet manager hands the laptop to the referee.
+  // Referee enters their own credentials (+ TOTP code if 2FA is
+  // on). Server verifies, ensures they hold the referee role for
+  // this event's org, and stamps signed_off_by = their user id.
+  // The manager's session is untouched — no JWT swap.
+  router.post("/api/events/:id/dive-order/sign-off/credential",
+              requireMeetController, async (req, res) => {
+    if (!bcrypt) {
+      return res.status(503).json({ error: "Credential verifier not wired" });
+    }
+    const { username, password, code } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ error: "username + password required" });
+    }
+    try {
+      const ev = await pool.query(
+        `SELECT id, name, status, org_id FROM events
+         WHERE id = $1 AND ($2::boolean OR org_id = $3)`,
+        [req.params.id, !!req.user.is_system_admin, req.user.org_id],
+      );
+      if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
+      if (ev.rows[0].status !== "Upcoming") {
+        return res.status(409).json({
+          error: `Event "${ev.rows[0].name}" is ${ev.rows[0].status}.`,
+        });
+      }
+
+      // Look up the user by username. Pull totp fields too so we
+      // can enforce the second factor in the same round-trip.
+      const u = await pool.query(
+        `SELECT id, password, org_id, email_verified_at,
+                totp_enabled_at, totp_secret, totp_recovery_codes
+         FROM users WHERE username = $1`,
+        [username],
+      );
+      const user = u.rows[0];
+      // Constant-time compare against a dummy when the user
+      // doesn't exist — same hardening as the main login flow,
+      // copy-pasted shape rather than imported to keep this
+      // module standalone.
+      const fakeHash = "$2b$12$00000000000000000000000000000000000000000000000000000";
+      const passwordOk = await bcrypt.compare(password, user?.password || fakeHash);
+      if (!user || !passwordOk) {
+        return res.status(401).json({ error: "Invalid username or password" });
+      }
+      if (!user.email_verified_at) {
+        return res.status(403).json({ error: "Account email not verified" });
+      }
+      // Org match: the referee must be in the same org as the
+      // event (or sysadmin). Stops a referee from another org
+      // accidentally signing off the wrong meet.
+      if (user.org_id !== ev.rows[0].org_id) {
+        return res.status(403).json({ error: "Referee is not in this event's org" });
+      }
+      // TOTP if enabled.
+      if (user.totp_enabled_at) {
+        if (!totp) return res.status(503).json({ error: "TOTP verifier not wired" });
+        if (!code) return res.status(401).json({ error: "TOTP code required", needs_totp: true });
+        const looksLikeTotp = typeof code === "string" && /^\d{6}$/.test(code);
+        let accepted = looksLikeTotp && totp.verifyToken(user.totp_secret, code);
+        if (!accepted) {
+          const recovery = await totp.consumeRecoveryCode(
+            user.totp_recovery_codes || [], code,
+          );
+          if (recovery.matched) {
+            await pool.query(
+              `UPDATE users SET totp_recovery_codes = $1 WHERE id = $2`,
+              [recovery.remainingHashes, user.id],
+            );
+            accepted = true;
+          }
+        }
+        if (!accepted) return res.status(401).json({ error: "Invalid TOTP code" });
+      }
+      // Referee role check.
+      const roleQ = await pool.query(
+        `SELECT 1 FROM user_org_roles
+         WHERE user_id = $1 AND role = 'referee' LIMIT 1`,
+        [user.id],
+      );
+      if (!roleQ.rows.length) {
+        return res.status(403).json({ error: "User is not a referee" });
+      }
+
+      // Stamp the sign-off in the event row + close any pending
+      // push request for the same event (the referee just signed
+      // in person, the push is moot).
+      await pool.query("BEGIN");
+      try {
+        await pool.query(
+          `UPDATE events
+           SET dive_order_signed_off_at = now(),
+               dive_order_signed_off_by = $1
+           WHERE id = $2`,
+          [user.id, req.params.id],
+        );
+        await pool.query(
+          `UPDATE referee_signoff_requests
+           SET status = 'approved', decision_method = 'credential',
+               responded_at = now()
+           WHERE event_id = $1 AND status = 'pending'
+             AND target_referee_id = $2`,
+          [req.params.id, user.id],
+        );
+        await pool.query("COMMIT");
+      } catch (err) {
+        await pool.query("ROLLBACK");
+        throw err;
+      }
+
+      res.json({
+        ok: true,
+        signed_off_by: { id: user.id, full_name: undefined /* not fetched */ },
+      });
+    } catch (err) {
+      console.error("[Sign-Off Credential Error]", err.message);
+      res.status(500).json({ error: "Sign-off failed" });
     }
   });
 

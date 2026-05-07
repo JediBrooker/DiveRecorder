@@ -301,6 +301,13 @@ const scoreboardCache = require("./lib/scoreboard-cache")();
 // and any future handler that needs to read live state.
 const { activeDivers, meetHolds } = require("./lib/live-state");
 
+// Reusable push engine — wires Web Push (when VAPID is set) plus
+// in-app socket banners. Created here so route modules mounted
+// further down can inject it as a dependency. The socket attach
+// further down picks up the same instance to handle per-user
+// rooms + notification:ack.
+const push = require("./lib/push")({ pool, io });
+
 // =============================================================
 // HELPER — Build JWT payload
 // [SECTION: TOKEN PAYLOAD]
@@ -532,6 +539,12 @@ app.use(require("./routes/control-room")({
   requireMeetEditor,
   bulkWriteLimiter,
   ensureEventOrgGate,
+  // Cut 2 referee sign-off needs the push engine for the request
+  // path + bcrypt/totp for the credential-fallback verification
+  // path.
+  push,
+  bcrypt,
+  totp: require("./lib/totp"),
 }));
 
 // =============================================================
@@ -634,8 +647,10 @@ app.use(recordsRouter);
 // [SECTION: SOCKET ENGINE]
 // Every io.use / socket.on handler lives in routes/socket.js.
 // We hand it the dependencies it needs — pool, JWT_SECRET, the
-// auth helpers, isValidScore, the records helper, and the shared
-// activeDivers / meetHolds maps from lib/live-state.
+// auth helpers, isValidScore, the records helper, the shared
+// activeDivers / meetHolds maps from lib/live-state, and the push
+// engine (the connection handler joins per-user rooms + accepts
+// notification:ack messages).
 // =============================================================
 require("./routes/socket")({
   io,
@@ -650,7 +665,29 @@ require("./routes/socket")({
   meetHolds,
   scoreboardCache,
   metrics,
+  push,
 });
+
+// =============================================================
+// WEB PUSH ROUTES
+// [SECTION: ROUTES — WEB PUSH]
+// /api/push/* + /api/notifications/* live in routes/push.js. The
+// engine itself (lib/push.js) is shared with the socket layer +
+// any feature that wants to fire a notification (referee sign-off,
+// judge calls, "you're up next", ...).
+// =============================================================
+app.use(require("./routes/push")({ verifyToken, push }));
+
+// Periodic expirer — cheap thanks to the partial index on
+// (status, expires_at). Five-minute cadence is plenty: a
+// stale-by-30-seconds row in the inbox isn't worth a tighter
+// loop, and the engine refuses to re-dispatch expired rows
+// regardless of when this fires.
+setInterval(() => {
+  push.expireOld().catch((err) =>
+    console.error("[push expire]", err.message),
+  );
+}, 5 * 60 * 1000).unref();
 
 // =============================================================
 // RESULTS ARCHIVE

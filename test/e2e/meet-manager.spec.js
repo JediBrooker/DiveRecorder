@@ -264,7 +264,10 @@ test("meet-manager full E2E (random variant)", async ({
   }
 
   // ============================================================
-  // PHASE 2.5 — Judges. Same flow regardless of variant.
+  // PHASE 2.5 — Judges + a referee. Same flow regardless of
+  // variant; the referee is used by Phase 4b's yellow Sign-Off
+  // step (the modal's credential tab verifies a real referee
+  // user before stamping signed_off_at).
   // ============================================================
   const judges = [];
   for (let i = 1; i <= NUM_JUDGES; i++) {
@@ -277,6 +280,14 @@ test("meet-manager full E2E (random variant)", async ({
   await setup.assignJudges(request, {
     adminToken, eventId,
     judgeIds: judges.map((j) => j.userId),
+  });
+  // Create a referee in the same org. Used by the credential-path
+  // sign-off in Phase 4b. We don't bother giving them a push
+  // subscription — the headless test exercises the fallback
+  // because that's the path that doesn't need a service worker
+  // round-trip to function.
+  const referee = await setup.insertUser({
+    orgId, role: "referee", fullName: "Test Referee",
   });
 
   // ============================================================
@@ -385,11 +396,28 @@ test("meet-manager full E2E (random variant)", async ({
   await wfOrangeBtn.click();
 
   // STATE 3 — Yellow referee sign-off button.
+  // Cut 2: clicking the yellow button now opens a modal with two
+  // tabs (push to referee's device / sign at this device). We
+  // exercise the credential-fallback path because it doesn't
+  // need a service worker round-trip — the push tab is verified
+  // separately by the lib/push tests.
   const wfYellowBtn = page.locator(".wf-btn.wf-btn-yellow");
   await expect(wfYellowBtn).toBeVisible({ timeout: 5000 });
   await expect(wfYellowBtn).toHaveText(/Referee Sign Off/i);
   await page.waitForTimeout(WORKFLOW_HOLD_MS);
   await wfYellowBtn.click();
+
+  // Modal opens. Switch to the credential tab + sign in as the
+  // referee user we created in Phase 2.5.
+  const signoffModal = page.locator(".signoff-modal");
+  await expect(signoffModal).toBeVisible({ timeout: 5000 });
+  await signoffModal.locator(".signoff-tab", { hasText: /Sign at this device/i }).click();
+  await signoffModal.locator('input[autocomplete="off"]').fill(referee.username);
+  await signoffModal.locator('input[autocomplete="new-password"]').fill(referee.password);
+  await page.waitForTimeout(WORKFLOW_HOLD_MS);
+  await signoffModal.locator(".btn-primary", { hasText: /Sign off/i }).click();
+  // Modal closes once the credential path stamps signed_off_at;
+  // the workflow button flips to green automatically.
 
   // STATE 4 — Green start-event button. Click flips Upcoming → Live.
   const wfGreenBtn = page.locator(".wf-btn.wf-btn-green");

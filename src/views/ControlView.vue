@@ -511,26 +511,128 @@ async function confirmDiveOrder() {
   }
 }
 
+// Sign-off modal state — two tabs:
+//   'push'        send a push notification to a chosen referee's
+//                 device. Lives until the referee approves/denies
+//                 or 5 minutes elapse.
+//   'credential'  fallback: referee enters their own username +
+//                 password (+ TOTP) on this device. No JWT swap;
+//                 the manager's session is untouched.
+const signoffOpen        = ref(false)
+const signoffMode        = ref('push')   // 'push' | 'credential'
+const signoffReferees    = ref([])
+const signoffPickedRefId = ref('')
+const signoffWaiting     = ref(null)     // { request_id, expires_at, referee_name }
+const signoffError       = ref('')
+const credUsername       = ref('')
+const credPassword       = ref('')
+const credCode           = ref('')
+const credNeedsTotp      = ref(false)
+
 async function signOffDiveOrder() {
   if (!currentEvent.value) return
-  if (!confirm(
-    `Sign off on the dive order for "${currentEvent.value.name}"?\n\n`
-    + `The referee is approving the order shown above. ` +
-    `You can still reset and re-randomise after this if needed.`
-  )) return
+  signoffOpen.value = true
+  signoffMode.value = 'push'
+  signoffError.value = ''
+  signoffWaiting.value = null
+  signoffPickedRefId.value = ''
+  credUsername.value = ''
+  credPassword.value = ''
+  credCode.value = ''
+  credNeedsTotp.value = false
+  // Pull the referee list once when the modal opens. Best-effort —
+  // if it fails the modal still works via the credential tab.
+  try {
+    signoffReferees.value = await auth.apiFetch(
+      `/api/events/${currentEvent.value.id}/referees`,
+    )
+  } catch {
+    signoffReferees.value = []
+  }
+}
+
+function closeSignoffModal() {
+  signoffOpen.value = false
+  signoffWaiting.value = null
+  signoffError.value = ''
+}
+
+async function sendSignoffPush() {
+  if (!currentEvent.value || !signoffPickedRefId.value) return
+  signoffError.value = ''
   orderBusy.value = true
   try {
-    const r = await auth.apiFetch(`/api/events/${currentEvent.value.id}/dive-order/sign-off`, {
-      method: 'POST',
-    })
-    patchCurrentEvent({
-      dive_order_signed_off_at: r.dive_order_signed_off_at || new Date().toISOString(),
-      dive_order_signed_off_by: r.dive_order_signed_off_by,
-    })
+    const r = await auth.apiFetch(
+      `/api/events/${currentEvent.value.id}/dive-order/sign-off/request`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ referee_id: signoffPickedRefId.value }),
+      },
+    )
+    const refRow = signoffReferees.value.find(x => x.id === signoffPickedRefId.value)
+    signoffWaiting.value = {
+      request_id: r.request_id,
+      expires_at: r.expires_at,
+      referee_name: refRow?.full_name || 'the referee',
+    }
   } catch (err) {
-    alert('Sign-off failed: ' + err.message)
+    signoffError.value = err.message
   } finally {
     orderBusy.value = false
+  }
+}
+
+async function submitCredentialSignoff() {
+  if (!currentEvent.value) return
+  signoffError.value = ''
+  orderBusy.value = true
+  try {
+    const body = {
+      username: credUsername.value.trim(),
+      password: credPassword.value,
+    }
+    if (credNeedsTotp.value && credCode.value) body.code = credCode.value.trim()
+    await auth.apiFetch(
+      `/api/events/${currentEvent.value.id}/dive-order/sign-off/credential`,
+      { method: 'POST', body: JSON.stringify(body) },
+    )
+    // Server stamped the sign-off in the same transaction. Mirror
+    // locally so the workflow button flips green immediately.
+    patchCurrentEvent({
+      dive_order_signed_off_at: new Date().toISOString(),
+    })
+    closeSignoffModal()
+  } catch (err) {
+    // Server signals "TOTP required" by returning needs_totp:true.
+    // Surface the second-factor field rather than a vague 401.
+    const msg = err.message || ''
+    if (/totp/i.test(msg) || /code/i.test(msg)) {
+      credNeedsTotp.value = true
+      signoffError.value = credCode.value
+        ? 'Invalid TOTP code'
+        : 'TOTP code required'
+    } else {
+      signoffError.value = msg || 'Sign-off failed'
+    }
+  } finally {
+    orderBusy.value = false
+  }
+}
+
+// Listen for the response broadcast the server fires when the
+// referee taps Approve/Deny on their device. Wired in onMounted
+// further down via socket.on('referee_signoff_response', ...).
+function onRefereeSignoffResponse(data) {
+  if (!signoffWaiting.value || data?.request_id !== signoffWaiting.value.request_id) return
+  if (data.decision === 'approved') {
+    patchCurrentEvent({
+      dive_order_signed_off_at: new Date().toISOString(),
+      dive_order_signed_off_by: data.by_user_id,
+    })
+    closeSignoffModal()
+  } else {
+    signoffError.value = `${signoffWaiting.value.referee_name} declined the request.`
+    signoffWaiting.value = null
   }
 }
 
@@ -1650,10 +1752,17 @@ const medals = ['🥇', '🥈', '🥉']
 onMounted(async () => {
   events.value = await auth.apiFetch('/api/events')
   window.addEventListener('keydown', onKeydown)
+  // Cut 2 — listen for the server's response broadcast when the
+  // referee taps Approve/Deny on their device. Lives on the same
+  // event-room subscription the rest of the Control Room uses;
+  // the manager's socket joins the room when an event is
+  // selected via subscribe_event.
+  socket.on('referee_signoff_response', onRefereeSignoffResponse)
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
   cancelAutoAdvance()
+  socket.off('referee_signoff_response', onRefereeSignoffResponse)
 })
 </script>
 
@@ -2444,6 +2553,108 @@ onUnmounted(() => {
               title="Stamp check-in complete and advance to Randomise.">
         ✓ Check-in Complete — Continue
       </button>
+    </div>
+  </div>
+
+  <!-- Referee sign-off modal (Cut 2). Two paths: send a push
+       notification to a chosen referee's device (the primary
+       flow), or have the referee enter their own credentials
+       on the manager's device when the push isn't viable
+       (no notification permission, no registered device). -->
+  <div v-if="signoffOpen" class="lb-backdrop" @click="closeSignoffModal"></div>
+  <div v-if="signoffOpen" class="lb-modal signoff-modal" @click.stop>
+    <div class="lb-header">
+      <div>
+        <div class="lb-title">Referee Sign-Off</div>
+        <div class="lb-event">{{ currentEvent?.name }}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" @click="closeSignoffModal">Close ✕</button>
+    </div>
+    <div class="lb-body">
+      <!-- Tab strip — push (primary) / credential (fallback) -->
+      <div class="signoff-tabs">
+        <button :class="['signoff-tab', signoffMode === 'push' ? 'is-active' : '']"
+                @click="signoffMode = 'push'; signoffError = ''"
+                :disabled="!!signoffWaiting">
+          📱 Send to referee's device
+        </button>
+        <button :class="['signoff-tab', signoffMode === 'credential' ? 'is-active' : '']"
+                @click="signoffMode = 'credential'; signoffError = ''"
+                :disabled="!!signoffWaiting">
+          🔐 Sign at this device
+        </button>
+      </div>
+
+      <!-- Push path -->
+      <div v-if="signoffMode === 'push'" class="signoff-pane">
+        <p class="hint">
+          Pick the referee — they'll get a push notification on their phone /
+          laptop with Approve / Deny buttons. The request times out after 5
+          minutes. If they can't get the notification, switch to the other
+          tab to sign on this device.
+        </p>
+        <template v-if="!signoffWaiting">
+          <div v-if="!signoffReferees.length" class="empty-mini">
+            No referees in this org yet. Use the credential tab instead.
+          </div>
+          <select v-else class="select" v-model="signoffPickedRefId" :disabled="orderBusy">
+            <option value="">— Pick a referee —</option>
+            <option v-for="r in signoffReferees" :key="r.id" :value="r.id">
+              {{ r.full_name }}
+            </option>
+          </select>
+          <div class="signoff-actions">
+            <button class="btn btn-primary"
+                    :disabled="orderBusy || !signoffPickedRefId"
+                    @click="sendSignoffPush">
+              {{ orderBusy ? 'Sending…' : 'Send sign-off request' }}
+            </button>
+          </div>
+        </template>
+        <div v-else class="signoff-waiting">
+          <div class="signoff-waiting-pulse">●</div>
+          Waiting for {{ signoffWaiting.referee_name }} to approve…
+          <div class="signoff-waiting-hint">
+            Or switch tabs and have them sign here on this device.
+          </div>
+        </div>
+      </div>
+
+      <!-- Credential path -->
+      <div v-else class="signoff-pane">
+        <p class="hint">
+          Hand the laptop to the referee. They sign in with their own
+          username + password (and TOTP if enabled). Your manager session
+          stays put.
+        </p>
+        <div class="cred-fields">
+          <div class="field">
+            <label class="label">Referee username</label>
+            <input class="input" type="text" v-model="credUsername"
+                   autocomplete="off" :disabled="orderBusy">
+          </div>
+          <div class="field">
+            <label class="label">Password</label>
+            <input class="input" type="password" v-model="credPassword"
+                   autocomplete="new-password" :disabled="orderBusy">
+          </div>
+          <div v-if="credNeedsTotp" class="field">
+            <label class="label">TOTP / recovery code</label>
+            <input class="input" type="text" v-model="credCode"
+                   autocomplete="one-time-code" inputmode="numeric"
+                   :disabled="orderBusy">
+          </div>
+        </div>
+        <div class="signoff-actions">
+          <button class="btn btn-primary"
+                  :disabled="orderBusy || !credUsername.trim() || !credPassword"
+                  @click="submitCredentialSignoff">
+            {{ orderBusy ? 'Verifying…' : 'Sign off' }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="signoffError" class="msg msg-error">{{ signoffError }}</div>
     </div>
   </div>
 
@@ -3250,6 +3461,44 @@ onUnmounted(() => {
    status semantics (cyan = present, amber = late, red = DNS).
    ========================================================= */
 .checkin-modal { max-width: 720px; }
+.signoff-modal { max-width: 540px; }
+.signoff-tabs {
+  display: flex; gap: 0.4rem; margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.signoff-tab {
+  flex: 1; padding: 0.6rem 0.8rem; cursor: pointer;
+  background: transparent; border: none;
+  font-family: var(--font-display); font-size: 12px; font-weight: 700;
+  letter-spacing: 0.06em; color: var(--text-3);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.signoff-tab:hover:not(:disabled) { color: var(--text-2); }
+.signoff-tab.is-active { color: var(--cyan); border-bottom-color: var(--cyan); }
+.signoff-tab:disabled { opacity: 0.5; cursor: not-allowed; }
+.signoff-pane { padding: 0.4rem 0; }
+.signoff-pane .hint { color: var(--text-3); font-size: 12.5px; line-height: 1.6; margin-bottom: 1rem; }
+.signoff-pane .select { width: 100%; }
+.cred-fields { display: flex; flex-direction: column; gap: 0.7rem; margin-bottom: 1rem; }
+.signoff-actions { display: flex; justify-content: flex-end; margin-top: 1rem; }
+.signoff-waiting {
+  text-align: center; padding: 2rem 1rem; color: var(--amber);
+  font-family: var(--font-display); font-size: 14px; font-style: italic;
+}
+.signoff-waiting-pulse {
+  font-size: 28px; line-height: 1;
+  animation: signoff-pulse 1.5s ease-in-out infinite;
+  margin-bottom: 0.5rem;
+}
+.signoff-waiting-hint {
+  margin-top: 0.7rem; font-size: 11.5px; color: var(--text-3);
+  font-style: normal;
+}
+@keyframes signoff-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50%      { opacity: 1;   transform: scale(1.15); }
+}
 .lb-footer {
   display: flex; align-items: center; justify-content: space-between;
   gap: 1rem; padding: 1rem 2rem; border-top: 1px solid var(--border);

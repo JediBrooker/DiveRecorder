@@ -53,6 +53,11 @@ module.exports = function attachSocket({
   // increment the connection gauge + score counters; when null
   // (tests) the calls are no-ops.
   metrics,
+  // From lib/push: optional. When supplied the connection
+  // handler joins per-user rooms (`user:<id>`) so the engine can
+  // io.to()` an in-app banner, and adopts a `notification:ack`
+  // listener so the SPA's banner click marks the row read.
+  push,
 }) {
   if (!io || !pool || !JWT_SECRET) {
     throw new Error("attachSocket requires { io, pool, JWT_SECRET, … }");
@@ -187,6 +192,26 @@ module.exports = function attachSocket({
     metrics?.socketConnections.inc();
     socket.on("disconnect", () => {
       metrics?.socketConnections.dec();
+    });
+
+    // Per-user room — the push engine `io.to(\`user:<id>\`)` fans
+    // an in-app banner out to every open SPA tab the user has.
+    // Also doubles as the routing key for any future direct-to-
+    // user broadcast (judge calls, dive-on-deck nudges, etc.).
+    if (socket.userId) {
+      socket.join(`user:${socket.userId}`);
+    }
+
+    // SPA banner click → mark the notifications row 'acknowledged'
+    // via the engine. Idempotent; cross-user attempts no-op
+    // because the engine scopes the UPDATE to user_id.
+    socket.on("notification:ack", async (data) => {
+      if (!socket.userId || !data?.id || !push) return;
+      try {
+        await push.acknowledgeNotification(data.id, socket.userId);
+      } catch (err) {
+        console.error("[notification:ack]", err.message);
+      }
     });
 
     // Helper: clients join `event:${id}` rooms when they

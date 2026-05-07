@@ -851,6 +851,82 @@ CREATE INDEX idx_records_federation_history_org    ON public.records_federation_
 
 
 -- =============================================================
+-- WEB PUSH BACKEND (Migration 029)
+-- Reusable across every push-driven feature: referee sign-off,
+-- judge calls, "you're up next" nudges, role-request approvals,
+-- score corrections, etc. Keyed on a free-form category string
+-- so a new caller adds rows without a schema change.
+-- =============================================================
+
+CREATE TABLE public.push_subscriptions (
+    id           uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id      uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    endpoint     text NOT NULL,
+    p256dh_key   text NOT NULL,
+    auth_key     text NOT NULL,
+    user_agent   text,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    last_used_at timestamptz,
+    revoked_at   timestamptz,
+    CONSTRAINT push_subscriptions_endpoint_key UNIQUE (endpoint)
+);
+CREATE INDEX idx_push_subscriptions_user_active
+    ON public.push_subscriptions (user_id) WHERE revoked_at IS NULL;
+
+CREATE TABLE public.notifications (
+    id              uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id         uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    category        varchar(40) NOT NULL,
+    title           varchar(160) NOT NULL,
+    body            text,
+    data            jsonb NOT NULL DEFAULT '{}'::jsonb,
+    action_url      text,
+    status          varchar(16) NOT NULL DEFAULT 'pending'
+                      CHECK (status IN
+                        ('pending','sent','acknowledged','failed','expired')),
+    failure_reason  text,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    sent_at         timestamptz,
+    acknowledged_at timestamptz,
+    expires_at      timestamptz
+);
+CREATE INDEX idx_notifications_user_status
+    ON public.notifications (user_id, status, created_at DESC);
+CREATE INDEX idx_notifications_pending_expiry
+    ON public.notifications (status, expires_at)
+    WHERE status IN ('pending','sent');
+
+
+-- =============================================================
+-- REFEREE SIGN-OFF REQUESTS (Migration 030 — Cut 2)
+-- Round-trip log for the meet manager → referee push request.
+-- Lets the SPA show "Waiting for Sarah Chen…", lets a refresh
+-- resume the right state, and gives the credential-fallback path
+-- a place to short-circuit to approved while leaving the prior
+-- push request as 'expired'.
+-- =============================================================
+
+CREATE TABLE public.referee_signoff_requests (
+    id                uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    event_id          uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    requested_by      uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    target_referee_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    notification_id   uuid REFERENCES public.notifications(id) ON DELETE SET NULL,
+    status            varchar(16) NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending','approved','declined','expired')),
+    decision_method   varchar(16)
+                        CHECK (decision_method IN ('push','credential')),
+    created_at        timestamptz NOT NULL DEFAULT now(),
+    responded_at      timestamptz,
+    expires_at        timestamptz NOT NULL DEFAULT (now() + interval '5 minutes')
+);
+CREATE INDEX idx_signoff_requests_event_pending
+    ON public.referee_signoff_requests (event_id) WHERE status = 'pending';
+CREATE INDEX idx_signoff_requests_referee_pending
+    ON public.referee_signoff_requests (target_referee_id) WHERE status = 'pending';
+
+
+-- =============================================================
 -- SCHEMA VERSION STAMP
 -- Single-row table the server reads on boot to log which
 -- schema version is deployed. init.sql sets version 8 (matches
@@ -865,7 +941,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 28);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 30);
 
 
 -- =============================================================
