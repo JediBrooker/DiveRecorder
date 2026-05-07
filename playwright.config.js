@@ -35,7 +35,20 @@ module.exports = defineConfig({
     video: "retain-on-failure",
   },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    {
+      name: "chromium",
+      use: {
+        // Don't spread devices["Desktop Chrome"] — it bakes in
+        // a fixed 1280×720 viewport plus a deviceScaleFactor,
+        // which clamp the page to that resolution even when the
+        // operator manually resizes the --headed Chrome window.
+        // browserName + viewport:null gives us a plain Chromium
+        // that uses the window's natural inner size, so resizing
+        // also resizes the rendered page like normal Chrome.
+        browserName: "chromium",
+        viewport: null,
+      },
+    },
   ],
   // Boots a server on :3097 if one isn't already running. We
   // run on a non-default port so a developer with `npm start`
