@@ -2383,10 +2383,14 @@ onUnmounted(() => {
 }
 .btn-complete:hover { background: #d97706; }
 
-.roster-item { padding: 0.875rem 1rem; background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; transition: border-color 0.15s; margin-bottom: 0.5rem; }
+/* Diver Queue rows — condensed (~50% the previous vertical
+   footprint). The right column gets twice as many rows in view
+   at once, which is what an operator scanning what's-up-next
+   actually wants. Padding halved + font sizes pulled in. */
+.roster-item { padding: 0.4rem 0.6rem; background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; transition: border-color 0.15s; margin-bottom: 0.3rem; }
 .roster-item:hover { border-color: var(--border-2); }
 .roster-item.active { background: var(--cyan-dim); border-color: var(--cyan); }
-.roster-name { font-family: var(--font-display); font-size: 14px; font-weight: 700; color: var(--text); }
+.roster-name { font-family: var(--font-display); font-size: 12px; font-weight: 700; color: var(--text); line-height: 1.2; }
 .roster-order {
   /* Same diving-position chip as the active diver + history
      cards, sized to fit the queue row. Cyan so the eye treats
@@ -2397,10 +2401,10 @@ onUnmounted(() => {
   margin-right: 0.3rem;
 }
 .roster-item.active .roster-name { color: var(--cyan); }
-.roster-meta { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-3); margin-top: 0.2rem; font-family: var(--font-mono); }
+.roster-meta { display: flex; justify-content: space-between; font-size: 9px; color: var(--text-3); margin-top: 0.1rem; font-family: var(--font-mono); }
 .roster-team {
-  font-family: var(--font-mono); font-size: 10px; color: #c4b5fd;
-  margin-top: 0.2rem; font-weight: 700; letter-spacing: 0.05em;
+  font-family: var(--font-mono); font-size: 9px; color: #c4b5fd;
+  margin-top: 0.1rem; font-weight: 700; letter-spacing: 0.05em;
 }
 .roster-amp { color: var(--cyan); margin: 0 0.35em; font-weight: 400; }
 .round-divider {
@@ -2435,8 +2439,8 @@ onUnmounted(() => {
   margin-left: 0.5rem; vertical-align: middle;
 }
 .roster-club {
-  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3);
-  margin-top: 0.15rem;
+  font-family: var(--font-mono); font-size: 9px; color: var(--text-3);
+  margin-top: 0.05rem;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .roster-club-code {
@@ -2624,9 +2628,9 @@ onUnmounted(() => {
 .roster-ctrl {
   background: transparent; border: 1px solid var(--border);
   border-radius: 3px; cursor: pointer;
-  font-size: 10px; padding: 0.05rem 0.4rem; line-height: 1.2;
+  font-size: 9px; padding: 0 0.3rem; line-height: 1;
   color: var(--text-3); transition: all 0.1s;
-  min-width: 22px;
+  min-width: 18px;
 }
 .roster-ctrl:hover:not(:disabled) {
   border-color: var(--cyan); color: var(--cyan);
