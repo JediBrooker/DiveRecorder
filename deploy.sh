@@ -105,32 +105,49 @@ step "advancing ${PREV_SHA} → ${NEW_SHA}"
 step "npm ci"
 run "npm ci"
 
-# ---- 3. Tests --------------------------------------------------
-# The boot test in test/syntax.test.js catches TDZ / missing-
-# binding regressions that node --check misses. Worth ~1s of
-# deploy time.
-if [[ $SKIP_TESTS -eq 0 ]]; then
-  step "npm test"
-  run "npm test"
-else
-  step "tests skipped (--skip-tests)"
-fi
-
-# ---- 4. Build SPA ---------------------------------------------
+# ---- 3. Build SPA ---------------------------------------------
 # Build BEFORE migrate so a broken build doesn't leave the DB
 # advanced past code we can't ship.
 step "npm run build"
 run "npm run build"
 
-# ---- 5. Apply pending migrations ------------------------------
+# ---- 4. Apply pending migrations ------------------------------
 # --dry first so the deploy log shows exactly what's about to
 # run before the writes happen. The runner is idempotent
 # (schema_meta.version + IF NOT EXISTS guards) so an accidental
 # re-run is a no-op.
+#
+# Migrate runs BEFORE tests because new code commonly adds
+# columns its own logic queries; running the test suite against
+# a DB one schema version behind would 500 on those queries.
+# Migrations in this repo are strictly additive (ADD COLUMN IF
+# NOT EXISTS, etc.), so the running PM2 process keeps serving
+# correctly against the new schema until restart at step 6.
 step "migrate (preview)"
 run "npm run migrate -- --dry"
 step "migrate (apply)"
 run "npm run migrate"
+
+# ---- 5. Tests --------------------------------------------------
+# `test:safe` deliberately excludes test/integration.test.js
+# because that test creates real orgs / users / events and
+# would pollute the production DB on every deploy. The remaining
+# tests are read-only:
+#   * syntax.test.js       boot test + parse + schema_version pin
+#   * calc.test.js         World Aquatics scoring vs Postgres UDF
+#   * score-trim.test.js   trim-rule parity
+# All three are valuable smoke tests — they catch the kind of
+# regression a deploy would otherwise ship blind.
+#
+# For full integration coverage, run `npm test` against a
+# DEDICATED test database (createdb diverecorder_test, point
+# DB_DATABASE at it) — never against the production DB.
+if [[ $SKIP_TESTS -eq 0 ]]; then
+  step "npm run test:safe"
+  run "npm run test:safe"
+else
+  step "tests skipped (--skip-tests)"
+fi
 
 # ---- 6. Restart service ---------------------------------------
 # Named process, not "all", so other PM2 processes on this box
