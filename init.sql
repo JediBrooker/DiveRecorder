@@ -245,7 +245,11 @@ CREATE TABLE public.dive_directory (
     created_by      uuid REFERENCES public.users(id) ON DELETE SET NULL,
     created_org_id  uuid REFERENCES public.organisations(id) ON DELETE CASCADE,
     created_at      timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (dive_code, height, position)
+    -- DD is part of the unique key so a custom dive can legitimately
+    -- exist as multiple variants at the same code/height/position
+    -- (e.g. a 0m forward sit-dive scored at DD 0.4 for novices and
+    -- DD 0.6 for stricter standard). Exact duplicates still refuse.
+    CONSTRAINT dive_directory_code_height_pos_dd_key UNIQUE (dive_code, height, position, dd)
 );
 
 
@@ -850,7 +854,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 25);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 26);
 
 
 -- =============================================================

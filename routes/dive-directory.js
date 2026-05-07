@@ -172,17 +172,17 @@ module.exports = function createDiveDirectoryRouter({ pool, verifyToken, require
       );
       res.status(201).json(r.rows[0]);
     } catch (err) {
-      // 23505 = unique_violation. The pre-flight above catches the
-      // exact (code+pos+height+dd) case. This branch fires when
-      // (code, height, position) collides at a *different* DD — a
-      // custom row trying to override the official tariff or an
-      // existing custom variant. The message names the conflict so
-      // the operator can decide whether to edit the existing row.
+      // 23505 = unique_violation on (code, height, position, dd).
+      // Migration 026 widened the unique key to include DD, so a
+      // custom variant at a different DD is allowed; this branch
+      // now only fires on an exact 4-key duplicate that races past
+      // the pre-flight above (two parallel POSTs in the same
+      // millisecond).
       if (err.code === "23505") {
         return res.status(409).json({
           error:
-            `A dive ${dive_code}${position} at ${height} already exists with a different DD. ` +
-            `Edit the existing entry rather than adding a second one.`,
+            `A dive ${dive_code}${position} at ${height} with DD ${Number(dd).toFixed(1)} ` +
+            `already exists.`,
         });
       }
       console.error("[Dive Directory Insert Error]", err.message);
@@ -289,14 +289,11 @@ module.exports = function createDiveDirectoryRouter({ pool, verifyToken, require
       );
       res.json(r.rows[0]);
     } catch (err) {
-      // Same race fall-through as the POST handler — the (code,
-      // height, position) UNIQUE catches edits whose new keys
-      // collide with another row at a *different* DD.
+      // Same race fall-through as the POST handler — only fires
+      // when an exact 4-key duplicate slips past the pre-flight.
       if (err.code === "23505") {
         return res.status(409).json({
-          error:
-            "A dive with that code + height + position already exists at a different DD. " +
-            "Edit the existing entry rather than duplicating it.",
+          error: "A dive with that code + height + position + DD already exists.",
         });
       }
       console.error("[Dive Directory Update Error]", err.message);
