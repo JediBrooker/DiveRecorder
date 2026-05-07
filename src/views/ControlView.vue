@@ -1348,11 +1348,20 @@ const projectedLine = computed(() => {
   // X × mult × DD. So gap G across R dives at avg DD D solves to
   // X = G / (mult × D × R). 10 is the ceiling — any X > 10 means
   // even straight 10s wouldn't close the gap.
+  //
+  // The displayed value rounds UP to the next 0.5 — judges score
+  // in half-point increments, so rounding to one decimal would
+  // suggest unattainable targets like 5.2. The smallest achievable
+  // panel-wide average that mathematically guarantees closing the
+  // gap is `Math.ceil(x * 2) / 2`. The `possible` flag still
+  // checks the raw x against 10 so a raw of 9.6 (rounds to 10.0
+  // — straight 10s, achievable) doesn't flip to "not possible".
   function avgJudgeForGap(gap) {
     if (gap <= 0)              return { score: 0,    possible: true  }
     if (remaining <= 0 || !ddProxy) return { score: null, possible: null  }
-    const x = gap / (mult * ddProxy * remaining)
-    return { score: x, possible: x <= 10 }
+    const raw = gap / (mult * ddProxy * remaining)
+    const rounded = Math.ceil(raw * 2) / 2
+    return { score: rounded, possible: raw <= 10 }
   }
 
   // Self-referential preface for both kinds.
