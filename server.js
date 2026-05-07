@@ -55,10 +55,17 @@ const bcrypt = require("bcryptjs");
 const rateLimit = require("express-rate-limit");
 require("dotenv").config();
 
+const logger = require("./lib/logger");
+const metrics = require("./lib/metrics");
+
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "http://localhost:3000";
 
 // [SECTION: BOOTSTRAP]
 const app = express();
+
+// Time every request and emit a Prometheus histogram + counter.
+// Mounted FIRST so it captures even helmet/cors short-circuits.
+app.use(metrics.httpMetricsMiddleware);
 
 // Trust the immediate reverse proxy (Cloudflare / Nginx / etc).
 // Without this:
@@ -292,6 +299,26 @@ app.get("/api/health", async (_req, res) => {
 });
 
 // =============================================================
+// METRICS — Prometheus scrape target
+// =============================================================
+// `text/plain; version=0.0.4` (the prom-client default) is the
+// content-type Prometheus expects. No auth gate — the payload
+// contains operational counters only (no PII), and access should
+// be restricted at the firewall / reverse proxy if you don't want
+// it public. lib/metrics.js documents the cardinality discipline
+// each metric follows.
+app.get("/metrics", async (_req, res) => {
+  try {
+    metrics.collectPoolStats(pool);
+    res.set("Content-Type", metrics.registry.contentType);
+    res.end(await metrics.registry.metrics());
+  } catch (err) {
+    logger.error({ err }, "metrics scrape failed");
+    res.status(500).end();
+  }
+});
+
+// =============================================================
 // AUTH ROUTES
 // Moved into routes/auth.js. The factory pattern lets this slice
 // live in its own file without forcing every other slice (events,
@@ -451,7 +478,7 @@ app.use(require("./routes/control-room")({
 // since it's per-diver state, not scoreboard-related.
 // =============================================================
 
-app.use(require("./routes/scoreboard")({ pool, scoreboardCache }));
+app.use(require("./routes/scoreboard")({ pool, scoreboardCache, metrics }));
 
 // =============================================================
 // SCORE CORRECTION + AUDIT LOG
@@ -555,6 +582,7 @@ require("./routes/socket")({
   activeDivers,
   meetHolds,
   scoreboardCache,
+  metrics,
 });
 
 // =============================================================
@@ -618,19 +646,22 @@ async function bootChecks() {
   try {
     const v = await pool.query("SELECT version, applied_at FROM schema_meta WHERE id = 1");
     if (v.rows[0]) {
-      console.log(`📊 Schema version ${v.rows[0].version} (applied ${new Date(v.rows[0].applied_at).toISOString()})`);
+      logger.info(
+        { schema_version: v.rows[0].version, applied_at: v.rows[0].applied_at },
+        "schema_meta loaded",
+      );
     } else {
-      console.warn("[Boot] schema_meta has no rows — run migration 008");
+      logger.warn("schema_meta has no rows — run migration 008");
     }
   } catch (err) {
-    console.warn("[Boot] Couldn't read schema_meta:", err.message);
+    logger.warn({ err: err.message }, "couldn't read schema_meta");
   }
   try {
     const purge = await pool.query("SELECT * FROM purge_audit_logs(30)");
     const total = purge.rows.reduce((sum, r) => sum + Number(r.deleted_rows), 0);
-    if (total > 0) console.log(`🧹 Purged ${total} audit-log row(s) older than 30 days`);
+    if (total > 0) logger.info({ deleted_rows: total }, "purged audit log");
   } catch (err) {
-    console.warn("[Boot] purge_audit_logs failed (run migration 008?):", err.message);
+    logger.warn({ err: err.message }, "purge_audit_logs failed (run migration 008?)");
   }
 }
 
@@ -644,7 +675,7 @@ const PORT = process.env.PORT || 3000;
 // listener that the process never closes.
 if (require.main === module) {
   server.listen(PORT, () => {
-    console.log(`🚀 Diving App v2 on port ${PORT}`);
+    logger.info({ port: PORT }, "diving app started");
     bootChecks();
   });
 }

@@ -20,7 +20,7 @@
 const express = require("express");
 const { publicId } = require("../lib/public-id");
 
-module.exports = function createScoreboardRouter({ pool, scoreboardCache }) {
+module.exports = function createScoreboardRouter({ pool, scoreboardCache, metrics }) {
   const router = express.Router();
 
   router.get("/api/scoreboard/:eventId", async (req, res) => {
@@ -33,10 +33,12 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache }) {
     if (scoreboardCache && req.query.cache !== "skip") {
       const hit = scoreboardCache.get(eventId);
       if (hit) {
+        metrics?.scoreboardCacheHits.inc();
         res.set("X-Scoreboard-Cache", "hit");
         return res.json(hit);
       }
     }
+    metrics?.scoreboardCacheMisses.inc();
     try {
       const [st, hi, up] = await Promise.all([
         // Standings: per-dive points (trimmed × DD × scaling) summed

@@ -49,6 +49,10 @@ module.exports = function attachSocket({
   // /api/scoreboard read rebuilds. Pass null in tests where the
   // cache isn't relevant; the calls below tolerate it.
   scoreboardCache,
+  // Optional metrics object (lib/metrics). When supplied we
+  // increment the connection gauge + score counters; when null
+  // (tests) the calls are no-ops.
+  metrics,
 }) {
   if (!io || !pool || !JWT_SECRET) {
     throw new Error("attachSocket requires { io, pool, JWT_SECRET, … }");
@@ -175,6 +179,10 @@ module.exports = function attachSocket({
   // -----------------------------------------------------------
   io.on("connection", (socket) => {
     console.log(`[Socket] Connected: ${socket.id}`);
+    metrics?.socketConnections.inc();
+    socket.on("disconnect", () => {
+      metrics?.socketConnections.dec();
+    });
 
     // Helper: clients join `event:${id}` rooms when they
     // subscribe to an event (via get_active_diver, get_meet_hold,
@@ -218,11 +226,15 @@ module.exports = function attachSocket({
     // client can't smuggle in the wrong dive's DD.
     // -----------------------------------------------------------
     socket.on("submit_score", async (data) => {
+      // Tiny helper so the metric increment doesn't get
+      // forgotten alongside any of the eight rejection paths.
+      const reject = (reason, extra) => {
+        metrics?.scoresRejected.inc({ reason });
+        socket.emit("score_rejected", { reason, ...(extra || {}) });
+      };
+
       if (!socket.userId) {
-        socket.emit("score_rejected", {
-          reason: "not_authenticated",
-          message: "You must be signed in to submit scores.",
-        });
+        reject("not_authenticated", { message: "You must be signed in to submit scores." });
         return;
       }
       const judgeId = socket.userId;
@@ -230,31 +242,25 @@ module.exports = function attachSocket({
       if (!socket.userIsSystemAdmin
           && !roles.includes("judge")
           && !roles.includes("referee")) {
-        socket.emit("score_rejected", { reason: "insufficient_role" });
+        reject("insufficient_role");
         return;
       }
       if (!data?.event_id || !data?.competitor_id) {
-        socket.emit("score_rejected", { reason: "bad_payload" });
+        reject("bad_payload");
         return;
       }
       const round = Number(data.round_number);
       if (!Number.isInteger(round) || round < 1) {
-        socket.emit("score_rejected", { reason: "bad_round" });
+        reject("bad_round");
         return;
       }
       if (!isValidScore(data.score)) {
-        socket.emit("score_rejected", {
-          reason: "bad_score",
-          message: "Score must be between 0 and 10 in 0.5 increments.",
-        });
+        reject("bad_score", { message: "Score must be between 0 and 10 in 0.5 increments." });
         return;
       }
       if (judgeIsRateLimited(judgeId)) {
         console.warn(`[Score] Rate limit exceeded for judge ${judgeId}`);
-        socket.emit("score_rejected", {
-          reason: "rate_limited",
-          message: "Slow down — too many submissions in the last minute.",
-        });
+        reject("rate_limited", { message: "Slow down — too many submissions in the last minute." });
         return;
       }
       const score = Number(data.score);
@@ -270,10 +276,7 @@ module.exports = function attachSocket({
         );
         if (!jnRes.rows.length) {
           await client.query("ROLLBACK");
-          socket.emit("score_rejected", {
-            reason: "not_on_panel",
-            message: "You're not on the judging panel for this event.",
-          });
+          reject("not_on_panel", { message: "You're not on the judging panel for this event." });
           return;
         }
         judgeNumber = jnRes.rows[0].judge_number;
@@ -328,11 +331,13 @@ module.exports = function attachSocket({
       } catch (err) {
         await client.query("ROLLBACK").catch(() => {});
         console.error("[Score Persist Error]", err.message);
-        socket.emit("score_rejected", { reason: "server_error" });
+        reject("server_error");
         return;
       } finally {
         client.release();
       }
+
+      metrics?.scoresSubmitted.inc();
 
       // Invalidate the cached scoreboard payload so the next
       // /api/scoreboard read rebuilds with this score included.
