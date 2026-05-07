@@ -97,8 +97,23 @@ test("judge full E2E (random variant)", async ({
   // and a panel of NUM_JUDGES with our test judge sitting at the
   // chosen index.
   // ============================================================
-  const { orgId, username: adminUsername, adminToken } =
-    await setup.createOrgAndAdmin(request);
+  const { orgId, username: adminUsername, adminToken, countryCode } =
+    await setup.createOrgAndAdmin(request, {
+      // Realistic federation so the country chip on the judge
+      // view's active-diver block + scoreboard history reads
+      // like a live meet.
+      countryCode: "AUS",
+      orgName:     "Diving Australia",
+    });
+
+  // Two clubs under the federation. Divers (and synchro pair
+  // members) round-robin so the active-diver block + history
+  // card show varied club_name + short_code lines (AUS-1 /
+  // AUS-2) instead of a single homogenous affiliation.
+  const clubs = [
+    await setup.insertClub({ orgId, name: "AUS Capital Diving Club", shortCode: "AUS-1" }),
+    await setup.insertClub({ orgId, name: "AUS Coastal Aquatics",    shortCode: "AUS-2" }),
+  ];
 
   const event = await setup.createEvent(request, {
     adminToken,
@@ -135,9 +150,10 @@ test("judge full E2E (random variant)", async ({
   const competitors = [];
 
   if (VARIANT === "individual") {
-    for (const name of ["Alpha", "Bravo", "Charlie"]) {
+    for (const [idx, name] of ["Alpha", "Bravo", "Charlie"].entries()) {
+      const club = clubs[idx % clubs.length];
       const d = await setup.insertUser({
-        orgId, role: "diver", fullName: `Diver ${name}`,
+        orgId, role: "diver", fullName: `Diver ${name}`, clubId: club.clubId,
       });
       await setup.insertDiveList({
         eventId,
@@ -155,12 +171,16 @@ test("judge full E2E (random variant)", async ({
       ["Bravo",   "Beatrix"],
       ["Charlie", "Catalina"],
     ];
-    for (const [leader, partner] of pairs) {
+    for (const [pairIdx, [leader, partner]] of pairs.entries()) {
+      // Lead + partner share a club within a pair (realistic
+      // synchro setup); pairs themselves rotate across clubs so
+      // the history shows multiple affiliations.
+      const club = clubs[pairIdx % clubs.length];
       const lead = await setup.insertUser({
-        orgId, role: "diver", fullName: `Diver ${leader}`,
+        orgId, role: "diver", fullName: `Diver ${leader}`, clubId: club.clubId,
       });
       const part = await setup.insertUser({
-        orgId, role: "diver", fullName: `Diver ${partner}`,
+        orgId, role: "diver", fullName: `Diver ${partner}`, clubId: club.clubId,
       });
       // Direct insert with partner_id — _setup.insertDiveList
       // doesn't support partner_id today but it's a thin wrapper.

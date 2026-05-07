@@ -46,15 +46,21 @@ function rand() {
 // otherwise refuse login on a synthetic user with no real
 // inbox), then log in via /api/auth/login. Returns everything
 // the rest of a test needs to act as that org's admin.
-async function createOrgAndAdmin(request) {
+async function createOrgAndAdmin(request, opts = {}) {
   const slug = `e2e-${rand()}`;
   const username = `e2e-admin-${slug}`;
+  // Optional country override — defaults to "TST" so existing
+  // callers don't change. Specs that drive the watcher mode pass
+  // a real ISO-ish code (NZL / DEU / etc.) so the country chip
+  // on history cards reads like a live meet.
+  const countryCode = (opts.countryCode || "TST").slice(0, 3).toUpperCase();
+  const orgName = opts.orgName || `E2E Org ${slug}`;
 
   // 1. Create the org + founding admin via the public API.
   const reg = await request.post("/api/auth/register-org", {
     data: {
-      org_name:     `E2E Org ${slug}`,
-      country_code: "TST",
+      org_name:     orgName,
+      country_code: countryCode,
       slug,
       username,
       password:     TEST_PASSWORD,
@@ -90,21 +96,26 @@ async function createOrgAndAdmin(request) {
   }
   const { token: adminToken } = await login.json();
 
-  return { orgId, adminId, adminToken, slug, username };
+  return { orgId, adminId, adminToken, slug, username, countryCode };
 }
 
 // Insert a user with a single org_role directly. Bypasses the
 // public registration flow because we don't need to exercise it
 // in every test — just need a user with the role set up.
-async function insertUser({ orgId, role, fullName }) {
+//
+// `clubId` is optional: pass one to wire the user into a club so
+// the history card / Up Next / scoreboard rows show a club_name
+// + club_code line. Tests that don't care about affiliation can
+// omit it; the column is nullable.
+async function insertUser({ orgId, role, fullName, clubId = null }) {
   const username = `e2e-${role}-${rand()}`;
   // bcrypt cost 4 — fine for a fixture user nobody will brute
   // force; default 12 would add ~150ms per insertion.
   const hash = await bcrypt.hash(TEST_PASSWORD, 4);
   const r = await pool.query(
-    `INSERT INTO users (username, password, full_name, org_id, email_verified_at)
-     VALUES ($1, $2, $3, $4, now()) RETURNING id`,
-    [username, hash, fullName || `E2E ${role}`, orgId],
+    `INSERT INTO users (username, password, full_name, org_id, club_id, email_verified_at)
+     VALUES ($1, $2, $3, $4, $5, now()) RETURNING id`,
+    [username, hash, fullName || `E2E ${role}`, orgId, clubId],
   );
   const userId = r.rows[0].id;
   await pool.query(
@@ -112,6 +123,20 @@ async function insertUser({ orgId, role, fullName }) {
     [userId, orgId, role],
   );
   return { userId, username, password: TEST_PASSWORD };
+}
+
+// Insert a club under an org. Returns its id so callers can
+// thread it into insertUser({ clubId }). short_code surfaces in
+// the SPA as the cyan "NZL-1" pill alongside the club name in
+// history cards + active-diver block; pass a 3-6 char code so it
+// renders cleanly.
+async function insertClub({ orgId, name, shortCode = null }) {
+  const r = await pool.query(
+    `INSERT INTO clubs (org_id, name, short_code)
+     VALUES ($1, $2, $3) RETURNING id`,
+    [orgId, name, shortCode],
+  );
+  return { clubId: r.rows[0].id, name, shortCode };
 }
 
 // Log in via the public API. Wraps the JSON response shape so a
@@ -367,6 +392,7 @@ module.exports = {
   rand,
   createOrgAndAdmin,
   insertUser,
+  insertClub,
   loginAs,
   createEvent,
   assignJudges,

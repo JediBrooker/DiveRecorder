@@ -101,8 +101,22 @@ test("meet-manager full E2E (random variant)", async ({
   // ============================================================
   // PHASE 1 — Meet manager creates the event.
   // ============================================================
-  const { orgId, username: adminUsername, adminToken } =
-    await setup.createOrgAndAdmin(request);
+  const { orgId, username: adminUsername, adminToken, countryCode } =
+    await setup.createOrgAndAdmin(request, {
+      // Realistic federation so the country chip on history /
+      // Up Next / scoreboard surfaces reads like a live meet.
+      countryCode: "DEU",
+      orgName:     "Deutscher Schwimm-Verband",
+    });
+
+  // A pair of clubs under the federation. Divers (and synchro
+  // pair members) round-robin across these so the history card
+  // shows varied club_name + club_code lines (DEU-1 / DEU-2)
+  // rather than a single homogenous affiliation.
+  const clubs = [
+    await setup.insertClub({ orgId, name: "DEU Capital Diving Club", shortCode: "DEU-1" }),
+    await setup.insertClub({ orgId, name: "DEU Coastal Aquatics",    shortCode: "DEU-2" }),
+  ];
 
   const event = await setup.createEvent(request, {
     adminToken,
@@ -139,9 +153,14 @@ test("meet-manager full E2E (random variant)", async ({
   const competitors = [];
 
   if (VARIANT === "individual") {
-    for (const name of ["Alpha", "Bravo", "Charlie"]) {
+    for (const [idx, name] of ["Alpha", "Bravo", "Charlie"].entries()) {
+      // Round-robin clubs so the history card shows two
+      // different club lines (DEU Capital Diving Club / DEU
+      // Coastal Aquatics) — mirrors a real meet where a panel
+      // of divers come from multiple clubs.
+      const club = clubs[idx % clubs.length];
       const d = await setup.insertUser({
-        orgId, role: "diver", fullName: `Diver ${name}`,
+        orgId, role: "diver", fullName: `Diver ${name}`, clubId: club.clubId,
       });
       const login = await setup.loginAs(request, d.username);
       // Each diver posts their own list via the public submit-list API.
@@ -170,12 +189,17 @@ test("meet-manager full E2E (random variant)", async ({
       ["Bravo", "Beatrix"],
       ["Charlie", "Catalina"],
     ];
-    for (const [leader, partner] of pairs) {
+    for (const [pairIdx, [leader, partner]] of pairs.entries()) {
+      // Round-robin pairs across clubs so the synchro history
+      // shows two different club affiliations (DEU-1 / DEU-2).
+      // The lead + partner share a club within a pair — a
+      // realistic synchro setup where pairs train together.
+      const club = clubs[pairIdx % clubs.length];
       const lead = await setup.insertUser({
-        orgId, role: "diver", fullName: `Diver ${leader}`,
+        orgId, role: "diver", fullName: `Diver ${leader}`, clubId: club.clubId,
       });
       const part = await setup.insertUser({
-        orgId, role: "diver", fullName: `Diver ${partner}`,
+        orgId, role: "diver", fullName: `Diver ${partner}`, clubId: club.clubId,
       });
       const leadLogin = await setup.loginAs(request, lead.username);
       const submit = await request.post("/api/competitor/submit-list", {
@@ -204,7 +228,14 @@ test("meet-manager full E2E (random variant)", async ({
       { name: "Team Aurora",  members: ["Alpha",  "Aurora"]   },
       { name: "Team Bravo",   members: ["Bravo",  "Beatrix"]  },
     ];
-    for (const spec of teamSpecs) {
+    for (const [teamIdx, spec] of teamSpecs.entries()) {
+      // Each team's members are rooted in one club so the
+      // history card shows BOTH the purple team chip (team_name)
+      // AND the muted club line beneath it — proving the
+      // split-variant layout works end-to-end with both rows
+      // populated.
+      const club = clubs[teamIdx % clubs.length];
+
       // Create the team.
       const teamRes = await request.post(`/api/orgs/${orgId}/teams`, {
         headers: { Authorization: `Bearer ${adminToken}` },
@@ -217,7 +248,7 @@ test("meet-manager full E2E (random variant)", async ({
       const memberRows = [];
       for (const memberName of spec.members) {
         const m = await setup.insertUser({
-          orgId, role: "diver", fullName: `Diver ${memberName}`,
+          orgId, role: "diver", fullName: `Diver ${memberName}`, clubId: club.clubId,
         });
         const addRes = await request.post(`/api/teams/${team.id}/members`, {
           headers: { Authorization: `Bearer ${adminToken}` },

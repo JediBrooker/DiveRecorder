@@ -47,8 +47,22 @@ test("watch a 3-diver, 3-round meet end-to-end with realistic pacing", async ({
   // different dive each round so the DDs (and therefore totals)
   // vary realistically.
   // ============================================================
-  const { orgId, username: adminUsername, adminToken } =
-    await setup.createOrgAndAdmin(request);
+  const { orgId, username: adminUsername, adminToken, countryCode } =
+    await setup.createOrgAndAdmin(request, {
+      // Realistic-looking flag so the country chip in the history
+      // card reads like a live meet rather than "TST".
+      countryCode: "NZL",
+      orgName:     "Diving New Zealand",
+    });
+
+  // Two clubs so the history cards show varied affiliations
+  // (mirrors a real meet where divers come from multiple clubs).
+  // Each club gets a short_code that surfaces as the cyan
+  // "NZL-1"/"NZL-2" pill alongside the club name.
+  const clubs = [
+    await setup.insertClub({ orgId, name: "Capital Diving Club", shortCode: "NZL-1" }),
+    await setup.insertClub({ orgId, name: "Coastal Aquatics",    shortCode: "NZL-2" }),
+  ];
 
   const TOTAL_ROUNDS = 3;
   const event = await setup.createEvent(request, {
@@ -61,9 +75,14 @@ test("watch a 3-diver, 3-round meet end-to-end with realistic pacing", async ({
   const eventId = event.id;
 
   const divers = [];
-  for (const name of ["Diver Alpha", "Diver Bravo", "Diver Charlie"]) {
-    const d = await setup.insertUser({ orgId, role: "diver", fullName: name });
-    divers.push({ ...d, fullName: name });
+  for (const [idx, name] of ["Diver Alpha", "Diver Bravo", "Diver Charlie"].entries()) {
+    // Round-robin across the two clubs so the watcher sees more
+    // than one club_name + short_code in the history list.
+    const club = clubs[idx % clubs.length];
+    const d = await setup.insertUser({
+      orgId, role: "diver", fullName: name, clubId: club.clubId,
+    });
+    divers.push({ ...d, fullName: name, club });
   }
 
   const judges = [];
