@@ -2612,27 +2612,28 @@ onUnmounted(() => {
               @click="setActive(row.originalIdx)"
               title="Jump to this diver"
             >
-              <!-- Two-line tile: identity (R# + pos + names +
-                   badge) on top via the shared <DiverIdentity>;
-                   bottom row carries dive code + DD on the LEFT,
-                   then the dive description filling the
-                   remaining space on the right. The description
-                   ellipsises if it overruns the column. -->
-              <div class="up-next-row-top">
+              <!-- Two-column layout: R# label pinned to the
+                   LEFT, everything else (names, club, dive code
+                   + DD + description) stacked in the right
+                   column so the dive header line indents to
+                   align with the name + club above it. -->
+              <div class="up-next-row-grid">
                 <span class="up-next-row-rd">R{{ row.round_number }}</span>
-                <DiverIdentity :row="row"
-                               :rank="row.round_order ?? row.display_order"
-                               class="up-next-identity" />
-              </div>
-              <div v-if="row.dive_code || row.dd != null || row.description"
-                   class="up-next-row-bot">
-                <span v-if="row.dive_code" class="up-next-row-code">
-                  {{ row.dive_code }}{{ row.position || '' }}
-                </span>
-                <span v-if="row.dd != null" class="up-next-row-dd">DD {{ parseFloat(row.dd).toFixed(1) }}</span>
-                <span v-if="row.description || row.position" class="up-next-row-desc">
-                  {{ diveDescription(row) }}
-                </span>
+                <div class="up-next-row-stack">
+                  <DiverIdentity :row="row"
+                                 :rank="row.round_order ?? row.display_order"
+                                 class="up-next-identity" />
+                  <div v-if="row.dive_code || row.dd != null || row.description"
+                       class="up-next-row-bot">
+                    <span v-if="row.dive_code" class="up-next-row-code">
+                      {{ row.dive_code }}{{ row.position || '' }}
+                    </span>
+                    <span v-if="row.dd != null" class="up-next-row-dd">DD {{ parseFloat(row.dd).toFixed(1) }}</span>
+                    <span v-if="row.description || row.position" class="up-next-row-desc">
+                      {{ diveDescription(row) }}
+                    </span>
+                  </div>
+                </div>
               </div>
             </button>
           </div>
@@ -4247,14 +4248,21 @@ onUnmounted(() => {
   background: var(--cyan-dim);
 }
 .up-next-row-btn:disabled { cursor: default; opacity: 0.5; }
-/* Up Next tile top row: R# label + shared identity block. The
-   <DiverIdentity> handles the names stack + position rank +
-   affiliation badge top-right; this just lays the R# next to
-   it. Inheritable font-size sets the identity block's baseline
-   to 12px (badge resolves to 9px, secondary line ~10px). */
-.up-next-row-top {
+/* Up Next tile is two columns: R# label on the LEFT, the
+   identity stack (names + club + dive header line) on the
+   right. By nesting the dive header inside the same right
+   column as DiverIdentity, the dive code aligns with the
+   name + club above it instead of starting at the tile's
+   left edge under R#. Inheritable font-size sets the identity
+   block's baseline to 12px (badge resolves to 9px, secondary
+   line ~10px). */
+.up-next-row-grid {
   display: flex; align-items: flex-start; gap: 0.4rem;
   font-size: 12px;
+}
+.up-next-row-stack {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 0.2rem;
 }
 .up-next-identity { flex: 1; min-width: 0; }
 /* Bottom row: dive code + DD anchored to the LEFT, dive
