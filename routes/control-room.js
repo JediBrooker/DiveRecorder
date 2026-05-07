@@ -285,12 +285,23 @@ module.exports = function createControlRoomRouter({
       // Withdrawn rows are excluded from the shuffle pool but
       // still get a display_order assigned via the JOIN — they
       // just sort to the end of their slot when reinstated.
+      // SELECT DISTINCT col, ROW_NUMBER() OVER (...) is a known
+      // SQL footgun — the window function evaluates BEFORE the
+      // DISTINCT, so a 3-pair × 3-round synchro event got
+      // positions 1..9 assigned to its 9 cdl rows and the
+      // subsequent JOIN matched arbitrarily, leaving display_order
+      // values like 4 / 6 / 9 instead of 1 / 2 / 3. Splitting the
+      // DISTINCT into its own subquery first guarantees we
+      // ROW_NUMBER over UNIQUE competitors only.
       const r = await pool.query(
         `WITH shuffled AS (
-           SELECT DISTINCT competitor_id,
+           SELECT competitor_id,
                   ROW_NUMBER() OVER (ORDER BY random()) AS pos
-           FROM competitor_dive_lists
-           WHERE event_id = $1 AND withdrawn_at IS NULL
+           FROM (
+             SELECT DISTINCT competitor_id
+             FROM competitor_dive_lists
+             WHERE event_id = $1 AND withdrawn_at IS NULL
+           ) u
          )
          UPDATE competitor_dive_lists cdl
          SET display_order = sh.pos

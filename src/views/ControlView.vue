@@ -1443,20 +1443,21 @@ const availableRounds = computed(() => {
 })
 
 // =============================================================
-// UP NEXT (right-panel hero) — the next 3 (or all) divers in
+// UP NEXT (right-panel hero) — the next 5 (or all) divers in
 // roster order, starting AFTER the currently-active diver.
 // Withdrawn rows are excluded so the operator never queues a
 // scratched diver into a "next" slot.
 //
 // Two pieces of state:
-//   upNextShowAll  toggle for the "Show all / Show first 3" link
-//   upNextDives    the actual list rendered, capped at 3 unless
+//   upNextShowAll  toggle for the "Show all / Show first 5" link
+//   upNextDives    the actual list rendered, capped at 5 unless
 //                  the toggle is on
 //
 // Drives the panel that replaces the old Diver Queue as the
 // primary right-panel surface; the full searchable roster lives
 // in a collapsed-by-default "Dive Order" panel underneath.
 // =============================================================
+const UP_NEXT_DEFAULT_LIMIT = 5
 const upNextShowAll = ref(false)
 const upNextDives = computed(() => {
   if (!roster.value.length) return []
@@ -1467,7 +1468,7 @@ const upNextDives = computed(() => {
   for (let i = start; i < roster.value.length; i++) {
     if (roster.value[i].withdrawn_at) continue
     tail.push({ ...roster.value[i], originalIdx: i })
-    if (!upNextShowAll.value && tail.length >= 3) break
+    if (!upNextShowAll.value && tail.length >= UP_NEXT_DEFAULT_LIMIT) break
   }
   return tail
 })
@@ -2572,14 +2573,14 @@ onUnmounted(() => {
         <div v-if="upNextDives.length" class="up-next-panel">
           <div class="up-next-panel-head">
             <span class="up-next-panel-label">Up Next</span>
-            <button v-if="upNextTotal > 3"
+            <button v-if="upNextTotal > 5"
                     class="up-next-toggle"
                     @click="upNextShowAll = !upNextShowAll"
                     :title="upNextShowAll
-                      ? 'Show only the next 3'
+                      ? 'Show only the next 5'
                       : `Show all ${upNextTotal} remaining`">
               {{ upNextShowAll
-                  ? `Show first 3 ↑`
+                  ? `Show first 5 ↑`
                   : `Show all (${upNextTotal}) ↓` }}
             </button>
           </div>
@@ -2592,34 +2593,45 @@ onUnmounted(() => {
               @click="setActive(row.originalIdx)"
               title="Jump to this diver"
             >
-              <span class="up-next-row-rd">R{{ row.round_number }}</span>
-              <span v-if="row.display_order != null" class="up-next-row-pos">{{ row.display_order }}</span>
-              <span class="up-next-row-name">
-                {{ row.full_name }}<span v-if="row.country_code" class="up-next-row-ctry">{{ row.country_code }}</span>
-                <template v-if="row.partner_name">
-                  <span class="up-next-row-amp">&amp;</span>{{ row.partner_name }}
-                </template>
-              </span>
-              <span v-if="row.dive_code" class="up-next-row-code">
-                {{ row.dive_code }}{{ row.position || '' }}
-              </span>
-              <span v-if="row.dd != null" class="up-next-row-dd">DD {{ parseFloat(row.dd).toFixed(1) }}</span>
+              <!-- Two visual rows so the data isn't squeezed
+                   horizontally — top reads "R# pos NAME" with
+                   the name expanding to fill, bottom reads
+                   "code · DD x.x" right-aligned. -->
+              <div class="up-next-row-top">
+                <span class="up-next-row-rd">R{{ row.round_number }}</span>
+                <span v-if="row.display_order != null" class="up-next-row-pos">{{ row.display_order }}</span>
+                <span class="up-next-row-name">
+                  {{ row.full_name }}<span v-if="row.country_code" class="up-next-row-ctry">{{ row.country_code }}</span>
+                  <template v-if="row.partner_name">
+                    <span class="up-next-row-amp">&amp;</span>{{ row.partner_name }}
+                  </template>
+                </span>
+              </div>
+              <div v-if="row.dive_code || row.dd != null" class="up-next-row-bot">
+                <span v-if="row.dive_code" class="up-next-row-code">
+                  {{ row.dive_code }}{{ row.position || '' }}
+                </span>
+                <span v-if="row.dd != null" class="up-next-row-dd">DD {{ parseFloat(row.dd).toFixed(1) }}</span>
+              </div>
             </button>
           </div>
         </div>
 
         <!-- Standings + projected leader — top 5 inline so the
-             meet referee always knows the running state. The
-             "projected" line under the table shows the gap from
-             the active diver to the leader (or, if leading, to
-             #2). The whole panel can be hidden via the eye icon
-             — preference saved per browser. -->
-        <div v-if="standingsTop5.length && showStandingsProjection" class="standings-preview">
-          <div class="standings-preview-head">
-            <span class="standings-preview-label">Top 5 right now</span>
-            <button class="standings-toggle" @click="toggleStandingsProjection"
-                    title="Hide standings + projection panel">👁</button>
-          </div>
+             meet referee always knows the running state. Mirrors
+             the Dive Order pattern below: clickable header with
+             a caret + count toggles the body open / closed.
+             Stays expanded by default; collapse preference saved
+             per browser via toggleStandingsProjection. -->
+        <div v-if="standingsTop5.length" class="standings-preview">
+          <button class="standings-head"
+                  @click="toggleStandingsProjection"
+                  :aria-expanded="showStandingsProjection">
+            <span class="standings-caret">{{ showStandingsProjection ? '▾' : '▸' }}</span>
+            <span class="standings-title">Top 5 right now</span>
+            <span class="standings-count">{{ standingsTop5.length }}</span>
+          </button>
+          <div v-if="showStandingsProjection" class="standings-body">
           <div v-for="(s, i) in standingsTop5" :key="i" class="sp-row">
             <span :class="['sp-rank', i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '']">
               {{ i + 1 }}
@@ -2694,16 +2706,8 @@ onUnmounted(() => {
               {{ projectedLine.activeName }} unopposed — only diver entered.
             </template>
           </div>
+          </div>
         </div>
-
-        <!-- Re-show toggle when hidden. Tiny chip so the
-             controller can bring the panel back without leaving
-             the page. -->
-        <button v-if="!showStandingsProjection" class="standings-show-chip"
-                @click="toggleStandingsProjection"
-                title="Show standings + projection panel">
-          📊 Show standings
-        </button>
 
         <!-- Dive Order — collapsed-by-default panel housing the
              full roster (search, round chips, reorder controls).
@@ -4246,10 +4250,8 @@ onUnmounted(() => {
   display: flex; flex-direction: column; gap: 0.3rem;
 }
 .up-next-row-btn {
-  display: grid;
-  grid-template-columns: 26px 22px 1fr auto auto;
-  align-items: baseline; gap: 0.5rem;
-  padding: 0.4rem 0.55rem;
+  display: flex; flex-direction: column; gap: 0.2rem;
+  padding: 0.45rem 0.6rem;
   background: var(--bg-2); border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   cursor: pointer; transition: border-color 0.15s;
@@ -4262,6 +4264,20 @@ onUnmounted(() => {
   background: var(--cyan-dim);
 }
 .up-next-row-btn:disabled { cursor: default; opacity: 0.5; }
+/* Top row: R# · pos · NAME — name expands to fill so long names
+   wrap rather than truncate. Round + position are kept narrow on
+   the left so the eye reads "R1 4 Diver Name" left-to-right. */
+.up-next-row-top {
+  display: grid;
+  grid-template-columns: 26px 22px 1fr;
+  align-items: baseline; gap: 0.5rem;
+}
+/* Bottom row: dive code + DD, right-aligned so the columns line
+   up vertically across stacked Up Next rows. */
+.up-next-row-bot {
+  display: flex; gap: 0.6rem; justify-content: flex-end;
+  align-items: baseline; padding-left: 54px;
+}
 .up-next-row-rd {
   font-family: var(--font-display); font-size: 10px; font-weight: 700;
   letter-spacing: 0.04em; color: var(--text-3);
@@ -4271,8 +4287,12 @@ onUnmounted(() => {
   font-style: italic; color: var(--cyan); text-align: right;
 }
 .up-next-row-name {
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  min-width: 0;
+  /* Allow long synchro pair names ("Diver Bravo & Diver Beatrix")
+     to wrap onto a second visual line rather than be cut off
+     mid-word. The button's flex-column layout absorbs the extra
+     height cleanly. */
+  white-space: normal; word-break: break-word;
+  line-height: 1.25; min-width: 0;
 }
 .up-next-row-ctry {
   font-family: var(--font-display); font-size: 9px; font-weight: 700;
@@ -4324,39 +4344,41 @@ onUnmounted(() => {
 }
 
 /* =========================================================
-   Standings preview — top 5 inline above the diver queue
+   Standings preview — top 5 inline above the dive order panel.
+   Collapsible header mirrors the .dive-order-head pattern below
+   so both bottom-half right-panel sections feel the same. The
+   panel is expanded by default; a click on the header toggles
+   showStandingsProjection (persisted per browser).
    ========================================================= */
 .standings-preview {
-  padding: 0.75rem 1rem;
+  display: flex; flex-direction: column;
   border-bottom: 1px solid var(--border);
   background: var(--bg-3);
   flex-shrink: 0;
 }
-.standings-preview-head {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 0.5rem;
-}
-.standings-preview-label {
-  font-family: var(--font-display); font-size: 9px; font-weight: 700;
-  letter-spacing: 0.25em; text-transform: uppercase; color: var(--text-3);
-}
-.standings-toggle {
+.standings-head {
+  display: flex; align-items: center; gap: 0.5rem;
+  width: 100%;
   background: transparent; border: none;
-  color: var(--text-3); cursor: pointer;
-  font-size: 11px; padding: 0.1rem 0.3rem;
-  transition: color 0.1s;
+  padding: 0.7rem 1rem;
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-2);
+  cursor: pointer; text-align: left;
+  transition: background 0.15s;
 }
-.standings-toggle:hover { color: var(--text); }
-.standings-show-chip {
-  display: block;
-  margin: 0.5rem 1rem;
-  padding: 0.4rem 0.7rem;
-  background: var(--bg-3); border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-3); cursor: pointer;
-  font-family: var(--font-mono); font-size: 11px;
+.standings-head:hover { background: var(--bg-2); color: var(--text); }
+.standings-caret {
+  display: inline-block; width: 12px;
+  color: var(--text-3); font-size: 10px;
 }
-.standings-show-chip:hover { color: var(--text); border-color: var(--text-3); }
+.standings-title { flex: 1; }
+.standings-count {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+  letter-spacing: 0;
+}
+.standings-body {
+  padding: 0 1rem 0.75rem;
+}
 
 /* Projected-leader hint under the standings preview. */
 .projection-line {
