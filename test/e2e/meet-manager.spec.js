@@ -13,9 +13,14 @@
 //                       teams, links them to the event, posts each
 //                       team's dive list
 //   3. Manager closes entries (entries_close_at = now)
-//   4. Manager randomises start order
-//        (POST /api/events/:id/dive-lists/randomize)
-//   5. Manager flips status Upcoming → Live
+//   4. Manager walks the 3-state pre-meet workflow button in the
+//      Control Room: red Randomise → yellow Referee Sign Off →
+//      green Start Event. Each click is fronted by a deliberate
+//      WORKFLOW_HOLD_MS dwell so the colour transition is
+//      visible to a watching human (CI overrides the dwell to
+//      ~200ms).
+//   5. The Start Event click flips status Upcoming → Live in the
+//      same place as the old setEventStatus API call did.
 //   6. Judges connect via socket and submit scores while the
 //      manager browser sits on /control. Scores stream in
 //      round-major; manager emits set_active_diver / announce_score
@@ -59,12 +64,17 @@ const DIVE_PICKS = [
 //
 // Quick speed-up for a CI / smoke pass:
 //   MM_PRE_DIVE_MS=200 MM_PER_SCORE_MS=50 MM_POST_DIVE_MS=200 \
-//   MM_LOGIN_HOLD_MS=200 MM_FINAL_HOLD_MS=200
+//   MM_LOGIN_HOLD_MS=200 MM_FINAL_HOLD_MS=200 MM_WORKFLOW_HOLD_MS=200
 const PRE_DIVE_MS    = Number(process.env.MM_PRE_DIVE_MS    ?? 1200);
 const PER_SCORE_MS   = Number(process.env.MM_PER_SCORE_MS   ?? 250);
 const POST_DIVE_MS   = Number(process.env.MM_POST_DIVE_MS   ?? 900);
 const LOGIN_HOLD_MS  = Number(process.env.MM_LOGIN_HOLD_MS  ?? 1500);
 const FINAL_HOLD_MS  = Number(process.env.MM_FINAL_HOLD_MS  ?? 4000);
+// Slow-mo dwell between the three pre-meet workflow steps
+// (Randomise → Sign Off → Start). Defaults to 2.5s so a watching
+// human can see the button shift colour from red → yellow →
+// green; CI shrinks it to 200ms via the env override above.
+const WORKFLOW_HOLD_MS = Number(process.env.MM_WORKFLOW_HOLD_MS ?? 2500);
 
 test.describe.configure({ mode: "serial" });
 
@@ -281,10 +291,12 @@ test("meet-manager full E2E (random variant)", async ({
   // the Control Room workflow:
   //   * pick the event from the dropdown (auto-loads roster +
   //     calls setActive(0))
-  //   * click "🎲 Randomise" to shuffle start order
-  //   * click the first roster row after randomise (the SPA
-  //     clears currentActive on randomise, prompting the
-  //     operator to re-pick)
+  //   * walk the 3-state pre-meet button (red randomise → yellow
+  //     referee sign-off → green start event) with WORKFLOW_HOLD_MS
+  //     dwell between each step so a watching human sees the
+  //     colour transition
+  //   * click the first roster row to re-pick the active diver
+  //     (randomise reset currentActive in the SPA)
   // ============================================================
   // Auto-accept any window.confirm() the SPA pops up — Randomise
   // and Finalise both ask "are you sure?" via confirm(), and
@@ -322,20 +334,53 @@ test("meet-manager full E2E (random variant)", async ({
   });
   await page.waitForTimeout(LOGIN_HOLD_MS);
 
-  // Click "🎲 Randomise" — the dialog auto-accepts via the
-  // listener above.
-  await page.getByRole("button", { name: /Randomise/i }).click();
-  // Wait for the SPA's roster.value reset (currentActive → null,
-  // the .roster-jump button stops being highlighted) before we
-  // re-pick the active diver. A short settle window is enough.
-  await page.waitForTimeout(LOGIN_HOLD_MS);
+  // ============================================================
+  // PHASE 4b — Pre-meet 3-state workflow.
+  //
+  // The Control Room owns a single button that walks the operator
+  // through three sequential states before the event flips Live.
+  // We exercise all three in the headed Chrome so a watching
+  // human sees the colour shift red → yellow → green:
+  //
+  //   1. Red    — "🎲 Randomise Dive Order"
+  //   2. Yellow — "📋 Referee Sign Off"
+  //   3. Green  — "▶ Start Event"
+  //
+  // The dwell between steps is WORKFLOW_HOLD_MS (default 2.5s in
+  // headed mode, 200ms in CI). Each click resolves an explicit
+  // .wf-btn-* selector so the test fails loudly if a future
+  // refactor breaks the colour ↔ state mapping.
+  // ============================================================
 
-  // ============================================================
-  // PHASE 5 — Manager flips the event Live (API only — there's
-  // no UI button for this in the Control Room today).
-  // ============================================================
-  await setup.setEventStatus(request, { adminToken, eventId, status: "Live" });
-  await page.waitForTimeout(500);
+  // STATE 1 — Red randomise button.
+  const wfRedBtn = page.locator(".wf-btn.wf-btn-red");
+  await expect(wfRedBtn).toBeVisible({ timeout: 5000 });
+  await expect(wfRedBtn).toHaveText(/Randomise Dive Order/i);
+  await page.waitForTimeout(WORKFLOW_HOLD_MS);
+  // Confirm() pops up; the global dialog handler accepts.
+  await wfRedBtn.click();
+
+  // STATE 2 — Button transitions to yellow "Referee Sign Off"
+  // once randomised_at is stamped on the event row.
+  const wfYellowBtn = page.locator(".wf-btn.wf-btn-yellow");
+  await expect(wfYellowBtn).toBeVisible({ timeout: 5000 });
+  await expect(wfYellowBtn).toHaveText(/Referee Sign Off/i);
+  await page.waitForTimeout(WORKFLOW_HOLD_MS);
+  await wfYellowBtn.click();
+
+  // STATE 3 — Button transitions to green "Start Event" once
+  // signed_off_at is stamped. Clicking it flips the event Live.
+  const wfGreenBtn = page.locator(".wf-btn.wf-btn-green");
+  await expect(wfGreenBtn).toBeVisible({ timeout: 5000 });
+  await expect(wfGreenBtn).toHaveText(/Start Event/i);
+  await page.waitForTimeout(WORKFLOW_HOLD_MS);
+  await wfGreenBtn.click();
+
+  // Once Live, the workflow button hides and the small "● Live"
+  // badge takes its place — assert that so we know the status
+  // flip actually landed before we hand off to the scoring loop.
+  await expect(page.locator(".wf-live-badge")).toBeVisible({ timeout: 5000 });
+  await page.waitForTimeout(LOGIN_HOLD_MS);
 
   // Re-pick the first diver via the roster row click — the SPA
   // cleared currentActive when Randomise reshuffled the order.
