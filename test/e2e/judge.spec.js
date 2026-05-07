@@ -110,10 +110,20 @@ test("judge full E2E (random variant)", async ({
   const eventId = event.id;
 
   const diveIds = [];
+  // Per-dive DD pulled fresh from dive_directory so the
+  // set_active_diver payload carries the real number — the
+  // SPA reads activeDiver.dd directly, no server-side enrich.
+  const diveDDs = [];
   for (const dp of DIVE_PICKS) {
     diveIds.push(await setup.pickDiveId({
       height: HEIGHT_NUMERIC, dive_code: dp.dive_code, position: dp.position,
     }));
+    const ddRow = await setup.pool.query(
+      `SELECT dd FROM dive_directory
+       WHERE height = $1::numeric AND dive_code = $2 AND position = $3::dive_position`,
+      [HEIGHT_NUMERIC, dp.dive_code, dp.position],
+    );
+    diveDDs.push(parseFloat(ddRow.rows[0]?.dd) || 0);
   }
 
   // ---- Divers / pairs ----
@@ -298,7 +308,7 @@ test("judge full E2E (random variant)", async ({
         partner_name:  c.partnerName || null,
         round_number:  round,
         diveCode:      `${dive.dive_code}${dive.position}`,
-        dd:            null,                        // server-side from cdl
+        dd:            diveDDs[round - 1],
         description:   diveAction,
         position:      dive.position,
         eventName:     event.name,

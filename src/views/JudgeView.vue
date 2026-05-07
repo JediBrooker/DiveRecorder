@@ -25,6 +25,11 @@ const connStatus = ref(false)
 const submitted = ref(false)
 const judgeNumber = ref(null)
 const pendingScore = ref(null)
+// Panel of every judge's score for the current dive — keyed by
+// judge_number, populated as score_received broadcasts arrive.
+// Lets THIS judge see the full panel (e.g. their own 8.5 next
+// to J1's 8.0, J3's 7.5 …) once everyone has submitted.
+const panelScores = ref({})
 
 const displayValue = computed(() => {
   const val = currentScore.value + (isHalf.value ? 0.5 : 0)
@@ -32,6 +37,13 @@ const displayValue = computed(() => {
 })
 
 const scoreIsZero = computed(() => (currentScore.value + (isHalf.value ? 0.5 : 0)) === 0)
+
+// Total judges on the panel for the current event. Drives the
+// number of slots the panel display renders.
+const panelSize = computed(() =>
+  parseInt(activeDiver.value?.number_of_judges) || 0,
+)
+const panelInCount = computed(() => Object.keys(panelScores.value).length)
 
 // Synchro role — derived from this judge's position in the panel.
 // Lets the judge see whether they should be scoring Diver A's
@@ -103,6 +115,8 @@ socket.on('meet_resumed', (data) => {
 socket.on('state_update', async (data) => {
   activeDiver.value = data
   resetScore()
+  // New diver / round → previous panel is irrelevant.
+  panelScores.value = {}
 
   if (data.event_id) {
     try {
@@ -116,6 +130,22 @@ socket.on('state_update', async (data) => {
         judgeLabel.value = `${user?.full_name} — J${judge_number}`
       }
     } catch { /* show name only */ }
+  }
+})
+
+// Every judge tile fills as score_received broadcasts arrive.
+// The judge sees the panel build up in real time — their own
+// score lights up first when they hit Submit, then the rest
+// trickle in as the other panel members lock theirs in.
+socket.on('score_received', (data) => {
+  if (!activeDiver.value) return
+  if (data.event_id      !== activeDiver.value.event_id)      return
+  if (data.competitor_id !== activeDiver.value.competitor_id) return
+  if (Number(data.round_number) !== Number(activeDiver.value.round_number)) return
+  if (data.judge_number == null) return
+  panelScores.value = {
+    ...panelScores.value,
+    [data.judge_number]: Number(data.score),
   }
 })
 
@@ -220,6 +250,29 @@ const submitLabel = computed(() => {
         <span class="dive-pill dd">{{ activeDiver?.dd ? `DD ${activeDiver.dd}` : 'DD —' }}</span>
       </div>
       <div class="dive-desc">{{ activeDiver ? (diveDescription(activeDiver) || '—') : '—' }}</div>
+
+      <!-- Live panel — every judge's tile fills as their
+           score_received broadcast lands. Highlights this
+           judge's own tile so they read the spread including
+           their own contribution at a glance. -->
+      <div v-if="activeDiver && panelSize" class="judge-panel">
+        <div class="judge-panel-label">
+          DIVE PANEL · {{ panelInCount }} / {{ panelSize }}
+        </div>
+        <div class="judge-panel-tiles">
+          <div v-for="n in panelSize" :key="n"
+               :class="[
+                 'judge-panel-tile',
+                 n === judgeNumber ? 'mine' : '',
+                 panelScores[n] != null ? 'in' : '',
+               ]">
+            <div class="judge-panel-tile-label">J{{ n }}</div>
+            <div class="judge-panel-tile-score">
+              {{ panelScores[n] != null ? panelScores[n].toFixed(1) : '—' }}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Score display -->
@@ -412,6 +465,57 @@ const submitLabel = computed(() => {
 .dive-pill.code { color: var(--text); font-weight: 500; font-size: 13px; }
 .dive-pill.dd { color: var(--cyan); border-color: rgba(6,182,212,0.3); background: var(--cyan-dim); }
 .dive-desc { font-size: 11px; color: var(--text-3); margin-top: 0.35rem; font-family: var(--font-mono); }
+
+/* Live panel display — every judge's tile fills as their score
+   lands. The current judge's own tile gets a cyan ring so they
+   can see their contribution at a glance amongst the panel. */
+.judge-panel {
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+}
+.judge-panel-label {
+  font-family: var(--font-display); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.25em; text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 0.4rem;
+}
+.judge-panel-tiles {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 0.35rem;
+}
+.judge-panel-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.4rem;
+  text-align: center;
+  transition: all 0.15s;
+}
+.judge-panel-tile.in {
+  background: var(--green-dim);
+  border-color: var(--green);
+}
+.judge-panel-tile.mine {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 1px var(--cyan);
+}
+.judge-panel-tile.mine.in {
+  background: var(--cyan-dim);
+}
+.judge-panel-tile-label {
+  font-family: var(--font-display); font-size: 8px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3);
+}
+.judge-panel-tile.in .judge-panel-tile-label { color: var(--green); }
+.judge-panel-tile.mine .judge-panel-tile-label { color: var(--cyan); }
+.judge-panel-tile-score {
+  font-family: var(--font-mono); font-size: 14px; font-weight: 700;
+  color: var(--text-3); margin-top: 0.1rem;
+}
+.judge-panel-tile.in .judge-panel-tile-score { color: var(--text); }
 
 .score-zone {
   display: flex;
