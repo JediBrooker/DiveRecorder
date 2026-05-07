@@ -2066,11 +2066,23 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   flex: 1;
   display: grid;
   grid-template-columns: 280px 1fr 280px;
+  /* grid-template-rows defaults to auto, which sizes the row to
+     the tallest column's content height — leaving a dead band
+     below the columns when the viewport is taller than the
+     content. minmax(0, 1fr) makes the row fill the available
+     flex height instead, AND the 0-min lets columns with
+     overflow: auto actually scroll when the viewport is
+     shorter than the content. */
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
 }
 .ctrl-panel {
   display: flex;
   flex-direction: column;
+  /* Same min-height: 0 trick as .ctrl-centre — without it a
+     grid child defaults to min-content and refuses to shrink,
+     which clips overflow content rather than scrolling. */
+  min-height: 0;
   overflow: hidden;
   border-right: 1px solid var(--border);
 }
