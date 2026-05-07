@@ -167,32 +167,59 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
            ORDER BY MAX(s.created_at) DESC LIMIT 10`,
           [req.params.eventId],
         ),
-        // Up Next: dive list rows that haven't been scored yet,
-        // earliest round first. The scoreboard surfaces the first
-        // few of these so the audience knows who's coming up.
+        // Up Next: every dive list row that hasn't been scored
+        // yet, earliest round first. Returns the FULL queue (no
+        // LIMIT) so the scoreboard's centre column can render a
+        // scrollable "what's coming" list — truncating at the
+        // server would force an artificial paging UX on the
+        // client. A meet's competitor_dive_lists rarely exceeds
+        // 600 rows (50 divers × 12 rounds), so the payload size
+        // is bounded.
+        //
+        // round_order is the canonical 1-based diving order
+        // within the round, computed across ALL non-withdrawn
+        // rows for that round (not just the remaining ones) so
+        // a diver's "diver 3 of 5 in round 2" stays stable as
+        // earlier divers complete their dives. Falls back to
+        // alphabetical when display_order is unset (matches the
+        // historical sort).
         pool.query(
-          `SELECT cdl.round_number, u.full_name, o.country_code,
+          `WITH ordered AS (
+             SELECT cdl.id, cdl.event_id, cdl.competitor_id,
+                    cdl.round_number, cdl.display_order, cdl.dive_id,
+                    cdl.partner_id, cdl.team_id,
+                    ROW_NUMBER() OVER (
+                      PARTITION BY cdl.round_number
+                      ORDER BY cdl.display_order NULLS LAST,
+                               u_inner.full_name,
+                               cdl.competitor_id
+                    ) AS round_order
+             FROM competitor_dive_lists cdl
+             JOIN users u_inner ON u_inner.id = cdl.competitor_id
+             WHERE cdl.event_id = $1
+               AND cdl.withdrawn_at IS NULL
+           )
+           SELECT ordered.round_number, ordered.round_order,
+                  u.full_name, o.country_code,
                   cl.name AS club_name,
                   pu.full_name AS partner_name, pl.country_code AS partner_country,
                   t.name AS team_name,
-                  d.dive_code, d.position, d.dd
-           FROM competitor_dive_lists cdl
-           JOIN users u ON u.id = cdl.competitor_id
+                  d.dive_code, d.position, d.description, d.dd
+           FROM ordered
+           JOIN users u ON u.id = ordered.competitor_id
            JOIN organisations o ON o.id = u.org_id
            LEFT JOIN clubs cl ON cl.id = u.club_id
-           LEFT JOIN users pu ON pu.id = cdl.partner_id
+           LEFT JOIN users pu ON pu.id = ordered.partner_id
            LEFT JOIN organisations pl ON pl.id = pu.org_id
-           LEFT JOIN teams t ON t.id = cdl.team_id
-           LEFT JOIN dive_directory d ON d.id = cdl.dive_id
-           WHERE cdl.event_id = $1
-             AND NOT EXISTS (
-               SELECT 1 FROM scores s
-               WHERE s.event_id = cdl.event_id
-                 AND s.competitor_id = cdl.competitor_id
-                 AND s.round_number = cdl.round_number
-             )
-           ORDER BY cdl.round_number, u.full_name
-           LIMIT 5`,
+           LEFT JOIN teams t ON t.id = ordered.team_id
+           LEFT JOIN dive_directory d ON d.id = ordered.dive_id
+           WHERE NOT EXISTS (
+             SELECT 1 FROM scores s
+             WHERE s.event_id = $1
+               AND s.competitor_id = ordered.competitor_id
+               AND s.round_number = ordered.round_number
+           )
+           ORDER BY ordered.round_number, ordered.round_order`,
           [req.params.eventId],
         ),
       ]);

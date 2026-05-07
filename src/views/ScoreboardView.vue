@@ -53,14 +53,16 @@ const liveEvents = computed(() => events.value.filter(e => e.status === 'Live'))
 
 // Up Next: filter the server's queue to skip the current active
 // diver (so they don't appear as both "current performer" and
-// "up next") and cap at 3 rows. Empty array → panel hides.
+// "up next"). Returns the FULL remaining queue — the panel below
+// scrolls when the list overflows ~10 rows. Empty array → panel
+// hides.
 const upcomingDisplay = computed(() => {
   if (!upcoming.value?.length) return []
   const active = activeDiver.value?.diverName
   const round  = activeDiver.value?.round_number
-  return upcoming.value
-    .filter(u => !(active && u.full_name === active && u.round_number === round))
-    .slice(0, 3)
+  return upcoming.value.filter(u => !(
+    active && u.full_name === active && u.round_number === round
+  ))
 })
 
 const countries = computed(() => {
@@ -907,27 +909,38 @@ onMounted(async () => {
             Currently <strong>{{ ordinal(activeDiverRank) }}</strong>
           </div>
 
-          <!-- Up Next: the next ≤3 dives queued. Shown only when
-               we actually have upcoming entries — the panel
-               disappears the moment the queue empties so we
-               don't dangle an empty list at end-of-meet. Filters
-               out any that match the current active diver +
-               round so we never show "active diver" as also "up
-               next". -->
+          <!-- Up Next: every remaining dive in the meet, scrollable
+               when the list is long. Each row reads:
+                 R# · order-in-round · Name · TST · 103B · DD 1.6 · Forward 1½ Somersaults Pike
+               so a spectator scanning the panel knows exactly
+               who's up, what they're doing, and how hard it is.
+               Hidden when the queue is empty (end-of-meet) so we
+               don't dangle a blank panel. Filters out the current
+               active diver so they're not double-shown. -->
           <div v-if="upcomingDisplay.length" class="up-next">
-            <div class="up-next-label">Up Next</div>
-            <div v-for="(u, i) in upcomingDisplay" :key="i" class="up-next-row">
-              <span class="up-next-rd">R{{ u.round_number }}</span>
-              <span class="up-next-name">
-                {{ u.full_name }}<span v-if="u.country_code" class="up-next-ctry">{{ u.country_code }}</span>
-                <template v-if="u.partner_name">
-                  <span class="up-next-amp">&amp;</span>
-                  {{ u.partner_name }}
-                </template>
-              </span>
-              <span v-if="u.dive_code" class="up-next-code">
-                {{ [u.dive_code, u.position].filter(Boolean).join(' ') }}
-              </span>
+            <div class="up-next-label">
+              Up Next · {{ upcomingDisplay.length }} remaining
+            </div>
+            <div class="up-next-scroll">
+              <div v-for="(u, i) in upcomingDisplay" :key="i" class="up-next-row">
+                <span class="up-next-rd">R{{ u.round_number }}</span>
+                <span class="up-next-pos">{{ u.round_order }}</span>
+                <span class="up-next-name">
+                  {{ u.full_name }}<span v-if="u.country_code" class="up-next-ctry">{{ u.country_code }}</span>
+                  <template v-if="u.partner_name">
+                    <span class="up-next-amp">&amp;</span>
+                    {{ u.partner_name }}
+                  </template>
+                  <span v-if="u.club_name && !u.country_code" class="up-next-club">{{ u.club_name }}</span>
+                </span>
+                <span v-if="u.dive_code" class="up-next-code">
+                  {{ u.dive_code }}<span class="up-next-letter">{{ u.position }}</span>
+                </span>
+                <span v-if="u.dd" class="up-next-dd">DD {{ parseFloat(u.dd).toFixed(1) }}</span>
+                <span v-if="u.description || u.position" class="up-next-desc">
+                  {{ diveDescription(u) }}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -1602,29 +1615,52 @@ onMounted(async () => {
   font-weight: 700;
 }
 
-/* Up Next strip — sits below the active diver in the live
-   centre column, gives the audience a reason to stay engaged
-   through the gap between dives. */
+/* Up Next panel — sits below the active diver block. Contains
+   every remaining dive in the meet, scrollable when the list
+   exceeds ~10 rows. Each row is laid out as a horizontal flex
+   strip: round / order / name / dive code / DD / description so
+   a spectator scanning the panel can read what's coming without
+   having to parse a dense list. Width-capped so it doesn't
+   stretch full-screen on big monitors. */
 .up-next {
-  margin-top: 2rem; padding: 0.875rem 1rem;
+  margin-top: 2rem;
   background: var(--bg-3); border: 1px solid var(--border);
   border-radius: var(--radius);
   text-align: left;
-  width: 100%; max-width: 520px;
+  width: 100%; max-width: 720px;
+  overflow: hidden;     /* clip the scroll-child's corners */
 }
 .up-next-label {
   font-family: var(--font-display); font-size: 10px; font-weight: 700;
   letter-spacing: 0.3em; text-transform: uppercase; color: var(--text-3);
-  margin-bottom: 0.6rem;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+/* The scroll container. Caps height at roughly 10 rows so a
+   long meet doesn't push the rest of the centre column off
+   screen. With the description on its own grid row each row is
+   ~55px including padding + border; 500px shows ~9 fully + a
+   hint of the 10th to telegraph that the list scrolls. */
+.up-next-scroll {
+  max-height: 500px;
+  overflow-y: auto;
 }
 .up-next-row {
-  display: grid; grid-template-columns: 30px 1fr auto;
+  display: grid;
+  grid-template-columns: 32px 28px 1fr auto auto auto;
   align-items: baseline; gap: 0.6rem;
-  padding: 0.35rem 0; border-top: 1px solid var(--border);
+  padding: 0.45rem 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
 }
 .up-next-row:first-of-type { border-top: none; }
 .up-next-rd {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+  font-weight: 700;
+}
+.up-next-pos {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+  text-align: right;
 }
 .up-next-name {
   font-family: var(--font-display); font-size: 13px; font-weight: 700;
@@ -1640,8 +1676,37 @@ onMounted(async () => {
   border-radius: 3px; padding: 0.05rem 0.3rem;
   margin-left: 0.4rem; vertical-align: middle;
 }
+.up-next-club {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+  margin-left: 0.4rem;
+}
 .up-next-code {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+.up-next-letter {
+  color: var(--cyan); margin-left: 0.25em;
+}
+.up-next-dd {
   font-family: var(--font-mono); font-size: 11px; color: var(--cyan);
+  white-space: nowrap;
+}
+.up-next-desc {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0;
+  /* Description gets pushed onto its own row when the panel is
+     narrow — see media query below. */
+  grid-column: 3 / -1;
+}
+@media (max-width: 720px) {
+  .up-next-row {
+    grid-template-columns: 28px 24px 1fr auto;
+    row-gap: 0.2rem;
+  }
+  .up-next-dd, .up-next-code { grid-column: auto; }
+  .up-next-desc { font-size: 10.5px; }
 }
 .sb-country-line { font-family: var(--font-mono); font-size: clamp(14px,2vw,20px); font-weight: 700; letter-spacing: 0.15em; color: var(--text-3); margin-bottom: 1.5rem; }
 

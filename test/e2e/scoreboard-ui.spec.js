@@ -124,6 +124,30 @@ test("watch a 3-diver, 3-round meet end-to-end with realistic pacing", async ({
   // is rendered as soon as the view mounts, before any data arrives.
   await expect(page.locator(".sb-name")).toBeVisible({ timeout: 10_000 });
 
+  // The Up Next panel should list every remaining dive — 9 total
+  // (3 divers × 3 rounds), since no scores have been submitted
+  // yet and there's no active diver to exclude.
+  const upNextRows = page.locator(".up-next-row");
+  await expect(upNextRows).toHaveCount(9, { timeout: 5_000 });
+  // First row should be the leader of round 1 (alphabetical
+  // since display_order is unset in the fixture). Diver Alpha
+  // sorts before Bravo + Charlie, so they're round 1, position 1.
+  await expect(upNextRows.nth(0)).toContainText("R1");
+  await expect(upNextRows.nth(0).locator(".up-next-pos")).toHaveText("1");
+  await expect(upNextRows.nth(0).locator(".up-next-name")).toContainText("Diver Alpha");
+  await expect(upNextRows.nth(0).locator(".up-next-code")).toContainText("101");
+  await expect(upNextRows.nth(0).locator(".up-next-letter")).toHaveText("B");
+  await expect(upNextRows.nth(0).locator(".up-next-dd")).toContainText("1.5");
+  await expect(upNextRows.nth(0).locator(".up-next-desc")).toContainText("Forward Dive Pike");
+
+  // Screenshot the live view so a watching human can compare the
+  // up-next panel against the eventual recap. Saved alongside
+  // the post-completion screenshot below.
+  await page.screenshot({
+    path: `test-results/scoreboard-live-${eventId}.png`,
+    fullPage: true,
+  });
+
   // ============================================================
   // PHASE 3 — simulate the meet. Round-major order (round 1 for
   // every diver, then round 2, …) — that's how real meets run.
