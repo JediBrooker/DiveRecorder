@@ -1438,7 +1438,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       </div>
 
       <!-- Centre: Active diver -->
-      <div style="display:flex;flex-direction:column;overflow:hidden">
+      <div class="ctrl-centre">
 
         <!-- On-Deck strip — Now / Next / On-deck so the announcer
              can pre-call and divers know when to walk to the
@@ -1483,7 +1483,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           </div>
         </div>
 
-        <div class="active-zone" style="flex:1;overflow-y:auto">
+        <div class="active-zone">
           <div class="active-label-row">
             <span class="active-label">
               Currently on Board<span v-if="activeInfo.round_number" class="active-round">— Round {{ activeInfo.round_number }}</span>
@@ -2095,9 +2095,25 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   padding: 1rem;
 }
 
+/* Centre column flex chain — every parent needs min-height: 0
+   so .active-zone's overflow-y: auto can actually scroll when
+   the operator's window is shorter than the natural content
+   height (judges + dive-total slot + bottom controls). Without
+   min-height: 0 a flex / grid child defaults to min-content and
+   refuses to shrink, which clips the bottom rather than
+   scrolling. */
+.ctrl-centre {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
 .active-zone {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: 1.5rem;
   background: var(--bg-2);
 }
@@ -2920,6 +2936,35 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   background: var(--bg-3); color: var(--text-2);
   border: 1px solid var(--border); border-radius: 3px;
   box-shadow: inset 0 -1px 0 var(--border-2);
+}
+
+/* Compact layout for shorter viewports (laptops, split-screen
+   setups). Drops the kbd-hints hint row, tightens padding, and
+   shrinks the active-diver name + desc + dive-total slot so the
+   centre column fits without forcing a scroll. The actual bits
+   the operator needs (judges, dive total, action buttons) stay
+   their full size. */
+@media (max-height: 800px) {
+  .active-zone { padding: 1rem 1.5rem; }
+  .active-name { font-size: clamp(28px, 4vw, 48px); margin-bottom: 0.6rem; }
+  .active-desc { min-height: 0; margin-bottom: 1rem; }
+  .active-badges { margin-bottom: 1rem; }
+  .judge-block { margin-bottom: 0.5rem; }
+  .active-dive-total-slot { min-height: 48px; margin-top: 0.35rem; }
+  .active-dive-total-value { font-size: 22px; }
+  .active-bottom { gap: 0.5rem; padding-top: 0.5rem; }
+  .kbd-hints { display: none; }
+}
+@media (max-height: 640px) {
+  /* Even tighter — only the essentials. Drop the on-deck strip's
+     "On-Deck" cell so the strip is a row of 2 not 3. */
+  .active-zone { padding: 0.75rem 1rem; }
+  .active-name { font-size: clamp(24px, 3.5vw, 36px); margin-bottom: 0.4rem; }
+  .active-badges { margin-bottom: 0.6rem; }
+  .judge-tile { width: 52px; height: 52px; }
+  .judge-tile-score { font-size: 14px; }
+  .active-dive-total-slot { min-height: 42px; }
+  .active-dive-total-value { font-size: 20px; }
 }
 
 /* ── Tablet & phone ─────────────────────────────────────────
