@@ -18,6 +18,7 @@ Built around five audiences:
 
 ## Table of contents
 
+- [User Guide (Wiki) ↗](https://github.com/JediBrooker/DiveRecorder/wiki)
 - [Screenshots](#screenshots)
 - [Tech stack](#tech-stack)
 - [Features](#features)
