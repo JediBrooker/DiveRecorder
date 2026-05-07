@@ -63,6 +63,27 @@ step "starting deploy from ${PREV_SHA}"
 # ---- 1. Pull --------------------------------------------------
 # --ff-only refuses non-fast-forward merges so a manually-edited
 # file on the box can't silently produce a merge commit.
+#
+# Auto-reset package-lock.json if it's the only dirty file. npm
+# install (sometimes run accidentally on the server, sometimes by
+# tools like pm2-logrotate) mutates the lockfile, which then
+# blocks `git pull --ff-only` even though no real edit was made.
+# We're strict about everything ELSE: any other dirty file means
+# someone made a real change on the box, and we refuse to pull
+# rather than silently lose it.
+DIRTY="$(git status --porcelain | awk '{print $2}')"
+if [[ -n "$DIRTY" ]]; then
+  if [[ "$DIRTY" == "package-lock.json" ]]; then
+    step "resetting auto-modified package-lock.json"
+    run "git checkout -- package-lock.json"
+  else
+    echo "[deploy] FAILED — local changes to files other than package-lock.json:"
+    echo "$DIRTY" | sed 's/^/  /'
+    echo "[deploy] Stash, commit, or revert these before deploying."
+    exit 1
+  fi
+fi
+
 step "git pull --ff-only"
 run "git fetch --quiet"
 run "git pull --ff-only"
