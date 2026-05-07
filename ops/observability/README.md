@@ -27,8 +27,19 @@ configured by files in this directory; no click-ops.
 # From the repo root
 cd ops/observability
 
-# Optional: pick a real Grafana admin password before bringing it up
-echo "GRAFANA_ADMIN_PASSWORD=your-strong-password-here" > .env
+# Optional: pick a real Grafana admin password + decide where
+# Grafana should listen. Defaults are 127.0.0.1 (server-only —
+# reach via SSH tunnel) and "change-me-on-first-login".
+cat > .env <<EOF
+GRAFANA_ADMIN_PASSWORD=your-strong-password-here
+
+# Pick ONE of:
+#   GRAFANA_BIND_ADDR=127.0.0.1     # default — loopback only,
+#                                   # use SSH tunnel from your laptop
+#   GRAFANA_BIND_ADDR=0.0.0.0       # LAN / WAN-reachable; only safe
+#                                   # behind a firewall or private NAT
+#   GRAFANA_BIND_ADDR=192.168.0.117 # bind to one specific interface
+EOF
 
 # Bring all four services up. First boot pulls images (~400MB total).
 docker compose up -d
@@ -49,26 +60,51 @@ dive-recorder-promtail        Up
 
 ## Accessing Grafana
 
-The stack binds everything to `127.0.0.1` so it's not internet-
-accessible. Two reasonable ways to view Grafana from your laptop:
+Three options, pick the one that matches your setup:
 
-### Option A — SSH tunnel (zero-config)
+### Option A — SSH tunnel (default; works for any setup)
+
+Use this when `GRAFANA_BIND_ADDR=127.0.0.1` (the default).
 
 ```bash
-# On your laptop
+# On your laptop, leave this running
 ssh -N -L 3030:127.0.0.1:3030 you@your-server
 # Now open http://localhost:3030 in your browser
 ```
 
-### Option B — Cloudflare Tunnel
+### Option B — LAN-reachable (private network)
+
+Use this when the server is on a private LAN (e.g. `192.168.x.y`,
+`10.x.y.z`) and you want any device on the LAN to open Grafana
+directly. Set in `.env`:
+
+```
+GRAFANA_BIND_ADDR=0.0.0.0
+```
+
+`docker compose up -d` to apply. Then open
+`http://<server-LAN-IP>:3030` from your laptop / phone / tablet.
+Loki, Prometheus and Promtail STAY 127.0.0.1-bound — only Grafana
+becomes LAN-visible, because Grafana proxies the others
+internally via the docker network.
+
+DO NOT set this if the server is also on a public IP without a
+firewall — Grafana with default creds is a bad day. Stick to
+Option A in that case, or use Option C.
+
+### Option C — Cloudflare Tunnel
 
 If you already use Cloudflare in front of the app, add a second
 hostname (e.g. `grafana.example.com`) pointing to `localhost:3030`
-and gate it with a Cloudflare Access policy.
+and gate it with a Cloudflare Access policy. Keep
+`GRAFANA_BIND_ADDR=127.0.0.1` so the only public reach is via the
+authenticated tunnel.
 
-Either way, log in as `admin` / the password you set in `.env`
-above (or `change-me-on-first-login` if you skipped it). Change it
-on first login regardless.
+---
+
+In all cases, log in as `admin` / the password you set in `.env`
+(or `change-me-on-first-login` if you skipped it). Change it on
+first login regardless.
 
 ## What's already configured
 

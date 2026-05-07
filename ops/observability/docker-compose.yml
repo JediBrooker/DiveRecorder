@@ -88,7 +88,17 @@ services:
   grafana:
     image: grafana/grafana:11.1.0
     container_name: dive-recorder-grafana
-    ports: ["127.0.0.1:3030:3000"]
+    # Grafana is the only UI surface in the stack — the others
+    # (loki, prometheus, promtail) stay 127.0.0.1-bound; Grafana
+    # proxies their queries internally via the docker network.
+    #
+    # GRAFANA_BIND_ADDR controls which host interface Grafana
+    # listens on. Default 127.0.0.1 (server-only access, reach
+    # via SSH tunnel). Override in .env to make it LAN-reachable
+    # (0.0.0.0 = any interface, or set the LAN IP explicitly).
+    # Don't set 0.0.0.0 if your VPS is internet-exposed at port
+    # 3030 — Grafana with default creds is a bad day.
+    ports: ["${GRAFANA_BIND_ADDR:-127.0.0.1}:3030:3000"]
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
