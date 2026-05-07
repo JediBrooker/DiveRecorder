@@ -640,7 +640,12 @@ watch(targetId, load)
         <button v-if="profile && isSelf" class="btn btn-ghost btn-sm" @click="openTfa">
           🔐 Two-Factor Auth
         </button>
-        <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">← Dashboard</RouterLink>
+        <!-- Public visitors land here from a scoreboard diver-link
+             with no session. Send them somewhere useful instead of
+             a Dashboard link they can't enter. -->
+        <RouterLink v-if="auth.isLoggedIn" to="/dashboard" class="btn btn-ghost btn-sm">← Dashboard</RouterLink>
+        <RouterLink v-else to="/scoreboard" class="btn btn-ghost btn-sm">← Scoreboard</RouterLink>
+        <RouterLink v-if="!auth.isLoggedIn" to="/login" class="btn btn-primary btn-sm">Sign in</RouterLink>
       </div>
     </div>
 

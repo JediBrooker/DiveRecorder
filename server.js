@@ -233,6 +233,7 @@ const JWT_EXPIRY = process.env.JWT_EXPIRY || "8h";
 // =============================================================
 const {
   verifyToken,
+  optionalAuth,
   requireOrgRole,
   requireSystemAdmin,
   requireEventManager,
@@ -611,6 +612,7 @@ app.use(require("./routes/diver-profile")({
   pool,
   readPool,
   verifyToken,
+  optionalAuth,
   parseDateRange,
 }));
 

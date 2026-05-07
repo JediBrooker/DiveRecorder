@@ -37,13 +37,16 @@ const KNOWN_WIDGETS = new Set([
   "compare_peers", "event_type_splits", "year_over_year",
 ]);
 
-// Any authenticated user can view another diver's competitive
-// profile — the data (per-meet totals, personal bests, dive
-// history) is already publicly listed on the meet scoreboards
-// and the archive. Cross-org comparison was the explicit user
-// request that drove this loosening.
-function canViewDiverProfile(viewer /*, diverRow */) {
-  return !!viewer;
+// Diver competitive profiles are now publicly readable — same
+// data the meet scoreboards and event archives already expose to
+// the open web. The handler still gates owner-private fields
+// (dashboard_widgets) via canViewDiverPrivate. Anonymous spectators
+// landing on /profile/<id> from a scoreboard link see the
+// competitive history without being bounced to /login. (Originally
+// gated to authenticated viewers; relaxed when the scoreboard's
+// diver-name links became expected to work for unauth visitors.)
+function canViewDiverProfile(/* viewer, diverRow */) {
+  return true;
 }
 
 // True when the viewer can see diver-private fields (UI
@@ -63,9 +66,16 @@ module.exports = function createDiverProfileRouter({
   pool,
   readPool,
   verifyToken,
+  optionalAuth,
   parseDateRange,
 }) {
   if (!pool) throw new Error("createDiverProfileRouter requires { pool, … }");
+  // Public-read endpoints (profile + analytics) decode the token if
+  // one is sent so we still see req.user for owner-only branches
+  // (e.g. dashboard_widgets), but anonymous requests are accepted.
+  // Falls back to verifyToken if the host hasn't been updated yet —
+  // belt-and-braces during the rollout.
+  const maybeAuth = optionalAuth || verifyToken;
   // Profile + analytics are heavy historical reads — per_dive
   // CTEs across the whole scores table, FULL_FIELD_RANKING
   // window functions. Route through the optional read replica
@@ -79,7 +89,7 @@ module.exports = function createDiverProfileRouter({
   // -------------------------------------------------------------
   // GET /api/divers/:id/profile — stats, PBs, per-meet trend
   // -------------------------------------------------------------
-  router.get("/api/divers/:id/profile", verifyToken, async (req, res) => {
+  router.get("/api/divers/:id/profile", maybeAuth, async (req, res) => {
     try {
       let dateRange;
       try { dateRange = parseDateRange(req.query); }
@@ -302,7 +312,7 @@ module.exports = function createDiverProfileRouter({
   // -------------------------------------------------------------
   // GET /api/divers/:id/analytics — 11 widget rollups in parallel
   // -------------------------------------------------------------
-  router.get("/api/divers/:id/analytics", verifyToken, async (req, res) => {
+  router.get("/api/divers/:id/analytics", maybeAuth, async (req, res) => {
     try {
       let dateRange;
       try { dateRange = parseDateRange(req.query); }

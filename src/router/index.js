@@ -101,9 +101,14 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['org_admin', 'meet_manager'] },
   },
   {
+    // /profile/:id is a PUBLIC profile page — anonymous spectators
+    // landing here from a scoreboard diver-link should see the
+    // diver's competitive history without being bounced to /login.
+    // /profile (no id) means "my profile" and still needs a session;
+    // the guard below redirects in that case.
     path: '/profile/:id?',
     component: () => import('@/views/DiverProfileView.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuthIfNoId: true },
   },
   {
     // Side-by-side diver comparison. Diver IDs in the query string
@@ -137,6 +142,13 @@ router.beforeEach((to, from, next) => {
 
   // Require auth
   if (to.meta.requiresAuth && !isLoggedIn) {
+    return next('/login')
+  }
+
+  // Public-with-id, owner-private without: /profile/:id is open to
+  // anonymous viewers, but /profile (no id) means the viewer's own
+  // profile and so needs a session.
+  if (to.meta.requiresAuthIfNoId && !isLoggedIn && !to.params.id) {
     return next('/login')
   }
 
