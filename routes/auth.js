@@ -213,7 +213,31 @@ module.exports = function createAuthRouter({
   //                                 the password (proof of access)
   //                                 + a current TOTP / recovery code.
   //                                 Clears all three columns.
+  //
+  //   GET  /api/auth/2fa/status  — { enabled: bool, recovery_codes_remaining: int|null }.
+  //                                 Lets the SPA's Profile page show
+  //                                 the right Enable/Disable affordance
+  //                                 without trying setup first.
   // -------------------------------------------------------------
+  router.get("/api/auth/2fa/status", verifyToken, async (req, res) => {
+    try {
+      const r = await pool.query(
+        `SELECT totp_enabled_at,
+                jsonb_array_length(COALESCE(totp_recovery_codes, '[]'::jsonb)) AS rc
+         FROM users WHERE id = $1`,
+        [req.user.id],
+      );
+      const row = r.rows[0] || {};
+      res.json({
+        enabled: !!row.totp_enabled_at,
+        recovery_codes_remaining: row.totp_enabled_at ? Number(row.rc) || 0 : null,
+      });
+    } catch (err) {
+      console.error("[2FA Status Error]", err.message);
+      res.status(500).json({ error: "Couldn't load 2FA status" });
+    }
+  });
+
   router.post("/api/auth/2fa/setup", verifyToken, async (req, res) => {
     try {
       const u = await pool.query(

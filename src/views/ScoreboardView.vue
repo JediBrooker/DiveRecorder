@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useSocket } from '@/composables/useSocket'
-import { annotatedScores, groupedSynchroScoresForDisplay } from '@/composables/useScoreCategories'
+import { annotatedScores, groupedSynchroScoresForDisplay, trimCount } from '@/composables/useScoreCategories'
 import { diveDescription } from '@/composables/useDiveLabel'
 import { cachedFetch } from '@/lib/idbCache'
 
@@ -561,6 +561,70 @@ const activeDiverRank = computed(() => {
   return idx >= 0 ? idx + 1 : null
 })
 
+// Catch-up projection — mirrors the Control Room indicator. For
+// the active diver, computes:
+//   * gap to leader (or to runner-up if leading)
+//   * average dive total they need across remaining dives
+//   * average judge score per kept score those dives need
+// DD proxy is the active diver's current dive (we don't have
+// the full upcoming roster on the audience scoreboard, just the
+// state_update payload that drives the active block). Judge-
+// kept count comes from FINA trim rules — see trimCount().
+const activeProjection = computed(() => {
+  if (!activeDiver.value || !standings.value.length) return null
+  const target = activeDiver.value.full_name || activeDiver.value.diverName
+  if (!target) return null
+  const idx = standings.value.findIndex(s => s.full_name === target)
+  const leader = standings.value[0]
+  if (!leader) return null
+  const totalRounds = parseInt(currentEvent.value?.total_rounds) || 0
+  const numJudges = parseInt(currentEvent.value?.number_of_judges) || 5
+  const drop = trimCount(numJudges)
+  const keptCount = Math.max(1, numJudges - 2 * drop)
+  const ddProxy = parseFloat(activeDiver.value.dd) || null
+  const remaining = totalRounds
+    ? totalRounds - (parseInt(activeDiver.value.round_number) || 1) + 1
+    : 0
+  function avgsForGap(gap) {
+    if (gap <= 0 || remaining <= 0) return { perDive: null, perJudge: null }
+    const perDive = gap / remaining
+    if (!ddProxy) return { perDive, perJudge: null }
+    return { perDive, perJudge: perDive / ddProxy / keptCount }
+  }
+  if (idx === -1) {
+    // No completed dives yet — show only the leader's mark.
+    return {
+      kind: 'pre',
+      activeName: target,
+      leaderName: leader.full_name,
+      leaderTotal: Number(leader.total || 0),
+    }
+  }
+  const myTotal = Number(standings.value[idx].total || 0)
+  if (idx === 0) {
+    const second = standings.value[1]
+    if (!second) {
+      return { kind: 'unopposed', activeName: target }
+    }
+    const gap = myTotal - Number(second.total || 0)
+    return {
+      kind: 'lead',
+      activeName: target,
+      runnerUp: second.full_name,
+      gap, remaining,
+      ...avgsForGap(gap),
+    }
+  }
+  const gap = Number(leader.total || 0) - myTotal
+  return {
+    kind: 'chase',
+    activeName: target,
+    leaderName: leader.full_name,
+    gap, remaining,
+    ...avgsForGap(gap),
+  }
+})
+
 function parseScores(judgeArray) {
   if (!judgeArray) return []
   return judgeArray.split(',').map(s => parseFloat(s))
@@ -907,6 +971,38 @@ onMounted(async () => {
           </div>
           <div v-if="activeDiver && activeDiverRank" class="sb-live-rank">
             Currently <strong>{{ ordinal(activeDiverRank) }}</strong>
+          </div>
+          <!-- Catch-up projection (mirrors the Control Room
+               operator's standings hint). Surfaces what the
+               active diver needs in total points, per remaining
+               dive, and per kept judge score so the audience
+               can read the chase at a glance. -->
+          <div v-if="activeProjection" :class="['sb-projection', `sb-projection-${activeProjection.kind}`]">
+            <template v-if="activeProjection.kind === 'lead'">
+              Leading by <strong>+{{ activeProjection.gap.toFixed(1) }}</strong>
+              over {{ activeProjection.runnerUp }}
+              <div v-if="activeProjection.perDive != null" class="sb-projection-detail">
+                {{ activeProjection.runnerUp }} would need
+                <strong>{{ activeProjection.perDive.toFixed(1) }}</strong>/dive
+                <span v-if="activeProjection.perJudge != null">
+                  (~<strong>{{ activeProjection.perJudge.toFixed(1) }}</strong>/judge)
+                </span>
+                across {{ activeProjection.remaining }}
+                {{ activeProjection.remaining === 1 ? 'dive' : 'dives' }}
+              </div>
+            </template>
+            <template v-else-if="activeProjection.kind === 'chase'">
+              Needs <strong>+{{ activeProjection.gap.toFixed(1) }}</strong>
+              to overtake {{ activeProjection.leaderName }}
+              <div v-if="activeProjection.perDive != null" class="sb-projection-detail">
+                <strong>{{ activeProjection.perDive.toFixed(1) }}</strong>/dive
+                <span v-if="activeProjection.perJudge != null">
+                  (~<strong>{{ activeProjection.perJudge.toFixed(1) }}</strong>/judge)
+                </span>
+                across {{ activeProjection.remaining }}
+                {{ activeProjection.remaining === 1 ? 'dive' : 'dives' }}
+              </div>
+            </template>
           </div>
 
           <!-- Up Next: every remaining dive in the meet, scrollable
@@ -1614,6 +1710,38 @@ onMounted(async () => {
   color: var(--text);
   font-weight: 700;
 }
+
+/* Catch-up projection beneath the rank line. Cyan tint when the
+   diver is chasing, gold when leading; small but legible from
+   pool deck. */
+.sb-projection {
+  margin-top: 0.6rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: clamp(12px, 1.5vw, 16px);
+  line-height: 1.45;
+  display: inline-block;
+  max-width: 100%;
+  text-align: left;
+}
+.sb-projection strong { color: var(--text); font-weight: 700; }
+.sb-projection-lead {
+  background: rgba(234,179,8,0.06); border: 1px solid rgba(234,179,8,0.3);
+  color: var(--text-2);
+}
+.sb-projection-lead strong { color: #f59e0b; }
+.sb-projection-chase {
+  background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.3);
+  color: var(--text-2);
+}
+.sb-projection-chase strong { color: var(--cyan); }
+.sb-projection-detail {
+  font-size: clamp(10px, 1.2vw, 13px);
+  color: var(--text-3);
+  margin-top: 0.25rem;
+}
+.sb-projection-detail strong { color: var(--text-2); }
 
 /* Up Next panel — sits below the active diver block. Contains
    every remaining dive in the meet, scrollable when the list

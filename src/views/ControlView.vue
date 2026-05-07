@@ -4,7 +4,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
 import { diveDescription } from '@/composables/useDiveLabel'
-import { annotatedScores } from '@/composables/useScoreCategories'
+import { annotatedScores, trimCount } from '@/composables/useScoreCategories'
 
 const auth = useAuthStore()
 const socket = useSocket()
@@ -853,22 +853,49 @@ const projectedLine = computed(() => {
   const me = standings[idx]
   const myTotal = Number(me.total || 0)
   const leaderTotal = Number(leader.total || 0)
+  // Per-dive + per-judge averages needed to close the gap. We use
+  // the current dive's DD as a proxy for the remaining dives'
+  // average DD (the roster has the rest but querying it here
+  // would tighten the coupling for marginal accuracy gain). Kept
+  // judge count comes from FINA trim rules — see trimCount().
+  const totalRounds = parseInt(currentEvent.value?.total_rounds) || 0
+  const numJudges = parseInt(currentEvent.value?.number_of_judges) || 5
+  const drop = trimCount(numJudges)
+  const keptCount = Math.max(1, numJudges - 2 * drop)
+  const ddProxy = parseFloat(active.dd) || null
+  const remaining = totalRounds
+    ? totalRounds - (parseInt(active.round_number) || 1) + 1
+    : 0
+  function avgsForGap(gap) {
+    if (gap <= 0 || remaining <= 0) return { perDive: null, perJudge: null }
+    const perDive = gap / remaining
+    if (!ddProxy) return { perDive, perJudge: null }
+    return { perDive, perJudge: perDive / ddProxy / keptCount }
+  }
   if (idx === 0) {
     // Active diver IS leading. Show the gap to #2 if there is one.
     const second = standings[1]
     if (!second) return { kind: 'unopposed', activeName: active.full_name }
+    const gap = myTotal - Number(second.total || 0)
     return {
       kind: 'lead',
       activeName: active.full_name,
       runnerUp: second.full_name,
-      gap: myTotal - Number(second.total || 0),
+      gap,
+      remaining,
+      // Defensive framing: how much would the runner-up need on
+      // average to overtake them.
+      ...avgsForGap(gap),
     }
   }
+  const gap = leaderTotal - myTotal
   return {
     kind: 'chase',
     activeName: active.full_name,
     leaderName: leader.full_name,
-    gap: leaderTotal - myTotal,
+    gap,
+    remaining,
+    ...avgsForGap(gap),
   }
 })
 
@@ -1809,11 +1836,28 @@ onUnmounted(() => {
               🏆 <strong>{{ projectedLine.activeName }}</strong>
               leading by <strong>+{{ projectedLine.gap.toFixed(1) }}</strong>
               over {{ projectedLine.runnerUp }}
+              <div v-if="projectedLine.perDive != null" class="projection-detail">
+                {{ projectedLine.runnerUp }} would need
+                <strong>{{ projectedLine.perDive.toFixed(1) }}</strong>/dive
+                <span v-if="projectedLine.perJudge != null">
+                  (~<strong>{{ projectedLine.perJudge.toFixed(1) }}</strong>/judge)
+                </span>
+                across {{ projectedLine.remaining }} remaining
+                {{ projectedLine.remaining === 1 ? 'dive' : 'dives' }}
+              </div>
             </template>
             <template v-else-if="projectedLine.kind === 'chase'">
               <strong>{{ projectedLine.activeName }}</strong>
               needs <strong>+{{ projectedLine.gap.toFixed(1) }}</strong>
               to overtake {{ projectedLine.leaderName }}
+              <div v-if="projectedLine.perDive != null" class="projection-detail">
+                <strong>{{ projectedLine.perDive.toFixed(1) }}</strong>/dive
+                <span v-if="projectedLine.perJudge != null">
+                  (~<strong>{{ projectedLine.perJudge.toFixed(1) }}</strong>/judge)
+                </span>
+                across {{ projectedLine.remaining }}
+                {{ projectedLine.remaining === 1 ? 'dive' : 'dives' }}
+              </div>
             </template>
             <template v-else-if="projectedLine.kind === 'pre'">
               No completed dives yet. {{ projectedLine.leaderName }} leads at
@@ -2974,6 +3018,16 @@ onUnmounted(() => {
 .projection-line.projection-pre,
 .projection-line.projection-unopposed {
   color: var(--text-3); font-style: italic;
+}
+/* Per-dive / per-judge breakdown line beneath the headline gap. */
+.projection-detail {
+  font-family: var(--font-mono); font-size: 10.5px;
+  color: var(--text-3); margin-top: 0.25rem;
+  letter-spacing: 0.02em;
+}
+.projection-detail strong {
+  color: var(--text-2);
+  font-weight: 700;
 }
 .sp-row {
   display: flex; align-items: baseline; gap: 0.5rem;

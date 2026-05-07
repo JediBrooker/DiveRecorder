@@ -216,6 +216,125 @@ function openPasswordEditor() {
   pwError.value = ''
   pwSuccess.value = false
 }
+
+// =============================================================
+// 2FA — Two-Factor Auth setup / disable. Backed by:
+//   GET  /api/auth/2fa/status   { enabled, recovery_codes_remaining }
+//   POST /api/auth/2fa/setup    → { base32, otpauth_url, qr_data_url, recovery_codes[] }
+//   POST /api/auth/2fa/confirm  { code } → enables
+//   POST /api/auth/2fa/disable  { password, code } → disables
+//
+// The flow is a small state machine:
+//   stage = 'idle'    panel shows enabled/disabled status
+//   stage = 'setup'   we have a fresh secret + QR; user enters code
+//   stage = 'disable' user must provide password + a current code
+// =============================================================
+const tfaOpen   = ref(false)
+const tfaStage  = ref('idle')               // idle | setup | disable
+const tfaStatus = ref(null)                  // { enabled, recovery_codes_remaining }
+const tfaSetup  = ref(null)                  // { base32, qr_data_url, recovery_codes[] }
+const tfaCode   = ref('')                    // 6-digit input
+const tfaPassword = ref('')                  // for disable flow
+const tfaError  = ref('')
+const tfaBusy   = ref(false)
+const tfaToast  = ref('')                    // success message
+
+async function openTfa() {
+  tfaOpen.value = true
+  tfaStage.value = 'idle'
+  tfaError.value = ''
+  tfaCode.value = ''
+  tfaPassword.value = ''
+  tfaSetup.value = null
+  tfaToast.value = ''
+  await refreshTfaStatus()
+}
+function closeTfa() {
+  tfaOpen.value = false
+  tfaStage.value = 'idle'
+  tfaError.value = ''
+  // Drop the secret if the user closed mid-setup — they'll get a
+  // fresh one on the next attempt.
+  tfaSetup.value = null
+}
+async function refreshTfaStatus() {
+  try {
+    tfaStatus.value = await auth.apiFetch('/api/auth/2fa/status')
+  } catch (err) {
+    tfaError.value = err.message || 'Could not load 2FA status'
+  }
+}
+async function startTfaSetup() {
+  tfaError.value = ''
+  tfaBusy.value = true
+  try {
+    tfaSetup.value = await auth.apiFetch('/api/auth/2fa/setup', { method: 'POST' })
+    tfaStage.value = 'setup'
+    tfaCode.value = ''
+  } catch (err) {
+    tfaError.value = err.message || 'Could not start 2FA setup'
+  } finally {
+    tfaBusy.value = false
+  }
+}
+async function confirmTfaSetup() {
+  tfaError.value = ''
+  if (!/^\d{6}$/.test(tfaCode.value)) {
+    tfaError.value = 'Enter the 6-digit code from your authenticator'
+    return
+  }
+  tfaBusy.value = true
+  try {
+    await auth.apiFetch('/api/auth/2fa/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ code: tfaCode.value }),
+    })
+    // Confirm bumps token_version server-side, which invalidates
+    // the current session JWT. Force a re-login so the next API
+    // call doesn't 401 silently.
+    tfaToast.value = '2FA enabled. You\'ll be asked for a code on your next login.'
+    tfaStage.value = 'idle'
+    setTimeout(() => { auth.logout(); window.location.assign('/login') }, 2000)
+  } catch (err) {
+    tfaError.value = err.message || 'Could not confirm 2FA'
+  } finally {
+    tfaBusy.value = false
+  }
+}
+function startTfaDisable() {
+  tfaStage.value = 'disable'
+  tfaError.value = ''
+  tfaCode.value = ''
+  tfaPassword.value = ''
+}
+async function confirmTfaDisable() {
+  tfaError.value = ''
+  if (!tfaPassword.value) {
+    tfaError.value = 'Password is required'
+    return
+  }
+  if (!/^\d{6}$/.test(tfaCode.value) && !/^[0-9a-f]{5}-?[0-9a-f]{5}$/i.test(tfaCode.value)) {
+    tfaError.value = 'Enter a 6-digit TOTP code or a recovery code'
+    return
+  }
+  tfaBusy.value = true
+  try {
+    await auth.apiFetch('/api/auth/2fa/disable', {
+      method: 'POST',
+      body: JSON.stringify({
+        password: tfaPassword.value,
+        code:     tfaCode.value,
+      }),
+    })
+    tfaToast.value = '2FA disabled.'
+    tfaStage.value = 'idle'
+    await refreshTfaStatus()
+  } catch (err) {
+    tfaError.value = err.message || 'Could not disable 2FA'
+  } finally {
+    tfaBusy.value = false
+  }
+}
 function closePasswordEditor() {
   pwEditing.value = false
   pwError.value = ''
@@ -517,6 +636,9 @@ watch(targetId, load)
         </button>
         <button v-if="profile && isSelf" class="btn btn-ghost btn-sm" @click="openPasswordEditor">
           Change Password
+        </button>
+        <button v-if="profile && isSelf" class="btn btn-ghost btn-sm" @click="openTfa">
+          🔐 Two-Factor Auth
         </button>
         <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">← Dashboard</RouterLink>
       </div>
@@ -1134,6 +1256,130 @@ watch(targetId, load)
       </template>
     </div>
   </div>
+
+  <!-- Two-Factor Auth modal — three-stage state machine. -->
+  <div v-if="tfaOpen" class="modal-backdrop" @click="closeTfa"></div>
+  <div v-if="tfaOpen" class="modal tfa-modal" @click.stop>
+    <div class="modal-head">
+      <div class="modal-title">Two-Factor Auth</div>
+      <button class="btn btn-ghost btn-sm" @click="closeTfa">Close ✕</button>
+    </div>
+    <div class="modal-body">
+      <div v-if="tfaToast" class="msg msg-success">{{ tfaToast }}</div>
+
+      <!-- Stage: idle (status display + entry point) -->
+      <template v-if="tfaStage === 'idle' && tfaStatus">
+        <div v-if="tfaStatus.enabled" class="tfa-status tfa-status-on">
+          <span class="tfa-badge">ENABLED</span>
+          <p>
+            Two-factor auth is on for this account. You'll be asked
+            for a 6-digit code from your authenticator app on every
+            login.
+            <span v-if="tfaStatus.recovery_codes_remaining != null">
+              <strong>{{ tfaStatus.recovery_codes_remaining }}</strong>
+              recovery code{{ tfaStatus.recovery_codes_remaining === 1 ? '' : 's' }} remaining.
+            </span>
+          </p>
+        </div>
+        <div v-else class="tfa-status tfa-status-off">
+          <span class="tfa-badge tfa-badge-off">OFF</span>
+          <p>
+            Two-factor auth adds a 6-digit code (from an
+            authenticator app like 1Password, Authy, or Google
+            Authenticator) on top of your password at login. We
+            strongly recommend it for any account that runs meets.
+          </p>
+        </div>
+        <div v-if="tfaError" class="msg msg-error">{{ tfaError }}</div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost btn-sm" @click="closeTfa">Close</button>
+          <button v-if="tfaStatus.enabled"
+                  class="btn btn-primary btn-sm tfa-disable-btn"
+                  :disabled="tfaBusy"
+                  @click="startTfaDisable">Disable 2FA</button>
+          <button v-else
+                  class="btn btn-primary btn-sm"
+                  :disabled="tfaBusy"
+                  @click="startTfaSetup">{{ tfaBusy ? 'Starting…' : 'Enable 2FA' }}</button>
+        </div>
+      </template>
+
+      <!-- Stage: setup (show QR + recovery codes, ask for code) -->
+      <template v-else-if="tfaStage === 'setup' && tfaSetup">
+        <p class="tfa-step">
+          1. Scan this QR code with your authenticator app, or paste
+          the secret manually.
+        </p>
+        <div class="tfa-qr">
+          <img :src="tfaSetup.qr_data_url" alt="2FA QR code" width="200" height="200">
+          <div class="tfa-secret">
+            <div class="tfa-secret-label">SECRET</div>
+            <code class="tfa-secret-value">{{ tfaSetup.base32 }}</code>
+          </div>
+        </div>
+        <p class="tfa-step">
+          2. Save these recovery codes somewhere safe. Each one is
+          single-use and lets you sign in if you lose access to your
+          authenticator. <strong>You'll only see them once.</strong>
+        </p>
+        <div class="tfa-recovery">
+          <code v-for="code in tfaSetup.recovery_codes" :key="code">{{ code }}</code>
+        </div>
+        <p class="tfa-step">
+          3. Enter the current 6-digit code from your authenticator
+          to confirm.
+        </p>
+        <div class="field">
+          <input
+            class="input"
+            type="text"
+            inputmode="numeric"
+            maxlength="6"
+            placeholder="123456"
+            v-model="tfaCode"
+            autocomplete="one-time-code"
+          >
+        </div>
+        <div v-if="tfaError" class="msg msg-error">{{ tfaError }}</div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost btn-sm" @click="closeTfa">Cancel</button>
+          <button class="btn btn-primary btn-sm" :disabled="tfaBusy" @click="confirmTfaSetup">
+            {{ tfaBusy ? 'Confirming…' : 'Confirm + Enable' }}
+          </button>
+        </div>
+      </template>
+
+      <!-- Stage: disable (password + code re-auth) -->
+      <template v-else-if="tfaStage === 'disable'">
+        <p class="tfa-step">
+          To turn 2FA off, confirm your password and a current
+          authenticator code (or a recovery code).
+        </p>
+        <div class="field">
+          <label class="label">Password</label>
+          <input class="input" type="password" autocomplete="current-password" v-model="tfaPassword">
+        </div>
+        <div class="field">
+          <label class="label">6-digit code or recovery code</label>
+          <input
+            class="input"
+            type="text"
+            inputmode="text"
+            placeholder="123456 or abcde-12345"
+            v-model="tfaCode"
+            autocomplete="one-time-code"
+          >
+        </div>
+        <div v-if="tfaError" class="msg msg-error">{{ tfaError }}</div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost btn-sm" @click="tfaStage = 'idle'; tfaError = ''">Back</button>
+          <button class="btn btn-primary btn-sm tfa-disable-btn" :disabled="tfaBusy" @click="confirmTfaDisable">
+            {{ tfaBusy ? 'Disabling…' : 'Disable 2FA' }}
+          </button>
+        </div>
+      </template>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -1268,6 +1514,80 @@ watch(targetId, load)
   margin-top: 0.4rem;
 }
 .modal-hint a { color: var(--cyan); }
+
+/* =========================================================
+   2FA modal — three-stage state machine (idle / setup / disable)
+   ========================================================= */
+.tfa-modal { width: min(520px, calc(100vw - 2rem)); }
+.tfa-status {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--text-2); line-height: 1.6;
+}
+.tfa-status p { margin: 0.4rem 0 0; }
+.tfa-status-on { background: rgba(16,185,129,0.06); border-color: rgba(16,185,129,0.3); }
+.tfa-status-off { background: var(--bg-3); }
+.tfa-badge {
+  display: inline-block;
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.2em; text-transform: uppercase;
+  padding: 0.15rem 0.5rem; border-radius: 3px;
+  background: var(--green-dim); color: var(--green);
+  border: 1px solid rgba(16,185,129,0.4);
+}
+.tfa-badge-off {
+  background: rgba(100,116,139,0.15); color: var(--text-3);
+  border-color: var(--border);
+}
+.tfa-step {
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--text-2); line-height: 1.6;
+  margin: 0.4rem 0 0.2rem;
+}
+.tfa-step strong { color: var(--text); }
+.tfa-qr {
+  display: flex; align-items: center; gap: 1rem;
+  padding: 0.75rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.tfa-qr img { background: white; padding: 4px; border-radius: 4px; flex-shrink: 0; }
+.tfa-secret { flex: 1; min-width: 0; }
+.tfa-secret-label {
+  font-family: var(--font-display); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3);
+  margin-bottom: 0.3rem;
+}
+.tfa-secret-value {
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--cyan); word-break: break-all;
+  user-select: all;
+}
+.tfa-recovery {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.4rem;
+  padding: 0.75rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.tfa-recovery code {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+  color: var(--text); padding: 0.25rem 0.4rem;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 3px;
+  text-align: center;
+  user-select: all;
+}
+.tfa-disable-btn {
+  background: var(--red-dim) !important;
+  color: var(--red) !important;
+  border-color: rgba(239,68,68,0.4) !important;
+}
+.tfa-disable-btn:hover {
+  background: var(--red) !important;
+  color: var(--bg) !important;
+}
 
 /* =========================================================
    Customize-dashboard modal — list of toggleable widgets
