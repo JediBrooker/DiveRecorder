@@ -1072,7 +1072,11 @@ onMounted(async () => {
               <div :class="['standing-rank', rankClass(i)]">{{ i + 1 }}</div>
               <div class="standing-id">
                 <div class="standing-name">
-                  {{ s.full_name }}<span v-if="s.country_code" class="standing-country">{{ s.country_code }}</span>
+                  <RouterLink v-if="s.competitor_id"
+                              :to="`/profile/${s.competitor_id}`"
+                              class="diver-link">{{ s.full_name }}</RouterLink>
+                  <template v-else>{{ s.full_name }}</template>
+                  <span v-if="s.country_code" class="standing-country">{{ s.country_code }}</span>
                 </div>
                 <div v-if="s.partner_name" class="standing-partner">
                   &amp; {{ s.partner_name }}<span v-if="s.partner_country" class="standing-country">{{ s.partner_country }}</span>

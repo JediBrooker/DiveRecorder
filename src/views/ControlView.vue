@@ -1564,12 +1564,7 @@ onUnmounted(() => {
             <div class="hist-header">
               <div class="hist-name">
                 <span v-if="competitorOrder(card.competitor_id) != null" class="hist-order">{{ competitorOrder(card.competitor_id) }}.</span>
-                <RouterLink v-if="card.competitor_id"
-                            :to="`/profile/${card.competitor_id}`"
-                            class="diver-link"
-                            @click.stop>{{ card.name }}</RouterLink>
-                <template v-else>{{ card.name }}</template>
-                <span v-if="card.country" class="hist-country">{{ card.country }}</span>
+                {{ card.name }}<span v-if="card.country" class="hist-country">{{ card.country }}</span>
               </div>
               <div class="hist-total">{{ card.total }}</div>
             </div>
@@ -1703,18 +1698,12 @@ onUnmounted(() => {
                  the roster queue and the completed-dives cards. -->
             <span v-if="competitorOrder(currentActive?.competitor_id) != null" class="active-order">{{ competitorOrder(currentActive.competitor_id) }}.</span>
             <template v-if="activeInfo.partner_name">
-              <RouterLink v-if="currentActive?.competitor_id" :to="`/profile/${currentActive.competitor_id}`" class="diver-link">{{ activeInfo.name }}</RouterLink>
-              <template v-else>{{ activeInfo.name }}</template>
-              <span v-if="activeInfo.country" class="active-country">{{ activeInfo.country }}</span>
+              {{ activeInfo.name }}<span v-if="activeInfo.country" class="active-country">{{ activeInfo.country }}</span>
               <span class="active-amp">&amp;</span>
-              <RouterLink v-if="currentActive?.partner_id" :to="`/profile/${currentActive.partner_id}`" class="diver-link">{{ activeInfo.partner_name }}</RouterLink>
-              <template v-else>{{ activeInfo.partner_name }}</template>
-              <span v-if="activeInfo.partner_country" class="active-country">{{ activeInfo.partner_country }}</span>
+              {{ activeInfo.partner_name }}<span v-if="activeInfo.partner_country" class="active-country">{{ activeInfo.partner_country }}</span>
             </template>
             <template v-else>
-              <RouterLink v-if="currentActive?.competitor_id" :to="`/profile/${currentActive.competitor_id}`" class="diver-link">{{ activeInfo.name }}</RouterLink>
-              <template v-else>{{ activeInfo.name }}</template>
-              <span v-if="activeInfo.country" class="active-country">{{ activeInfo.country }}</span>
+              {{ activeInfo.name }}<span v-if="activeInfo.country" class="active-country">{{ activeInfo.country }}</span>
             </template>
           </div>
           <div v-if="activeInfo.team_name" class="active-team">{{ activeInfo.team_name }}</div>
@@ -2572,19 +2561,6 @@ onUnmounted(() => {
 .hist-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.1rem; }
 .hist-name { font-family: var(--font-display); font-size: 12px; font-weight: 700; color: var(--text); }
 
-/* Diver-name links — same dashed-underline-on-hover treatment
-   as everywhere else. Inherits surrounding font / colour so
-   the link blends into the layout at rest. */
-.diver-link {
-  color: inherit;
-  text-decoration: none;
-  border-bottom: 1px dashed transparent;
-  transition: color 0.12s, border-color 0.12s;
-}
-.diver-link:hover {
-  color: var(--cyan);
-  border-bottom-color: var(--cyan);
-}
 .hist-order {
   /* Diving start-order prefix (e.g. "3.") in front of the diver
      name. Cyan + condensed so it reads as a position chip

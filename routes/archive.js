@@ -172,8 +172,11 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
            ),
            comp_standings AS (
              /* Group by u.id (not just u.full_name) so two divers
-                sharing a name don't merge into one inflated row. */
-             SELECT u.full_name, o.country_code, cl.name AS club_name,
+                sharing a name don't merge into one inflated row.
+                u.id is the competitor_id the SPA uses to deep-
+                link a standings row → /profile/<id>. */
+             SELECT u.id AS competitor_id,
+                    u.full_name, o.country_code, cl.name AS club_name,
                     pu.full_name AS partner_name, pl.country_code AS partner_country,
                     SUM(pd.dive_points) AS total,
                     array_agg(pd.dive_points ORDER BY pd.dive_points DESC) AS dives_desc
@@ -192,9 +195,13 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
              GROUP BY u.id, u.full_name, o.country_code, cl.name, pu.full_name, pl.country_code
            ),
            team_standings_padded AS (
-             SELECT *, NULL::numeric[] AS dives_desc FROM team_standings
+             /* Pad the team-standings shape so the UNION below
+                aligns: team rows have no individual competitor
+                so competitor_id is NULL. */
+             SELECT NULL::uuid AS competitor_id, * , NULL::numeric[] AS dives_desc
+             FROM team_standings
            )
-           SELECT full_name, country_code, club_name, partner_name, partner_country, total
+           SELECT competitor_id, full_name, country_code, club_name, partner_name, partner_country, total
            FROM (
              SELECT * FROM team_standings_padded
              UNION ALL

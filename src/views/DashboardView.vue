@@ -194,6 +194,7 @@ onMounted(async () => {
 </script>
 
 <template>
+  <div class="dashboard">
   <div class="header-inner">
     <div>
       <div class="welcome-label">Dive Recorder</div>
@@ -275,9 +276,21 @@ onMounted(async () => {
       <div class="tile-action">{{ tile.action }}</div>
     </RouterLink>
   </div>
+  </div>
 </template>
 
 <style scoped>
+/* Dashboard wrapper — clamps horizontal overflow at the page
+   level so any descendant whose min-content is wider than the
+   viewport (long welcome name in a chunky display font, an
+   event card title, …) gets clipped by the wrapper rather than
+   pushing the body wider than the viewport and triggering a
+   horizontal scrollbar. */
+.dashboard {
+  overflow-x: hidden;
+  width: 100%;
+}
+
 .header-inner {
   display: flex; align-items: flex-start; justify-content: space-between;
   /* flex-wrap + gap so the Sign Out button drops below the
@@ -287,6 +300,9 @@ onMounted(async () => {
   gap: 1rem;
   padding: 2.5rem 2rem 2rem; max-width: 1400px; margin: 0 auto;
   border-bottom: 1px solid var(--border);
+  /* Constrain min-width so a long full name doesn't push the
+     header past the viewport. */
+  min-width: 0;
 }
 .welcome-label { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: var(--cyan); margin-bottom: 0.5rem; }
 .welcome-name  {

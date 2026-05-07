@@ -225,15 +225,18 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
       ]);
 
       // Compute the public_id hash in Node from competitor_id /
-      // team_id, then strip those internal UUIDs so spectators
-      // never see them. The Control Room matches the active
-      // diver to a standings row by public_id; the same hash
-      // formula runs in the roster handler.
-      const standings = st.rows.map(({ competitor_id, team_id, ...rest }) => ({
+      // team_id; the Control Room matches the active diver to
+      // a standings row by public_id and the SPA also uses
+      // competitor_id to deep-link from a standings row to that
+      // diver's profile (/profile/<id>). competitor_id was
+      // previously redacted; it's exposed in the dive history
+      // payload anyway so the redaction was inconsistent —
+      // dropped to allow the diver-name link.
+      const standings = st.rows.map(({ team_id, ...rest }) => ({
         ...rest,
         public_id:
-          competitor_id ? publicId("comp", eventId, competitor_id) :
-          team_id       ? publicId("team", eventId, team_id) :
+          rest.competitor_id ? publicId("comp", eventId, rest.competitor_id) :
+          team_id             ? publicId("team", eventId, team_id) :
           null,
       }));
 

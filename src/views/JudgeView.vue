@@ -248,18 +248,12 @@ const submitLabel = computed(() => {
           <div class="event-name">{{ activeDiver?.eventName || '—' }}</div>
           <div class="diver-name">
             <template v-if="activeDiver?.partner_name">
-              <RouterLink v-if="activeDiver?.competitor_id" :to="`/profile/${activeDiver.competitor_id}`" class="diver-link">{{ activeDiver.diverName }}</RouterLink>
-              <template v-else>{{ activeDiver.diverName }}</template>
-              <span v-if="activeDiver?.country_code" class="diver-country">{{ activeDiver.country_code }}</span>
+              {{ activeDiver.diverName }}<span v-if="activeDiver?.country_code" class="diver-country">{{ activeDiver.country_code }}</span>
               <span class="diver-amp">&amp;</span>
-              <RouterLink v-if="activeDiver?.partner_id" :to="`/profile/${activeDiver.partner_id}`" class="diver-link">{{ activeDiver.partner_name }}</RouterLink>
-              <template v-else>{{ activeDiver.partner_name }}</template>
-              <span v-if="activeDiver?.partner_country" class="diver-country">{{ activeDiver.partner_country }}</span>
+              {{ activeDiver.partner_name }}<span v-if="activeDiver?.partner_country" class="diver-country">{{ activeDiver.partner_country }}</span>
             </template>
             <template v-else>
-              <RouterLink v-if="activeDiver?.competitor_id" :to="`/profile/${activeDiver.competitor_id}`" class="diver-link">{{ activeDiver.diverName }}</RouterLink>
-              <template v-else>{{ activeDiver?.diverName || 'Waiting for diver...' }}</template>
-              <span v-if="activeDiver?.country_code" class="diver-country">{{ activeDiver.country_code }}</span>
+              {{ activeDiver?.diverName || 'Waiting for diver...' }}<span v-if="activeDiver?.country_code" class="diver-country">{{ activeDiver.country_code }}</span>
             </template>
           </div>
           <div v-if="activeDiver?.team_name" class="judge-team-line">
@@ -452,19 +446,6 @@ const submitLabel = computed(() => {
   gap: 0.5rem;
   flex-wrap: wrap;
 }
-/* Diver-name links inherit the surrounding font/style so the
-   link is invisible at rest — only the dashed underline on
-   hover signals that the name is clickable. */
-.diver-link {
-  color: inherit;
-  text-decoration: none;
-  border-bottom: 1px dashed transparent;
-  transition: color 0.12s, border-color 0.12s;
-}
-.diver-link:hover {
-  color: var(--cyan);
-  border-bottom-color: var(--cyan);
-}
 .diver-country {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -619,24 +600,27 @@ const submitLabel = computed(() => {
 }
 
 .keypad {
-  /* Without the parent's 100dvh lock, flex:1 + 1fr rows would
-     collapse to button-content height. Give the keypad a
-     viewport-relative min-height so the buttons stay big enough
-     to tap reliably while still letting the page scroll. */
-  flex: 1;
+  /* Compact keypad — buttons are still tap-friendly on touch
+     screens but no longer dominate the page on a desktop. Caps
+     at a sensible width and height so the layout stays balanced
+     against the dive header above. */
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(4, minmax(72px, 1fr));
+  grid-template-rows: repeat(4, 56px);
   gap: 0.4rem;
   padding: 0.5rem 0.75rem;
-  min-height: 50vh;
+  max-width: 360px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 .key {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   font-family: var(--font-display);
-  font-size: clamp(18px, 5vw, 26px);
+  font-size: 18px;
   font-weight: 700;
   color: var(--text);
   cursor: pointer;
@@ -648,7 +632,7 @@ const submitLabel = computed(() => {
   height: 100%;
 }
 .key:active { background: var(--cyan); color: var(--bg); border-color: var(--cyan); transform: scale(0.94); }
-.key-half { font-size: clamp(14px, 4vw, 18px); color: var(--cyan); border-color: rgba(6,182,212,0.3); }
+.key-half { font-size: 14px; color: var(--cyan); border-color: rgba(6,182,212,0.3); }
 .key-half.active { background: var(--cyan); color: var(--bg); border-color: var(--cyan); }
 /* Disabled key state — engaged once the judge has submitted.
    Greyed-out + non-interactive so an accidental tap doesn't
@@ -666,6 +650,10 @@ const submitLabel = computed(() => {
 .signal-footer {
   padding: 0 0.75rem;
   flex-shrink: 0;
+  max-width: 360px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 .signal-btn {
   width: 100%;
@@ -710,6 +698,10 @@ const submitLabel = computed(() => {
 .submit-footer {
   padding: 0.625rem 0.75rem 0.875rem;
   flex-shrink: 0;
+  max-width: 360px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 .submit-btn {
   width: 100%;
