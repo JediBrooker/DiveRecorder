@@ -2614,18 +2614,25 @@ onUnmounted(() => {
             >
               <!-- Two-line tile: identity (R# + pos + names +
                    badge) on top via the shared <DiverIdentity>;
-                   dive code + DD right-aligned on the bottom. -->
+                   bottom row carries dive code + DD on the LEFT,
+                   then the dive description filling the
+                   remaining space on the right. The description
+                   ellipsises if it overruns the column. -->
               <div class="up-next-row-top">
                 <span class="up-next-row-rd">R{{ row.round_number }}</span>
                 <DiverIdentity :row="row"
                                :rank="row.round_order ?? row.display_order"
                                class="up-next-identity" />
               </div>
-              <div v-if="row.dive_code || row.dd != null" class="up-next-row-bot">
+              <div v-if="row.dive_code || row.dd != null || row.description"
+                   class="up-next-row-bot">
                 <span v-if="row.dive_code" class="up-next-row-code">
                   {{ row.dive_code }}{{ row.position || '' }}
                 </span>
                 <span v-if="row.dd != null" class="up-next-row-dd">DD {{ parseFloat(row.dd).toFixed(1) }}</span>
+                <span v-if="row.description || row.position" class="up-next-row-desc">
+                  {{ diveDescription(row) }}
+                </span>
               </div>
             </button>
           </div>
@@ -4250,11 +4257,16 @@ onUnmounted(() => {
   font-size: 12px;
 }
 .up-next-identity { flex: 1; min-width: 0; }
-/* Bottom row: dive code + DD, right-aligned so the columns line
-   up vertically across stacked Up Next rows. */
+/* Bottom row: dive code + DD anchored to the LEFT, dive
+   description filling the remaining space to the right. The
+   description gets min-width:0 + ellipsis so a long action
+   ("Reverse Flying 2½ Somersaults") doesn't push the row
+   wider than the column or wrap onto a new line. */
 .up-next-row-bot {
-  display: flex; gap: 0.6rem; justify-content: flex-end;
+  display: flex; gap: 0.6rem;
+  justify-content: flex-start;
   align-items: baseline;
+  min-width: 0;
 }
 .up-next-row-rd {
   font-family: var(--font-display); font-size: 10px; font-weight: 700;
@@ -4263,10 +4275,17 @@ onUnmounted(() => {
 }
 .up-next-row-code {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
+  flex-shrink: 0;
 }
 .up-next-row-dd {
   font-family: var(--font-display); font-size: 10px; color: var(--cyan);
   letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+.up-next-row-desc {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0;
 }
 
 /* =========================================================

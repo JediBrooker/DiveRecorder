@@ -104,11 +104,17 @@ export function diverIdentity(row) {
 
   // Compact one-liner for callers that only want a single
   // muted line (Up Next tiles, roster rows, scoreboard
-  // standings). Synchro pairs still skip this because
-  // partner_name is rendered as their second line — the
-  // compact callers don't have room for a third row.
+  // standings).
+  //
+  // For synchro pairs we fall through to the club_name —
+  // the partner row already takes the team-or-club slot in
+  // the compact layout, so without this extra line a synchro
+  // pair would surface zero affiliation info beyond the
+  // single country chip top-right. team_name is rare on
+  // synchro entries (synchro is its own event_type, not a
+  // team variant) so club_name is the practical fallback.
   const secondary = partnerName
-    ? null
+    ? (clubName || null)
     : (teamName || clubName || null)
 
   return {
