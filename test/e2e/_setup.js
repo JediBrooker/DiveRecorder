@@ -294,29 +294,38 @@ async function installClickHighlight(page) {
   });
 
   await page.addInitScript(() => {
-    // ----- 1. Click listener (DOM-free, attach NOW) ------------
+    // ----- 1. Click listeners (DOM-free, attach NOW) -----------
     // window + document are both valid EventTargets at
-    // document_start; attach here so the listener exists even
+    // document_start; attach here so listeners exist even
     // if the stylesheet injection below has nothing to attach
     // to yet (documentElement can be null this early).
     //
-    // Listen on pointerdown ONLY. Earlier we belt-and-braces'd
-    // pointerdown + mousedown + click, but every Playwright
-    // click fires all three within ~5ms — so even with dedup
-    // the rendering work happened multiple times. pointerdown
-    // is the earliest in the sequence, which makes the marker
-    // appear at the moment the click is registered (not after
-    // the SPA's click-handler logic has already run).
+    // Belt + braces: listen to pointerdown AND mousedown on
+    // BOTH window and document, all in the capture phase. A
+    // single Playwright click fires both events within ~1ms;
+    // dedup collapses them into one paint. The redundancy
+    // matters because (a) some CSS configurations route one
+    // event but not the other (pointer-events: none on the
+    // target's ancestor suppresses pointerdown but not the
+    // synthetic mousedown), and (b) a capture-phase listener
+    // higher in the chain can stopImmediatePropagation a
+    // single event type — listening on both window AND
+    // document means at least one branch always fires.
     let lastTs = 0;
     const STYLE_ID = "__e2e-click-style";
-    document.addEventListener("pointerdown", (e) => {
-      // Cheap dedup so a stray duplicate event from a synthetic
-      // testbench can't double-paint. 30ms is shorter than any
-      // human / Playwright click cadence.
-      if (e.timeStamp - lastTs < 30) return;
+    const onClick = (e) => {
+      // Dedup window: 60ms is comfortably wider than any
+      // pointerdown/mousedown sibling pair (~1ms apart) but
+      // narrower than the fastest Playwright click cadence
+      // (~150ms+ between distinct user clicks).
+      if (e.timeStamp - lastTs < 60) return;
       lastTs = e.timeStamp;
       paintMarker(e.clientX, e.clientY);
-    }, true);
+    };
+    for (const target of [window, document]) {
+      target.addEventListener("pointerdown", onClick, true);
+      target.addEventListener("mousedown",   onClick, true);
+    }
 
     // ----- 2. Stylesheet --------------------------------------
     // Defer attachment until something exists to attach to. At
@@ -324,12 +333,13 @@ async function installClickHighlight(page) {
     // present yet, so installing the <style> immediately throws
     // and would silently truncate the rest of the init script.
     //
-    // The marker is a single circle that pops + fades in
-    // ~360ms. No banner, no full-screen flash, no persistent
-    // dot — earlier loud variants stayed on screen 2 seconds
-    // after the click, which made successive clicks visually
-    // overlap and read as "delayed". Snappy + small + gone is
-    // easier to follow.
+    // Marker animation tuned to be visible *from the very first
+    // frame*. The previous version ramped opacity 0 → 0.95
+    // over 15% of the animation (~54ms), which meant a click
+    // that triggered fast navigation flashed away invisibly —
+    // the page swapped before the ring crossed the visibility
+    // threshold. Now opacity starts at 1, so even one painted
+    // frame is enough to register the click visually.
     function ensureStyle() {
       if (document.getElementById(STYLE_ID)) return;
       const host = document.head || document.documentElement;
@@ -338,21 +348,23 @@ async function installClickHighlight(page) {
       style.id = STYLE_ID;
       style.textContent = `
         @keyframes e2eClickRing {
-          0%   { transform: scale(0.35); opacity: 0;    }
-          15%  { transform: scale(0.55); opacity: 0.95; }
-          100% { transform: scale(1.4);  opacity: 0;    }
+          0%   { opacity: 1; transform: scale(0.6); }
+          100% { opacity: 0; transform: scale(1.7); }
         }
         .__e2e-click-marker {
           position: fixed; z-index: 2147483647; pointer-events: none;
-          width: 38px; height: 38px;
-          margin-left: -19px; margin-top: -19px;
-          border: 2px solid rgba(6, 182, 212, 0.95);
+          width: 40px; height: 40px;
+          margin-left: -20px; margin-top: -20px;
+          border: 2px solid rgba(6, 182, 212, 1);
           border-radius: 50%;
           box-shadow:
-            0 0 6px rgba(6, 182, 212, 0.55),
-            inset 0 0 4px rgba(6, 182, 212, 0.35);
-          animation: e2eClickRing 360ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+            0 0 8px rgba(6, 182, 212, 0.7),
+            inset 0 0 4px rgba(6, 182, 212, 0.45);
+          animation: e2eClickRing 450ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
           will-change: transform, opacity;
+          opacity: 1;   /* explicit pre-animation state — paints
+                            on the first frame even before the
+                            animation engine kicks in. */
         }
       `;
       host.appendChild(style);
@@ -371,11 +383,10 @@ async function installClickHighlight(page) {
       ring.style.left = x + "px";
       ring.style.top  = y + "px";
       target.appendChild(ring);
-      // Remove just after the animation finishes (360ms anim
-      // + 60ms slack). Keeping the DOM lean prevents stale
-      // markers from overlapping a fast-paced sequence of
-      // clicks and reading as "delayed feedback".
-      setTimeout(() => ring.remove(), 420);
+      // Remove just after the animation finishes (450ms anim
+      // + 80ms slack). Keeps the DOM lean so a fast-paced
+      // click sequence doesn't accumulate stale markers.
+      setTimeout(() => ring.remove(), 530);
       try { console.log(`[e2e-click] ${Math.round(x)},${Math.round(y)}`); } catch {}
     }
 

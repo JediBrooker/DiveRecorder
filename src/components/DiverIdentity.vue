@@ -71,25 +71,35 @@ const id = computed(() => diverIdentity(props.row))
 <template>
   <div class="di-row">
     <div class="di-names">
-      <div class="di-name di-name-lead">
-        <span v-if="rank != null" class="di-rank">{{ rank }}.</span>
-        <RouterLink
-          v-if="linkProfiles && competitorId"
-          :to="`/profile/${competitorId}`"
-          class="di-link"
-          @click.stop
-        >{{ id.leadName }}</RouterLink>
-        <template v-else>{{ id.leadName }}</template>
-      </div>
-      <div v-if="id.partnerName" class="di-name di-name-partner">
-        <span class="di-amp">&amp;</span>
-        <RouterLink
-          v-if="linkProfiles && partnerId"
-          :to="`/profile/${partnerId}`"
-          class="di-link"
-          @click.stop
-        >{{ id.partnerName }}</RouterLink>
-        <template v-else>{{ id.partnerName }}</template>
+      <!-- Names render as inline-baseline flex items inside a
+           wrapping row. When the lead + partner both fit on a
+           single line they sit side-by-side ("Lead Name &
+           Partner Name"); when they don't (long names, narrow
+           column) flex-wrap drops the partner onto its own
+           row. Each .di-name is white-space:nowrap so a name
+           never breaks mid-word — only the partner-as-a-whole
+           wraps. -->
+      <div class="di-names-row">
+        <span class="di-name di-name-lead">
+          <span v-if="rank != null" class="di-rank">{{ rank }}.</span>
+          <RouterLink
+            v-if="linkProfiles && competitorId"
+            :to="`/profile/${competitorId}`"
+            class="di-link"
+            @click.stop
+          >{{ id.leadName }}</RouterLink>
+          <template v-else>{{ id.leadName }}</template>
+        </span>
+        <span v-if="id.partnerName" class="di-name di-name-partner">
+          <span class="di-amp">&amp;</span>
+          <RouterLink
+            v-if="linkProfiles && partnerId"
+            :to="`/profile/${partnerId}`"
+            class="di-link"
+            @click.stop
+          >{{ id.partnerName }}</RouterLink>
+          <template v-else>{{ id.partnerName }}</template>
+        </span>
       </div>
       <template v-if="variant === 'split'">
         <!-- "Split" variant: team chip on its own purple line
@@ -146,13 +156,27 @@ const id = computed(() => diverIdentity(props.row))
   display: flex; flex-direction: column; gap: 0.05rem;
   line-height: 1.25;
 }
+/* Names row — flex-wrap so the lead + partner sit on the same
+   line when there's room, and drop the partner onto its own
+   line only when the available width forces it. The row's
+   horizontal gap doubles as the spacing between names; the
+   ampersand inside the partner span carries its own margin so
+   it stays attached to the partner name on wrap. */
+.di-names-row {
+  display: flex; flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.4em; row-gap: 0;
+}
 /* Lead + partner share the same colour, weight, size — synchro
    pairs are two equal performers. The cyan ampersand still
-   reads as a connector so the eye groups them as one entry. */
+   reads as a connector so the eye groups them as one entry.
+   white-space:nowrap keeps a single name from breaking mid-
+   word; only the partner-as-a-whole wraps when the row can't
+   fit it. */
 .di-name {
   font-family: var(--font-display); font-weight: 700;
   font-size: inherit; color: var(--text);
-  word-break: break-word;
+  white-space: nowrap;
 }
 .di-rank {
   display: inline-block;
