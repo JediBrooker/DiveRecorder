@@ -3223,11 +3223,15 @@ onUnmounted(() => {
 .active-zone {
   display: flex;
   flex-direction: column;
-  padding: 1.5rem;
+  padding: 1rem 1.25rem;
   background: var(--bg-2);
 }
-.active-label { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: var(--cyan); margin-bottom: 0.75rem; }
-.active-name { font-family: var(--font-display); font-size: clamp(36px, 5vw, 72px); font-weight: 900; font-style: italic; color: var(--text); line-height: 1; margin-bottom: 1rem; }
+.active-label { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: var(--cyan); margin-bottom: 0.5rem; }
+/* Active diver name. Significantly smaller than the original
+   72px max — even on a 1440-wide monitor a 5vw clamp pushed
+   the name + DD badges past a screen-height of layout. The
+   active block is information dense; let it look that way. */
+.active-name { font-family: var(--font-display); font-size: clamp(22px, 2.6vw, 36px); font-weight: 900; font-style: italic; color: var(--text); line-height: 1.05; margin-bottom: 0.5rem; }
 /* Diving start-order ("1.") prefix in front of the active
    diver's name. Cyan + slightly smaller so the name itself
    stays the hero, but the position number is unmissable. */
@@ -3236,12 +3240,12 @@ onUnmounted(() => {
   font-style: normal;
   margin-right: 0.35em;
 }
-.active-badges { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
-.active-code { font-family: var(--font-mono); font-size: 28px; font-weight: 500; padding: 0.5rem 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
-.active-dd { font-family: var(--font-display); font-size: 20px; font-weight: 700; padding: 0.5rem 1rem; background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.3); border-radius: var(--radius); color: var(--cyan); }
-.active-desc { font-size: 13px; color: var(--text-3); line-height: 1.6; min-height: 40px; margin-bottom: 1.5rem; }
+.active-badges { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+.active-code { font-family: var(--font-mono); font-size: 18px; font-weight: 500; padding: 0.3rem 0.65rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.active-dd { font-family: var(--font-display); font-size: 14px; font-weight: 700; padding: 0.3rem 0.65rem; background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.3); border-radius: var(--radius); color: var(--cyan); }
+.active-desc { font-size: 12px; color: var(--text-3); line-height: 1.5; min-height: 22px; margin-bottom: 0.6rem; }
 
-.judge-grid { display: flex; flex-wrap: wrap; gap: 0.625rem; margin-bottom: 1.25rem; }
+.judge-grid { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
 
 /* Synchro variant of the judge grid — three labelled columns
    (Exec A / Exec B / Sync) so the operator sees who's scoring
@@ -3249,12 +3253,12 @@ onUnmounted(() => {
    accents the Scoreboard view uses for its score chips, so the
    visual vocabulary stays consistent between the two surfaces. */
 .judge-groups-grid {
-  display: flex; gap: 0.75rem; margin-bottom: 1.25rem;
+  display: flex; gap: 0.5rem; margin-bottom: 0.5rem;
   flex-wrap: wrap;
 }
 .judge-group-col {
   flex: 1 1 auto; min-width: 0;
-  padding: 0.5rem 0.65rem 0.7rem;
+  padding: 0.35rem 0.5rem 0.45rem;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--bg-2);
 }
@@ -3262,10 +3266,10 @@ onUnmounted(() => {
   font-family: var(--font-display); font-size: 9px; font-weight: 700;
   letter-spacing: 0.18em; text-transform: uppercase;
   color: var(--text-3);
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.3rem;
 }
 .judge-group-col-tiles {
-  display: flex; flex-wrap: wrap; gap: 0.5rem;
+  display: flex; flex-wrap: wrap; gap: 0.35rem;
 }
 .judge-group-col.judge-group-a    { border-color: rgba(139, 92,246,0.35); }
 .judge-group-col.judge-group-b    { border-color: rgba(245,158, 11,0.35); }
@@ -3274,7 +3278,7 @@ onUnmounted(() => {
 .judge-group-col.judge-group-b    .judge-group-col-label { color: #fbbf24; }
 .judge-group-col.judge-group-sync .judge-group-col-label { color: #34d399; }
 .judge-tile {
-  width: 60px; height: 60px;
+  width: 48px; height: 44px;
   border-radius: var(--radius-sm);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -3339,16 +3343,16 @@ onUnmounted(() => {
   margin-top: 0.25rem;
   font-style: italic;
 }
-.judge-tile-label { font-family: var(--font-display); font-size: 9px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); text-transform: uppercase; }
+.judge-tile-label { font-family: var(--font-display); font-size: 8px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); text-transform: uppercase; }
 .judge-tile.scored .judge-tile-label { color: var(--green); }
-.judge-tile-score { font-family: var(--font-mono); font-size: 16px; font-weight: 500; color: var(--text-3); }
+.judge-tile-score { font-family: var(--font-mono); font-size: 14px; font-weight: 500; color: var(--text-3); }
 .judge-tile.scored .judge-tile-score { color: var(--text); }
 
 /* Wrapper around the judge grid + the reserved dive-total
    slot. Kept as a single block so the bottom controls (pinned
    via .active-bottom margin-top:auto) reliably sit beneath. */
 .judge-block {
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.4rem;
 }
 
 /* Reserved slot for the live dive total. The slot is always
@@ -3356,27 +3360,27 @@ onUnmounted(() => {
    shifts the buttons below it — the operator's eye learns the
    stable position of FAILED / CAP / RE-DIVE / NEXT. */
 .active-dive-total-slot {
-  min-height: 56px;
+  min-height: 36px;
   display: flex;
   align-items: stretch;
-  margin-top: 0.5rem;
+  margin-top: 0.3rem;
 }
 .active-dive-total {
   flex: 1;
   display: flex; align-items: baseline; justify-content: flex-end;
-  gap: 0.75rem;
-  padding: 0.5rem 0.75rem;
+  gap: 0.6rem;
+  padding: 0.3rem 0.6rem;
   background: var(--green-dim);
   border: 1px solid var(--green);
   border-radius: var(--radius-sm);
 }
 .active-dive-total-label {
-  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  font-family: var(--font-display); font-size: 9px; font-weight: 700;
   letter-spacing: 0.2em; text-transform: uppercase;
   color: var(--text-3);
 }
 .active-dive-total-value {
-  font-family: var(--font-display); font-size: 28px; font-weight: 900;
+  font-family: var(--font-display); font-size: 20px; font-weight: 900;
   font-style: italic; color: var(--green);
   line-height: 1;
 }
@@ -3385,15 +3389,15 @@ onUnmounted(() => {
 .active-bottom {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  padding-top: 1rem;
+  gap: 0.5rem;
+  padding-top: 0.6rem;
 }
 
-.ref-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; }
+.ref-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.4rem; }
 .ref-btn {
   font-family: var(--font-display); font-size: 10px; font-weight: 700;
   letter-spacing: 0.1em; text-transform: uppercase;
-  padding: 0.75rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid;
+  padding: 0.5rem 0.4rem; border-radius: var(--radius-sm); border: 1px solid;
   cursor: pointer; transition: all 0.15s; text-align: center; line-height: 1.3;
 }
 
@@ -4255,17 +4259,18 @@ onUnmounted(() => {
 }
 
 /* =========================================================
-   Bigger judge tiles + name labels under each
+   Judge tile fine-tuning + name label under each. The base
+   .judge-tile rule sets the box at 48×44; this block adds the
+   submitter name (truncated) underneath and a position:relative
+   for the signal-active ring overlay.
    ========================================================= */
 .judge-tile {
-  width: 76px; height: 76px;                             /* up from 60×60 */
   position: relative;
 }
-.judge-tile-score { font-size: 20px; }                   /* bigger score */
 .judge-tile-name {
-  font-family: var(--font-mono); font-size: 9px;
-  color: var(--text-3); margin-top: 0.1rem;
-  max-width: 70px;
+  font-family: var(--font-mono); font-size: 8px;
+  color: var(--text-3); margin-top: 0.05rem;
+  max-width: 44px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .judge-tile.scored .judge-tile-name { color: var(--green); }
