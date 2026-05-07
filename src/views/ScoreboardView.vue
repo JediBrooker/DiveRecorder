@@ -1336,7 +1336,17 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.sb-layout { overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+/* Default: natural document flow — page scrolls if content
+   exceeds the viewport. Broadcast + overlay modes (kiosk /
+   projector / OBS) opt back into the locked-to-viewport
+   layout below. */
+.sb-layout { min-height: 100vh; display: flex; flex-direction: column; }
+.sb-layout.broadcast-mode,
+.sb-layout.overlay-mode {
+  overflow: hidden;
+  height: 100vh;
+  min-height: 100vh;
+}
 
 /* Broadcast / kiosk mode — header is hidden via v-if, but we
    also nudge font sizes up so the venue projector reads
@@ -1432,11 +1442,10 @@ onMounted(async () => {
   min-width: 0;
 }
 
-/* =========================================================
-   List mode (browsable meets).
-   The .sb-layout above is height:100vh + overflow:hidden for
-   the live-broadcast layout; we need natural page-scroll here. */
-.sb-layout:has(.meets-mode) { height: auto; overflow: visible; }
+/* List mode (browsable meets) — no special handling needed
+   anymore; .sb-layout defaults to natural document flow. The
+   :has(.meets-mode) override is gone with the height:100vh lock
+   that required it. */
 .meets-mode {
   flex: 1;
   max-width: 1100px;
@@ -1627,8 +1636,18 @@ onMounted(async () => {
 }
 @keyframes cachePulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
-.sb-body { flex: 1; display: grid; grid-template-columns: 380px 1fr 300px; overflow: hidden; }
-.sb-col { display: flex; flex-direction: column; overflow: hidden; }
+/* 3-column live layout. In normal browsing the page scrolls
+   naturally so we don't need overflow locks here; broadcast +
+   overlay modes get them back via the .sb-layout.* selectors
+   above (which then need .sb-body to flex-fill). */
+.sb-body { display: grid; grid-template-columns: 380px 1fr 300px; }
+.sb-layout.broadcast-mode .sb-body,
+.sb-layout.overlay-mode .sb-body {
+  flex: 1; overflow: hidden; grid-template-rows: minmax(0, 1fr);
+}
+.sb-col { display: flex; flex-direction: column; }
+.sb-layout.broadcast-mode .sb-col,
+.sb-layout.overlay-mode .sb-col { overflow: hidden; min-height: 0; }
 .sb-col:not(:last-child) { border-right: 1px solid var(--border); }
 .col-head {
   font-family: var(--font-display); font-size: 10px; font-weight: 700;
@@ -1941,7 +1960,14 @@ onMounted(async () => {
    whole recap content (podium, leaderboard, stats) participates
    in one scroll context rather than being clipped inside a
    nested scroller. */
-.sb-completed { flex: 1; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; }
+/* Completed-event branch. In normal mode the page scrolls
+   naturally so this is just a flex container. Broadcast +
+   overlay modes re-enable the overflow lock. */
+.sb-completed { display: flex; flex-direction: column; }
+.sb-layout.broadcast-mode .sb-completed,
+.sb-layout.overlay-mode .sb-completed {
+  flex: 1; overflow-y: auto; overflow-x: hidden;
+}
 
 .meta-strip {
   display: flex; align-items: center; justify-content: space-between;

@@ -292,8 +292,11 @@ const submitLabel = computed(() => {
 
 
 .judge-layout {
-  overflow: hidden;
-  height: 100dvh;
+  /* Natural document flow — page scrolls if content exceeds
+     the viewport. No 100dvh / overflow:hidden lock; resizing
+     the window resizes the page like any other. The keypad +
+     submit footer flow naturally below the diver header. */
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   touch-action: manipulation;
@@ -440,13 +443,17 @@ const submitLabel = computed(() => {
 }
 
 .keypad {
+  /* Without the parent's 100dvh lock, flex:1 + 1fr rows would
+     collapse to button-content height. Give the keypad a
+     viewport-relative min-height so the buttons stay big enough
+     to tap reliably while still letting the page scroll. */
   flex: 1;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(4, 1fr);
+  grid-template-rows: repeat(4, minmax(72px, 1fr));
   gap: 0.4rem;
   padding: 0.5rem 0.75rem;
-  min-height: 0;
+  min-height: 50vh;
 }
 .key {
   background: var(--surface);
