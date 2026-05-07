@@ -1625,6 +1625,10 @@ socket.on('score_received', (data) => {
       country_code: currentActive.value.country_code,
       club_name: currentActive.value.club_name,
       club_code: currentActive.value.club_code,
+      partner_name: currentActive.value.partner_name,
+      partner_country: currentActive.value.partner_country,
+      team_name: currentActive.value.team_name,
+      team_code: currentActive.value.team_code,
       competitor_id: currentActive.value.competitor_id,
       round_number: currentActive.value.round_number,
       dive_code: currentActive.value.dive_code,
@@ -1709,6 +1713,15 @@ function addHistoryCard(data) {
   const country = data.country_code || null
   const club_name = data.club_name || null
   const club_code = data.club_code || null
+  // Synchro pair fields. Both the live card path (built from
+  // currentActive.value when all judges submit) and the post-
+  // refresh /history path carry these now, so the rendered
+  // card surfaces both names + the partner's country in the
+  // affiliation badge fallback.
+  const partner_name = data.partner_name || null
+  const partner_country = data.partner_country || null
+  const team_name = data.team_name || null
+  const team_code = data.team_code || null
   const dive_code = data.dive_code || null
   const position = data.position || null
   const dd = data.dd != null ? parseFloat(data.dd) : null
@@ -1725,7 +1738,10 @@ function addHistoryCard(data) {
   const competitor_id = data.competitor_id || null
 
   historyCards.value.unshift({
-    name, country, club_name, club_code,
+    name, country,
+    partner_name, partner_country,
+    club_name, club_code,
+    team_name, team_code,
     dive_code, position, dd, desc,
     round: data.round_number, total_rounds, scores, total,
     score_ids, event_id, competitor_id,
@@ -1980,6 +1996,10 @@ async function onEventChange() {
       country_code: h.country_code,
       club_name: h.club_name,
       club_code: h.club_code,
+      partner_name: h.partner_name,
+      partner_country: h.partner_country,
+      team_name: h.team_name,
+      team_code: h.team_code,
       round_number: h.round_number,
       dive_code: h.dive_code,
       position: h.position,
@@ -2150,11 +2170,28 @@ onUnmounted(() => {
           >
             <div class="hist-round">Round {{ card.round }}{{ card.total_rounds ? ` / ${card.total_rounds}` : '' }}</div>
             <div class="hist-header">
-              <div class="hist-name">
-                <span v-if="competitorOrder(card.competitor_id) != null" class="hist-order">{{ competitorOrder(card.competitor_id) }}.</span>
-                {{ card.name }}<span v-if="card.country" class="hist-country">{{ card.country }}</span>
+              <!-- Lead diver. Synchro partner (if any) renders on
+                   its own line below at equal weight. The country
+                   / team / club badge is pinned to the top-right
+                   of the card next to the dive total instead of
+                   being inline with the name, so a synchro pair
+                   doesn't wedge the badge between the two names. -->
+              <div class="hist-names">
+                <div class="hist-name">
+                  <span v-if="competitorOrder(card.competitor_id) != null" class="hist-order">{{ competitorOrder(card.competitor_id) }}.</span>
+                  {{ card.name }}
+                </div>
+                <div v-if="card.partner_name" class="hist-name hist-name-partner">
+                  <span class="hist-amp">&amp;</span>{{ card.partner_name }}
+                </div>
               </div>
-              <div class="hist-total">{{ card.total }}</div>
+              <div class="hist-header-right">
+                <span v-if="card.country || card.team_code || card.club_code"
+                      class="hist-country">
+                  {{ card.country || card.team_code || card.club_code }}
+                </span>
+                <div class="hist-total">{{ card.total }}</div>
+              </div>
             </div>
             <!-- Club affiliation (mirrors the active diver block) -->
             <div v-if="card.club_name" class="hist-club">
@@ -3660,7 +3697,11 @@ onUnmounted(() => {
 }
 
 .country-badge { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); background: var(--bg-3); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; margin-left: 0.5rem; vertical-align: middle; }
-.hist-country { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; margin-left: 0.5rem; vertical-align: middle; }
+/* Affiliation chip in the top-right of a history card. No
+   margin-left because it now sits in its own .hist-header-right
+   column gap'd from the .hist-total — wedging a margin in here
+   would push it off-balance. */
+.hist-country { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; vertical-align: middle; }
 .active-country { font-family: var(--font-display); font-size: 14px; font-weight: 700; letter-spacing: 0.15em; color: var(--text-3); background: var(--bg-3); border: 1px solid var(--border); border-radius: 4px; padding: 0.15rem 0.5rem; margin-left: 0.75rem; vertical-align: middle; }
 .roster-country { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; margin-left: 0.4rem; vertical-align: middle; }
 /* Completed-Dives history cards — condensed (~50% the previous
@@ -3669,8 +3710,23 @@ onUnmounted(() => {
    results actually wants. */
 .hist-card { padding: 0.4rem 0.6rem; border-left: 2px solid var(--cyan); background: var(--bg-3); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin-bottom: 0.3rem; }
 .hist-round { font-size: 9px; color: var(--text-3); margin-bottom: 0.1rem; font-family: var(--font-mono); }
-.hist-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.1rem; }
+/* History card header. Names column on the left grows; the
+   affiliation badge + dive total chip live together on the right
+   so the card has a clean two-column read. align-items: start
+   keeps the badge anchored to the top of the names column even
+   when a synchro pair stacks the partner onto a second line. */
+.hist-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.1rem; gap: 0.4rem; }
+.hist-names { display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; }
+.hist-header-right {
+  display: flex; align-items: center; gap: 0.4rem;
+  flex-shrink: 0;
+}
 .hist-name { font-family: var(--font-display); font-size: 12px; font-weight: 700; color: var(--text); }
+/* Synchro partner gets the same colour + weight + size as the
+   lead — they're equal performers. Cyan ampersand keeps the eye
+   reading the two lines as one entry. */
+.hist-name.hist-name-partner { color: var(--text); }
+.hist-amp { color: var(--cyan); margin-right: 0.2em; font-weight: 400; }
 
 .hist-order {
   /* Diving start-order prefix (e.g. "3.") in front of the diver
@@ -3681,7 +3737,7 @@ onUnmounted(() => {
   color: var(--cyan);
   font-family: var(--font-mono); font-weight: 700;
 }
-.hist-total { font-family: var(--font-mono); font-size: 14px; font-weight: 500; color: var(--cyan); flex-shrink: 0; margin-left: 0.5rem; }
+.hist-total { font-family: var(--font-mono); font-size: 14px; font-weight: 500; color: var(--cyan); flex-shrink: 0; }
 .hist-dive-line { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.1rem; }
 .hist-code { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--text); }
 .hist-dd { font-family: var(--font-display); font-size: 10px; font-weight: 700; color: var(--cyan); }

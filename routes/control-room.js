@@ -1363,8 +1363,11 @@ module.exports = function createControlRoomRouter({
   router.get("/api/events/:id/history", async (req, res) => {
     try {
       const r = await pool.query(
-        `SELECT u.full_name AS "diverName", o.country_code, cl.name AS club_name,
+        `SELECT u.full_name AS "diverName", o.country_code,
+                cl.name AS club_name, cl.short_code AS club_code,
                 pu.full_name AS partner_name,
+                po.country_code AS partner_country,
+                t.name AS team_name, t.short_code AS team_code,
                 s.competitor_id, s.event_id, s.round_number,
                 d.dive_code, d.position, d.dd, d.description,
                 calc_event_dive_points(
@@ -1392,8 +1395,11 @@ module.exports = function createControlRoomRouter({
           AND s.round_number = cdl.round_number
          LEFT JOIN dive_directory d ON COALESCE(s.dive_id, cdl.dive_id) = d.id
          LEFT JOIN users pu ON pu.id = cdl.partner_id
+         LEFT JOIN organisations po ON po.id = pu.org_id
+         LEFT JOIN teams t ON t.id = cdl.team_id
          WHERE s.event_id = $1
-         GROUP BY u.full_name, o.country_code, cl.name, pu.full_name,
+         GROUP BY u.full_name, o.country_code, cl.name, cl.short_code,
+                  pu.full_name, po.country_code, t.name, t.short_code,
                   s.competitor_id, s.event_id, s.round_number,
                   d.dive_code, d.position, d.dd, d.description,
                   e.number_of_judges, e.event_type
