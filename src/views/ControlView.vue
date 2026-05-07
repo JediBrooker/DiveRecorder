@@ -2048,10 +2048,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 <style scoped>
 .ctrl-layout {
-  overflow: hidden;
-  height: 100vh;
+  /* Natural document flow — page scrolls if content exceeds the
+     viewport. No 100vh / overflow:hidden lock; the operator can
+     scroll like any other page. */
   display: flex;
   flex-direction: column;
+  min-height: 100vh;
 }
 .ctrl-header {
   display: flex;
@@ -2063,27 +2065,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   flex-shrink: 0;
 }
 .ctrl-body {
-  flex: 1;
   display: grid;
   grid-template-columns: 280px 1fr 280px;
-  /* grid-template-rows defaults to auto, which sizes the row to
-     the tallest column's content height — leaving a dead band
-     below the columns when the viewport is taller than the
-     content. minmax(0, 1fr) makes the row fill the available
-     flex height instead, AND the 0-min lets columns with
-     overflow: auto actually scroll when the viewport is
-     shorter than the content. */
-  grid-template-rows: minmax(0, 1fr);
-  overflow: hidden;
 }
 .ctrl-panel {
   display: flex;
   flex-direction: column;
-  /* Same min-height: 0 trick as .ctrl-centre — without it a
-     grid child defaults to min-content and refuses to shrink,
-     which clips overflow content rather than scrolling. */
-  min-height: 0;
-  overflow: hidden;
   border-right: 1px solid var(--border);
 }
 .ctrl-panel:last-child {
@@ -2102,30 +2089,16 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   flex-shrink: 0;
 }
 .panel-body {
-  flex: 1;
-  overflow-y: auto;
   padding: 1rem;
 }
 
-/* Centre column flex chain — every parent needs min-height: 0
-   so .active-zone's overflow-y: auto can actually scroll when
-   the operator's window is shorter than the natural content
-   height (judges + dive-total slot + bottom controls). Without
-   min-height: 0 a flex / grid child defaults to min-content and
-   refuses to shrink, which clips the bottom rather than
-   scrolling. */
 .ctrl-centre {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  min-height: 0;
 }
 .active-zone {
   display: flex;
   flex-direction: column;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
   padding: 1.5rem;
   background: var(--bg-2);
 }
@@ -2188,12 +2161,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   line-height: 1;
 }
 
-/* Bottom controls — ref actions, nav buttons, kbd hints. The
-   margin-top: auto pushes the whole group to the bottom of the
-   .active-zone flex column so the centre column fills the full
-   screen height regardless of how much content sits above. */
+/* Bottom controls — ref actions, nav buttons, kbd hints. */
 .active-bottom {
-  margin-top: auto;
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
@@ -2950,34 +2919,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   box-shadow: inset 0 -1px 0 var(--border-2);
 }
 
-/* Compact layout for shorter viewports (laptops, split-screen
-   setups). Drops the kbd-hints hint row, tightens padding, and
-   shrinks the active-diver name + desc + dive-total slot so the
-   centre column fits without forcing a scroll. The actual bits
-   the operator needs (judges, dive total, action buttons) stay
-   their full size. */
-@media (max-height: 800px) {
-  .active-zone { padding: 1rem 1.5rem; }
-  .active-name { font-size: clamp(28px, 4vw, 48px); margin-bottom: 0.6rem; }
-  .active-desc { min-height: 0; margin-bottom: 1rem; }
-  .active-badges { margin-bottom: 1rem; }
-  .judge-block { margin-bottom: 0.5rem; }
-  .active-dive-total-slot { min-height: 48px; margin-top: 0.35rem; }
-  .active-dive-total-value { font-size: 22px; }
-  .active-bottom { gap: 0.5rem; padding-top: 0.5rem; }
-  .kbd-hints { display: none; }
-}
-@media (max-height: 640px) {
-  /* Even tighter — only the essentials. Drop the on-deck strip's
-     "On-Deck" cell so the strip is a row of 2 not 3. */
-  .active-zone { padding: 0.75rem 1rem; }
-  .active-name { font-size: clamp(24px, 3.5vw, 36px); margin-bottom: 0.4rem; }
-  .active-badges { margin-bottom: 0.6rem; }
-  .judge-tile { width: 52px; height: 52px; }
-  .judge-tile-score { font-size: 14px; }
-  .active-dive-total-slot { min-height: 42px; }
-  .active-dive-total-value { font-size: 20px; }
-}
 
 /* ── Tablet & phone ─────────────────────────────────────────
    The control room is primarily a desktop view, but a meet
