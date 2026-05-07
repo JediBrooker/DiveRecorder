@@ -4,6 +4,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
 import { diveDescription } from '@/composables/useDiveLabel'
+import DiverIdentity from '@/components/DiverIdentity.vue'
 import {
   annotatedScores,
   annotatedSynchroScores,
@@ -2169,30 +2170,30 @@ onUnmounted(() => {
             @click="card.score_ids?.length && openCorrection(card)"
           >
             <div class="hist-round">Round {{ card.round }}{{ card.total_rounds ? ` / ${card.total_rounds}` : '' }}</div>
-            <div class="hist-header">
-              <!-- Lead diver. Synchro partner (if any) renders on
-                   its own line below at equal weight. The country
-                   / team / club badge is pinned to the top-right
-                   of the card next to the dive total instead of
-                   being inline with the name, so a synchro pair
-                   doesn't wedge the badge between the two names. -->
-              <div class="hist-names">
-                <div class="hist-name">
-                  <span v-if="competitorOrder(card.competitor_id) != null" class="hist-order">{{ competitorOrder(card.competitor_id) }}.</span>
-                  {{ card.name }}
-                </div>
-                <div v-if="card.partner_name" class="hist-name hist-name-partner">
-                  <span class="hist-amp">&amp;</span>{{ card.partner_name }}
-                </div>
-              </div>
-              <div class="hist-header-right">
-                <span v-if="card.country || card.team_code || card.club_code"
-                      class="hist-country">
-                  {{ card.country || card.team_code || card.club_code }}
-                </span>
+            <!-- Shared identity block: lead + partner stacked at
+                 equal weight for synchro, team / club secondary
+                 line for non-synchro rows, country / team / club
+                 chip pinned top-right, dive total slotted next to
+                 it. The composable maps card.{name,partner_name,
+                 country,team_code,club_code,team_name,club_name}
+                 into the same shape every other surface uses. -->
+            <DiverIdentity
+              :row="{
+                name: card.name,
+                partner_name: card.partner_name,
+                country_code: card.country,
+                team_code: card.team_code,
+                team_name: card.team_name,
+                club_code: card.club_code,
+                club_name: card.club_name,
+              }"
+              :rank="competitorOrder(card.competitor_id)"
+              class="hist-identity"
+            >
+              <template #trailing>
                 <div class="hist-total">{{ card.total }}</div>
-              </div>
-            </div>
+              </template>
+            </DiverIdentity>
             <!-- Club affiliation (mirrors the active diver block) -->
             <div v-if="card.club_name" class="hist-club">
               {{ card.club_name }}<span v-if="card.club_code" class="hist-club-code">{{ card.club_code }}</span>
@@ -2636,36 +2637,14 @@ onUnmounted(() => {
               @click="setActive(row.originalIdx)"
               title="Jump to this diver"
             >
-              <!-- Layout — top row reads "R# pos NAME(s) ... [CTRY]"
-                   with the country / club / team badge pinned to
-                   the top-right of the tile. Synchro pairs put the
-                   partner on a second visual line under the lead
-                   so the "&" doesn't bury the badge between two
-                   names. The bottom row carries dive code + DD,
-                   right-aligned. -->
+              <!-- Two-line tile: identity (R# + pos + names +
+                   badge) on top via the shared <DiverIdentity>;
+                   dive code + DD right-aligned on the bottom. -->
               <div class="up-next-row-top">
                 <span class="up-next-row-rd">R{{ row.round_number }}</span>
-                <!-- Position badge reads round_order (server-side
-                     ROW_NUMBER) before display_order so an event
-                     randomised under the pre-fix bug still shows
-                     1..N labels rather than the stale 4 / 6 / 9
-                     stored in display_order. -->
-                <span v-if="(row.round_order ?? row.display_order) != null"
-                      class="up-next-row-pos">{{ row.round_order ?? row.display_order }}</span>
-                <div class="up-next-row-names">
-                  <div class="up-next-row-name-lead">{{ row.full_name }}</div>
-                  <div v-if="row.partner_name" class="up-next-row-name-partner">
-                    <span class="up-next-row-amp">&amp;</span>{{ row.partner_name }}
-                  </div>
-                </div>
-                <!-- Affiliation badge: prefer country_code, fall
-                     back to team short_code or club short_code so
-                     the top-right always carries the same kind of
-                     identity tag. Hidden when none are present. -->
-                <span v-if="row.country_code || row.team_code || row.club_code"
-                      class="up-next-row-ctry">
-                  {{ row.country_code || row.team_code || row.club_code }}
-                </span>
+                <DiverIdentity :row="row"
+                               :rank="row.round_order ?? row.display_order"
+                               class="up-next-identity" />
               </div>
               <div v-if="row.dive_code || row.dd != null" class="up-next-row-bot">
                 <span v-if="row.dive_code" class="up-next-row-code">
@@ -3710,23 +3689,11 @@ onUnmounted(() => {
    results actually wants. */
 .hist-card { padding: 0.4rem 0.6rem; border-left: 2px solid var(--cyan); background: var(--bg-3); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin-bottom: 0.3rem; }
 .hist-round { font-size: 9px; color: var(--text-3); margin-bottom: 0.1rem; font-family: var(--font-mono); }
-/* History card header. Names column on the left grows; the
-   affiliation badge + dive total chip live together on the right
-   so the card has a clean two-column read. align-items: start
-   keeps the badge anchored to the top of the names column even
-   when a synchro pair stacks the partner onto a second line. */
-.hist-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.1rem; gap: 0.4rem; }
-.hist-names { display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; }
-.hist-header-right {
-  display: flex; align-items: center; gap: 0.4rem;
-  flex-shrink: 0;
-}
-.hist-name { font-family: var(--font-display); font-size: 12px; font-weight: 700; color: var(--text); }
-/* Synchro partner gets the same colour + weight + size as the
-   lead — they're equal performers. Cyan ampersand keeps the eye
-   reading the two lines as one entry. */
-.hist-name.hist-name-partner { color: var(--text); }
-.hist-amp { color: var(--cyan); margin-right: 0.2em; font-weight: 400; }
+/* History card identity block — set the font-size base so the
+   <DiverIdentity> component's `inherit`-based typography
+   resolves to the right value (badge font-size is 0.75em of
+   this, secondary line is 0.85em). */
+.hist-identity { font-size: 12px; margin-bottom: 0.1rem; }
 
 .hist-order {
   /* Diving start-order prefix (e.g. "3.") in front of the diver
@@ -4346,22 +4313,16 @@ onUnmounted(() => {
   background: var(--cyan-dim);
 }
 .up-next-row-btn:disabled { cursor: default; opacity: 0.5; }
-/* Top row of an Up Next tile.
-   Columns:
-     - R# (small label, 24px-ish)
-     - position number (auto-width — no fixed reservation, so
-       a missing number doesn't leave a gap, and a 2-digit
-       number expands without crushing the name)
-     - names (1fr, expands)
-     - affiliation badge (auto, pinned top-right via
-       align-self: start)
-   Tight gap so the eye reads "R1 3 Diver Bravo  TST" left-to-
-   right with no dead air. */
+/* Up Next tile top row: R# label + shared identity block. The
+   <DiverIdentity> handles the names stack + position rank +
+   affiliation badge top-right; this just lays the R# next to
+   it. Inheritable font-size sets the identity block's baseline
+   to 12px (badge resolves to 9px, secondary line ~10px). */
 .up-next-row-top {
-  display: grid;
-  grid-template-columns: auto auto 1fr auto;
-  align-items: start; gap: 0.35rem;
+  display: flex; align-items: flex-start; gap: 0.4rem;
+  font-size: 12px;
 }
+.up-next-identity { flex: 1; min-width: 0; }
 /* Bottom row: dive code + DD, right-aligned so the columns line
    up vertically across stacked Up Next rows. */
 .up-next-row-bot {
@@ -4371,49 +4332,8 @@ onUnmounted(() => {
 .up-next-row-rd {
   font-family: var(--font-display); font-size: 10px; font-weight: 700;
   letter-spacing: 0.04em; color: var(--text-3);
-  /* Match the lead-name's baseline so R1 / 3 / Name align. */
   line-height: 1.25;
 }
-.up-next-row-pos {
-  font-family: var(--font-display); font-size: 11px; font-weight: 800;
-  font-style: italic; color: var(--cyan);
-  line-height: 1.25;
-  /* Stays as wide as its content — single digit packs tight,
-     double digit (10+) expands without breaking the layout. */
-}
-/* Stacked names — lead on the first line, partner on the second
-   line for synchro pairs. The wrapper grows to the available
-   1fr column width and lets long names wrap rather than
-   truncate. */
-.up-next-row-names {
-  display: flex; flex-direction: column; gap: 0.05rem;
-  min-width: 0;
-  white-space: normal; word-break: break-word;
-  line-height: 1.25;
-}
-/* Lead + partner share the same colour, weight, and size — a
-   synchro pair is two equal performers, not a hero with a
-   sidekick. The "&" connector keeps its cyan accent so the eye
-   still reads them as one entry, but the names themselves carry
-   identical visual weight. */
-.up-next-row-name-lead,
-.up-next-row-name-partner {
-  color: var(--text);
-  font-weight: 600;
-}
-.up-next-row-ctry {
-  /* Pinned top-right of the tile — a one-row chip that doesn't
-     change height with the name wrap below it. align-self:
-     start keeps it anchored even if the partner name pushes the
-     names column down to two lines. */
-  align-self: start;
-  font-family: var(--font-display); font-size: 9px; font-weight: 700;
-  letter-spacing: 0.08em; color: var(--text-3);
-  background: var(--bg); border: 1px solid var(--border);
-  border-radius: 3px; padding: 0.1rem 0.4rem;
-  white-space: nowrap;
-}
-.up-next-row-amp { color: var(--cyan); margin: 0 0.25em 0 0; }
 .up-next-row-code {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
 }

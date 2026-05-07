@@ -5,6 +5,7 @@ import { useSocket } from '@/composables/useSocket'
 import { annotatedScores, groupedSynchroScoresForDisplay, trimCount } from '@/composables/useScoreCategories'
 import { diveDescription } from '@/composables/useDiveLabel'
 import { cachedFetch } from '@/lib/idbCache'
+import DiverIdentity from '@/components/DiverIdentity.vue'
 
 const route  = useRoute()
 const router = useRouter()
@@ -982,14 +983,21 @@ onMounted(async () => {
           <p v-if="!historyItems.length" style="color:var(--text-3);font-size:12px;text-align:center;padding:2rem">No scores yet</p>
           <div v-for="(h, idx) in historyItems" :key="idx" class="hist-card">
             <div class="hist-round">Round {{ h.round_number }}{{ currentEvent?.total_rounds ? ` / ${currentEvent.total_rounds}` : '' }}</div>
-            <div class="hist-header">
-              <div class="hist-name">
-                <RouterLink v-if="h.competitor_id" :to="`/profile/${h.competitor_id}`" class="diver-link" @click.stop>{{ h.full_name }}</RouterLink>
-                <template v-else>{{ h.full_name }}</template>
-                <span v-if="h.country_code" class="hist-country">{{ h.country_code }}</span>
-              </div>
-              <div class="hist-total">{{ parseFloat(h.total_dive_score).toFixed(1) }}</div>
-            </div>
+            <!-- Shared identity block — same source of truth as
+                 the Control Room. Lead + synchro partner stack
+                 equal-weight, team / club secondary line for
+                 non-synchro rows, country / team / club chip top-
+                 right alongside the dive total. -->
+            <DiverIdentity
+              :row="h"
+              :competitor-id="h.competitor_id"
+              :partner-id="h.partner_id"
+              link-profiles
+              class="hist-identity">
+              <template #trailing>
+                <div class="hist-total">{{ parseFloat(h.total_dive_score).toFixed(1) }}</div>
+              </template>
+            </DiverIdentity>
             <div class="hist-dive-line">
               <span class="hist-code">{{ h.dive_code ? `${h.dive_code}${h.position || ''}` : '—' }}</span>
               <span v-if="h.dd != null" class="hist-dd">DD {{ parseFloat(h.dd).toFixed(1) }}</span>
@@ -2115,8 +2123,9 @@ onMounted(async () => {
 
 .hist-card { padding: 0.875rem 1rem; border-left: 2px solid var(--cyan); background: var(--bg-3); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin-bottom: 0.5rem; }
 .hist-round { font-size: 10px; color: var(--text-3); margin-bottom: 0.3rem; font-family: var(--font-mono); }
-.hist-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.3rem; }
-.hist-name { font-family: var(--font-display); font-size: 13px; font-weight: 700; color: var(--text); }
+/* Identity block font-size base — DiverIdentity inherits this
+   and resolves badge / secondary-line sizes off it. */
+.hist-identity { font-size: 13px; margin-bottom: 0.3rem; }
 
 /* Diver-name links — clickable diver names everywhere they
    appear, jumping to /profile/<id>. Inherits the surrounding
