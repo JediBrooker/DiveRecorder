@@ -276,6 +276,28 @@ const canReorderQueue = computed(() =>
 )
 
 // =========================================================
+// DIVER START ORDER — every roster row carries display_order
+// (the 1-based diving position, set when the operator clicks
+// Randomise or by manual reorder). The same diver keeps their
+// order across all rounds, so a single competitor_id → number
+// map drives the "1." prefix shown in front of every name —
+// active diver, completed-dives history cards, roster queue.
+// =========================================================
+const competitorOrderMap = computed(() => {
+  const map = new Map()
+  for (const row of roster.value) {
+    if (row.display_order != null && !map.has(row.competitor_id)) {
+      map.set(row.competitor_id, row.display_order)
+    }
+  }
+  return map
+})
+function competitorOrder(competitorId) {
+  if (!competitorId) return null
+  return competitorOrderMap.value.get(competitorId) ?? null
+}
+
+// =========================================================
 // LIVE DIVE TOTAL — once every judge tile is filled, show the
 // official dive total (trim_sum × DD) under the judge grid so
 // the operator can see the scored result immediately rather
@@ -1003,6 +1025,7 @@ socket.on('score_received', (data) => {
       country_code: currentActive.value.country_code,
       club_name: currentActive.value.club_name,
       club_code: currentActive.value.club_code,
+      competitor_id: currentActive.value.competitor_id,
       round_number: currentActive.value.round_number,
       dive_code: currentActive.value.dive_code,
       position: currentActive.value.position,
@@ -1518,7 +1541,10 @@ onUnmounted(() => {
           >
             <div class="hist-round">Round {{ card.round }}{{ card.total_rounds ? ` / ${card.total_rounds}` : '' }}</div>
             <div class="hist-header">
-              <div class="hist-name">{{ card.name }}<span v-if="card.country" class="hist-country">{{ card.country }}</span></div>
+              <div class="hist-name">
+                <span v-if="competitorOrder(card.competitor_id) != null" class="hist-order">{{ competitorOrder(card.competitor_id) }}.</span>
+                {{ card.name }}<span v-if="card.country" class="hist-country">{{ card.country }}</span>
+              </div>
               <div class="hist-total">{{ card.total }}</div>
             </div>
             <!-- Club affiliation (mirrors the active diver block) -->
@@ -1614,6 +1640,11 @@ onUnmounted(() => {
             </div>
           </div>
           <div class="active-name">
+            <!-- Diver's start-order number ("1.") prefixes the
+                 name so the operator sees their canonical
+                 position at a glance — same number that shows on
+                 the roster queue and the completed-dives cards. -->
+            <span v-if="competitorOrder(currentActive?.competitor_id) != null" class="active-order">{{ competitorOrder(currentActive.competitor_id) }}.</span>
             <template v-if="activeInfo.partner_name">
               {{ activeInfo.name }}<span v-if="activeInfo.country" class="active-country">{{ activeInfo.country }}</span>
               <span class="active-amp">&amp;</span>
@@ -1861,6 +1892,7 @@ onUnmounted(() => {
                   @click="setActive(item.originalIdx)"
                 >
                   <div class="roster-name">
+                    <span v-if="item.display_order != null" class="roster-order">{{ item.display_order }}.</span>
                     {{ item.full_name }}<span v-if="item.country_code" class="roster-country">{{ item.country_code }}</span>
                     <template v-if="item.partner_name">
                       <span class="roster-amp">&amp;</span>
@@ -2227,6 +2259,14 @@ onUnmounted(() => {
 }
 .active-label { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: var(--cyan); margin-bottom: 0.75rem; }
 .active-name { font-family: var(--font-display); font-size: clamp(36px, 5vw, 72px); font-weight: 900; font-style: italic; color: var(--text); line-height: 1; margin-bottom: 1rem; }
+/* Diving start-order ("1.") prefix in front of the active
+   diver's name. Cyan + slightly smaller so the name itself
+   stays the hero, but the position number is unmissable. */
+.active-order {
+  color: var(--cyan);
+  font-style: normal;
+  margin-right: 0.35em;
+}
 .active-badges { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
 .active-code { font-family: var(--font-mono); font-size: 28px; font-weight: 500; padding: 0.5rem 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
 .active-dd { font-family: var(--font-display); font-size: 20px; font-weight: 700; padding: 0.5rem 1rem; background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.3); border-radius: var(--radius); color: var(--cyan); }
@@ -2347,6 +2387,15 @@ onUnmounted(() => {
 .roster-item:hover { border-color: var(--border-2); }
 .roster-item.active { background: var(--cyan-dim); border-color: var(--cyan); }
 .roster-name { font-family: var(--font-display); font-size: 14px; font-weight: 700; color: var(--text); }
+.roster-order {
+  /* Same diving-position chip as the active diver + history
+     cards, sized to fit the queue row. Cyan so the eye treats
+     it as a position number rather than part of the name. */
+  display: inline-block;
+  color: var(--cyan);
+  font-family: var(--font-mono); font-weight: 700;
+  margin-right: 0.3rem;
+}
 .roster-item.active .roster-name { color: var(--cyan); }
 .roster-meta { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-3); margin-top: 0.2rem; font-family: var(--font-mono); }
 .roster-team {
@@ -2408,17 +2457,30 @@ onUnmounted(() => {
 .hist-country { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; margin-left: 0.5rem; vertical-align: middle; }
 .active-country { font-family: var(--font-display); font-size: 14px; font-weight: 700; letter-spacing: 0.15em; color: var(--text-3); background: var(--bg-3); border: 1px solid var(--border); border-radius: 4px; padding: 0.15rem 0.5rem; margin-left: 0.75rem; vertical-align: middle; }
 .roster-country { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; margin-left: 0.4rem; vertical-align: middle; }
-.hist-card { padding: 0.875rem 1rem; border-left: 2px solid var(--cyan); background: var(--bg-3); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin-bottom: 0.5rem; }
-.hist-round { font-size: 10px; color: var(--text-3); margin-bottom: 0.3rem; font-family: var(--font-mono); }
-.hist-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.3rem; }
-.hist-name { font-family: var(--font-display); font-size: 13px; font-weight: 700; color: var(--text); }
-.hist-total { font-family: var(--font-mono); font-size: 16px; font-weight: 500; color: var(--cyan); flex-shrink: 0; margin-left: 0.5rem; }
-.hist-dive-line { display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 0.3rem; }
-.hist-code { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: var(--text); }
-.hist-dd { font-family: var(--font-display); font-size: 11px; font-weight: 700; color: var(--cyan); }
-.hist-desc { font-size: 10px; color: var(--text-3); margin-bottom: 0.4rem; }
-.hist-scores { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
-.hist-score { font-family: var(--font-mono); font-size: 10px; padding: 0.15rem 0.4rem; background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.2); border-radius: 3px; color: var(--cyan); }
+/* Completed-Dives history cards — condensed (~50% the previous
+   vertical footprint). The left column gets twice as many cards
+   in view at once, which is what an operator scanning recent
+   results actually wants. */
+.hist-card { padding: 0.4rem 0.6rem; border-left: 2px solid var(--cyan); background: var(--bg-3); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin-bottom: 0.3rem; }
+.hist-round { font-size: 9px; color: var(--text-3); margin-bottom: 0.1rem; font-family: var(--font-mono); }
+.hist-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.1rem; }
+.hist-name { font-family: var(--font-display); font-size: 12px; font-weight: 700; color: var(--text); }
+.hist-order {
+  /* Diving start-order prefix (e.g. "3.") in front of the diver
+     name. Cyan + condensed so it reads as a position chip
+     without competing with the name itself. */
+  display: inline-block;
+  margin-right: 0.25rem;
+  color: var(--cyan);
+  font-family: var(--font-mono); font-weight: 700;
+}
+.hist-total { font-family: var(--font-mono); font-size: 14px; font-weight: 500; color: var(--cyan); flex-shrink: 0; margin-left: 0.5rem; }
+.hist-dive-line { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.1rem; }
+.hist-code { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--text); }
+.hist-dd { font-family: var(--font-display); font-size: 10px; font-weight: 700; color: var(--cyan); }
+.hist-desc { font-size: 9px; color: var(--text-3); margin-bottom: 0.2rem; }
+.hist-scores { display: flex; flex-wrap: wrap; gap: 0.2rem; margin-top: 0.15rem; }
+.hist-score { font-family: var(--font-mono); font-size: 9px; padding: 0.1rem 0.3rem; background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.2); border-radius: 3px; color: var(--cyan); }
 
 .conn-badge { display: flex; align-items: center; gap: 0.4rem; font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; }
 .event-select-sm { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.4rem 0.75rem; font-family: var(--font-mono); font-size: 13px; color: var(--text); outline: none; cursor: pointer; }
