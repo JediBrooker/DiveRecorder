@@ -9,8 +9,8 @@
     "preview": "vite preview",
     "start": "node server.js",
     "lint": "node --check server.js",
-    "test": "node --test test/syntax.test.js test/calc.test.js test/score-trim.test.js test/integration.test.js",
-    "test:safe": "node --test test/syntax.test.js test/calc.test.js test/score-trim.test.js",
+    "test": "node --test test/syntax.test.js test/calc.test.js test/score-trim.test.js test/dive-label.test.js test/integration.test.js",
+    "test:safe": "node --test test/syntax.test.js test/calc.test.js test/score-trim.test.js test/dive-label.test.js",
     "test:e2e": "playwright test",
     "migrate": "node scripts/migrate.js"
   },
