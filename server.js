@@ -142,14 +142,26 @@ app.use(express.static(path.join(__dirname, 'dist')))
 // undefined, so the explicit DB_*-then-PG* coalesce below is mostly
 // belt-and-braces — but it makes the precedence visible to anyone
 // debugging a connection error.
+// `application_name` is propagated to pg_stat_activity. Setting
+// distinct values on the writer + reader pools lets an operator
+// tell from a `SELECT application_name FROM pg_stat_activity`
+// query which side of the wiring served any given connection —
+// invaluable when verifying read-replica routing.
+const POOL_APP_NAME_WRITER = "dive-recorder-writer";
+const POOL_APP_NAME_READER = "dive-recorder-reader";
+
 const pool = process.env.DATABASE_URL
-  ? new Pool({ connectionString: process.env.DATABASE_URL })
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      application_name: POOL_APP_NAME_WRITER,
+    })
   : new Pool({
       user:     process.env.DB_USER     || process.env.PGUSER,
       host:     process.env.DB_HOST     || process.env.PGHOST,
       database: process.env.DB_DATABASE || process.env.PGDATABASE,
       password: process.env.DB_PASSWORD || process.env.PGPASSWORD,
       port:     process.env.DB_PORT     || process.env.PGPORT,
+      application_name: POOL_APP_NAME_WRITER,
     });
 
 // -------------------------------------------------------------
@@ -168,7 +180,10 @@ const pool = process.env.DATABASE_URL
 // factory pattern means a route's code is identical regardless of
 // whether the dep is the writer or a replica.
 const readPool = process.env.DATABASE_READ_URL
-  ? new Pool({ connectionString: process.env.DATABASE_READ_URL })
+  ? new Pool({
+      connectionString: process.env.DATABASE_READ_URL,
+      application_name: POOL_APP_NAME_READER,
+    })
   : pool;
 if (readPool !== pool) {
   logger.info({ host: new URL(process.env.DATABASE_READ_URL).host },
