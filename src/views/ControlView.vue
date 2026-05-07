@@ -4,7 +4,14 @@ import { RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
 import { diveDescription } from '@/composables/useDiveLabel'
-import { annotatedScores, trimCount } from '@/composables/useScoreCategories'
+import {
+  annotatedScores,
+  annotatedSynchroScores,
+  groupedSynchroScoresForDisplay,
+  synchroJudgeGroups,
+  synchroRoleForJudge,
+  trimCount,
+} from '@/composables/useScoreCategories'
 
 const auth = useAuthStore()
 const socket = useSocket()
@@ -298,6 +305,41 @@ function competitorOrder(competitorId) {
 }
 
 // =========================================================
+// SYNCHRO PANEL HELPERS
+// Surface "is this a synchro event?" and the WA judge groupings
+// once so every place that needs them — history cards, the live
+// judge-tile grid, the dive-total calc — reads from the same
+// source. groupedSynchroScoresForDisplay / synchroJudgeGroups
+// live in the shared composable so the Scoreboard view's render
+// stays byte-for-byte identical to ours.
+// =========================================================
+const isSynchroEvent = computed(() =>
+  currentEvent.value?.event_type === 'synchro_pair',
+)
+// { a: [1,2,...], b: [...], sync: [...] } when synchro AND the
+// panel size is 9 or 11 (WA-recognised); null otherwise. The
+// centre grid groups its tiles via this; the history rendering
+// uses groupedSynchroScoresForDisplay (which wraps the same
+// helper) so the chips stay in WA order.
+const liveSynchroGroups = computed(() => {
+  if (!isSynchroEvent.value) return null
+  return synchroJudgeGroups(parseInt(currentEvent.value?.number_of_judges) || 0)
+})
+// Tiles split by role for the centre judge grid. Returns null
+// when not synchro so the template's v-if can fall back to the
+// flat grid.
+const judgeTilesByGroup = computed(() => {
+  const groups = liveSynchroGroups.value
+  if (!groups) return null
+  const idx = (jn) => judgeTiles.value.find(t => t.judgeIndex === jn) || null
+  return [
+    { role: 'a',    label: 'Exec A', tiles: groups.a.map(idx).filter(Boolean) },
+    { role: 'b',    label: 'Exec B', tiles: groups.b.map(idx).filter(Boolean) },
+    { role: 'sync', label: 'Sync',   tiles: groups.sync.map(idx).filter(Boolean) },
+  ]
+})
+
+// =========================================================
 // LIVE DIVE TOTAL — once every judge tile is filled, show the
 // official dive total (trim_sum × DD) under the judge grid so
 // the operator can see the scored result immediately rather
@@ -312,20 +354,45 @@ const liveDiveTotal = computed(() => {
   if (!tiles.every(t => t.scored)) return null
   const dd = parseFloat(currentActive.value?.dd)
   if (!dd || Number.isNaN(dd)) return null
-  // annotatedScores wants the raw values csv + the panel size; it
-  // returns {value, dropped, category}[] with the FINA trim
-  // applied. Sum the non-dropped values × DD for the dive total.
   const csv = tiles
     .slice()
     .sort((a, b) => a.judgeIndex - b.judgeIndex)
     .map(t => parseFloat(t.score))
     .filter(v => !Number.isNaN(v))
     .join(',')
-  const annotated = annotatedScores(csv, need)
+  // Synchro events trim WITHIN each judge group (Exec A drops
+  // 1+1 from a 3-judge sub-panel, Sync drops 1+1 from 5, etc.)
+  // — same rule the scoreboard + server-side calc use. Falls
+  // back to the flat individual rule for non-synchro panels.
+  const annotated = isSynchroEvent.value
+    ? annotatedSynchroScores(csv, need)
+    : annotatedScores(csv, need)
   const trimSum = annotated
     .filter(j => !j.dropped)
     .reduce((sum, j) => sum + j.value, 0)
-  return trimSum * dd
+  // Synchro multiplies the kept-execution contribution by 3/n_a
+  // and the kept-sync contribution by 3/n_sync to get a 6-judge
+  // equivalent before × DD. The scoreboard's
+  // calc_event_dive_points handles this server-side; here we
+  // approximate so the operator sees "≈" not "exact". Implement
+  // the same scaling for parity. For 9-panel: a/b 1+1 → kept 1+1
+  // (sum × 3 / 2 each) + sync 1+1+3 → kept 3 (sum × 3 / 3); the
+  // scaling factor per group is 3/(group size − dropCount × 2).
+  if (!isSynchroEvent.value) return trimSum * dd
+  const groups = synchroJudgeGroups(need)
+  if (!groups) return trimSum * dd
+  // For each group, sum kept × scaleFactor where scaleFactor = 3
+  // / count_kept. Mirrors the SQL in calc_event_dive_points.
+  const arr = annotated   // index aligned to judge_number-1
+  let scaled = 0
+  for (const set of [groups.a, groups.b, groups.sync]) {
+    const kept = set
+      .map(jn => arr[jn - 1])
+      .filter(j => j && !j.dropped)
+    if (!kept.length) continue
+    scaled += (kept.reduce((s, j) => s + j.value, 0) / kept.length) * 3
+  }
+  return scaled * dd
 })
 
 // =========================================================
@@ -1988,7 +2055,25 @@ onUnmounted(() => {
             </div>
             <div v-if="card.desc" class="hist-desc">{{ card.desc }}</div>
             <div v-if="card.scores.length" class="hist-scores">
-              <span v-for="(s, si) in card.scores" :key="si" class="hist-score">{{ s.toFixed(1) }}</span>
+              <!-- Synchro: group scores into Exec A / Exec B / Sync
+                   using the same shared helper the Scoreboard view
+                   uses. Falls back to flat chips for individual /
+                   team events. -->
+              <template v-if="isSynchroEvent">
+                <div v-for="g in (groupedSynchroScoresForDisplay(card.scores.join(','), currentEvent?.number_of_judges) || [])"
+                     :key="g.role"
+                     :class="['judge-group', `judge-group-${g.role}`]">
+                  <span class="judge-group-label">{{ g.label }}</span>
+                  <span v-for="(j, si) in g.scores" :key="si"
+                        :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                        :title="j.dropped ? 'Dropped by trim rule' : ''">
+                    {{ j.value.toFixed(1) }}
+                  </span>
+                </div>
+              </template>
+              <template v-else>
+                <span v-for="(s, si) in card.scores" :key="si" class="hist-score">{{ s.toFixed(1) }}</span>
+              </template>
             </div>
           </div>
         </div>
@@ -2154,7 +2239,41 @@ onUnmounted(() => {
 
           <div class="judge-block">
             <div style="font-family:var(--font-display);font-size:10px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:var(--text-3);margin-bottom:0.625rem">Judge Scores</div>
-            <div class="judge-grid">
+            <!-- Synchro: split the live judge tiles into the WA
+                 panel groups (Exec A / Exec B / Sync) so the
+                 operator sees who's scoring what role at a glance.
+                 Each group gets a labelled column; the tiles
+                 themselves are unchanged so Score-by-judge wiring
+                 (signal flag, scored class, name tooltip) stays
+                 identical with the flat layout. -->
+            <div v-if="judgeTilesByGroup" class="judge-groups-grid">
+              <div v-for="g in judgeTilesByGroup"
+                   :key="g.role"
+                   :class="['judge-group-col', `judge-group-${g.role}`]">
+                <div class="judge-group-col-label">{{ g.label }}</div>
+                <div class="judge-group-col-tiles">
+                  <div
+                    v-for="tile in g.tiles"
+                    :key="tile.judgeIndex"
+                    :class="[
+                      'judge-tile',
+                      tile.scored ? 'scored' : '',
+                      tile.signaled ? 'signaled' : '',
+                    ]"
+                    :title="tile.signaled
+                      ? `${judgeNameByNumber[tile.judgeIndex] || 'Judge'} ${tile.judgeIndex} — wants the referee`
+                      : (judgeNameByNumber[tile.judgeIndex] || `Judge ${tile.judgeIndex}`)"
+                  >
+                    <div class="judge-tile-label">J{{ tile.judgeIndex }}</div>
+                    <div class="judge-tile-score">{{ tile.score }}</div>
+                    <div v-if="judgeNameByNumber[tile.judgeIndex]" class="judge-tile-name">
+                      {{ judgeNameByNumber[tile.judgeIndex].split(' ').slice(-1)[0] }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="judge-grid">
               <div
                 v-for="tile in judgeTiles"
                 :key="tile.judgeIndex"
@@ -3040,6 +3159,37 @@ onUnmounted(() => {
 .active-desc { font-size: 13px; color: var(--text-3); line-height: 1.6; min-height: 40px; margin-bottom: 1.5rem; }
 
 .judge-grid { display: flex; flex-wrap: wrap; gap: 0.625rem; margin-bottom: 1.25rem; }
+
+/* Synchro variant of the judge grid — three labelled columns
+   (Exec A / Exec B / Sync) so the operator sees who's scoring
+   what role at a glance. Border colour echoes the per-group
+   accents the Scoreboard view uses for its score chips, so the
+   visual vocabulary stays consistent between the two surfaces. */
+.judge-groups-grid {
+  display: flex; gap: 0.75rem; margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+.judge-group-col {
+  flex: 1 1 auto; min-width: 0;
+  padding: 0.5rem 0.65rem 0.7rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-2);
+}
+.judge-group-col-label {
+  font-family: var(--font-display); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 0.5rem;
+}
+.judge-group-col-tiles {
+  display: flex; flex-wrap: wrap; gap: 0.5rem;
+}
+.judge-group-col.judge-group-a    { border-color: rgba(139, 92,246,0.35); }
+.judge-group-col.judge-group-b    { border-color: rgba(245,158, 11,0.35); }
+.judge-group-col.judge-group-sync { border-color: rgba( 16,185,129,0.35); }
+.judge-group-col.judge-group-a    .judge-group-col-label { color: #c4b5fd; }
+.judge-group-col.judge-group-b    .judge-group-col-label { color: #fbbf24; }
+.judge-group-col.judge-group-sync .judge-group-col-label { color: #34d399; }
 .judge-tile {
   width: 60px; height: 60px;
   border-radius: var(--radius-sm);
