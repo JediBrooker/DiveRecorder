@@ -22,6 +22,7 @@
 //   app.use(require('./routes/control-room')({ … }))
 
 const express = require("express");
+const QRCode  = require("qrcode");
 const { publicId } = require("../lib/public-id");
 
 // Light CSV parser. Handles "quoted, fields", "doubled""quotes"
@@ -997,11 +998,47 @@ module.exports = function createControlRoomRouter({
         return res.status(503).json({ error: "Could not allocate a handoff code; try again" });
       }
 
+      // QR encodes a deep link back into the SPA's referee-side
+      // sign-off page with the code pre-filled. Server-side render
+      // (qrcode → PNG data URL) keeps the SPA free of an extra
+      // client lib and means the manager's tab doesn't need to do
+      // canvas work mid-meet. Same auth path on the receiving end:
+      // the referee scans, lands on /sign-off-codes?code=…, the
+      // SPA auto-submits if they're already signed in OR bounces
+      // through /login?next=… and back. The QR carries no secret
+      // beyond what the typeable code already has — the verifier
+      // still requires the referee's own JWT (target_referee_id =
+      // req.user.id) so a leaked QR is useless to anyone but the
+      // specific referee the manager picked.
+      const baseUrl = process.env.APP_BASE_URL
+        || `${req.protocol}://${req.get("host")}`;
+      const deepLink = `${baseUrl}/sign-off-codes?code=${encodeURIComponent(inserted.rows[0].handoff_code)}`;
+      let qrDataUrl = null;
+      try {
+        qrDataUrl = await QRCode.toDataURL(deepLink, {
+          // Slightly larger + higher error-correction than default
+          // so a phone camera in a dim pool deck still resolves it.
+          // 256×256 is plenty at the modal's render size; "M" is
+          // 15% redundancy which tolerates a thumb-print on the
+          // manager's screen.
+          width: 256,
+          margin: 1,
+          errorCorrectionLevel: "M",
+        });
+      } catch (err) {
+        // QR is a UX nicety — falling back to the typeable code
+        // alone keeps the modal functional if the generator hits
+        // an edge case.
+        console.error("[Sign-Off QR Generate Error]", err.message);
+      }
+
       res.status(201).json({
         ok: true,
-        request_id: inserted.rows[0].id,
-        code:       inserted.rows[0].handoff_code,
-        expires_at: inserted.rows[0].expires_at,
+        request_id:   inserted.rows[0].id,
+        code:         inserted.rows[0].handoff_code,
+        expires_at:   inserted.rows[0].expires_at,
+        qr_data_url:  qrDataUrl,
+        deep_link:    deepLink,
       });
     } catch (err) {
       console.error("[Sign-Off Code Generate Error]", err.message);

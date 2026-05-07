@@ -761,9 +761,11 @@ async function generateSignoffCode() {
     )
     const refRow = signoffReferees.value.find(x => x.id === signoffPickedRefId.value)
     signoffCode.value = {
-      request_id: r.request_id,
-      code:       r.code,
-      expires_at: r.expires_at,
+      request_id:  r.request_id,
+      code:        r.code,
+      expires_at:  r.expires_at,
+      qr_data_url: r.qr_data_url || null,
+      deep_link:   r.deep_link   || null,
       referee_name: refRow?.full_name || 'the referee',
     }
   } catch (err) {
@@ -3100,12 +3102,32 @@ onUnmounted(() => {
           </div>
         </template>
         <div v-else class="signoff-code-display">
-          <div class="signoff-code-label">Read this code to {{ signoffCode.referee_name }}</div>
-          <div class="signoff-code-value">{{ signoffCode.code }}</div>
+          <div class="signoff-code-label">Show this to {{ signoffCode.referee_name }}</div>
+          <!-- Two-column hand-off: QR on the left, typeable code
+               on the right. Whichever the referee can use first
+               wins — both feed the same /sign-off/code/verify
+               endpoint, so this panel updates the moment either
+               path completes. The QR encodes the same code as a
+               deep link into /sign-off-codes; scan-then-tap is
+               faster than dictating six digits across a venue. -->
+          <div class="signoff-code-grid">
+            <div v-if="signoffCode.qr_data_url" class="signoff-code-qr-block">
+              <img
+                class="signoff-code-qr"
+                :src="signoffCode.qr_data_url"
+                alt="QR code for referee sign-off"
+              />
+              <div class="signoff-code-qr-caption">Scan to sign off</div>
+            </div>
+            <div class="signoff-code-divider" v-if="signoffCode.qr_data_url">or</div>
+            <div class="signoff-code-text-block">
+              <div class="signoff-code-value">{{ signoffCode.code }}</div>
+              <div class="signoff-code-text-caption">Enter at <code>/sign-off-codes</code></div>
+            </div>
+          </div>
           <div class="signoff-code-hint">
-            They type it on their own device at
-            <code>{{ appOrigin }}/sign-off-codes</code>.
-            This panel updates the moment they confirm.
+            This panel updates the moment {{ signoffCode.referee_name }} confirms — by scan or
+            by code.
           </div>
         </div>
       </div>
@@ -3997,21 +4019,56 @@ onUnmounted(() => {
   margin-top: 0.7rem; font-size: 11.5px; color: var(--text-3);
   font-style: normal;
 }
-/* Cut 3 code display — big monospace digits the manager reads
-   off the screen. Letter-spacing wider than usual so neighbours
-   don't run together at a glance. */
+/* Cut 3 code display — QR on the left, big monospace digits on
+   the right. Two-column flex with a vertical "or" divider in
+   between; collapses to a vertical stack on narrow modals. */
 .signoff-code-display {
   text-align: center; padding: 1.2rem 0.5rem;
 }
 .signoff-code-label {
   font-family: var(--font-display); font-size: 11px; font-weight: 700;
   letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-3);
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.9rem;
+}
+.signoff-code-grid {
+  display: flex; align-items: center; justify-content: center;
+  gap: 1.2rem; flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.signoff-code-qr-block,
+.signoff-code-text-block {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 0.4rem;
+}
+/* The QR <img> is rendered server-side at 256×256 px; constrain
+   here so it sits comfortably inside the modal but stays large
+   enough to scan from across a venue. White background keeps
+   the QR contrast readable on the modal's dark surface. */
+.signoff-code-qr {
+  width: 180px; height: 180px;
+  background: #fff; padding: 8px;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--border);
+}
+.signoff-code-qr-caption,
+.signoff-code-text-caption {
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3);
+}
+.signoff-code-text-caption code {
+  background: var(--bg-3); padding: 0.05rem 0.35rem;
+  border-radius: 3px; font-size: 10px;
+  font-family: var(--font-mono); color: var(--text-2);
+  letter-spacing: 0;
+}
+.signoff-code-divider {
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-3);
+  padding: 0 0.5rem;
 }
 .signoff-code-value {
-  font-family: var(--font-mono); font-size: 56px; font-weight: 800;
-  letter-spacing: 0.25em; color: var(--cyan); line-height: 1;
-  margin: 0.7rem 0 0.9rem;
+  font-family: var(--font-mono); font-size: 44px; font-weight: 800;
+  letter-spacing: 0.18em; color: var(--cyan); line-height: 1;
 }
 .signoff-code-hint {
   font-size: 11.5px; color: var(--text-3); line-height: 1.5;

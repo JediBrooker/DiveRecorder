@@ -148,6 +148,24 @@ const router = createRouter({
 
 // The guard is called after app.use(createPinia()) so the store is safe to access here.
 // We call useAuthStore() inside the guard (not at module scope) so Pinia is active.
+//
+// Auth redirects preserve the user's original URL as `?next=` so
+// LoginView can land them on the page they were aiming at after
+// sign-in. Used by the referee-side QR sign-off flow (scan QR ⇒
+// land on /sign-off-codes?code=… ⇒ if logged out, bounced to
+// /login?next=%2Fsign-off-codes%3Fcode%3D… ⇒ back to the deep
+// link after sign-in). LoginView validates `next` is a same-
+// origin path before honouring it (open-redirect guard).
+function bounceToLogin(to) {
+  // Don't pass next when the user was already heading to /login
+  // (avoid loops) or to a guest-only entry point.
+  if (to.path === '/login') return '/login'
+  return {
+    path: '/login',
+    query: { next: to.fullPath },
+  }
+}
+
 router.beforeEach((to, from, next) => {
   const auth = useAuthStore()
   const isLoggedIn = auth.isLoggedIn
@@ -159,14 +177,14 @@ router.beforeEach((to, from, next) => {
 
   // Require auth
   if (to.meta.requiresAuth && !isLoggedIn) {
-    return next('/login')
+    return next(bounceToLogin(to))
   }
 
   // Public-with-id, owner-private without: /profile/:id is open to
   // anonymous viewers, but /profile (no id) means the viewer's own
   // profile and so needs a session.
   if (to.meta.requiresAuthIfNoId && !isLoggedIn && !to.params.id) {
-    return next('/login')
+    return next(bounceToLogin(to))
   }
 
   // Require specific roles

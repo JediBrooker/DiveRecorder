@@ -1,7 +1,8 @@
 <script setup>
 // Cut 3 of the referee sign-off plan — the page where a referee
 // types the 6-digit handoff code the meet manager generated on
-// their screen.
+// their screen, or lands on after scanning the QR rendered next
+// to the same code.
 //
 // The route is referee-only (router meta gate) but the credential
 // is on the user's existing JWT — no separate auth dance. Server
@@ -12,17 +13,23 @@
 // the same referee_signoff_response broadcast as the push respond
 // path, so any open Control Room tab updates too) and surface a
 // "Signed off ✓" confirmation.
-import { ref, computed } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
+import { ref, computed, onMounted } from 'vue'
+import { RouterLink, useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 
 const code = ref('')
 const busy = ref(false)
 const errorMsg = ref('')
 const successMsg = ref('')
+// Auto-mode flag — true when we landed via QR scan (?code=…)
+// rather than manual typing. Drives a slightly different
+// progress / success copy ("Auto-submitted from QR scan…")
+// without changing any of the underlying logic.
+const fromQr = ref(false)
 
 const digits = computed(() => code.value.replace(/\D/g, '').slice(0, 6))
 
@@ -39,7 +46,9 @@ async function submit() {
       method: 'POST',
       body: JSON.stringify({ code: digits.value }),
     })
-    successMsg.value = 'Signed off ✓ — the meet controller has been notified.'
+    successMsg.value = fromQr.value
+      ? 'Signed off ✓ — picked up from your QR scan. The meet controller has been notified.'
+      : 'Signed off ✓ — the meet controller has been notified.'
     code.value = ''
   } catch (err) {
     errorMsg.value = err.message
@@ -54,6 +63,26 @@ function paste(text) {
   // dash doesn't confuse the input.
   code.value = String(text || '').replace(/\D/g, '').slice(0, 6)
 }
+
+// Auto-redeem on ?code=… — set when the referee lands here via
+// a QR scan from the manager's modal. We wait one tick so the
+// reactive state has settled, then submit. Falls through to the
+// manual input cleanly if the code is malformed (the submit
+// guard rejects anything that isn't 6 digits).
+onMounted(() => {
+  const queryCode = String(route.query.code || '').replace(/\D/g, '').slice(0, 6)
+  if (!queryCode) return
+  fromQr.value = true
+  code.value = queryCode
+  if (queryCode.length === 6) {
+    // Microtask delay keeps the input visually populated for a
+    // beat before busy:true greys it out — gives the referee
+    // visual confirmation that the right code came through the
+    // QR rather than the form going straight from blank to
+    // "Verifying…".
+    setTimeout(submit, 80)
+  }
+})
 </script>
 
 <template>
@@ -65,8 +94,10 @@ function paste(text) {
   <div class="main">
     <p class="page-sub">
       A meet controller has asked you to sign off on the dive order for an
-      event. Read the 6-digit code from their screen and type it here. Codes
-      expire 5 minutes after they're generated.
+      event. Either <strong>scan the QR code</strong> on their screen with
+      your phone camera (which loads this page with the code pre-filled and
+      auto-submits), or read the 6-digit code from their screen and type it
+      here. Codes expire 5 minutes after they're generated.
     </p>
 
     <form class="code-form" @submit.prevent="submit">

@@ -1,9 +1,10 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRouter, RouterLink } from 'vue-router'
+import { useRouter, useRoute, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 
 const username = ref('')
@@ -11,8 +12,28 @@ const password = ref('')
 const errorMsg = ref('')
 const loading = ref(false)
 
+// Post-login destination — defaults to the dashboard, but if
+// the router guard bounced the user here from a protected
+// route we honour the `next` query param so they land where
+// they were aiming. Validated as same-origin (must start with
+// "/" and NOT "//", which would be a protocol-relative URL
+// pointing at an attacker's host) so an attacker can't craft
+// a /login?next=https://evil.example link via email and ride
+// the legitimate session through.
+function safeNextPath() {
+  const raw = route.query.next
+  if (typeof raw !== 'string' || !raw) return '/dashboard'
+  // Reject anything that isn't a clean local path. Same-origin
+  // check covers absolute URLs (http://…), protocol-relative
+  // URLs (//evil.example), and javascript: schemes — every
+  // attacker-controllable target starts with a non-"/" or with
+  // "//".
+  if (!raw.startsWith('/') || raw.startsWith('//')) return '/dashboard'
+  return raw
+}
+
 onMounted(() => {
-  if (auth.isLoggedIn) router.push('/dashboard')
+  if (auth.isLoggedIn) router.push(safeNextPath())
 })
 
 async function handleSubmit() {
@@ -27,7 +48,7 @@ async function handleSubmit() {
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || 'Login failed')
     auth.saveSession(data)
-    router.push('/dashboard')
+    router.push(safeNextPath())
   } catch (err) {
     errorMsg.value = err.message
   } finally {
