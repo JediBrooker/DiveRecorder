@@ -12,7 +12,27 @@ Built around five audiences:
 
 ---
 
-## Screenshots
+## Table of contents
+
+- [Screenshots](#screenshots)
+- [Tech stack](#tech-stack)
+- [Features](#features)
+- [Local setup](#local-setup)
+- [Production deploy](#production-deploy)
+- [Project structure](#project-structure)
+- [Roles](#roles)
+- [Reporting a bug](#reporting-a-bug)
+- [Scripts](#scripts)
+- [End-to-end tests](#end-to-end-tests)
+- [Contributing](#contributing)
+- [License](#license)
+
+> Each section below is collapsible — click the heading to expand or collapse.
+
+---
+
+<details open>
+<summary><h2 id="screenshots">Screenshots</h2></summary>
 
 ### Home
 
@@ -46,7 +66,10 @@ Per-diver stats: meets entered, dives performed, average DD attempted, best sing
 
 ---
 
-## Tech stack
+</details>
+
+<details>
+<summary><h2 id="tech-stack">Tech stack</h2></summary>
 
 - **Frontend**: Vue 3 (Composition API, `<script setup>`), Vite 6, Vue Router, Pinia
 - **Backend**: Node 18+, Express 5, Socket.IO 4, [`pg`](https://node-postgres.com/), `pdfkit`, `nodemailer`
@@ -58,7 +81,10 @@ The project intentionally avoids a build-time framework like Nuxt or Next — th
 
 ---
 
-## Features
+</details>
+
+<details>
+<summary><h2 id="features">Features</h2></summary>
 
 ### Live scoring & operations
 
@@ -182,7 +208,10 @@ Email triggers (best-effort, never block the response):
 
 ---
 
-## Local setup
+</details>
+
+<details>
+<summary><h2 id="local-setup">Local setup</h2></summary>
 
 ### 1. Prerequisites
 
@@ -267,7 +296,10 @@ Open `http://localhost:5173` (dev) or `http://localhost:3000` (built).
 
 ---
 
-## Production deploy
+</details>
+
+<details>
+<summary><h2 id="production-deploy">Production deploy</h2></summary>
 
 The repo ships everything you need to run on a real server: a checked-in PM2 ecosystem file, a deploy script that fails closed at every step, and a `/api/health` endpoint for monitors.
 
@@ -330,7 +362,10 @@ Migrations in this repo are **additive only** (`ADD COLUMN`, `CREATE INDEX`, `AD
 
 ---
 
-## Project structure
+</details>
+
+<details>
+<summary><h2 id="project-structure">Project structure</h2></summary>
 
 ```
 .
@@ -440,7 +475,10 @@ The split is the result of an incremental refactor from a single 6,400-line `ser
 
 ---
 
-## Roles
+</details>
+
+<details>
+<summary><h2 id="roles">Roles</h2></summary>
 
 DiveRecorder has eight role personas — seven values in the `org_role` enum plus the `is_system_admin` boolean flag. Each persona below describes the role's context and the things that role can actually do in the app.
 
@@ -562,7 +600,10 @@ Sign out and back in for the change to take effect (the JWT carries the flag). T
 
 ---
 
-## Reporting a bug
+</details>
+
+<details>
+<summary><h2 id="reporting-a-bug">Reporting a bug</h2></summary>
 
 Bug reports go through GitHub Issues. The repo has a template that prompts for the details that actually help debug — please fill in everything you can.
 
@@ -584,7 +625,10 @@ If you're a paying customer or running a production federation, urgent issues ca
 
 ---
 
-## Scripts
+</details>
+
+<details>
+<summary><h2 id="scripts">Scripts</h2></summary>
 
 | Command | What it does |
 |---|---|
@@ -599,7 +643,10 @@ If you're a paying customer or running a production federation, urgent issues ca
 
 ---
 
-## End-to-end tests
+</details>
+
+<details>
+<summary><h2 id="end-to-end-tests">End-to-end tests</h2></summary>
 
 Eight Playwright specs live under `test/e2e/`. They boot a real
 Express server on `:3097` (set via the `webServer` block in
@@ -786,7 +833,10 @@ behaviour is unchanged.
 
 ---
 
-## Contributing
+</details>
+
+<details>
+<summary><h2 id="contributing">Contributing</h2></summary>
 
 Fork it, branch from `main`, send a PR. CI builds + lints + runs the test suite (against a Postgres service container) on push and PR — green CI is a precondition for merging.
 
@@ -794,6 +844,11 @@ Branch protection on `main` is enforced via a ruleset: deletions blocked, force-
 
 ---
 
-## License
+</details>
+
+<details>
+<summary><h2 id="license">License</h2></summary>
 
 MIT — see [LICENSE](./LICENSE).
+
+</details>
