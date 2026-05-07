@@ -784,6 +784,26 @@ PW_PRE_DIVE_MS=200 PW_PER_SCORE_MS=50 PW_POST_DIVE_MS=200 PW_FINAL_HOLD_MS=200 \
   npm run test:e2e
 ```
 
+### Headed-watcher helpers
+
+Two small UX shims make a `--headed` run easier to follow. Both
+gated behind env vars so CI runs are unaffected.
+
+| Env var | Default | What it does |
+|---|---|---|
+| `E2E_DIALOG_HOLD_MS` | `0` | Dwell (ms) before auto-accepting `window.confirm()` popups (Randomise, Sign Off, Finalise…). Default `0` accepts instantly so a CI run isn't slowed down. Set to `5000` for a leisurely demo where every confirm box stays on screen long enough to read. |
+| `E2E_HIGHLIGHT` | `1` (on) | Cyan ring drawn briefly at every `pointerdown` so the watcher can track where each click lands. Set to `0` to disable (e.g. for screenshot-comparison tests where the ring would dirty the diff). |
+
+Wired into `meet-manager`, `judge`, and `scoreboard-ui` — the
+three UI-driven specs you'd most likely want to watch.
+
+```bash
+# Demo mode — leisurely confirms + visible click rings, default
+# pacing knobs.
+E2E_DIALOG_HOLD_MS=5000 \
+  npx playwright test test/e2e/meet-manager.spec.js --headed --workers=1
+```
+
 ### Rate limiter
 
 The auth + bulk-write rate limiters (20 / 15 min and 30 / min,

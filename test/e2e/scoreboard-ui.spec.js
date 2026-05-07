@@ -111,6 +111,9 @@ test("watch a 3-diver, 3-round meet end-to-end with realistic pacing", async ({
   // ============================================================
   // PHASE 2 — drive the SPA. THIS is what shows on screen.
   // ============================================================
+  // Cyan ring at every pointerdown so a headed-mode watcher can
+  // see where the test is clicking. Off in CI via E2E_HIGHLIGHT=0.
+  await setup.installClickHighlight(page);
   await page.goto("/login");
   await page.locator('input[autocomplete="username"]').fill(adminUsername);
   await page.locator('input[autocomplete="current-password"]').fill(setup.TEST_PASSWORD);

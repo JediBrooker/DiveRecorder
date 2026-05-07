@@ -222,6 +222,9 @@ test("judge full E2E (random variant)", async ({
   // surfaces the event under "Your Assigned Events" — that's
   // the in-product notification the user wanted.
   // ============================================================
+  // Cyan ring at every pointerdown so a headed-mode watcher can
+  // track where each click lands. Off in CI via E2E_HIGHLIGHT=0.
+  await setup.installClickHighlight(page);
   await page.goto("/login");
   await page.locator('input[autocomplete="username"]').fill(testJudge.username);
   await page.locator('input[autocomplete="current-password"]').fill(setup.TEST_PASSWORD);

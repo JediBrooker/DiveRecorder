@@ -222,6 +222,75 @@ async function deleteOrg(orgId) {
   await pool.query("DELETE FROM organisations WHERE id = $1", [orgId]);
 }
 
+// =============================================================
+// HEADED-WATCHER HELPERS
+// Small UX shims that make a --headed e2e run easier to follow
+// for a human watching over the operator's shoulder. Both gated
+// behind env vars so CI runs are unaffected by default.
+//
+//   installDialogDelay(page)
+//     Wraps page.on('dialog') with a configurable dwell so
+//     window.confirm() popups (Randomise, Finalise, Reset…) stay
+//     visible long enough to read. Set E2E_DIALOG_HOLD_MS=5000
+//     for a leisurely demo; default 0 = instant accept (CI).
+//
+//   installClickHighlight(page)
+//     Adds an init script that draws a brief animated cyan ring
+//     at every pointerdown so the watcher can see where each
+//     click lands. Default ON; set E2E_HIGHLIGHT=0 to disable
+//     (e.g. for screenshot-comparison tests).
+// =============================================================
+
+const DIALOG_HOLD_MS = Number(process.env.E2E_DIALOG_HOLD_MS ?? 0);
+async function installDialogDelay(page) {
+  page.on("dialog", async (d) => {
+    if (DIALOG_HOLD_MS > 0) {
+      await new Promise((r) => setTimeout(r, DIALOG_HOLD_MS));
+    }
+    try { await d.accept(); }
+    catch { /* dialog may already be dismissed if test moved on */ }
+  });
+}
+
+const HIGHLIGHT_ENABLED = process.env.E2E_HIGHLIGHT !== "0";
+async function installClickHighlight(page) {
+  if (!HIGHLIGHT_ENABLED) return;
+  await page.addInitScript(() => {
+    // Inject the ring keyframes once per document. The ring
+    // animates outward + fades; pointer-events: none keeps it
+    // from intercepting subsequent clicks while it's animating.
+    const style = document.createElement("style");
+    style.id = "__e2e-click-style";
+    style.textContent = `
+      @keyframes e2eClickRing {
+        0%   { transform: scale(0.4); opacity: 0.95; }
+        50%  { transform: scale(1.3); opacity: 0.7;  }
+        100% { transform: scale(2.4); opacity: 0;    }
+      }
+    `;
+    (document.head || document.documentElement).appendChild(style);
+
+    document.addEventListener("pointerdown", (e) => {
+      const ring = document.createElement("div");
+      ring.style.cssText = [
+        "position:fixed",
+        "z-index:2147483647",
+        "pointer-events:none",
+        `left:${e.clientX - 22}px`,
+        `top:${e.clientY - 22}px`,
+        "width:44px",
+        "height:44px",
+        "border:3px solid #06b6d4",
+        "border-radius:50%",
+        "box-shadow:0 0 12px rgba(6,182,212,0.7)",
+        "animation:e2eClickRing 0.85s ease-out forwards",
+      ].join(";");
+      document.body.appendChild(ring);
+      setTimeout(() => ring.remove(), 900);
+    }, true);
+  });
+}
+
 module.exports = {
   pool,
   TEST_PASSWORD,
@@ -235,4 +304,6 @@ module.exports = {
   pickDiveId,
   setEventStatus,
   deleteOrg,
+  installDialogDelay,
+  installClickHighlight,
 };

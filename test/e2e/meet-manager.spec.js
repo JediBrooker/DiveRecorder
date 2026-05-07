@@ -320,7 +320,12 @@ test("meet-manager full E2E (random variant)", async ({
   // Auto-accept any window.confirm() the SPA pops up — Randomise
   // and Finalise both ask "are you sure?" via confirm(), and
   // Playwright suspends the page until a dialog is dismissed.
-  page.on("dialog", (d) => d.accept());
+  // E2E_DIALOG_HOLD_MS=5000 leaves the popup visible for a
+  // watching human; default 0 = instant accept for CI.
+  await setup.installDialogDelay(page);
+  // Cyan ring at every pointerdown so a headed-mode watcher can
+  // track where each click lands. Off in CI via E2E_HIGHLIGHT=0.
+  await setup.installClickHighlight(page);
 
   await page.goto("/login");
   await page.locator('input[autocomplete="username"]').fill(adminUsername);
