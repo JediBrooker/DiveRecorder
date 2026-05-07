@@ -292,9 +292,130 @@ module.exports = function createControlRoomRouter({
          RETURNING cdl.id`,
         [eventId],
       );
+
+      // Pre-meet workflow: the order has changed, so stamp
+      // randomised_at and clear any prior sign-off — the referee
+      // signs off on the FINAL order, not a previous shuffle.
+      await pool.query(
+        `UPDATE events
+         SET dive_order_randomised_at = now(),
+             dive_order_signed_off_at = NULL,
+             dive_order_signed_off_by = NULL
+         WHERE id = $1`,
+        [eventId],
+      );
+
       res.json({ ok: true, updated: r.rowCount });
     } catch (err) {
       console.error("[Randomize Order Error]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // POST /api/events/:id/dive-order/sign-off — referee approves
+  // the published order. Records who signed off + when. The
+  // Control Room's 3-state button reads this back via the events
+  // payload and turns green ("Start Event") once the timestamp
+  // is set.
+  //
+  // Role gate is the same requireMeetController used by the
+  // reorder endpoints — meet_managers, referees and org_admins
+  // can sign off. The recorded signed_off_by user_id is whoever
+  // was logged in at that moment, so the audit trail still names
+  // the actual person regardless of which staff role they hold.
+  // -------------------------------------------------------------
+  router.post("/api/events/:id/dive-order/sign-off", requireMeetController, async (req, res) => {
+    const eventId = req.params.id;
+    try {
+      const ev = await pool.query(
+        `SELECT id, status, name, dive_order_randomised_at
+         FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)`,
+        [eventId, !!req.user.is_system_admin, req.user.org_id],
+      );
+      if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
+      if (ev.rows[0].status !== "Upcoming") {
+        return res.status(409).json({
+          error: `Cannot sign off — event "${ev.rows[0].name}" is ${ev.rows[0].status}.`,
+        });
+      }
+      const r = await pool.query(
+        `UPDATE events
+         SET dive_order_signed_off_at = now(),
+             dive_order_signed_off_by = $1
+         WHERE id = $2
+         RETURNING dive_order_signed_off_at, dive_order_signed_off_by`,
+        [req.user.id, eventId],
+      );
+      res.json({ ok: true, ...r.rows[0] });
+    } catch (err) {
+      console.error("[Dive Order Sign-Off Error]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // POST /api/events/:id/dive-order/reset — clears both the
+  // randomised_at and signed_off_at stamps so the operator can
+  // walk the workflow from the top. Used by the small "Reset"
+  // affordance next to the 3-state button.
+  // -------------------------------------------------------------
+  router.post("/api/events/:id/dive-order/reset", requireMeetController, async (req, res) => {
+    const eventId = req.params.id;
+    try {
+      const ev = await pool.query(
+        `SELECT id, status, name FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)`,
+        [eventId, !!req.user.is_system_admin, req.user.org_id],
+      );
+      if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
+      if (ev.rows[0].status !== "Upcoming") {
+        return res.status(409).json({
+          error: `Cannot reset workflow — event "${ev.rows[0].name}" is ${ev.rows[0].status}.`,
+        });
+      }
+      await pool.query(
+        `UPDATE events
+         SET dive_order_randomised_at = NULL,
+             dive_order_signed_off_at = NULL,
+             dive_order_signed_off_by = NULL
+         WHERE id = $1`,
+        [eventId],
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[Dive Order Reset Error]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // POST /api/events/:id/dive-order/confirm — operator chose to
+  // skip the randomise step (e.g. the order was already arranged
+  // manually) and wants to advance to sign-off. Just stamps
+  // randomised_at without touching display_order.
+  // -------------------------------------------------------------
+  router.post("/api/events/:id/dive-order/confirm", requireMeetController, async (req, res) => {
+    const eventId = req.params.id;
+    try {
+      const ev = await pool.query(
+        `SELECT id, status, name FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)`,
+        [eventId, !!req.user.is_system_admin, req.user.org_id],
+      );
+      if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
+      if (ev.rows[0].status !== "Upcoming") {
+        return res.status(409).json({
+          error: `Cannot advance workflow — event "${ev.rows[0].name}" is ${ev.rows[0].status}.`,
+        });
+      }
+      await pool.query(
+        `UPDATE events
+         SET dive_order_randomised_at = COALESCE(dive_order_randomised_at, now())
+         WHERE id = $1`,
+        [eventId],
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[Dive Order Confirm Error]", err.message);
       res.status(500).json({ error: "Internal server error" });
     }
   });

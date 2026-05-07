@@ -317,6 +317,15 @@ CREATE TABLE public.events (
     -- entries simply close when status flips off 'Upcoming'.
     entries_close_at timestamptz,
     status           event_status DEFAULT 'Upcoming' NOT NULL,
+    -- Pre-meet workflow stamps. The Control Room walks the operator
+    -- through three sequential states before the event flips to
+    -- Live: randomise the dive order, get the referee to sign off,
+    -- then start the event. Both timestamps reset whenever the
+    -- order changes (a re-randomise clears sign-off too) so the
+    -- referee always signs off on the FINAL order.
+    dive_order_randomised_at  timestamptz,
+    dive_order_signed_off_at  timestamptz,
+    dive_order_signed_off_by  uuid REFERENCES public.users(id) ON DELETE SET NULL,
     created_at       timestamptz DEFAULT now(),
     CONSTRAINT events_number_of_judges_check
         CHECK (number_of_judges = ANY (ARRAY[3, 5, 7, 9, 11])),
@@ -854,7 +863,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 26);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 27);
 
 
 -- =============================================================

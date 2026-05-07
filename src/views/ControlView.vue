@@ -403,12 +403,48 @@ watch(signalingJudges, (now, prev) => {
 })
 
 // =========================================================
-// RANDOMISE START ORDER — operator clicks before the meet
-// kicks off to shuffle every diver's position. Same shuffled
-// order is applied across every round so a diver who's first
-// in round 1 is also first in round 2.
+// PRE-MEET DIVE-ORDER WORKFLOW
+//
+// Three sequential states that one button cycles through before
+// the event flips Live (red → yellow → green):
+//
+//   1. RANDOM   — randomise (or confirm) the start order.
+//                 Click shuffles via the existing endpoint and
+//                 stamps dive_order_randomised_at on the event.
+//   2. SIGN-OFF — referee approves the published order.
+//                 Click stamps dive_order_signed_off_at + by.
+//   3. START    — flip the event status from Upcoming → Live.
+//
+// Re-randomising clears the sign-off because the order has
+// changed and the referee must re-approve. A small "↺ Reset"
+// link next to the button calls the /reset endpoint to walk
+// back to state 1 from anywhere in the flow.
 // =========================================================
-const randomizing = ref(false)
+const orderBusy = ref(false)
+
+// Effective state of the workflow. Kept as a computed off
+// currentEvent so an external mutation (another operator, page
+// reload) reflects immediately. 'live' covers any event past
+// the Upcoming gate; the button hides itself in that case.
+const orderWorkflowState = computed(() => {
+  const ev = currentEvent.value
+  if (!ev) return null
+  if (ev.status !== 'Upcoming') return 'live'
+  if (!ev.dive_order_randomised_at) return 'random'
+  if (!ev.dive_order_signed_off_at) return 'sign-off'
+  return 'start'
+})
+
+// Replace the stamps on currentEvent (and the matching events
+// list row) without re-fetching the whole list. Keeps the button
+// in sync after every workflow step.
+function patchCurrentEvent(patch) {
+  if (!currentEvent.value) return
+  Object.assign(currentEvent.value, patch)
+  const row = events.value.find(e => e.id === currentEvent.value.id)
+  if (row) Object.assign(row, patch)
+}
+
 async function randomizeStartOrder() {
   if (!currentEvent.value) return
   if (!canReorderQueue.value) {
@@ -421,7 +457,7 @@ async function randomizeStartOrder() {
     + `Every diver's position will be reshuffled across all rounds. `
     + `You can re-run this until you're happy with the order.`
   )) return
-  randomizing.value = true
+  orderBusy.value = true
   try {
     await auth.apiFetch(`/api/events/${ev.id}/dive-lists/randomize`, {
       method: 'POST',
@@ -433,10 +469,108 @@ async function randomizeStartOrder() {
     // and let the operator re-pick the active diver.
     currentIndex.value = -1
     currentActive.value = null
+    // Server stamped randomised_at + cleared signed_off — mirror
+    // that on the local event so the button flips to yellow.
+    patchCurrentEvent({
+      dive_order_randomised_at: new Date().toISOString(),
+      dive_order_signed_off_at: null,
+      dive_order_signed_off_by: null,
+    })
   } catch (err) {
     alert('Randomise failed: ' + err.message)
   } finally {
-    randomizing.value = false
+    orderBusy.value = false
+  }
+}
+
+// "Skip randomise" path — operator already arranged the order
+// manually (e.g. seeded from a prior round) and just wants to
+// advance to sign-off.
+async function confirmDiveOrder() {
+  if (!currentEvent.value) return
+  if (!confirm(
+    `Lock in the current dive order for "${currentEvent.value.name}" without randomising?`
+  )) return
+  orderBusy.value = true
+  try {
+    await auth.apiFetch(`/api/events/${currentEvent.value.id}/dive-order/confirm`, {
+      method: 'POST',
+    })
+    patchCurrentEvent({
+      dive_order_randomised_at: new Date().toISOString(),
+    })
+  } catch (err) {
+    alert('Failed: ' + err.message)
+  } finally {
+    orderBusy.value = false
+  }
+}
+
+async function signOffDiveOrder() {
+  if (!currentEvent.value) return
+  if (!confirm(
+    `Sign off on the dive order for "${currentEvent.value.name}"?\n\n`
+    + `The referee is approving the order shown above. ` +
+    `You can still reset and re-randomise after this if needed.`
+  )) return
+  orderBusy.value = true
+  try {
+    const r = await auth.apiFetch(`/api/events/${currentEvent.value.id}/dive-order/sign-off`, {
+      method: 'POST',
+    })
+    patchCurrentEvent({
+      dive_order_signed_off_at: r.dive_order_signed_off_at || new Date().toISOString(),
+      dive_order_signed_off_by: r.dive_order_signed_off_by,
+    })
+  } catch (err) {
+    alert('Sign-off failed: ' + err.message)
+  } finally {
+    orderBusy.value = false
+  }
+}
+
+async function startEvent() {
+  if (!currentEvent.value) return
+  if (!confirm(
+    `Start "${currentEvent.value.name}"?\n\n`
+    + `The event will flip to Live and the dive order will be locked. `
+    + `Spectator scoreboards will start broadcasting immediately.`
+  )) return
+  orderBusy.value = true
+  try {
+    await auth.apiFetch(`/api/events/${currentEvent.value.id}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status: 'Live' }),
+    })
+    patchCurrentEvent({ status: 'Live' })
+  } catch (err) {
+    alert('Failed to start: ' + err.message)
+  } finally {
+    orderBusy.value = false
+  }
+}
+
+async function resetDiveOrderWorkflow() {
+  if (!currentEvent.value) return
+  if (!confirm(
+    `Reset the pre-meet workflow for "${currentEvent.value.name}"?\n\n`
+    + `The randomise + referee sign-off stamps will be cleared so you can ` +
+    `walk through the steps again.`
+  )) return
+  orderBusy.value = true
+  try {
+    await auth.apiFetch(`/api/events/${currentEvent.value.id}/dive-order/reset`, {
+      method: 'POST',
+    })
+    patchCurrentEvent({
+      dive_order_randomised_at: null,
+      dive_order_signed_off_at: null,
+      dive_order_signed_off_by: null,
+    })
+  } catch (err) {
+    alert('Reset failed: ' + err.message)
+  } finally {
+    orderBusy.value = false
   }
 }
 
@@ -1886,14 +2020,62 @@ onUnmounted(() => {
                     title="Open the pre-meet check-in / accreditation list.">
               ✓ Check-in
             </button>
-            <button v-if="currentEvent && roster.length" class="btn btn-ghost btn-sm"
-                    :disabled="randomizing || !canReorderQueue"
-                    @click="randomizeStartOrder"
-                    :title="canReorderQueue
-                      ? 'Shuffle the diver start order across every round.'
-                      : 'Start order is locked once the event has started.'">
-              {{ randomizing ? '🎲 …' : '🎲 Randomise' }}
-            </button>
+            <!-- Pre-meet workflow: one button cycles through the
+                 three sequential states a competition needs before
+                 going live. Red → randomise the start order. Yellow
+                 → referee signs off on the published order. Green
+                 → flip the event to Live. The state lives on the
+                 event row (dive_order_randomised_at / signed_off_at)
+                 so a page reload picks up where the operator left
+                 off. The small "↺ Reset" link backtracks to red. -->
+            <template v-if="currentEvent && roster.length && orderWorkflowState && orderWorkflowState !== 'live'">
+              <button v-if="orderWorkflowState === 'random'"
+                      class="btn btn-sm wf-btn wf-btn-red"
+                      :disabled="orderBusy || !canReorderQueue"
+                      @click="randomizeStartOrder"
+                      title="Shuffle the diver start order across every round.">
+                {{ orderBusy ? '🎲 …' : '🎲 Randomise Dive Order' }}
+              </button>
+              <button v-else-if="orderWorkflowState === 'sign-off'"
+                      class="btn btn-sm wf-btn wf-btn-yellow"
+                      :disabled="orderBusy"
+                      @click="signOffDiveOrder"
+                      title="Referee approves the published dive order.">
+                {{ orderBusy ? '📋 …' : '📋 Referee Sign Off' }}
+              </button>
+              <button v-else-if="orderWorkflowState === 'start'"
+                      class="btn btn-sm wf-btn wf-btn-green"
+                      :disabled="orderBusy"
+                      @click="startEvent"
+                      title="Flip the event to Live. The order is then locked.">
+                {{ orderBusy ? '▶ …' : '▶ Start Event' }}
+              </button>
+              <!-- Skip-randomise affordance: if the operator has
+                   already arranged the order manually they can
+                   advance straight to sign-off. Hidden once we
+                   leave state 1. -->
+              <button v-if="orderWorkflowState === 'random'"
+                      class="btn btn-ghost btn-sm wf-skip"
+                      :disabled="orderBusy"
+                      @click="confirmDiveOrder"
+                      title="Skip randomise — keep the current order and advance to sign-off.">
+                Use current order →
+              </button>
+              <!-- Reset link: clears stamps so the workflow walks
+                   again. Hidden in state 1 (nothing to reset). -->
+              <button v-if="orderWorkflowState !== 'random'"
+                      class="btn btn-ghost btn-sm wf-reset"
+                      :disabled="orderBusy"
+                      @click="resetDiveOrderWorkflow"
+                      title="Clear sign-off + randomise stamps and start the workflow over.">
+                ↺ Reset
+              </button>
+            </template>
+            <span v-else-if="currentEvent && currentEvent.status !== 'Upcoming'"
+                  class="wf-live-badge"
+                  :title="`Event is ${currentEvent.status}`">
+              {{ currentEvent.status === 'Live' ? '● Live' : '✓ Done' }}
+            </span>
             <button v-if="currentEvent" class="btn btn-ghost btn-sm" @click="openLateEntry"
                     title="Add a late-arriving diver">+ Add</button>
           </div>
@@ -2885,6 +3067,38 @@ onUnmounted(() => {
   border: 1px solid rgba(245,158,11,0.4);
   border-radius: 3px; padding: 0.15rem 0.45rem;
   letter-spacing: 0.05em; cursor: help;
+}
+
+/* Pre-meet 3-state workflow button — the same control cycles
+   through randomise (red) → referee sign-off (yellow) → start
+   event (green) so the operator only ever has one obvious next
+   action. Solid backgrounds (not the usual ghost) so the colour
+   carries the meaning even in a noisy header. */
+.wf-btn {
+  font-family: var(--font-display); font-weight: 800; font-style: italic;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  border-radius: 4px; padding: 0.35rem 0.85rem;
+  border: 1px solid; color: var(--bg);
+  cursor: pointer; transition: filter 0.15s ease;
+}
+.wf-btn:hover:not(:disabled) { filter: brightness(1.08); }
+.wf-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.wf-btn-red    { background: var(--red);   border-color: var(--red); }
+.wf-btn-yellow { background: var(--amber); border-color: var(--amber); }
+.wf-btn-green  { background: var(--green); border-color: var(--green); }
+/* Ghost-link affordances — Skip-randomise (state 1) and Reset
+   (states 2/3). Smaller / quieter than the main button so the
+   primary action stays the focus. */
+.wf-skip, .wf-reset {
+  font-size: 11px; color: var(--text-3);
+  padding: 0.25rem 0.55rem;
+}
+.wf-live-badge {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  color: var(--green); background: rgba(34,197,94,0.08);
+  border: 1px solid rgba(34,197,94,0.5);
+  border-radius: 3px; padding: 0.18rem 0.55rem;
+  letter-spacing: 0.05em;
 }
 .roster-item.is-dragging   { opacity: 0.4; }
 .roster-item.is-drop-target {
