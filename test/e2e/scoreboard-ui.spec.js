@@ -27,21 +27,11 @@ const setup = require("./_setup");
 
 const PRE_DIVE_MS    = Number(process.env.PW_PRE_DIVE_MS    ?? 1500);
 const PER_SCORE_MS   = Number(process.env.PW_PER_SCORE_MS   ?? 250);
-// Smaller default than the pre-dive pause: the SPA's score
-// overlay already runs for 4s after announce_score, so this is
-// just the gap between standings refresh and the next diver
-// being announced.
-const POST_DIVE_MS   = Number(process.env.PW_POST_DIVE_MS   ?? 600);
+// Pause AFTER the dive's last score lands so the watcher can
+// read the inline pills + Dive Total + ranking line before the
+// next diver is announced (which would clear them).
+const POST_DIVE_MS   = Number(process.env.PW_POST_DIVE_MS   ?? 2500);
 const FINAL_HOLD_MS  = Number(process.env.PW_FINAL_HOLD_MS  ?? 5000);
-
-// Drop highest + lowest from a 5-judge panel and return the
-// middle three sorted ascending. Same algorithm
-// lib/score-trim.js uses on the server — we just don't import it
-// because that would couple the e2e suite to the lib path.
-function sortedTrim(scores) {
-  const sorted = [...scores].sort((a, b) => a - b);
-  return sorted.slice(1, -1);
-}
 
 test.describe.configure({ mode: "serial" });
 
@@ -211,14 +201,25 @@ test("watch a 3-diver, 3-round meet end-to-end with realistic pacing", async ({
     for (const diver of divers) {
       // 1. Push the active-diver banner. The SPA's .sb-name
       //    updates from "Waiting..." to "Diver Alpha" (etc.)
-      //    and the round pill shows "Round 1 / 3".
+      //    and the round pill shows "Round 1 / 3". The dd +
+      //    description fields are read by the centre column to
+      //    show "DD 1.8" / "Back Dive" — without them the SPA
+      //    falls back to "DD —".
+      const dive = diveCodes[round - 1];
+      const diveLabel = ({
+        "101": "Forward Dive",
+        "201": "Back Dive",
+        "301": "Reverse Dive",
+      })[dive.dive_code];
       adminSocket.emit("set_active_diver", {
         event_id:      eventId,
         competitor_id: diver.userId,
         diverName:     diver.fullName,
         full_name:     diver.fullName,
         round_number:  round,
-        diveCode:      `${diveCodes[round - 1].dive_code}${diveCodes[round - 1].position}`,
+        diveCode:      `${dive.dive_code}${dive.position}`,
+        dd:            dive.dd,
+        description:   diveLabel,
         eventName:     event.name,
       });
 
@@ -247,30 +248,20 @@ test("watch a 3-diver, 3-round meet end-to-end with realistic pacing", async ({
         await page.waitForTimeout(PER_SCORE_MS);
       }
 
-      // 3. Announce the dive total. The SPA listens for
-      //    final_score_announced and flashes the total in a big
-      //    centre overlay for 4 seconds, then re-pulls the
-      //    scoreboard so the standings reflect this dive. Without
-      //    this announce, /api/scoreboard wouldn't be re-fetched
-      //    and the standings panel would stay stuck on its
-      //    initial state. (In a real meet, the Control Room
-      //    operator clicks "Announce" when all 5 lights are in;
-      //    we automate that here.)
-      const trimmed = sortedTrim(profile);
-      const diveTotal = (trimmed.reduce((a, b) => a + b, 0)) * diveCodes[round - 1].dd;
+      // 3. Announce the dive. In the new UX this just triggers a
+      //    standings re-pull — no fullscreen overlay. The dive
+      //    total is already visible inline under the active diver
+      //    (computed live from the score_received pills × DD), so
+      //    the announce is purely a "refresh standings" signal.
       adminSocket.emit("announce_score", {
         event_id:      eventId,
         competitor_id: diver.userId,
         round_number:  round,
-        total:         diveTotal,
         diverName:     diver.fullName,
       });
 
-      // Wait for the overlay to appear, then disappear (4s timer
-      // in the SPA), then a small grace pause for the post-overlay
-      // refreshData() round-trip + DOM update.
-      await expect(page.locator(".score-overlay")).toBeVisible({ timeout: 2000 });
-      await expect(page.locator(".score-overlay")).toBeHidden({ timeout: 6000 });
+      // Tiny grace window for refreshData() round-trip + DOM
+      // update, then a watchable pause before the next diver.
       await page.waitForTimeout(POST_DIVE_MS);
     }
   }

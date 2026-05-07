@@ -194,8 +194,12 @@ const leaderboardRounds = ref([])     // [{ round_number, rankings: [...] }]
 const standingsTab = ref('final')     // 'final' | 'by-round'
 const expandedRound = ref(null)       // currently expanded round in by-round view
 const activeDiver = ref(null)
-const showOverlay = ref(false)
-const overlayScore = ref('0.0')
+// Per-judge scores arriving live for the active diver, in
+// judge_number order. Pushed by score_received, cleared whenever
+// state_update broadcasts a new active diver/round. Renders as
+// the inline pills under the Current Performer block, replacing
+// the older fullscreen score-overlay UX.
+const liveJudgeScores = ref([])
 // Completed-event archive payload — only populated when the
 // selected event has status === 'Completed'. Drives the dive
 // breakdown, podium and event-stats panels.
@@ -439,7 +443,35 @@ socket.on('state_update', data => {
   // panel before the user has picked anything.
   if (!currentEventId.value) return
   if (data.event_id !== currentEventId.value) return
+  // Clear the per-judge live pills when the active diver/round
+  // changes — the new diver hasn't been scored yet, and the old
+  // diver's pills would visually carry over otherwise.
+  const sameDive = activeDiver.value
+    && activeDiver.value.competitor_id === data.competitor_id
+    && Number(activeDiver.value.round_number) === Number(data.round_number)
+  if (!sameDive) liveJudgeScores.value = []
   activeDiver.value = data
+})
+
+// Per-judge live score updates. Each judge's submit_score is
+// broadcast as score_received to every subscriber on the event
+// room. We collect them in judge_number order so the SPA's
+// inline-under-active-diver display can show the lights coming
+// in one at a time and (once the panel is full) shade the high
+// + low as dropped under FINA trim rules.
+socket.on('score_received', data => {
+  if (!currentEventId.value) return
+  if (data.event_id !== currentEventId.value) return
+  if (!activeDiver.value) return
+  if (data.competitor_id !== activeDiver.value.competitor_id) return
+  if (Number(data.round_number) !== Number(activeDiver.value.round_number)) return
+  // Same judge resubmitting (rare — referee correction path)
+  // overwrites their pill rather than adding a 6th.
+  const idx = liveJudgeScores.value.findIndex(s => s.judge_number === data.judge_number)
+  const next = { value: Number(data.score), judge_number: data.judge_number }
+  if (idx >= 0) liveJudgeScores.value[idx] = next
+  else liveJudgeScores.value = [...liveJudgeScores.value, next]
+  liveJudgeScores.value.sort((a, b) => a.judge_number - b.judge_number)
 })
 
 // On (re)connect, re-request the current active diver if an
@@ -475,13 +507,12 @@ socket.on('score_corrected', (data) => {
   refreshData()
 })
 
-socket.on('final_score_announced', data => {
-  overlayScore.value = typeof data.total === 'number' ? data.total.toFixed(1) : (data.total || '0.0')
-  showOverlay.value = true
-  setTimeout(() => {
-    showOverlay.value = false
-    refreshData()
-  }, 4000)
+socket.on('final_score_announced', () => {
+  // Was a 4-second fullscreen overlay. The audience now sees
+  // the dive total inline under the active-diver block (computed
+  // from the score_received pills × DD), so just trigger a
+  // standings refresh and let the inline UI carry the spotlight.
+  refreshData()
 })
 
 function rankClass(i) {
@@ -490,6 +521,50 @@ function rankClass(i) {
   if (i === 2) return 'bronze'
   return ''
 }
+
+// English ordinal for a 1-based rank (1 → "1st", 2 → "2nd", …).
+// Used by the "Currently Nth" line under the active diver.
+function ordinal(n) {
+  if (n == null) return ''
+  const s = ['th', 'st', 'nd', 'rd']
+  const v = n % 100
+  return n + (s[(v - 20) % 10] || s[v] || s[0])
+}
+
+// Per-judge pills for the current active diver, annotated with
+// scoreCategory + dropped-under-trim flag. Reuses the same helper
+// the Completed-Dives panel uses, so the chip styling is identical.
+const liveAnnotatedScores = computed(() => {
+  if (!liveJudgeScores.value.length) return []
+  const csv = liveJudgeScores.value.map(s => s.value).join(',')
+  return annotatedScores(csv, currentEvent.value?.number_of_judges)
+})
+
+// Dive total for the active diver — only populated once the full
+// panel is in (otherwise we'd be flashing partial sums). Computed
+// as (sum of non-dropped scores) × DD.
+const liveDiveTotal = computed(() => {
+  const annotated = liveAnnotatedScores.value
+  const need = Number(currentEvent.value?.number_of_judges) || 5
+  if (annotated.length < need) return null
+  const dd = parseFloat(activeDiver.value?.dd)
+  if (!dd || Number.isNaN(dd)) return null
+  const trimSum = annotated
+    .filter(j => !j.dropped)
+    .reduce((sum, j) => sum + j.value, 0)
+  return trimSum * dd
+})
+
+// 1-based rank of the active diver in the current standings, or
+// null if we can't find them (e.g. before the first refresh).
+// Matches by the diverName field that set_active_diver carries.
+const activeDiverRank = computed(() => {
+  if (!activeDiver.value || !standings.value.length) return null
+  const target = activeDiver.value.full_name || activeDiver.value.diverName
+  if (!target) return null
+  const idx = standings.value.findIndex(s => s.full_name === target)
+  return idx >= 0 ? idx + 1 : null
+})
 
 function parseScores(judgeArray) {
   if (!judgeArray) return []
@@ -818,6 +893,27 @@ onMounted(async () => {
           </div>
           <div v-if="activeDiver?.description" class="sb-desc">{{ activeDiver.description }}</div>
 
+          <!-- Live judges' scores for the active diver. Pills are
+               styled with the same .j-score / .j-dropped classes
+               the Completed-Dives panel uses, so the visual
+               vocabulary is consistent. Once the panel is full,
+               the high + low pills shade out via .j-dropped and
+               the Dive Total appears below. -->
+          <div v-if="activeDiver && liveAnnotatedScores.length" class="sb-live-judges">
+            <span v-for="(j, i) in liveAnnotatedScores" :key="i"
+                  :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                  :title="j.dropped ? 'Dropped by trim rule' : ''">
+              {{ j.value.toFixed(1) }}
+            </span>
+          </div>
+          <div v-if="liveDiveTotal != null" class="sb-live-total">
+            <span class="sb-live-total-label">Dive Total</span>
+            <span class="sb-live-total-value">{{ liveDiveTotal.toFixed(1) }}</span>
+          </div>
+          <div v-if="activeDiver && activeDiverRank" class="sb-live-rank">
+            Currently <strong>{{ ordinal(activeDiverRank) }}</strong>
+          </div>
+
           <!-- Up Next: the next ≤3 dives queued. Shown only when
                we actually have upcoming entries — the panel
                disappears the moment the queue empties so we
@@ -1135,11 +1231,11 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- Score overlay -->
-    <div v-if="showOverlay" class="score-overlay">
-      <div class="overlay-score">{{ overlayScore }}</div>
-      <div class="overlay-label">Points Awarded</div>
-    </div>
+    <!-- Score overlay removed — the inline pills + dive total +
+         "currently Nth" line under the active diver carry the
+         spotlight now. The fullscreen flash was disorienting
+         because it hid the rest of the scoreboard for 4s on every
+         dive. -->
 
     <!-- Record-broken toasts. One stacked toast per scope when a
          dive sets a new personal / club / federation best. Auto-
@@ -1494,6 +1590,56 @@ onMounted(async () => {
 .sb-dd { font-family: var(--font-display); font-size: clamp(18px,3vw,28px); font-weight: 700; color: var(--cyan); }
 .sb-desc { font-family: var(--font-mono); font-size: clamp(13px,1.8vw,18px); color: var(--text-3); margin-top: 1rem; }
 
+/* Live per-judge pills under the active diver. The .j-score
+   classes (already styled globally for the Completed-Dives panel)
+   carry the colour-by-category + dropped-out behaviour; we just
+   set the row layout + sizing here so they read as a row of
+   "judge lights". */
+.sb-live-judges {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.25rem;
+}
+.sb-live-judges .j-score {
+  font-family: var(--font-display);
+  font-size: clamp(18px, 2.5vw, 26px);
+  font-weight: 700;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius);
+  min-width: 3ch;
+}
+.sb-live-total {
+  display: flex; align-items: baseline; justify-content: center;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+.sb-live-total-label {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.sb-live-total-value {
+  font-family: var(--font-display);
+  font-size: clamp(28px, 4.5vw, 44px);
+  font-weight: 900;
+  color: var(--cyan);
+}
+.sb-live-rank {
+  font-family: var(--font-mono);
+  font-size: clamp(13px, 1.8vw, 18px);
+  color: var(--text-3);
+  margin-top: 0.5rem;
+}
+.sb-live-rank strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
 /* Up Next strip — sits below the active diver in the live
    centre column, gives the audience a reason to stay engaged
    through the gap between dives. */
@@ -1545,13 +1691,6 @@ onMounted(async () => {
 .event-card-name { font-family: var(--font-display); font-size: 16px; font-weight: 900; font-style: italic; color: var(--text); margin-bottom: 0.375rem; line-height: 1.2; }
 .event-card-meta { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
 .event-card:hover .event-card-name { color: var(--cyan); }
-
-.score-overlay {
-  position: fixed; inset: 0; background: var(--cyan); z-index: 300;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-}
-.overlay-score { font-family: var(--font-display); font-size: clamp(100px,25vw,200px); font-weight: 900; line-height: 1; color: var(--bg); }
-.overlay-label { font-family: var(--font-display); font-size: 14px; font-weight: 700; letter-spacing: 0.5em; text-transform: uppercase; color: rgba(3,7,18,0.6); margin-top: 1rem; }
 
 .hist-card { padding: 0.875rem 1rem; border-left: 2px solid var(--cyan); background: var(--bg-3); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin-bottom: 0.5rem; }
 .hist-round { font-size: 10px; color: var(--text-3); margin-bottom: 0.3rem; font-family: var(--font-mono); }
@@ -1967,11 +2106,6 @@ onMounted(async () => {
   /* Picker grid for "no live event" state */
   .event-grid { grid-template-columns: 1fr; }
   .event-card { padding: 1.1rem; }
-
-  /* Score overlay — keep it dramatic but stop the score from
-     overflowing on tiny viewports. */
-  .overlay-score { font-size: clamp(72px, 28vw, 140px); }
-  .overlay-label { font-size: 11px; letter-spacing: 0.35em; }
 
   /* Standings rows: pack tighter so they don't wrap awkwardly */
   .standing { padding: 0.6rem 0; gap: 0.5rem; }
