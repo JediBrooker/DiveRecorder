@@ -47,6 +47,11 @@ const scoreIsZero = computed(() => (currentScore.value + (isHalf.value ? 0.5 : 0
 const panelSize = computed(() =>
   parseInt(activeDiver.value?.number_of_judges) || 0,
 )
+// keypad / submit are inert once a score is in unless the
+// judge has flagged the referee — the flag re-opens the
+// keypad so the judge can correct the score, and submitting
+// the new score auto-clears the signal.
+const keypadLocked = computed(() => submitted.value && !signaled.value)
 const panelInCount = computed(() => Object.keys(panelScores.value).length)
 
 // Synchro role — derived from this judge's position in the panel.
@@ -191,6 +196,20 @@ function submitScore() {
   }
   if (socket.connected) {
     socket.emit('submit_score', payload)
+    // If the judge had flagged the referee before submitting,
+    // the submission IS the rectification — auto-clear the
+    // signal so the Control Room's auto-advance can resume.
+    if (signaled.value) {
+      signaled.value = false
+      socket.emit('judge_signal', {
+        event_id:      activeDiver.value.event_id,
+        competitor_id: activeDiver.value.competitor_id,
+        round_number:  activeDiver.value.round_number,
+        judge_id:      user?.id,
+        judge_number:  activeDiver.value.judge_number || null,
+        signaled:      false,
+      })
+    }
   } else {
     pendingScore.value = payload
   }
@@ -218,6 +237,9 @@ function toggleRefereeSignal() {
 
 const submitLabel = computed(() => {
   if (pendingScore.value) return '⏳ Reconnecting — will send automatically'
+  // Signaled trumps submitted: the judge has flagged a need to
+  // correct, so prompt them to enter + submit a fresh score.
+  if (signaled.value && submitted.value) return 'Submit Corrected Score'
   if (submitted.value) {
     const val = currentScore.value + (isHalf.value ? 0.5 : 0)
     return `✓ Submitted — ${val % 1 === 0 ? val : val.toFixed(1)}`
@@ -311,16 +333,22 @@ const submitLabel = computed(() => {
          a judge who fat-fingers a 7 instead of 8 just taps 8 to
          correct it. The Clear button used to live in this grid
          but it was redundant given that behaviour and easy to
-         hit by accident. -->
+         hit by accident.
+
+         keypadLocked = submitted AND not signaled. Once the
+         judge has tapped Signal Referee the keypad re-opens
+         even after submission — the signal is the operator's
+         way of saying "I need to fix this", and a fresh score
+         submission rectifies it. -->
     <div class="keypad">
       <!-- 1-9 -->
-      <button v-for="n in 9" :key="n" class="key" :disabled="submitted" @click="pressNumber(n)">{{ n }}</button>
+      <button v-for="n in 9" :key="n" class="key" :disabled="keypadLocked" @click="pressNumber(n)">{{ n }}</button>
       <!-- ½ -->
-      <button :class="['key', 'key-half', isHalf ? 'active' : '']" :disabled="submitted" @click="toggleHalf">½</button>
+      <button :class="['key', 'key-half', isHalf ? 'active' : '']" :disabled="keypadLocked" @click="toggleHalf">½</button>
       <!-- 0 -->
-      <button class="key key-zero" :disabled="submitted" @click="pressNumber(0)">0</button>
+      <button class="key key-zero" :disabled="keypadLocked" @click="pressNumber(0)">0</button>
       <!-- 10 -->
-      <button class="key key-ten" :disabled="submitted" @click="pressNumber(10)">10</button>
+      <button class="key key-ten" :disabled="keypadLocked" @click="pressNumber(10)">10</button>
     </div>
 
     <!-- Signal referee — judges tap this to flag the referee
@@ -343,8 +371,8 @@ const submitLabel = computed(() => {
     <!-- Submit -->
     <div class="submit-footer">
       <button
-        :class="['submit-btn', submitted ? 'locked' : '', isHeld ? 'held' : '']"
-        :disabled="submitted || isHeld"
+        :class="['submit-btn', (submitted && !signaled) ? 'locked' : '', isHeld ? 'held' : '']"
+        :disabled="(submitted && !signaled) || isHeld"
         @click="submitScore"
       >{{ isHeld ? 'Meet on hold — wait for resume' : submitLabel }}</button>
     </div>

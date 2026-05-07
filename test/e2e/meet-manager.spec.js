@@ -404,6 +404,37 @@ test("meet-manager full E2E (random variant)", async ({
   for (let i = 0; i < roster.length; i++) {
     const row = roster[i];
 
+    // Signal-Referee scenario — once per run, on the SECOND
+    // dive. Judge 1 emits judge_signal {true} BEFORE the panel
+    // submits, the operator sees the bright-red banner appear
+    // in the centre column, the test holds long enough for a
+    // watching human to see the alert + the auto-advance
+    // countdown getting cancelled (when set), then the judge
+    // emits judge_signal {false} and we proceed with normal
+    // scoring. Demonstrates the full pause / resume contract.
+    const isSignalScenario = (i === 1);
+    if (isSignalScenario) {
+      judgeSockets[0].emit("judge_signal", {
+        event_id:      eventId,
+        competitor_id: row.competitor_id,
+        round_number:  row.round_number,
+        signaled:      true,
+      });
+      await expect(page.locator(".referee-signal-banner"))
+        .toBeVisible({ timeout: 5000 });
+      // Hold the alert visible — long enough for the user to
+      // notice both the banner and the red ring on judge tile 1.
+      await page.waitForTimeout(POST_DIVE_MS * 4);
+      judgeSockets[0].emit("judge_signal", {
+        event_id:      eventId,
+        competitor_id: row.competitor_id,
+        round_number:  row.round_number,
+        signaled:      false,
+      });
+      await expect(page.locator(".referee-signal-banner"))
+        .toBeHidden({ timeout: 5000 });
+    }
+
     // Score profile: judges vary by ±0.5 around a per-diver
     // baseline; each diver gets a slightly lower baseline by
     // roster index so totals separate cleanly. All values stay

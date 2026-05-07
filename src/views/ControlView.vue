@@ -362,6 +362,10 @@ function cancelAutoAdvance() {
 function startAutoAdvance(callback) {
   cancelAutoAdvance()
   if (!autoAdvanceSeconds.value) return            // Manual mode
+  // Don't kick off the countdown while a judge is flagging the
+  // referee — the operator's eyes need to be on the dive
+  // resolution, not racing a timer.
+  if (signalingJudges.value.length > 0) return
   autoAdvanceCountdown.value = autoAdvanceSeconds.value
   autoAdvanceFire = callback
   autoAdvanceTimer = setInterval(() => {
@@ -373,6 +377,30 @@ function startAutoAdvance(callback) {
     }
   }, 1000)
 }
+
+// =========================================================
+// SIGNAL-REFEREE OVERLAY — a judge tapping their keypad's
+// Signal Referee button raises a red flag on their tile (see
+// .judge-tile.signaled) AND blocks the auto-advance timer
+// until the signal clears. The operator sees a centred banner
+// telling them which judge needs attention; clearing happens
+// either when the judge submits a fresh score (server emits
+// judge_signal {signaled: false} via the JudgeView client) or
+// when the operator advances to the next diver.
+// =========================================================
+const signalingJudges = computed(() =>
+  judgeTiles.value.filter(t => t.signaled).map(t => t.judgeIndex),
+)
+watch(signalingJudges, (now, prev) => {
+  // Going from any → none: re-arm auto-advance if the panel
+  // was already complete (next button enabled, not at finalise).
+  if (prev && prev.length && now.length === 0
+      && !nextBtnDisabled.value && !nextBtnComplete.value) {
+    startAutoAdvance(nextDiver)
+  }
+  // Going from none → any: kill the in-flight countdown.
+  if (now.length > 0) cancelAutoAdvance()
+})
 
 // =========================================================
 // RANDOMISE START ORDER — operator clicks before the meet
@@ -1691,6 +1719,29 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
+          <!-- Referee-signal banner — appears the moment any
+               judge taps Signal Referee on their keypad. Calls
+               out which judges, halts auto-advance, sticks
+               around until the judge submits a fresh score (or
+               toggles their flag off). -->
+          <div v-if="signalingJudges.length" class="referee-signal-banner">
+            <div class="referee-signal-icon">🚩</div>
+            <div class="referee-signal-body">
+              <div class="referee-signal-title">Referee Signal</div>
+              <div class="referee-signal-judges">
+                <template v-if="signalingJudges.length === 1">
+                  Judge {{ signalingJudges[0] }} flagged the referee — auto-advance paused.
+                </template>
+                <template v-else>
+                  Judges {{ signalingJudges.join(', ') }} flagged the referee — auto-advance paused.
+                </template>
+              </div>
+              <div class="referee-signal-hint">
+                Resolves when the judge submits a fresh score.
+              </div>
+            </div>
+          </div>
+
           <div class="active-name">
             <!-- Diver's start-order number ("1.") prefixes the
                  name so the operator sees their canonical
@@ -2374,6 +2425,46 @@ onUnmounted(() => {
 }
 .judge-tile.signaled .judge-tile-label,
 .judge-tile.signaled .judge-tile-score { color: var(--red); }
+
+/* Referee-signal banner — appears in the centre column the
+   moment any judge taps "Signal Referee" on their keypad.
+   Bright-red bar with the judge number(s) so the operator
+   reads the alert without having to scan the judge tiles
+   below. Pulses subtly so a quick glance still catches it. */
+.referee-signal-banner {
+  display: flex; align-items: flex-start; gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  background: var(--red-dim);
+  border: 1px solid var(--red);
+  border-left-width: 4px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 18px rgba(239,68,68,0.25);
+  animation: refereeSignalPulse 1.4s ease-in-out infinite;
+  text-align: left;
+}
+@keyframes refereeSignalPulse {
+  0%, 100% { box-shadow: 0 0 18px rgba(239,68,68,0.25); }
+  50%      { box-shadow: 0 0 6px  rgba(239,68,68,0.10); }
+}
+.referee-signal-icon { font-size: 22px; line-height: 1.1; }
+.referee-signal-body { flex: 1; min-width: 0; }
+.referee-signal-title {
+  font-family: var(--font-display); font-size: 11px; font-weight: 900;
+  letter-spacing: 0.25em; text-transform: uppercase; color: var(--red);
+  margin-bottom: 0.2rem;
+}
+.referee-signal-judges {
+  font-family: var(--font-mono); font-size: 13px; font-weight: 700;
+  color: var(--text);
+  line-height: 1.4;
+}
+.referee-signal-hint {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-3);
+  margin-top: 0.25rem;
+  font-style: italic;
+}
 .judge-tile-label { font-family: var(--font-display); font-size: 9px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); text-transform: uppercase; }
 .judge-tile.scored .judge-tile-label { color: var(--green); }
 .judge-tile-score { font-family: var(--font-mono); font-size: 16px; font-weight: 500; color: var(--text-3); }

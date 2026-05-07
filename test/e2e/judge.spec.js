@@ -331,7 +331,21 @@ test("judge full E2E (random variant)", async ({
       }
       await page.waitForTimeout(PRE_DIVE_MS);
 
-      // 3. Test judge taps a score on the keypad. Pick from
+      // 3. Signal-Referee scenario — once per run, on the
+      //    SECOND dive. Judge taps Signal Referee BEFORE
+      //    submitting, holds the signal long enough for a
+      //    watching human to see the red flash + the locked-
+      //    out auto-advance, then submits a score (which auto-
+      //    clears the signal server-side).
+      const isSignalScenario = (round === 1 && cIdx === 1);
+      if (isSignalScenario) {
+        await page.locator(".signal-btn").click();
+        await expect(page.locator(".signal-btn")).toHaveClass(/signal-btn-on/);
+        // Hold the signal so the human eye catches the alert.
+        await page.waitForTimeout(PRE_DIVE_MS * 2);
+      }
+
+      // 4. Test judge taps a score on the keypad. Pick from
       //    the cycling SCORE_SEQUENCE so the user sees variety.
       const score = SCORE_SEQUENCE[scoreIdx % SCORE_SEQUENCE.length];
       scoreIdx++;
@@ -353,6 +367,12 @@ test("judge full E2E (random variant)", async ({
       // trip lands. Wait for the lock state to confirm.
       await expect(page.locator(".submit-btn"))
         .toContainText(/Submitted/i, { timeout: 5000 });
+      // The signal should auto-clear once the judge submits a
+      // fresh score — server-side propagation happens from the
+      // SPA's submitScore handler emitting judge_signal {false}.
+      if (isSignalScenario) {
+        await expect(page.locator(".signal-btn")).not.toHaveClass(/signal-btn-on/);
+      }
 
       // 4. Other judges submit their scores via direct socket so
       //    the dive completes (5 / 9 lights). Vary scores ±0.5
