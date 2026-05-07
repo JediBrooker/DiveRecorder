@@ -4,6 +4,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
 import { diveDescription } from '@/composables/useDiveLabel'
+import { annotatedScores } from '@/composables/useScoreCategories'
 
 const auth = useAuthStore()
 const socket = useSocket()
@@ -77,17 +78,11 @@ function startShotClock(seconds = SHOT_CLOCK_DEFAULT) {
       shotClock.value = 0
       shotClockExpired.value = true
       stopShotClock()
-      // Beep — uses Web Audio API so we don't ship an mp3.
-      try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)()
-        const osc = ctx.createOscillator()
-        const gain = ctx.createGain()
-        osc.connect(gain); gain.connect(ctx.destination)
-        osc.frequency.value = 880
-        gain.gain.value = 0.15
-        osc.start()
-        setTimeout(() => { osc.stop(); ctx.close() }, 600)
-      } catch { /* audio context blocked in some webviews — silent fail */ }
+      // Audible beep removed — pool decks already have a horn /
+      // referee whistle that the operator listens for, and the
+      // visual .shot-clock-expired flash gives the same signal
+      // without competing with the venue audio. The shotClockExpired
+      // flag still drives the colour change in the CSS.
     }
   }, 1000)
 }
@@ -270,6 +265,37 @@ const upcomingDivers = computed(() => {
 const canReorderQueue = computed(() =>
   currentEvent.value?.status === 'Upcoming',
 )
+
+// =========================================================
+// LIVE DIVE TOTAL — once every judge tile is filled, show the
+// official dive total (trim_sum × DD) under the judge grid so
+// the operator can see the scored result immediately rather
+// than waiting for the audience scoreboard to refresh. Returns
+// null until the panel is complete; the template hides the row
+// when null.
+// =========================================================
+const liveDiveTotal = computed(() => {
+  const tiles = judgeTiles.value
+  const need = parseInt(currentEvent.value?.number_of_judges) || 0
+  if (!need || tiles.length < need) return null
+  if (!tiles.every(t => t.scored)) return null
+  const dd = parseFloat(currentActive.value?.dd)
+  if (!dd || Number.isNaN(dd)) return null
+  // annotatedScores wants the raw values csv + the panel size; it
+  // returns {value, dropped, category}[] with the FINA trim
+  // applied. Sum the non-dropped values × DD for the dive total.
+  const csv = tiles
+    .slice()
+    .sort((a, b) => a.judgeIndex - b.judgeIndex)
+    .map(t => parseFloat(t.score))
+    .filter(v => !Number.isNaN(v))
+    .join(',')
+  const annotated = annotatedScores(csv, need)
+  const trimSum = annotated
+    .filter(j => !j.dropped)
+    .reduce((sum, j) => sum + j.value, 0)
+  return trimSum * dd
+})
 
 // =========================================================
 // RANDOMISE START ORDER — operator clicks before the meet
@@ -1007,12 +1033,17 @@ function setActive(idx) {
   currentIndex.value = idx
   currentActive.value = roster.value[idx]
   scoresThisRound.value = {}
+  // Run the description through diveDescription so the position
+  // word ("Pike", "Tuck", etc.) appends to the action — e.g.
+  // "Forward Dive Pike" instead of just "Forward Dive". The
+  // operator (and the broadcast feed) sees the full audience-
+  // facing label without doing the mental composition.
   activeInfo.value = {
     name: currentActive.value.full_name,
     country: currentActive.value.country_code || null,
     code: `${currentActive.value.dive_code}${currentActive.value.position}`,
     dd: `DD ${currentActive.value.dd}`,
-    desc: currentActive.value.description || '—',
+    desc: diveDescription(currentActive.value) || '—',
     team_name: currentActive.value.team_name || null,
     partner_name: currentActive.value.partner_name || null,
     partner_country: currentActive.value.partner_country || null,
@@ -1522,6 +1553,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                   {{ judgeNameByNumber[tile.judgeIndex].split(' ').slice(-1)[0] }}
                 </div>
               </div>
+            </div>
+            <!-- Computed dive total once every judge tile is in.
+                 Shown directly under the judge grid so the operator
+                 can see the scored result without waiting for the
+                 audience scoreboard refresh. Hidden until complete. -->
+            <div v-if="liveDiveTotal != null" class="active-dive-total">
+              <span class="active-dive-total-label">Dive Total</span>
+              <span class="active-dive-total-value">{{ liveDiveTotal.toFixed(1) }}</span>
             </div>
           </div>
 
@@ -2074,6 +2113,29 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .judge-tile.scored .judge-tile-label { color: var(--green); }
 .judge-tile-score { font-family: var(--font-mono); font-size: 16px; font-weight: 500; color: var(--text-3); }
 .judge-tile.scored .judge-tile-score { color: var(--text); }
+
+/* Computed dive total — surfaces under the judge grid the
+   moment all N tiles fill. Right-aligned so the eye lands on
+   the value rather than the label. */
+.active-dive-total {
+  display: flex; align-items: baseline; justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--green-dim);
+  border: 1px solid var(--green);
+  border-radius: var(--radius-sm);
+}
+.active-dive-total-label {
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--text-3);
+}
+.active-dive-total-value {
+  font-family: var(--font-display); font-size: 28px; font-weight: 900;
+  font-style: italic; color: var(--green);
+  line-height: 1;
+}
 
 .ref-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; }
 .ref-btn {
