@@ -1,0 +1,238 @@
+// Shared fixtures for the e2e suite. Each test file requires
+// these helpers to get an isolated org + admin + supporting
+// users/events without re-implementing the same dance.
+//
+// Design choice: setup goes through a mix of the public API
+// (so we exercise real code paths where it's cheap) and direct
+// SQL writes (for the bits that are otherwise gated by
+// out-of-band steps — email verification clicks, sysadmin org
+// approvals — that would make every test 10× slower for no
+// extra coverage). Same trade-off the integration test makes
+// (see test/integration.test.js).
+//
+// Tests run in parallel — every helper that creates state uses
+// a per-test random slug so two parallel tests never collide.
+
+const crypto = require("node:crypto");
+const bcrypt = require("bcryptjs");
+const { Pool } = require("pg");
+require("dotenv").config();
+
+// Reuse the same DB the integration tests target. Falls back to
+// libpq env vars (PGHOST/etc.) if DB_* aren't set, matching
+// server.js + the rest of the codebase.
+const pool = process.env.DATABASE_URL
+  ? new Pool({ connectionString: process.env.DATABASE_URL })
+  : new Pool({
+      user:     process.env.DB_USER     || process.env.PGUSER,
+      host:     process.env.DB_HOST     || process.env.PGHOST,
+      database: process.env.DB_DATABASE || process.env.PGDATABASE,
+      password: process.env.DB_PASSWORD || process.env.PGPASSWORD,
+      port:     process.env.DB_PORT     || process.env.PGPORT,
+    });
+
+// Constant password used for every synthetic user. Real e2e tests
+// shouldn't be in the business of testing password strength —
+// that's a unit-test concern. We just need a string ≥8 chars
+// that bcrypt-compares cleanly.
+const TEST_PASSWORD = "e2e-test-password-1234";
+
+function rand() {
+  return crypto.randomBytes(4).toString("hex");
+}
+
+// Register a fresh org via /api/auth/register-org, mark the org
+// active + the founding admin email-verified (both gates would
+// otherwise refuse login on a synthetic user with no real
+// inbox), then log in via /api/auth/login. Returns everything
+// the rest of a test needs to act as that org's admin.
+async function createOrgAndAdmin(request) {
+  const slug = `e2e-${rand()}`;
+  const username = `e2e-admin-${slug}`;
+
+  // 1. Create the org + founding admin via the public API.
+  const reg = await request.post("/api/auth/register-org", {
+    data: {
+      org_name:     `E2E Org ${slug}`,
+      country_code: "TST",
+      slug,
+      username,
+      password:     TEST_PASSWORD,
+      full_name:    "E2E Test Admin",
+    },
+  });
+  if (reg.status() !== 201) {
+    throw new Error(`register-org ${reg.status()}: ${await reg.text()}`);
+  }
+  const { org_id: orgId } = await reg.json();
+
+  // 2. Sysadmin bypass: mark the org active + admin verified
+  //    directly. The real flow needs a sysadmin to approve the
+  //    org and the admin to click an email link; both are
+  //    out-of-band for an e2e and would 10× the test runtime.
+  await pool.query(
+    "UPDATE organisations SET status = 'active' WHERE id = $1",
+    [orgId],
+  );
+  const u = await pool.query(
+    `UPDATE users SET email_verified_at = now()
+     WHERE org_id = $1 AND username = $2 RETURNING id`,
+    [orgId, username],
+  );
+  const adminId = u.rows[0].id;
+
+  // 3. Log in via the public API to get a real session JWT.
+  const login = await request.post("/api/auth/login", {
+    data: { username, password: TEST_PASSWORD },
+  });
+  if (login.status() !== 200) {
+    throw new Error(`login ${login.status()}: ${await login.text()}`);
+  }
+  const { token: adminToken } = await login.json();
+
+  return { orgId, adminId, adminToken, slug, username };
+}
+
+// Insert a user with a single org_role directly. Bypasses the
+// public registration flow because we don't need to exercise it
+// in every test — just need a user with the role set up.
+async function insertUser({ orgId, role, fullName }) {
+  const username = `e2e-${role}-${rand()}`;
+  // bcrypt cost 4 — fine for a fixture user nobody will brute
+  // force; default 12 would add ~150ms per insertion.
+  const hash = await bcrypt.hash(TEST_PASSWORD, 4);
+  const r = await pool.query(
+    `INSERT INTO users (username, password, full_name, org_id, email_verified_at)
+     VALUES ($1, $2, $3, $4, now()) RETURNING id`,
+    [username, hash, fullName || `E2E ${role}`, orgId],
+  );
+  const userId = r.rows[0].id;
+  await pool.query(
+    "INSERT INTO user_org_roles (user_id, org_id, role) VALUES ($1, $2, $3)",
+    [userId, orgId, role],
+  );
+  return { userId, username, password: TEST_PASSWORD };
+}
+
+// Log in via the public API. Wraps the JSON response shape so a
+// caller can pull out the token without re-implementing the
+// boilerplate.
+async function loginAs(request, username, password = TEST_PASSWORD) {
+  const r = await request.post("/api/auth/login", {
+    data: { username, password },
+  });
+  if (r.status() !== 200) {
+    throw new Error(`login ${username}: ${r.status()} ${await r.text()}`);
+  }
+  return await r.json();   // { token, ... } OR { needs_totp, totp_token }
+}
+
+// Create an event via the public API. Caller passes the admin
+// token; the event is created in the admin's org.
+async function createEvent(request, { adminToken, ...overrides }) {
+  const r = await request.post("/api/events", {
+    headers: { Authorization: `Bearer ${adminToken}` },
+    data: {
+      name: `E2E Event ${rand()}`,
+      gender: "Female",
+      number_of_judges: 5,
+      total_rounds: 3,
+      height: "3m",
+      event_type: "individual",
+      ...overrides,
+    },
+  });
+  if (r.status() !== 201) {
+    throw new Error(`create event: ${r.status()} ${await r.text()}`);
+  }
+  return await r.json();   // full event row
+}
+
+// Replace the panel for an event. Order matters — judge_number
+// is assigned by position in the array.
+async function assignJudges(request, { adminToken, eventId, judgeIds }) {
+  const r = await request.post(`/api/events/${eventId}/judges`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+    data: { judgeIds },
+  });
+  if (r.status() !== 200) {
+    throw new Error(`assign judges: ${r.status()} ${await r.text()}`);
+  }
+}
+
+// Pre-populate a competitor's dive list directly. Bypasses
+// /api/competitor/submit-list because that endpoint requires
+// the competitor to be logged in as themselves AND the event to
+// be Upcoming AND entries_close_at not reached — fine for the
+// competitor-flow test that exercises that path explicitly,
+// overhead for every other test.
+async function insertDiveList({ eventId, competitorId, dives }) {
+  for (const { round_number, dive_id } of dives) {
+    await pool.query(
+      `INSERT INTO competitor_dive_lists (event_id, competitor_id, round_number, dive_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (event_id, competitor_id, round_number)
+       DO UPDATE SET dive_id = EXCLUDED.dive_id`,
+      [eventId, competitorId, round_number, dive_id],
+    );
+  }
+}
+
+// Look up a real dive_id from the directory. The directory is
+// loaded by init.sql with ~830 World Aquatics dives — pick one
+// matching the height + position so it composes sanely with
+// calc_event_dive_points.
+async function pickDiveId({ height = 3.0, dive_code = "101", position = "B" } = {}) {
+  // dive_directory.height is numeric (e.g. 3.0, 10.0), distinct
+  // from events.height which is the board_height enum ("3m",
+  // "10m"). The two carry the same information; the enum is
+  // for human-friendly UI labels.
+  const r = await pool.query(
+    `SELECT id FROM dive_directory
+     WHERE height = $1::numeric AND dive_code = $2 AND position = $3::dive_position
+     LIMIT 1`,
+    [height, dive_code, position],
+  );
+  if (!r.rows.length) {
+    throw new Error(`no dive_directory row for ${height}m ${dive_code}${position}`);
+  }
+  return r.rows[0].id;
+}
+
+// Set the event status by URL. Used to flip Upcoming → Live so
+// scoring routes accept submissions.
+async function setEventStatus(request, { adminToken, eventId, status }) {
+  const r = await request.put(`/api/events/${eventId}/status`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+    data: { status },
+  });
+  if (r.status() !== 200) {
+    throw new Error(`set status: ${r.status()} ${await r.text()}`);
+  }
+}
+
+// Direct DB cleanup for a parallel-safe per-test teardown.
+// Cascades through the FKs (events, dive lists, scores, etc),
+// EXCEPT for users.org_id which is ON DELETE RESTRICT to keep a
+// stray data-integrity bug from silently dropping a real org's
+// roster in production. Delete users explicitly first so the
+// downstream cascade can take care of everything else.
+async function deleteOrg(orgId) {
+  await pool.query("DELETE FROM users WHERE org_id = $1", [orgId]);
+  await pool.query("DELETE FROM organisations WHERE id = $1", [orgId]);
+}
+
+module.exports = {
+  pool,
+  TEST_PASSWORD,
+  rand,
+  createOrgAndAdmin,
+  insertUser,
+  loginAs,
+  createEvent,
+  assignJudges,
+  insertDiveList,
+  pickDiveId,
+  setEventStatus,
+  deleteOrg,
+};

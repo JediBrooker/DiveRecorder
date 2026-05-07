@@ -101,6 +101,16 @@ app.use(cors({ origin: CORS_ORIGIN }));
 // is either a bug or an abuse attempt.
 app.use(express.json({ limit: "256kb" }));
 
+// Rate-limit bypass for the e2e + integration suites. Both run
+// every request from 127.0.0.1, which under the production
+// settings (20 auth requests / 15 min / IP) trips the limiter
+// after a handful of register/login calls and leaves the rest of
+// the suite seeing 429s. Setting RATE_LIMIT_DISABLED=true in the
+// test webServer env disables the limiters at module load — no
+// effect on the deployed app where the env var is unset.
+const RATE_LIMIT_DISABLED = process.env.RATE_LIMIT_DISABLED === "true";
+const skipWhenDisabled = () => RATE_LIMIT_DISABLED;
+
 // 20 requests / 15 min / IP for auth + password flows. Tight enough
 // to slow brute-force, loose enough that a real user fat-fingering
 // their password a couple of times isn't locked out.
@@ -108,6 +118,7 @@ const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,
   message: { error: "Too many attempts, please try again in 15 minutes." },
+  skip: skipWhenDisabled,
 });
 
 // Heavier limiter for the bulk-write endpoints (CSV roster import,
@@ -119,6 +130,7 @@ const bulkWriteLimiter = rateLimit({
   standardHeaders: "draft-7",
   legacyHeaders: false,
   message: { error: "Too many bulk-write attempts, please slow down." },
+  skip: skipWhenDisabled,
 });
 
 // =============================================================

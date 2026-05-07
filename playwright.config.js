@@ -54,6 +54,12 @@ module.exports = defineConfig({
       PORT: "3097",
       // Point at the local test DB created in `npm test` setup.
       DB_DATABASE: process.env.DB_DATABASE || "diverecorder_test",
+      // Disable the auth + bulk-write rate limiters for the suite.
+      // Every request comes from 127.0.0.1 so the production limit
+      // (20 auth req / 15 min / IP) trips after a few tests and
+      // poisons the rest with 429s. The bypass is opt-in via env
+      // var — production .env never sets it.
+      RATE_LIMIT_DISABLED: "true",
     },
   },
 });
