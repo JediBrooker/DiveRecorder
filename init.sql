@@ -79,6 +79,7 @@ CREATE TYPE event_type AS ENUM (
 );
 
 CREATE TYPE board_height AS ENUM (
+    '0m',
     '1m',
     '3m',
     '5m',
@@ -841,7 +842,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 23);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 24);
 
 
 -- =============================================================

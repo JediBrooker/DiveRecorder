@@ -77,7 +77,7 @@
  * @typedef {Object} PersonalBest
  * @property {string}      dive_code
  * @property {string}      position    e.g. 'A' | 'B' | 'C' | 'D'
- * @property {string}      height      e.g. '1m' | '3m' | '5m' | '7.5m' | '10m'
+ * @property {string}      height      e.g. '0m' | '1m' | '3m' | '5m' | '7.5m' | '10m'
  * @property {number}      dd
  * @property {string}      [description]
  * @property {number}      best_total

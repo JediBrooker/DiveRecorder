@@ -295,6 +295,11 @@ function rosterTemplateHeader(ev) {
 }
 
 const HEIGHT_LABELS = {
+  // 0m is the poolside / pool-deck progression — sit-dives, kneel-
+  // dives, standing falls. Surfaces in the same height select the
+  // 1m..10m boards use so a coach can run a beginner session in
+  // DiveRecorder without faking a 1m event.
+  '0m': 'Poolside (0m)',
   '1m': '1m Springboard',
   '3m': '3m Springboard',
   '5m': '5m Platform',
@@ -649,6 +654,7 @@ onMounted(async () => {
           <label class="label">Board / Platform Height</label>
           <select class="select" v-model="createHeight">
             <option value="">— Select Height —</option>
+            <option value="0m">Poolside (0m)</option>
             <option value="1m">1m Springboard</option>
             <option value="3m">3m Springboard</option>
             <option value="5m">5m Platform</option>
@@ -959,6 +965,7 @@ onMounted(async () => {
           <label class="label">Board / Platform Height</label>
           <select class="select" v-model="editHeight">
             <option value="">— Select Height —</option>
+            <option value="0m">Poolside (0m)</option>
             <option value="1m">1m Springboard</option>
             <option value="3m">3m Springboard</option>
             <option value="5m">5m Platform</option>
