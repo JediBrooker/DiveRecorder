@@ -105,12 +105,15 @@ const canWrite = computed(() =>
 )
 
 // Can the current user edit/delete this row? Server enforces it
-// too — this just hides the buttons. Three checks: row must be
-// custom (core is read-only), viewer must hold a staff role, and
-// the row must belong to the viewer's org (sysadmin bypass).
+// too — this just hides the buttons. Four checks: row must be
+// custom (core is read-only), viewer must hold a staff role,
+// the row must belong to the viewer's org (sysadmin bypass), and
+// the row must NOT have been used in a meet yet (lock-on-use
+// preserves the scoreboard archive).
 function canManage(d) {
   if (!d.is_custom) return false
   if (!canWrite.value) return false
+  if (d.in_use) return false
   if (auth.user?.is_system_admin) return true
   return d.created_org_id === auth.user?.org_id
 }
@@ -372,6 +375,16 @@ onMounted(loadDives)
               <td>
                 <span v-if="d.is_custom" class="src-pill src-pill-custom">Custom</span>
                 <span v-else class="src-pill src-pill-core">Core · 🔒</span>
+                <!-- Lock-on-use marker: the row has been filed on
+                     a roster or scored in a meet, so it can't be
+                     edited or deleted without compromising the
+                     scoreboard archive. Surfaces alongside the
+                     Custom/Core pill so the operator sees both
+                     dimensions of the row's status. -->
+                <span v-if="d.in_use" class="src-pill src-pill-locked"
+                      title="Used in a meet — locked to preserve the scoreboard archive">
+                  In use · 🔒
+                </span>
               </td>
               <td class="actions-col">
                 <template v-if="canManage(d)">
@@ -515,6 +528,8 @@ onMounted(loadDives)
 .src-pill-core   { color: var(--text-3);  border-color: var(--border); }
 .src-pill-custom { color: var(--cyan);    border-color: rgba(6, 182, 212, 0.5);
                    background: rgba(6, 182, 212, 0.08); }
+.src-pill-locked { color: var(--amber);   border-color: rgba(245, 158, 11, 0.5);
+                   background: rgba(245, 158, 11, 0.08); margin-left: 0.4rem; }
 
 .dim { color: var(--text-3); }
 .empty-state { text-align: center; color: var(--text-3); padding: 2rem; }

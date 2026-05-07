@@ -83,11 +83,23 @@ module.exports = function createDiveDirectoryRouter({ pool, verifyToken, require
   // -----------------------------------------------------------
   router.get("/api/dive-directory", verifyToken, async (req, res) => {
     try {
+      // in_use surfaces "this dive has been filed on a roster or
+      // scored in a meet" so the SPA can lock its row from edits /
+      // deletion. The two EXISTS subqueries short-circuit so this
+      // doesn't materially slow the catalog read on large
+      // databases. Core rows commonly hit this on day one of any
+      // active org; custom rows are independently tracked so a
+      // newly added drill stays editable until it's picked up by
+      // a diver's list.
       const r = await pool.query(
-        `SELECT id, dive_code, height, position, dd, description,
-                is_custom, created_by, created_org_id, created_at
-         FROM dive_directory
-         ORDER BY is_custom ASC, dive_code ASC, height ASC`,
+        `SELECT dd.id, dd.dive_code, dd.height, dd.position, dd.dd,
+                dd.description,
+                dd.is_custom, dd.created_by, dd.created_org_id, dd.created_at,
+                (EXISTS (SELECT 1 FROM competitor_dive_lists cdl WHERE cdl.dive_id = dd.id)
+                 OR EXISTS (SELECT 1 FROM scores s              WHERE s.dive_id   = dd.id))
+                  AS in_use
+         FROM dive_directory dd
+         ORDER BY dd.is_custom ASC, dd.dive_code ASC, dd.height ASC`,
       );
       res.json(r.rows);
     } catch (err) {
@@ -95,6 +107,34 @@ module.exports = function createDiveDirectoryRouter({ pool, verifyToken, require
       res.status(500).json([]);
     }
   });
+
+  // Shared pre-flight: refuse mutations on a dive that's already
+  // been used in an event. Editing the code / DD / position would
+  // retroactively rewrite a published scoreboard or the event
+  // archive, which the user explicitly wants locked. Returns null
+  // when the dive is free to mutate, or a {status, body} pair
+  // ready to send when it isn't. Both PUT and DELETE call this.
+  async function rejectIfInUse(diveId) {
+    const used = await pool.query(
+      `SELECT 1
+       WHERE EXISTS (SELECT 1 FROM competitor_dive_lists WHERE dive_id = $1)
+          OR EXISTS (SELECT 1 FROM scores WHERE dive_id = $1)
+       LIMIT 1`,
+      [diveId],
+    );
+    if (used.rows.length) {
+      return {
+        status: 409,
+        body: {
+          error:
+            "This dive has already been filed on a roster or scored in a meet, " +
+            "so it's locked to keep the scoreboard archive intact. " +
+            "Add a new variant instead of changing this one.",
+        },
+      };
+    }
+    return null;
+  }
 
   // -----------------------------------------------------------
   // POST /api/dive-directory — add a custom row. Body:
@@ -234,6 +274,13 @@ module.exports = function createDiveDirectoryRouter({ pool, verifyToken, require
         return res.status(403).json({ error: "Custom dive belongs to another org" });
       }
 
+      // Lock-on-use: editing a dive that's already been filed or
+      // scored would rewrite history. Refuse before we touch any
+      // fields. The UI hides the Edit button on in-use rows too,
+      // but a hand-crafted curl would still hit this gate.
+      const lockResult = await rejectIfInUse(id);
+      if (lockResult) return res.status(lockResult.status).json(lockResult.body);
+
       // Project the post-patch state and dedup against any OTHER
       // row matching all 4 keys. Excludes the row being edited so
       // a no-op save (touch description only) doesn't reject
@@ -303,10 +350,10 @@ module.exports = function createDiveDirectoryRouter({ pool, verifyToken, require
 
   // -----------------------------------------------------------
   // DELETE /api/dive-directory/:id — remove a custom row. Core
-  // rows refuse. Cross-org refuses. Rows referenced by an
-  // existing competitor_dive_lists row will fail the FK from
-  // that side — surface a friendly 409 so the operator knows
-  // why.
+  // rows refuse. Cross-org refuses. Rows that have ever been
+  // filed on a roster or scored in a meet refuse via the
+  // rejectIfInUse pre-flight so the scoreboard archive can't be
+  // retroactively orphaned.
   // -----------------------------------------------------------
   router.delete("/api/dive-directory/:id", requireStaff, async (req, res) => {
     const id = req.params.id;
@@ -325,16 +372,26 @@ module.exports = function createDiveDirectoryRouter({ pool, verifyToken, require
       ) {
         return res.status(403).json({ error: "Custom dive belongs to another org" });
       }
+
+      // Lock-on-use. Same gate as PUT — a dive referenced by
+      // competitor_dive_lists or scores is part of a meet record
+      // and can't be quietly deleted. The 23503 fallback in the
+      // catch block stays as a belt-and-braces against a race.
+      const lockResult = await rejectIfInUse(id);
+      if (lockResult) return res.status(lockResult.status).json(lockResult.body);
+
       await pool.query("DELETE FROM dive_directory WHERE id = $1", [id]);
       res.status(204).end();
     } catch (err) {
-      // 23503 = foreign_key_violation. The row is in use by a
-      // competitor_dive_lists row somewhere; deleting it would
-      // orphan that diver's filed dive list. Tell the operator to
-      // remove the dive from those lists first.
+      // 23503 = foreign_key_violation. The pre-flight above
+      // catches the normal "in use" case; this branch only fires
+      // on a race where a roster row was inserted between the
+      // pre-flight and the DELETE.
       if (err.code === "23503") {
         return res.status(409).json({
-          error: "This custom dive is in use on a diver's list — remove it from there first",
+          error:
+            "This dive is referenced by a meet record. " +
+            "It can't be deleted without breaking the scoreboard archive.",
         });
       }
       console.error("[Dive Directory Delete Error]", err.message);
