@@ -247,6 +247,14 @@ onMounted(async () => {
   flex-direction: column;
   position: relative;
   overflow: hidden;
+  /* Grid items default to min-width: auto (= min-content). With
+     a 26px italic tile-title, "Compare Divers" / "Meet Manager"
+     etc. measure ~280px min-content, which overrides the grid's
+     minmax(240px, 1fr) and pushes the whole grid wider than its
+     container. min-width: 0 lets the cell shrink below the
+     title's natural width and the title wraps via the
+     break-word rule below. */
+  min-width: 0;
   transition: border-color 0.2s, transform 0.2s;
   animation: fadeUp 0.3s ease both;
 }
@@ -282,7 +290,14 @@ onMounted(async () => {
 }
 .tile:hover .tile-icon { background: var(--tc, var(--cyan)); color: var(--bg); border-color: transparent; }
 
-.tile-title  { font-size: 26px; font-style: italic; color: var(--text); margin-bottom: 0.5rem; }
+.tile-title  {
+  font-size: 26px; font-style: italic; color: var(--text);
+  margin-bottom: 0.5rem;
+  /* Lets long titles ("Compare Divers", "Meet Manager") wrap
+     to a second line on narrow tiles instead of forcing the
+     cell wider than the column. */
+  word-break: break-word;
+}
 .tile-desc   { font-family: var(--font-mono); font-size: 12px; color: var(--text-3); line-height: 1.6; flex: 1; margin-bottom: 1.5rem; }
 .tile-action {
   font-family: var(--font-display); font-size: 11px; font-weight: 700;
