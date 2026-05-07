@@ -1,5 +1,9 @@
 # DiveRecorder
 
+📖 **[User Guide → DiveRecorder Wiki](https://github.com/JediBrooker/DiveRecorder/wiki)** — how to actually use the app: register a federation, run a meet, judge dives, watch the scoreboard, manage admin tasks. This README covers setup, deployment, and architecture.
+
+---
+
 A multi-tenant diving competition scoring app. Real-time judge scoring over WebSockets, World Aquatics-compliant point calculations, prelim → semi → final progression, role-based dashboards (diver / coach / referee / meet manager), self-serve analytics, and a printable program / results pipeline that goes from "live broadcast" to "PDF export" without leaving the app.
 
 Built around five audiences:
