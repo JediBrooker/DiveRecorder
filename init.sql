@@ -231,12 +231,20 @@ CREATE TABLE public.role_requests (
 -- =============================================================
 
 CREATE TABLE public.dive_directory (
-    id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    dive_code   varchar(10) NOT NULL,
-    height      numeric(3,1) NOT NULL,
-    position    dive_position NOT NULL,
-    dd          numeric(3,1) NOT NULL,
-    description text,
+    id              uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    dive_code       varchar(10) NOT NULL,
+    height          numeric(3,1) NOT NULL,
+    position        dive_position NOT NULL,
+    dd              numeric(3,1) NOT NULL,
+    description     text,
+    -- Custom-vs-core flag. Core rows are the World Aquatics catalog
+    -- shipped with init.sql; nobody should ever edit those. Custom
+    -- rows are added by an org for poolside / progression dives etc.
+    -- and only the org that created them can edit/delete.
+    is_custom       boolean NOT NULL DEFAULT FALSE,
+    created_by      uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    created_org_id  uuid REFERENCES public.organisations(id) ON DELETE CASCADE,
+    created_at      timestamptz NOT NULL DEFAULT now(),
     UNIQUE (dive_code, height, position)
 );
 
@@ -842,7 +850,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 24);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 25);
 
 
 -- =============================================================

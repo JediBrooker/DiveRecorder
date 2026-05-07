@@ -1773,7 +1773,13 @@ onMounted(async () => {
    naturally so we don't need overflow locks here; broadcast +
    overlay modes get them back via the .sb-layout.* selectors
    above (which then need .sb-body to flex-fill). */
-.sb-body { display: grid; grid-template-columns: 380px 1fr 300px; }
+/* 1fr in the middle let the centre column balloon on wide
+   screens, leaving an awkward gap between the Up Next box
+   (max-width 720px, centred) and the Standings column. Capping
+   the centre at minmax(0, 800px) plus justify-content: center on
+   the grid distributes any leftover horizontal space as equal
+   gutters on the outer edges instead. */
+.sb-body { display: grid; grid-template-columns: 380px minmax(0, 800px) 300px; justify-content: center; }
 .sb-layout.broadcast-mode .sb-body,
 .sb-layout.overlay-mode .sb-body {
   flex: 1; overflow: hidden; grid-template-rows: minmax(0, 1fr);

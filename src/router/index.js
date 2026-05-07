@@ -122,6 +122,15 @@ const routes = [
     component: () => import('@/views/ScoreAuditView.vue'),
     meta: { requiresAuth: true, requiresRole: ['org_admin', 'meet_manager'] },
   },
+  {
+    // Dive Directory browser: read the World Aquatics catalog,
+    // add custom rows for poolside / progression dives. Anyone
+    // signed in can browse; the create/edit/delete affordances
+    // gate themselves on row.is_custom + same-org membership.
+    path: '/dive-directory',
+    component: () => import('@/views/DiveDirectoryView.vue'),
+    meta: { requiresAuth: true },
+  },
 ]
 
 const router = createRouter({

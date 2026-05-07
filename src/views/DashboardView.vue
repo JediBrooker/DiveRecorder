@@ -170,6 +170,20 @@ const allTiles = [
     desc: 'Watch live meets in progress or browse completed meet recaps with full dive breakdowns.',
     action: 'Browse Meets',
   },
+  {
+    // Dive Directory: catalog browser with custom-dive editor.
+    // Visible to anyone signed in — coaches and divers want to
+    // look up DDs, only org-admins / coaches will typically add
+    // custom rows. Per-row management is gated server-side.
+    id: 'dive-directory',
+    roles: null, // always show
+    to: '/dive-directory',
+    colour: 'tile-cyan',
+    icon: `<svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 17l2 2 4-4"/></svg>`,
+    title: 'Dive Directory',
+    desc: 'Browse the World Aquatics dive catalog and add your org\'s custom progression / poolside dives.',
+    action: 'Open Directory',
+  },
 ]
 
 const visibleTiles = computed(() =>
