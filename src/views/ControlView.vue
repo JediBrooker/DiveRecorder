@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
@@ -216,6 +216,10 @@ function detectRoundEnd(justCompletedRound) {
   if (completedInRound >= expectedInRound && expectedInRound > 0) {
     roundEndForRound.value = justCompletedRound
     roundEndPromptOpen.value = true
+    // Same auto-advance contract as between dives: if the
+    // operator has set a delay, fire announceRoundEnd after the
+    // countdown so the meet keeps moving without a click.
+    startAutoAdvance(announceRoundEnd)
   }
 }
 
@@ -230,6 +234,11 @@ async function announceRoundEnd() {
     })
   } catch { /* best effort */ }
   roundEndPromptOpen.value = false
+  // Once round-end is dismissed, kick off the dive-advance
+  // timer so the meet keeps rolling into round N+1's first
+  // diver. Manual mode no-ops.
+  cancelAutoAdvance()
+  if (!nextBtnComplete.value) startAutoAdvance(nextDiver)
 }
 
 // =============================================================
@@ -296,6 +305,52 @@ const liveDiveTotal = computed(() => {
     .reduce((sum, j) => sum + j.value, 0)
   return trimSum * dd
 })
+
+// =========================================================
+// AUTO-ADVANCE — operator-configurable auto-progression. When
+// non-zero, the queue advances to the next diver N seconds
+// after the last judge submits, and the round-end "Announce
+// standings" prompt auto-confirms after the same delay. Lets
+// a manager run a meet without keeping a hand on the queue —
+// the operator can step in any time to cancel, change scores,
+// fire a referee action, etc.
+//
+// Persisted via localStorage so the operator's preferred mode
+// survives reload. Default is Manual (0) — every meet starts
+// in the safest state until the operator opts in.
+// =========================================================
+const AUTO_ADVANCE_KEY = 'dr_control_auto_advance_seconds'
+const autoAdvanceSeconds = ref(
+  parseInt(localStorage.getItem(AUTO_ADVANCE_KEY) || '0', 10) || 0,
+)
+watch(autoAdvanceSeconds, (s) => {
+  try { localStorage.setItem(AUTO_ADVANCE_KEY, String(s)) } catch { /* private mode */ }
+  // Editing the dropdown mid-countdown cancels the in-flight
+  // timer so the operator's intent is respected immediately.
+  cancelAutoAdvance()
+})
+const autoAdvanceCountdown = ref(0)   // remaining seconds; 0 = idle
+let autoAdvanceTimer = null
+let autoAdvanceFire   = null          // callback to run on completion
+function cancelAutoAdvance() {
+  if (autoAdvanceTimer) { clearInterval(autoAdvanceTimer); autoAdvanceTimer = null }
+  autoAdvanceCountdown.value = 0
+  autoAdvanceFire = null
+}
+function startAutoAdvance(callback) {
+  cancelAutoAdvance()
+  if (!autoAdvanceSeconds.value) return            // Manual mode
+  autoAdvanceCountdown.value = autoAdvanceSeconds.value
+  autoAdvanceFire = callback
+  autoAdvanceTimer = setInterval(() => {
+    autoAdvanceCountdown.value--
+    if (autoAdvanceCountdown.value <= 0) {
+      const fire = autoAdvanceFire
+      cancelAutoAdvance()
+      if (typeof fire === 'function') fire()
+    }
+  }, 1000)
+}
 
 // =========================================================
 // RANDOMISE START ORDER — operator clicks before the meet
@@ -959,11 +1014,20 @@ socket.on('score_received', (data) => {
     stopShotClock()                                    // dive complete — clock irrelevant
     updateNextButton(true)
     // Round-end detection: this might have been the final dive
-    // of the round. detectRoundEnd surfaces a prompt if so.
+    // of the round. detectRoundEnd surfaces a prompt if so —
+    // it'll also kick off the auto-advance timer for the round-
+    // end announcement (see watcher on roundEndPromptOpen).
     detectRoundEnd(currentActive.value.round_number)
     // Refresh the inline standings preview so the operator
     // sees totals shift as dives complete.
     refreshStandingsPreview()
+    // Auto-advance: only kick off the timer if we're NOT at a
+    // round-end (the round-end modal owns that flow) and NOT
+    // at the final dive (Finalise should always be a manual
+    // confirm — auto-firing finalise would be destructive).
+    if (!roundEndPromptOpen.value && !nextBtnComplete.value) {
+      startAutoAdvance(nextDiver)
+    }
   }
 })
 
@@ -1030,6 +1094,10 @@ function addHistoryCard(data) {
 
 function setActive(idx) {
   if (idx < 0 || idx >= roster.value.length) return
+  // Any manual jump cancels an in-flight auto-advance — the
+  // operator chose this diver, don't override them with the
+  // timer.
+  cancelAutoAdvance()
   currentIndex.value = idx
   currentActive.value = roster.value[idx]
   scoresThisRound.value = {}
@@ -1101,6 +1169,10 @@ function updateNextButton(allScoresIn) {
 
 function refAction(type) {
   if (!currentActive.value) return
+  // A referee action mid-countdown means the dive needs review
+  // — kill the timer so the operator can finish what they're
+  // doing without racing the auto-advance.
+  cancelAutoAdvance()
   const payload = {
     event_id: currentActive.value.event_id,
     competitor_id: currentActive.value.competitor_id,
@@ -1112,6 +1184,11 @@ function refAction(type) {
 }
 
 function nextDiver() {
+  // Cancel any in-flight auto-advance — whether the operator
+  // clicked Next manually OR the timer fired, the timer needs
+  // to be gone before setActive() so it doesn't race a fresh
+  // countdown that's about to start for the next diver.
+  cancelAutoAdvance()
   // Guard against accidental skip when scores are partial. Once
   // a referee action (cap, redive, failed) has fired, the next
   // button leaves "disabled" state — but the score map can be
@@ -1296,7 +1373,10 @@ onMounted(async () => {
   events.value = await auth.apiFetch('/api/events')
   window.addEventListener('keydown', onKeydown)
 })
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  cancelAutoAdvance()
+})
 </script>
 
 <template>
@@ -1333,6 +1413,26 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         </span>
       </div>
       <div style="display:flex;align-items:center;gap:0.75rem">
+        <!-- Auto-advance — controls how the queue moves on once
+             all judges have submitted. Manual = operator clicks
+             Next; otherwise the timer fires nextDiver() after
+             the chosen delay. Same setting governs the round-end
+             "Announce standings" prompt. The .auto-advance-select
+             class also shares .event-select-sm visual styling
+             but stays uniquely identifiable for tests. -->
+        <select
+          class="event-select-sm auto-advance-select"
+          v-model.number="autoAdvanceSeconds"
+          title="Auto-advance to the next diver after all scores are in. Same delay applies to the round-end announcement."
+        >
+          <option :value="0">Auto-next: Manual</option>
+          <option :value="5">Auto-next: 5s</option>
+          <option :value="10">Auto-next: 10s</option>
+          <option :value="15">Auto-next: 15s</option>
+          <option :value="20">Auto-next: 20s</option>
+          <option :value="25">Auto-next: 25s</option>
+          <option :value="30">Auto-next: 30s</option>
+        </select>
         <!-- Hold / Resume — broadcasts a paused state to judges
              + spectator scoreboard. Cyan when running, amber
              when held. -->
@@ -1581,11 +1681,27 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
             <div class="nav-btns">
               <button class="btn btn-ghost" @click="setActive(currentIndex - 1)" :disabled="currentIndex <= 0">← Prev</button>
               <button
-                :class="['btn', nextBtnComplete ? 'btn-complete' : 'btn-primary']"
+                :class="['btn', nextBtnComplete ? 'btn-complete' : 'btn-primary', autoAdvanceCountdown > 0 ? 'btn-counting' : '']"
                 :disabled="nextBtnDisabled"
                 @click="nextDiver"
-              >{{ nextBtnText }}</button>
+              >
+                {{ nextBtnText }}
+                <span v-if="autoAdvanceCountdown > 0" class="auto-advance-pill">
+                  {{ autoAdvanceCountdown }}s
+                </span>
+              </button>
             </div>
+            <!-- Cancel-the-countdown affordance. Sits next to the
+                 Next Diver button only while the auto-advance
+                 timer is running — clicking it stops the timer
+                 without advancing, returning the queue to manual
+                 control until the operator clicks Next. -->
+            <button
+              v-if="autoAdvanceCountdown > 0"
+              class="btn btn-ghost auto-advance-cancel"
+              @click="cancelAutoAdvance"
+              title="Stop the auto-advance timer for this dive"
+            >✕ Cancel auto-advance</button>
 
             <!-- Discoverability hint for the keyboard shortcuts.
                  The hotkeys are wired in onKeydown above. -->
@@ -2038,8 +2154,13 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         Show the running standings to the audience? Triggers the
         score-reveal overlay on the live scoreboard.
       </p>
+      <div v-if="autoAdvanceCountdown > 0"
+           style="font-family:var(--font-mono);font-size:12px;color:var(--cyan);margin-bottom:0.75rem">
+        Auto-announcing in {{ autoAdvanceCountdown }}s
+        <button class="btn btn-ghost btn-sm" style="margin-left:0.5rem" @click="cancelAutoAdvance">✕ Cancel</button>
+      </div>
       <div style="display:flex;justify-content:flex-end;gap:0.5rem">
-        <button class="btn btn-ghost btn-sm" @click="roundEndPromptOpen = false">Skip</button>
+        <button class="btn btn-ghost btn-sm" @click="roundEndPromptOpen = false; cancelAutoAdvance()">Skip</button>
         <button class="btn btn-primary btn-sm" @click="announceRoundEnd">📣 Announce standings</button>
       </div>
     </div>
@@ -2180,6 +2301,38 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 }
 
 .nav-btns { display: grid; grid-template-columns: 1fr 2fr; gap: 0.75rem; }
+
+/* Auto-advance countdown affordances. Pill on the Next button
+   shows the countdown without changing the button's main label
+   (so the operator's eye still sees "Next Diver →" — the pill
+   reads as a small "and we'll do it in 5s" badge). The button
+   gets a subtle pulse so the countdown is impossible to miss.
+   The Cancel button below the nav row appears only while a
+   countdown is running. */
+.btn-counting {
+  position: relative;
+  animation: btnPulse 1s ease-in-out infinite;
+}
+@keyframes btnPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.5); }
+  50%      { box-shadow: 0 0 0 6px rgba(6, 182, 212, 0); }
+}
+.auto-advance-pill {
+  display: inline-block;
+  margin-left: 0.6rem;
+  padding: 0.1rem 0.5rem;
+  background: rgba(0, 0, 0, 0.25);
+  border-radius: 999px;
+  font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+  vertical-align: middle;
+}
+.auto-advance-cancel {
+  margin-top: 0.5rem;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-3);
+  align-self: stretch;
+}
+.auto-advance-cancel:hover { color: var(--amber); border-color: var(--amber); }
 .btn-complete {
   font-family: var(--font-display); font-size: 13px; font-weight: 700;
   letter-spacing: 0.1em; text-transform: uppercase;

@@ -303,7 +303,10 @@ test("meet-manager full E2E (random variant)", async ({
 
   // The Control Room renders the event-picker <select> at the
   // top. Wait for our event's <option> to appear, then choose it.
-  const eventSelect = page.locator(".event-select-sm");
+  // Two .event-select-sm dropdowns now live in the header: the
+  // event picker and the auto-advance picker. Pick the one that
+  // is NOT the auto-advance select.
+  const eventSelect = page.locator(".event-select-sm:not(.auto-advance-select)");
   await expect(eventSelect).toBeVisible({ timeout: 10_000 });
   await expect(
     eventSelect.locator(`option[value="${eventId}"]`),
