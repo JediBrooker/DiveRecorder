@@ -347,8 +347,11 @@ test("meet-manager full E2E (random variant)", async ({
 
   // onEventChange fires: roster + judges load, setActive(0)
   // auto-runs (so the centre column shows the first diver). Wait
-  // for the roster panel to populate before clicking Randomise.
-  await expect(page.locator(".roster-jump").first()).toBeVisible({
+  // for the right panel to populate. The Up Next block is the
+  // primary surface now — the full Dive Order panel below it
+  // collapses by default, so .roster-jump won't be in the DOM
+  // until an operator opens it.
+  await expect(page.locator(".up-next-row-btn").first()).toBeVisible({
     timeout: 10_000,
   });
   await page.waitForTimeout(LOGIN_HOLD_MS);
@@ -435,9 +438,11 @@ test("meet-manager full E2E (random variant)", async ({
   await expect(page.locator(".wf-live-badge")).toBeVisible({ timeout: 5000 });
   await page.waitForTimeout(LOGIN_HOLD_MS);
 
-  // Re-pick the first diver via the roster row click — the SPA
+  // Re-pick the first diver via the Up Next row click — the SPA
   // cleared currentActive when Randomise reshuffled the order.
-  await page.locator(".roster-jump").first().click();
+  // Up Next is the primary right-panel surface now; clicking a
+  // row jump-sets the active diver same as the old roster-jump.
+  await page.locator(".up-next-row-btn").first().click();
   await page.waitForTimeout(PRE_DIVE_MS);
 
   // ============================================================

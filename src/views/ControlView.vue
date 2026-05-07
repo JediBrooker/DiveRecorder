@@ -1443,6 +1443,55 @@ const availableRounds = computed(() => {
 })
 
 // =============================================================
+// UP NEXT (right-panel hero) — the next 3 (or all) divers in
+// roster order, starting AFTER the currently-active diver.
+// Withdrawn rows are excluded so the operator never queues a
+// scratched diver into a "next" slot.
+//
+// Two pieces of state:
+//   upNextShowAll  toggle for the "Show all / Show first 3" link
+//   upNextDives    the actual list rendered, capped at 3 unless
+//                  the toggle is on
+//
+// Drives the panel that replaces the old Diver Queue as the
+// primary right-panel surface; the full searchable roster lives
+// in a collapsed-by-default "Dive Order" panel underneath.
+// =============================================================
+const upNextShowAll = ref(false)
+const upNextDives = computed(() => {
+  if (!roster.value.length) return []
+  // Start one past the active row. When no row is active (pre-
+  // meet, or just after a randomise), start from the beginning.
+  const start = currentIndex.value >= 0 ? currentIndex.value + 1 : 0
+  const tail = []
+  for (let i = start; i < roster.value.length; i++) {
+    if (roster.value[i].withdrawn_at) continue
+    tail.push({ ...roster.value[i], originalIdx: i })
+    if (!upNextShowAll.value && tail.length >= 3) break
+  }
+  return tail
+})
+
+// Total non-withdrawn dives still ahead — drives the "Show all
+// (N)" copy on the toggle so the operator knows how much they're
+// expanding into.
+const upNextTotal = computed(() => {
+  if (!roster.value.length) return 0
+  const start = currentIndex.value >= 0 ? currentIndex.value + 1 : 0
+  let n = 0
+  for (let i = start; i < roster.value.length; i++) {
+    if (!roster.value[i].withdrawn_at) n++
+  }
+  return n
+})
+
+// Collapsed-by-default "Dive Order" panel — holds the search +
+// round chips + reorderable roster that used to live at the top
+// of the right panel. Operators only need it during pre-meet
+// setup or for a manual jump; live scoring leans on Up Next.
+const diveOrderOpen = ref(false)
+
+// =============================================================
 // HISTORY FILTER — by diver, by round
 // =============================================================
 const historyDiverFilter = ref('')   // full_name, '' = all
@@ -2512,6 +2561,53 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- Up Next — primary right-panel surface during live
+             scoring. Shows the next 3 divers / pairs by default
+             with a "Show all (N)" toggle for the operator who
+             wants to see further down the queue without opening
+             the full Dive Order panel below. Withdrawn rows are
+             skipped server-side via the upNextDives computed.
+             Click a row to jump-set the active diver, same as a
+             Dive Order row click. -->
+        <div v-if="upNextDives.length" class="up-next-panel">
+          <div class="up-next-panel-head">
+            <span class="up-next-panel-label">Up Next</span>
+            <button v-if="upNextTotal > 3"
+                    class="up-next-toggle"
+                    @click="upNextShowAll = !upNextShowAll"
+                    :title="upNextShowAll
+                      ? 'Show only the next 3'
+                      : `Show all ${upNextTotal} remaining`">
+              {{ upNextShowAll
+                  ? `Show first 3 ↑`
+                  : `Show all (${upNextTotal}) ↓` }}
+            </button>
+          </div>
+          <div class="up-next-list">
+            <button
+              v-for="row in upNextDives"
+              :key="row.dive_list_id || row.originalIdx"
+              :class="['up-next-row-btn']"
+              :disabled="!!row.withdrawn_at"
+              @click="setActive(row.originalIdx)"
+              title="Jump to this diver"
+            >
+              <span class="up-next-row-rd">R{{ row.round_number }}</span>
+              <span v-if="row.display_order != null" class="up-next-row-pos">{{ row.display_order }}</span>
+              <span class="up-next-row-name">
+                {{ row.full_name }}<span v-if="row.country_code" class="up-next-row-ctry">{{ row.country_code }}</span>
+                <template v-if="row.partner_name">
+                  <span class="up-next-row-amp">&amp;</span>{{ row.partner_name }}
+                </template>
+              </span>
+              <span v-if="row.dive_code" class="up-next-row-code">
+                {{ row.dive_code }}{{ row.position || '' }}
+              </span>
+              <span v-if="row.dd != null" class="up-next-row-dd">DD {{ parseFloat(row.dd).toFixed(1) }}</span>
+            </button>
+          </div>
+        </div>
+
         <!-- Standings + projected leader — top 5 inline so the
              meet referee always knows the running state. The
              "projected" line under the table shows the gap from
@@ -2609,24 +2705,38 @@ onUnmounted(() => {
           📊 Show standings
         </button>
 
-        <!-- Search + jump-to-round chips -->
-        <div v-if="roster.length" class="queue-filters">
-          <input
-            class="input queue-search"
-            type="text"
-            v-model="queueSearch"
-            placeholder="Search name, dive code…"
-          >
-          <div class="round-chips">
-            <button :class="['round-chip', queueRoundFilter === null ? 'active' : '']"
-                    @click="queueRoundFilter = null">All</button>
-            <button v-for="n in availableRounds" :key="n"
-                    :class="['round-chip', queueRoundFilter === n ? 'active' : '']"
-                    @click="queueRoundFilter = n">R{{ n }}</button>
-          </div>
-        </div>
+        <!-- Dive Order — collapsed-by-default panel housing the
+             full roster (search, round chips, reorder controls).
+             During live scoring the operator only needs Up Next
+             above; this panel is for pre-meet setup and the
+             occasional manual jump. Header click toggles. -->
+        <div v-if="roster.length" class="dive-order-panel">
+          <button class="dive-order-head"
+                  @click="diveOrderOpen = !diveOrderOpen"
+                  :aria-expanded="diveOrderOpen">
+            <span class="dive-order-caret">{{ diveOrderOpen ? '▾' : '▸' }}</span>
+            <span class="dive-order-title">Dive Order</span>
+            <span class="dive-order-count">{{ roster.length }}</span>
+          </button>
+          <div v-if="diveOrderOpen" class="dive-order-body">
+            <!-- Search + jump-to-round chips -->
+            <div class="queue-filters">
+              <input
+                class="input queue-search"
+                type="text"
+                v-model="queueSearch"
+                placeholder="Search name, dive code…"
+              >
+              <div class="round-chips">
+                <button :class="['round-chip', queueRoundFilter === null ? 'active' : '']"
+                        @click="queueRoundFilter = null">All</button>
+                <button v-for="n in availableRounds" :key="n"
+                        :class="['round-chip', queueRoundFilter === n ? 'active' : '']"
+                        @click="queueRoundFilter = n">R{{ n }}</button>
+              </div>
+            </div>
 
-        <div class="panel-body">
+            <div class="panel-body">
           <!-- filteredRoster is the search-filtered view of the
                full roster, but each item carries originalIdx so
                clicking still maps back to the right slot in
@@ -2708,6 +2818,8 @@ onUnmounted(() => {
               </div>
             </div>
           </template>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -4099,6 +4211,116 @@ onUnmounted(() => {
     grid-column: 1 / -1; padding-left: 30px;
     font-size: 11px;
   }
+}
+
+/* =========================================================
+   Up Next — primary right-panel surface during live scoring.
+   Sits above the standings preview + the collapsed Dive Order
+   panel. Renders the next 3 (or all) divers as click-to-jump
+   button rows, mirroring the spectator scoreboard's Up Next
+   panel layout so the operator + audience read the same shape.
+   ========================================================= */
+.up-next-panel {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-3);
+  flex-shrink: 0;
+}
+.up-next-panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 0.5rem; gap: 0.5rem;
+}
+.up-next-panel-label {
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.25em; text-transform: uppercase; color: var(--cyan);
+}
+.up-next-toggle {
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text-3); cursor: pointer;
+  font-family: var(--font-mono); font-size: 10px;
+  padding: 0.2rem 0.5rem; border-radius: 3px;
+  letter-spacing: 0.04em;
+}
+.up-next-toggle:hover { color: var(--text); border-color: var(--text-3); }
+.up-next-list {
+  display: flex; flex-direction: column; gap: 0.3rem;
+}
+.up-next-row-btn {
+  display: grid;
+  grid-template-columns: 26px 22px 1fr auto auto;
+  align-items: baseline; gap: 0.5rem;
+  padding: 0.4rem 0.55rem;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer; transition: border-color 0.15s;
+  text-align: left; color: var(--text);
+  font-family: inherit; font-size: 12px;
+  width: 100%;
+}
+.up-next-row-btn:hover:not(:disabled) {
+  border-color: var(--cyan);
+  background: var(--cyan-dim);
+}
+.up-next-row-btn:disabled { cursor: default; opacity: 0.5; }
+.up-next-row-rd {
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.04em; color: var(--text-3);
+}
+.up-next-row-pos {
+  font-family: var(--font-display); font-size: 11px; font-weight: 800;
+  font-style: italic; color: var(--cyan); text-align: right;
+}
+.up-next-row-name {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0;
+}
+.up-next-row-ctry {
+  font-family: var(--font-display); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.08em; color: var(--text-3);
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 3px; padding: 0.05rem 0.3rem; margin-left: 0.4rem;
+  vertical-align: middle;
+}
+.up-next-row-amp { color: var(--cyan); margin: 0 0.2em; }
+.up-next-row-code {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
+}
+.up-next-row-dd {
+  font-family: var(--font-display); font-size: 10px; color: var(--cyan);
+  letter-spacing: 0.04em;
+}
+
+/* =========================================================
+   Dive Order — the collapsed-by-default full roster panel
+   that lives below Up Next. Pre-meet setup + manual jumps
+   only; live scoring leans on Up Next above.
+   ========================================================= */
+.dive-order-panel {
+  display: flex; flex-direction: column; min-height: 0;
+}
+.dive-order-head {
+  display: flex; align-items: center; gap: 0.5rem;
+  width: 100%;
+  background: var(--bg-3); border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 0.7rem 1rem;
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-2);
+  cursor: pointer; text-align: left;
+  transition: background 0.15s;
+}
+.dive-order-head:hover { background: var(--bg-2); color: var(--text); }
+.dive-order-caret {
+  display: inline-block; width: 12px;
+  color: var(--text-3); font-size: 10px;
+}
+.dive-order-title { flex: 1; }
+.dive-order-count {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+  letter-spacing: 0;
+}
+.dive-order-body {
+  display: flex; flex-direction: column; min-height: 0;
 }
 
 /* =========================================================
