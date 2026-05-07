@@ -356,6 +356,20 @@ watch(() => route.params.eventId, (newId) => {
   else    resetToEventPicker({ pushUrl: false })
 }, { immediate: false })
 
+// Refresh when the current event's status flips. The events
+// list arrives via cachedFetch (stale-while-revalidate); the
+// initial selectEvent runs against whatever's in IndexedDB,
+// which may still say Live for an event that's actually
+// Completed by the time the page loads. When the fresh
+// /api/archive response lands and rewrites currentEvent.status,
+// re-fetch so the SPA swaps from the live broadcast layout into
+// the recap (or vice versa) rather than staying on the cached
+// view.
+watch(() => currentEvent.value?.status, (status, prev) => {
+  if (!currentEventId.value) return
+  if (status && prev && status !== prev) refreshData()
+})
+
 async function refreshData() {
   if (!currentEventId.value) return
   try {
@@ -1023,12 +1037,42 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Two-column body: standings + dive breakdown -->
-      <div class="completed-grid">
-        <!-- Left: Podium → Standings → Stats -->
-        <div class="completed-col">
+      <!-- End-of-event recap. One centred column so the
+           leaderboard sits dead centre on the page rather than
+           being flanked by sidebars. Stack order: podium spotlight
+           (top 3) → tabbed leaderboard (per-diver dives or
+           round-by-round) → meet highlights. -->
+      <div class="completed-recap">
+        <!-- Podium spotlight: top 3, slightly elevated treatment -->
+        <div v-if="standings.length >= 3" class="podium">
+          <div class="podium-step podium-2">
+            <div class="podium-medal silver">2</div>
+            <div class="podium-name">{{ standings[1].full_name }}</div>
+            <div class="podium-country">{{ standings[1].country_code || '' }}</div>
+            <div class="podium-total">{{ parseFloat(standings[1].total).toFixed(1) }}</div>
+          </div>
+          <div class="podium-step podium-1">
+            <div class="podium-medal gold">1</div>
+            <div class="podium-name">{{ standings[0].full_name }}</div>
+            <div class="podium-country">{{ standings[0].country_code || '' }}</div>
+            <div class="podium-total">{{ parseFloat(standings[0].total).toFixed(1) }}</div>
+          </div>
+          <div class="podium-step podium-3">
+            <div class="podium-medal bronze">3</div>
+            <div class="podium-name">{{ standings[2].full_name }}</div>
+            <div class="podium-country">{{ standings[2].country_code || '' }}</div>
+            <div class="podium-total">{{ parseFloat(standings[2].total).toFixed(1) }}</div>
+          </div>
+        </div>
+
+        <!-- Leaderboard card: every diver in rank order with their
+             per-dive breakdown (judges' scores, dive code, position,
+             DD, dive total). Final tab is the per-diver view; the
+             By-Round tab keeps the older round-by-round leaderboard
+             with movement arrows. -->
+        <div class="recap-card">
           <div class="col-head">
-            <span>Standings</span>
+            <span>Final Leaderboard</span>
             <div class="tabs">
               <button
                 :class="['tab', standingsTab === 'final' ? 'tab-active' : '']"
@@ -1041,72 +1085,64 @@ onMounted(async () => {
             </div>
           </div>
           <div class="col-body">
-            <p v-if="!standings.length" style="color:var(--text-3);font-size:12px;text-align:center;padding:2rem">No results recorded</p>
-
             <template v-if="standingsTab === 'final'">
-              <!-- Podium spotlight: top 3 with bigger treatment -->
-              <div v-if="standings.length >= 3" class="podium">
-                <div class="podium-step podium-2">
-                  <div class="podium-medal silver">2</div>
-                  <div class="podium-name">{{ standings[1].full_name }}</div>
-                  <div class="podium-country">{{ standings[1].country_code || '' }}</div>
-                  <div class="podium-total">{{ parseFloat(standings[1].total).toFixed(1) }}</div>
+              <p v-if="!divesByDiver.length" style="color:var(--text-3);font-size:12px;text-align:center;padding:2rem">No dive data recorded</p>
+              <div v-for="block in divesByDiver" :key="block.name" class="diver-block">
+                <div class="diver-head">
+                  <div class="diver-rank-badge" :class="rankClass(block.rank - 1)">{{ block.rank }}</div>
+                  <div class="diver-id">
+                    <div class="diver-id-row">
+                      <div class="diver-name">
+                        {{ block.name }}<span v-if="block.country" class="diver-country">{{ block.country }}</span>
+                        <template v-if="block.partner">
+                          <span class="diver-amp">&amp;</span>
+                          {{ block.partner }}<span v-if="block.partner_country" class="diver-country">{{ block.partner_country }}</span>
+                        </template>
+                      </div>
+                      <div class="diver-total" v-if="block.total != null">{{ parseFloat(block.total).toFixed(1) }} pts</div>
+                    </div>
+                    <div v-if="block.club" class="diver-club">{{ block.club }}</div>
+                  </div>
                 </div>
-                <div class="podium-step podium-1">
-                  <div class="podium-medal gold">1</div>
-                  <div class="podium-name">{{ standings[0].full_name }}</div>
-                  <div class="podium-country">{{ standings[0].country_code || '' }}</div>
-                  <div class="podium-total">{{ parseFloat(standings[0].total).toFixed(1) }}</div>
-                </div>
-                <div class="podium-step podium-3">
-                  <div class="podium-medal bronze">3</div>
-                  <div class="podium-name">{{ standings[2].full_name }}</div>
-                  <div class="podium-country">{{ standings[2].country_code || '' }}</div>
-                  <div class="podium-total">{{ parseFloat(standings[2].total).toFixed(1) }}</div>
-                </div>
-              </div>
-
-              <!-- Full standings list -->
-              <div class="standings-list">
-                <div v-for="(s, i) in standings" :key="i" class="standing">
-                  <div :class="['standing-rank', rankClass(i)]">{{ i + 1 }}</div>
-                  <div class="standing-name">{{ s.full_name }}<span v-if="s.country_code" class="standing-country">{{ s.country_code }}</span></div>
-                  <div class="standing-score">{{ parseFloat(s.total).toFixed(1) }}</div>
-                </div>
-              </div>
-
-              <!-- Event stats panel -->
-              <div v-if="eventStats" class="stats-panel">
-                <div class="stats-head">Meet Highlights</div>
-                <div v-if="eventStats.margin != null" class="stat-row">
-                  <span class="stat-label">Margin of victory</span>
-                  <span class="stat-value">{{ eventStats.margin.toFixed(2) }}</span>
-                </div>
-                <div v-if="eventStats.highest" class="stat-row">
-                  <span class="stat-label">Highest dive total</span>
-                  <span class="stat-value">{{ eventStats.highest.total.toFixed(1) }}</span>
-                </div>
-                <div v-if="eventStats.highest" class="stat-sub">
-                  {{ eventStats.highest.diver }} · R{{ eventStats.highest.round }} · {{ eventStats.highest.code }}
-                </div>
-                <div v-if="eventStats.biggestDD" class="stat-row">
-                  <span class="stat-label">Biggest DD attempted</span>
-                  <span class="stat-value">{{ eventStats.biggestDD.dd.toFixed(1) }}</span>
-                </div>
-                <div v-if="eventStats.biggestDD" class="stat-sub">
-                  {{ eventStats.biggestDD.diver }} · R{{ eventStats.biggestDD.round }} · {{ eventStats.biggestDD.code }}
-                </div>
-                <div class="stat-row">
-                  <span class="stat-label">Perfect 10s awarded</span>
-                  <span class="stat-value">{{ eventStats.perfectTens }}</span>
-                </div>
-                <div v-if="eventStats.avgJudgeScore != null" class="stat-row">
-                  <span class="stat-label">Avg judge score</span>
-                  <span class="stat-value">{{ eventStats.avgJudgeScore.toFixed(2) }}</span>
-                </div>
-                <div class="stat-row">
-                  <span class="stat-label">Competitors / dives</span>
-                  <span class="stat-value">{{ eventStats.competitors }} / {{ eventStats.totalDives }}</span>
+                <div class="dive-table">
+                  <div class="dive-row dive-head-row">
+                    <div class="dr-round">Rd</div>
+                    <div class="dr-code">Dive</div>
+                    <div class="dr-dd">DD</div>
+                    <div class="dr-judges">Judge Scores</div>
+                    <div class="dr-total">Total</div>
+                  </div>
+                  <div v-for="d in block.dives" :key="d.round_number + (d.full_name || '')" class="dive-row">
+                    <div class="dr-round">R{{ d.round_number }}</div>
+                    <div class="dr-code">
+                      <span v-if="block.isTeam" class="dr-team-member">{{ d.full_name }}</span>
+                      <span class="dr-code-main">{{ [d.dive_code, d.position].filter(Boolean).join(' ') }}</span>
+                      <span v-if="d.description" class="dr-code-desc">{{ diveDescription(d) }}</span>
+                    </div>
+                    <div class="dr-dd">{{ d.dd != null ? parseFloat(d.dd).toFixed(1) : '—' }}</div>
+                    <div class="dr-judges">
+                      <template v-if="currentEvent?.event_type === 'synchro_pair'">
+                        <div v-for="g in (groupedSynchroScoresForDisplay(d.judge_scores, currentEvent.number_of_judges) || [])"
+                             :key="g.role"
+                             :class="['judge-group', `judge-group-${g.role}`]">
+                          <span class="judge-group-label">{{ g.label }}</span>
+                          <span v-for="(j, si) in g.scores" :key="si"
+                                :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                                :title="j.dropped ? 'Dropped by trim rule' : ''">
+                            {{ j.value.toFixed(1) }}
+                          </span>
+                        </div>
+                      </template>
+                      <template v-else>
+                        <span v-for="(j, si) in annotatedScores(d.judge_scores, currentEvent?.number_of_judges)" :key="si"
+                              :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                              :title="j.dropped ? 'Dropped by trim rule' : ''">
+                          {{ j.value.toFixed(1) }}
+                        </span>
+                      </template>
+                    </div>
+                    <div class="dr-total">{{ parseFloat(d.total_dive_score).toFixed(1) }}</div>
+                  </div>
                 </div>
               </div>
             </template>
@@ -1142,69 +1178,40 @@ onMounted(async () => {
           </div>
         </div>
 
-        <!-- Right: Dive breakdown grouped by diver -->
-        <div class="completed-col">
-          <div class="col-head"><span>Dive Breakdown</span></div>
-          <div class="col-body">
-            <p v-if="!divesByDiver.length" style="color:var(--text-3);font-size:12px;text-align:center;padding:2rem">No dive data</p>
-            <div v-for="block in divesByDiver" :key="block.name" class="diver-block">
-              <div class="diver-head">
-                <div class="diver-rank-badge" :class="rankClass(block.rank - 1)">{{ block.rank }}</div>
-                <div class="diver-id">
-                  <div class="diver-id-row">
-                    <div class="diver-name">
-                      {{ block.name }}<span v-if="block.country" class="diver-country">{{ block.country }}</span>
-                      <template v-if="block.partner">
-                        <span class="diver-amp">&amp;</span>
-                        {{ block.partner }}<span v-if="block.partner_country" class="diver-country">{{ block.partner_country }}</span>
-                      </template>
-                    </div>
-                    <div class="diver-total" v-if="block.total != null">{{ parseFloat(block.total).toFixed(1) }} pts</div>
-                  </div>
-                  <div v-if="block.club" class="diver-club">{{ block.club }}</div>
-                </div>
-              </div>
-              <div class="dive-table">
-                <div class="dive-row dive-head-row">
-                  <div class="dr-round">Rd</div>
-                  <div class="dr-code">Dive</div>
-                  <div class="dr-dd">DD</div>
-                  <div class="dr-judges">Judge Scores</div>
-                  <div class="dr-total">Total</div>
-                </div>
-                <div v-for="d in block.dives" :key="d.round_number + (d.full_name || '')" class="dive-row">
-                  <div class="dr-round">R{{ d.round_number }}</div>
-                  <div class="dr-code">
-                    <span v-if="block.isTeam" class="dr-team-member">{{ d.full_name }}</span>
-                    <span class="dr-code-main">{{ [d.dive_code, d.position].filter(Boolean).join(' ') }}</span>
-                    <span v-if="d.description" class="dr-code-desc">{{ diveDescription(d) }}</span>
-                  </div>
-                  <div class="dr-dd">{{ d.dd != null ? parseFloat(d.dd).toFixed(1) : '—' }}</div>
-                  <div class="dr-judges">
-                    <template v-if="currentEvent?.event_type === 'synchro_pair'">
-                      <div v-for="g in (groupedSynchroScoresForDisplay(d.judge_scores, currentEvent.number_of_judges) || [])"
-                           :key="g.role"
-                           :class="['judge-group', `judge-group-${g.role}`]">
-                        <span class="judge-group-label">{{ g.label }}</span>
-                        <span v-for="(j, si) in g.scores" :key="si"
-                              :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                              :title="j.dropped ? 'Dropped by trim rule' : ''">
-                          {{ j.value.toFixed(1) }}
-                        </span>
-                      </div>
-                    </template>
-                    <template v-else>
-                      <span v-for="(j, si) in annotatedScores(d.judge_scores, currentEvent?.number_of_judges)" :key="si"
-                            :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                            :title="j.dropped ? 'Dropped by trim rule' : ''">
-                        {{ j.value.toFixed(1) }}
-                      </span>
-                    </template>
-                  </div>
-                  <div class="dr-total">{{ parseFloat(d.total_dive_score).toFixed(1) }}</div>
-                </div>
-              </div>
-            </div>
+        <!-- Meet highlights — sits below the leaderboard so it
+             doesn't compete for attention with the per-diver
+             results. -->
+        <div v-if="eventStats" class="stats-panel">
+          <div class="stats-head">Meet Highlights</div>
+          <div v-if="eventStats.margin != null" class="stat-row">
+            <span class="stat-label">Margin of victory</span>
+            <span class="stat-value">{{ eventStats.margin.toFixed(2) }}</span>
+          </div>
+          <div v-if="eventStats.highest" class="stat-row">
+            <span class="stat-label">Highest dive total</span>
+            <span class="stat-value">{{ eventStats.highest.total.toFixed(1) }}</span>
+          </div>
+          <div v-if="eventStats.highest" class="stat-sub">
+            {{ eventStats.highest.diver }} · R{{ eventStats.highest.round }} · {{ eventStats.highest.code }}
+          </div>
+          <div v-if="eventStats.biggestDD" class="stat-row">
+            <span class="stat-label">Biggest DD attempted</span>
+            <span class="stat-value">{{ eventStats.biggestDD.dd.toFixed(1) }}</span>
+          </div>
+          <div v-if="eventStats.biggestDD" class="stat-sub">
+            {{ eventStats.biggestDD.diver }} · R{{ eventStats.biggestDD.round }} · {{ eventStats.biggestDD.code }}
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Perfect 10s awarded</span>
+            <span class="stat-value">{{ eventStats.perfectTens }}</span>
+          </div>
+          <div v-if="eventStats.avgJudgeScore != null" class="stat-row">
+            <span class="stat-label">Avg judge score</span>
+            <span class="stat-value">{{ eventStats.avgJudgeScore.toFixed(2) }}</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">Competitors / dives</span>
+            <span class="stat-value">{{ eventStats.competitors }} / {{ eventStats.totalDives }}</span>
           </div>
         </div>
       </div>
@@ -1736,7 +1743,12 @@ onMounted(async () => {
 /* =========================================================
    Completed-event layout
    ========================================================= */
-.sb-completed { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+/* End-of-event branch. Scrolls vertically when the recap
+   overflows the viewport — moved up from .completed-recap so the
+   whole recap content (podium, leaderboard, stats) participates
+   in one scroll context rather than being clipped inside a
+   nested scroller. */
+.sb-completed { flex: 1; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; }
 
 .meta-strip {
   display: flex; align-items: center; justify-content: space-between;
@@ -1786,7 +1798,6 @@ onMounted(async () => {
 .sb-layout.overlay-mode .meet-hold-banner,
 .sb-layout.overlay-mode .filter-bar,
 .sb-layout.overlay-mode .sb-event-list,
-.sb-layout.overlay-mode .completed-grid > .completed-col + .completed-col,
 .sb-layout.overlay-mode .export-actions,
 .sb-layout.overlay-mode .archive-wrap,
 .sb-layout.overlay-mode .archive-controls { display: none !important; }
@@ -1796,7 +1807,8 @@ onMounted(async () => {
 .sb-layout.overlay-mode .sb-body,
 .sb-layout.overlay-mode .sb-completed,
 .sb-layout.overlay-mode .sb-col,
-.sb-layout.overlay-mode .completed-col {
+.sb-layout.overlay-mode .completed-recap,
+.sb-layout.overlay-mode .recap-card {
   background: transparent !important; border: none !important;
   box-shadow: none !important;
 }
@@ -1817,17 +1829,43 @@ onMounted(async () => {
 .sb-layout.overlay-mode .standings-card .standings-row:nth-child(n+5) { display: none; }
 .sb-layout.overlay-mode .col-head { font-size: 13px; letter-spacing: 0.2em; }
 
-.completed-grid {
-  flex: 1; display: grid; grid-template-columns: 380px 1fr; overflow: hidden;
+/* End-of-event recap is a single centred column. Was a 2-col
+   grid (standings sidebar + dive breakdown); the dive breakdown
+   absorbed the rank / total info that the standings list was
+   carrying so the sidebar became redundant. Centring makes the
+   leaderboard the focal element when a meet wraps up. */
+.completed-recap {
+  padding: 1.25rem 1.5rem 2rem;
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+  display: flex; flex-direction: column;
+  gap: 1.25rem;
 }
-.completed-col { display: flex; flex-direction: column; overflow: hidden; }
-.completed-col:first-child { border-right: 1px solid var(--border); }
+.recap-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.recap-card .col-body {
+  /* Don't lock height — let the recap-card grow with content
+     since the parent .completed-recap already scrolls. The
+     .col-body default of overflow:auto + flex:1 would otherwise
+     clip the diver-blocks list to one screen-height. */
+  overflow: visible;
+  flex: 0 0 auto;
+}
 
 /* Podium spotlight: gold in middle + slightly elevated, silver left, bronze right */
 .podium {
   display: grid; grid-template-columns: 1fr 1.1fr 1fr; gap: 0.5rem;
   align-items: end; padding: 1rem 0.5rem 1.25rem;
-  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 .podium-step {
   display: flex; flex-direction: column; align-items: center;
@@ -1854,7 +1892,6 @@ onMounted(async () => {
 .podium-country { font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.05em; color: var(--text-3); margin-top: 0.15rem; }
 .podium-total { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: var(--cyan); margin-top: 0.35rem; }
 
-.standings-list { padding: 0.25rem 0; }
 
 /* Event stats panel */
 .stats-panel {
@@ -1947,8 +1984,7 @@ onMounted(async () => {
 
 /* Tighter screens */
 @media (max-width: 1100px) {
-  .completed-grid { grid-template-columns: 1fr; }
-  .completed-col:first-child { border-right: none; border-bottom: 1px solid var(--border); }
+  .completed-recap { padding: 0.75rem 0.875rem 1.5rem; gap: 1rem; }
   .dive-row { grid-template-columns: 32px 1fr 44px 1fr 52px; }
 }
 

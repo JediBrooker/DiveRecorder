@@ -271,11 +271,12 @@ test("watch a 3-diver, 3-round meet end-to-end with realistic pacing", async ({
   }
 
   // ============================================================
-  // PHASE 4 — assert + hold so the watcher can read the result.
+  // PHASE 4 — assert standings, then flip to Completed and
+  // verify the centred recap leaderboard renders. Hold on the
+  // recap view so a watching human can read it.
   // ============================================================
   // After 3 rounds, Bravo should be ranked 1, Alpha 2, Charlie 3.
-  // We assert via the API to keep this deterministic, then read
-  // the rendered DOM (which has lost the cache race occasionally).
+  // Assert via the API first to keep the data check deterministic.
   const sb = await request.get(`/api/scoreboard/${eventId}?cache=skip`);
   const sbData = await sb.json();
   expect(sbData.standings).toHaveLength(3);
@@ -283,19 +284,55 @@ test("watch a 3-diver, 3-round meet end-to-end with realistic pacing", async ({
   expect(sbData.standings[1].full_name).toBe("Diver Alpha");
   expect(sbData.standings[2].full_name).toBe("Diver Charlie");
 
-  // Sanity-check the DOM matches.
-  const rows = page.locator(".standing");
-  await expect(rows).toHaveCount(3, { timeout: 5000 });
-  await expect(rows.nth(0).locator(".standing-name")).toContainText("Diver Bravo");
-  await expect(rows.nth(1).locator(".standing-name")).toContainText("Diver Alpha");
-  await expect(rows.nth(2).locator(".standing-name")).toContainText("Diver Charlie");
+  // Sanity-check the live-mode standings DOM still matches before
+  // we flip to Completed.
+  const liveRows = page.locator(".standing");
+  await expect(liveRows).toHaveCount(3, { timeout: 5000 });
+  await expect(liveRows.nth(0).locator(".standing-name")).toContainText("Diver Bravo");
+
+  // Flip the event to Completed. This is what the meet operator
+  // does at the end of a real meet. The SPA polls the events list
+  // every few seconds and re-renders into the .sb-completed branch
+  // when the status flips.
+  await setup.setEventStatus(request, {
+    adminToken, eventId, status: "Completed",
+  });
+
+  // Reload the page so the SPA re-fetches and lands on the
+  // completed branch immediately rather than waiting on its poll.
+  // (The poll-driven path works too but adds 5–10s of waiting.)
+  await page.reload();
+
+  // Assert the recap renders: 3 diver-blocks in rank order, each
+  // with their per-dive table showing dive code, DD, judges'
+  // scores, and dive total.
+  const blocks = page.locator(".diver-block");
+  await expect(blocks).toHaveCount(3, { timeout: 10_000 });
+  await expect(blocks.nth(0).locator(".diver-name")).toContainText("Diver Bravo");
+  await expect(blocks.nth(0).locator(".diver-rank-badge")).toHaveText("1");
+  await expect(blocks.nth(0).locator(".diver-total")).toContainText("137.8");
+
+  await expect(blocks.nth(1).locator(".diver-name")).toContainText("Diver Alpha");
+  await expect(blocks.nth(2).locator(".diver-name")).toContainText("Diver Charlie");
+
+  // Each diver-block has 1 header row + 3 dive rows (3 rounds).
+  const bravoRows = blocks.nth(0).locator(".dive-row:not(.dive-head-row)");
+  await expect(bravoRows).toHaveCount(3);
+  await expect(bravoRows.nth(0)).toContainText("R1");
+  await expect(bravoRows.nth(0)).toContainText("101 B");
+  await expect(bravoRows.nth(0).locator(".dr-dd")).toContainText("1.5");
+  // Five judge pills per dive.
+  await expect(bravoRows.nth(0).locator(".j-score")).toHaveCount(5);
+
+  // Podium spotlight should have all three steps.
+  await expect(page.locator(".podium-step")).toHaveCount(3);
 
   await page.screenshot({
     path: `test-results/scoreboard-${eventId}.png`,
     fullPage: true,
   });
 
-  // Hold on the final standings so a watching human can read them.
+  // Hold on the recap view so a watching human can read it.
   await page.waitForTimeout(FINAL_HOLD_MS);
 
   // ============================================================
