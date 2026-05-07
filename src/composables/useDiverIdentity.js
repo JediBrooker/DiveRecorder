@@ -91,17 +91,22 @@ export function diverIdentity(row) {
 
   // Affiliation lines — surfaced separately so the "split"
   // variant can render team_name as a purple chip-line and
-  // club_name + club_code as its own muted line beneath. Synchro
-  // pairs zero everything out because the partner already takes
-  // the second visual line beneath the lead's name.
-  const teamName = partnerName ? null : (row.team_name || null)
-  const clubName = partnerName ? null : (row.club_name || null)
-  const clubCode = partnerName ? null : (row.club_code || null)
+  // club_name + club_code as its own muted line beneath. We
+  // expose these for synchro pairs too: the partner name still
+  // takes its own line above (handled by the template), but
+  // the lead's club still gets surfaced. Hiding it for synchro
+  // dropped the affiliation entirely from synchro history
+  // cards, which made it impossible to tell which club a pair
+  // represents at a glance.
+  const teamName = row.team_name || null
+  const clubName = row.club_name || null
+  const clubCode = row.club_code || null
 
   // Compact one-liner for callers that only want a single
   // muted line (Up Next tiles, roster rows, scoreboard
-  // standings). Mirrors the previous behavior — team beats
-  // club when both are present.
+  // standings). Synchro pairs still skip this because
+  // partner_name is rendered as their second line — the
+  // compact callers don't have room for a third row.
   const secondary = partnerName
     ? null
     : (teamName || clubName || null)

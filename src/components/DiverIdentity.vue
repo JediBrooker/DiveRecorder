@@ -91,18 +91,26 @@ const id = computed(() => diverIdentity(props.row))
         >{{ id.partnerName }}</RouterLink>
         <template v-else>{{ id.partnerName }}</template>
       </div>
-      <template v-else-if="variant === 'split'">
+      <template v-if="variant === 'split'">
         <!-- "Split" variant: team chip on its own purple line
              (matches the active-team styling on the centre
              column) + club name & code on a separate muted
              line. Either side renders only when present, so an
              individual diver with no team shows just the club
-             line; a team-event entrant shows both. -->
+             line; a team-event entrant shows both. Synchro
+             pairs render the partner row first (above) and
+             then drop into these lines too — the audience and
+             operator still need to see which club a pair
+             represents. -->
         <div v-if="id.teamName" class="di-team">{{ id.teamName }}</div>
         <div v-if="id.clubName" class="di-club">
           {{ id.clubName }}<span v-if="id.clubCode" class="di-club-code">{{ id.clubCode }}</span>
         </div>
       </template>
+      <!-- Compact secondary stays a partner-OR-affiliation slot:
+           if a partner is shown, secondary is suppressed in the
+           composable; otherwise it renders the team-or-club
+           one-liner the small surfaces (Up Next, roster) want. -->
       <div v-else-if="id.secondary" class="di-secondary">
         {{ id.secondary }}
       </div>
