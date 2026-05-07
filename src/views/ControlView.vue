@@ -2170,21 +2170,24 @@ onUnmounted(() => {
                 club_name: card.club_name,
               }"
               :rank="competitorOrder(card.competitor_id)"
+              variant="split"
               class="hist-identity"
             >
               <template #trailing>
                 <div class="hist-total">{{ card.total }}</div>
               </template>
             </DiverIdentity>
-            <!-- Club affiliation (mirrors the active diver block) -->
-            <div v-if="card.club_name" class="hist-club">
-              {{ card.club_name }}<span v-if="card.club_code" class="hist-club-code">{{ card.club_code }}</span>
-            </div>
+            <!-- Dive header line: code + DD + description on a
+                 single row so the card is one line shorter and
+                 the eye picks up "what was the dive" without
+                 jumping. Description gets ellipsis on overflow
+                 so a long name (e.g. "Inward 3½ Tuck") still
+                 keeps the row to one line. -->
             <div class="hist-dive-line">
               <span class="hist-code">{{ card.dive_code ? `${card.dive_code}${card.position || ''}` : '—' }}</span>
               <span v-if="card.dd != null" class="hist-dd">DD {{ card.dd.toFixed(1) }}</span>
+              <span v-if="card.desc" class="hist-desc">{{ card.desc }}</span>
             </div>
-            <div v-if="card.desc" class="hist-desc">{{ card.desc }}</div>
             <div v-if="card.scores.length" class="hist-scores">
               <!-- Synchro: group scores into Exec A / Exec B / Sync
                    using the same shared helper the Scoreboard view
@@ -3615,15 +3618,10 @@ onUnmounted(() => {
   font-family: var(--font-mono); font-size: 9px; font-weight: 700;
   color: var(--cyan); margin-left: 0.4rem;
 }
-.hist-club {
-  font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
-  margin-bottom: 0.25rem;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.hist-club-code {
-  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
-  color: var(--cyan); margin-left: 0.4rem;
-}
+/* (.hist-club / .hist-club-code removed — the shared
+    DiverIdentity "split" variant now renders the club line
+    itself via .di-club / .di-club-code, keeping the rendering
+    in one place across Control + Scoreboard.) */
 
 .country-badge { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); background: var(--bg-3); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; margin-left: 0.5rem; vertical-align: middle; }
 /* Affiliation chip in the top-right of a history card. No
@@ -3655,10 +3653,13 @@ onUnmounted(() => {
   font-family: var(--font-mono); font-weight: 700;
 }
 .hist-total { font-family: var(--font-mono); font-size: 14px; font-weight: 500; color: var(--cyan); flex-shrink: 0; }
-.hist-dive-line { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.1rem; }
-.hist-code { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--text); }
-.hist-dd { font-family: var(--font-display); font-size: 10px; font-weight: 700; color: var(--cyan); }
-.hist-desc { font-size: 9px; color: var(--text-3); margin-bottom: 0.2rem; }
+.hist-dive-line { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.2rem; min-width: 0; }
+.hist-code { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--text); flex-shrink: 0; }
+.hist-dd { font-family: var(--font-display); font-size: 10px; font-weight: 700; color: var(--cyan); flex-shrink: 0; }
+/* Description sits inline alongside code + DD now. min-width:0
+   on .hist-dive-line lets the description ellipsis when the
+   card is narrow rather than overflow the column. */
+.hist-desc { font-size: 9px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .hist-scores { display: flex; flex-wrap: wrap; gap: 0.2rem; margin-top: 0.15rem; }
 .hist-score { font-family: var(--font-mono); font-size: 9px; padding: 0.1rem 0.3rem; background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.2); border-radius: 3px; color: var(--cyan); }
 

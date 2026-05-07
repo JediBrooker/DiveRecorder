@@ -993,16 +993,20 @@ onMounted(async () => {
               :competitor-id="h.competitor_id"
               :partner-id="h.partner_id"
               link-profiles
+              variant="split"
               class="hist-identity">
               <template #trailing>
                 <div class="hist-total">{{ parseFloat(h.total_dive_score).toFixed(1) }}</div>
               </template>
             </DiverIdentity>
+            <!-- Dive header: code + DD + description in a single
+                 row. Mirrors the Control Room's history card so
+                 the audience and the operator see the same shape. -->
             <div class="hist-dive-line">
               <span class="hist-code">{{ h.dive_code ? `${h.dive_code}${h.position || ''}` : '—' }}</span>
               <span v-if="h.dd != null" class="hist-dd">DD {{ parseFloat(h.dd).toFixed(1) }}</span>
+              <span v-if="h.description" class="hist-desc">{{ diveDescription(h) }}</span>
             </div>
-            <div v-if="h.description" class="hist-desc">{{ diveDescription(h) }}</div>
             <div v-if="h.judge_array" class="hist-scores">
               <template v-if="currentEvent?.event_type === 'synchro_pair'">
                 <div v-for="g in (groupedSynchroScoresForDisplay(h.judge_array, currentEvent.number_of_judges) || [])"
@@ -2142,10 +2146,12 @@ onMounted(async () => {
   border-bottom-color: var(--cyan);
 }
 .hist-total { font-family: var(--font-mono); font-size: 16px; font-weight: 500; color: var(--cyan); flex-shrink: 0; margin-left: 0.5rem; }
-.hist-dive-line { display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 0.3rem; }
-.hist-code { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: var(--text); }
-.hist-dd { font-family: var(--font-display); font-size: 11px; font-weight: 700; color: var(--cyan); }
-.hist-desc { font-size: 10px; color: var(--text-3); margin-bottom: 0.4rem; }
+.hist-dive-line { display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 0.4rem; min-width: 0; }
+.hist-code { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: var(--text); flex-shrink: 0; }
+.hist-dd { font-family: var(--font-display); font-size: 11px; font-weight: 700; color: var(--cyan); flex-shrink: 0; }
+/* Description now inlines next to code + DD. Ellipsis when the
+   column is narrow keeps each card to one header line. */
+.hist-desc { font-size: 10px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .hist-country { font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.05em; color: var(--text-3); background: var(--bg-2); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; margin-left: 0.4rem; vertical-align: middle; }
 .hist-scores { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 

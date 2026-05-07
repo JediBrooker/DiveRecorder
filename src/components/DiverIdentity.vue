@@ -47,6 +47,22 @@ const props = defineProps({
   competitorId: { type: String, default: null },
   partnerId:    { type: String, default: null },
   linkProfiles: { type: Boolean, default: false },
+  // Affiliation rendering style:
+  //   "compact" — single muted secondary line (team_name OR
+  //               club_name). Right for roster rows + Up Next
+  //               tiles where there isn't room for two lines.
+  //   "split"   — team_name as a purple chip line AND
+  //               club_name + club_code as a separate muted
+  //               line. Used by history cards so the operator
+  //               sees both the team identity (for team events)
+  //               and the diver's home club at a glance.
+  // Synchro pairs ignore both — partner_name takes the second
+  // line regardless of variant.
+  variant: {
+    type: String,
+    default: 'compact',
+    validator: (v) => ['compact', 'split'].includes(v),
+  },
 })
 
 const id = computed(() => diverIdentity(props.row))
@@ -75,6 +91,18 @@ const id = computed(() => diverIdentity(props.row))
         >{{ id.partnerName }}</RouterLink>
         <template v-else>{{ id.partnerName }}</template>
       </div>
+      <template v-else-if="variant === 'split'">
+        <!-- "Split" variant: team chip on its own purple line
+             (matches the active-team styling on the centre
+             column) + club name & code on a separate muted
+             line. Either side renders only when present, so an
+             individual diver with no team shows just the club
+             line; a team-event entrant shows both. -->
+        <div v-if="id.teamName" class="di-team">{{ id.teamName }}</div>
+        <div v-if="id.clubName" class="di-club">
+          {{ id.clubName }}<span v-if="id.clubCode" class="di-club-code">{{ id.clubCode }}</span>
+        </div>
+      </template>
       <div v-else-if="id.secondary" class="di-secondary">
         {{ id.secondary }}
       </div>
@@ -138,6 +166,30 @@ const id = computed(() => diverIdentity(props.row))
   font-family: var(--font-mono); font-size: 0.85em;
   color: var(--text-3); font-weight: 400;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Split-variant team chip — same purple system the centre
+   column's .active-team uses, scaled down to fit the smaller
+   history-card surface. Caps + letter-spacing keep it
+   feeling chip-like even when the team name is long. */
+.di-team {
+  display: inline-block; margin-top: 0.15rem;
+  font-family: var(--font-display); font-size: 0.72em; font-weight: 700;
+  letter-spacing: 0.16em; text-transform: uppercase; color: #c4b5fd;
+  background: rgba(139,92,246,0.10); border: 1px solid rgba(139,92,246,0.45);
+  border-radius: 3px; padding: 0.1rem 0.45rem;
+  align-self: flex-start;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 100%;
+}
+.di-club {
+  font-family: var(--font-mono); font-size: 0.78em;
+  color: var(--text-3); font-weight: 400;
+  margin-top: 0.1rem;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.di-club-code {
+  font-family: var(--font-mono); font-size: 0.85em; font-weight: 700;
+  color: var(--cyan); margin-left: 0.4rem;
 }
 .di-trailing {
   display: flex; align-items: flex-start; gap: 0.4rem;

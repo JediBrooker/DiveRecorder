@@ -20,7 +20,20 @@
 //                     // (e.g. an international synchro pairing).
 //                     // null when same as the lead so the
 //                     // template doesn't render a duplicate chip.
-//     secondary,      // optional secondary line under the names:
+//     teamName,       // team event entrant's team name. Rendered
+//                     // as a purple chip-line by the "split"
+//                     // variant; falls into `secondary` for the
+//                     // "compact" variant. null when no team set.
+//     clubName,       // club affiliation full name. Same field
+//                     // both variants surface, but split renders
+//                     // it as its own muted line beneath the
+//                     // team chip whereas compact uses it only
+//                     // when there's no team_name.
+//     clubCode,       // short club code (e.g. "NZL-3"). Rendered
+//                     // alongside clubName in split variant; not
+//                     // included in the compact `secondary`.
+//     secondary,      // back-compat one-liner for compact
+//                     // callers (Up Next tiles, roster rows):
 //                     //   team_name → club_name (never both)
 //                     // null for synchro pairs because the
 //                     // partner already occupies that slot.
@@ -34,6 +47,7 @@ export function diverIdentity(row) {
     return {
       leadName: '', partnerName: null,
       badge: null, partnerBadge: null,
+      teamName: null, clubName: null, clubCode: null,
       secondary: null,
     }
   }
@@ -75,12 +89,27 @@ export function diverIdentity(row) {
       ? partnerAffiliation
       : null
 
-  // Secondary line — only one ever, never duplicated. Synchro
-  // pairs skip this entirely because the partner already takes
+  // Affiliation lines — surfaced separately so the "split"
+  // variant can render team_name as a purple chip-line and
+  // club_name + club_code as its own muted line beneath. Synchro
+  // pairs zero everything out because the partner already takes
   // the second visual line beneath the lead's name.
+  const teamName = partnerName ? null : (row.team_name || null)
+  const clubName = partnerName ? null : (row.club_name || null)
+  const clubCode = partnerName ? null : (row.club_code || null)
+
+  // Compact one-liner for callers that only want a single
+  // muted line (Up Next tiles, roster rows, scoreboard
+  // standings). Mirrors the previous behavior — team beats
+  // club when both are present.
   const secondary = partnerName
     ? null
-    : (row.team_name || row.club_name || null)
+    : (teamName || clubName || null)
 
-  return { leadName, partnerName, badge, partnerBadge, secondary }
+  return {
+    leadName, partnerName,
+    badge, partnerBadge,
+    teamName, clubName, clubCode,
+    secondary,
+  }
 }
