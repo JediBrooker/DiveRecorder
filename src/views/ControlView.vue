@@ -2065,8 +2065,10 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   flex-shrink: 0;
 }
 .ctrl-body {
+  flex: 1;                              /* fill the layout vertically */
   display: grid;
   grid-template-columns: 280px 1fr 280px;
+  grid-template-rows: 1fr;              /* row fills the grid container's height */
 }
 .ctrl-panel {
   display: flex;
