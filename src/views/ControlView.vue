@@ -2619,7 +2619,7 @@ onUnmounted(() => {
   flex-wrap: wrap;
 }
 .active-label-left {
-  display: flex; align-items: center; gap: 0.6rem;
+  display: flex; align-items: baseline; gap: 0.6rem;
   flex-wrap: wrap;
 }
 .active-label-right {
