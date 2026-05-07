@@ -403,22 +403,26 @@ watch(signalingJudges, (now, prev) => {
 })
 
 // =========================================================
-// PRE-MEET DIVE-ORDER WORKFLOW
+// PRE-MEET WORKFLOW
 //
-// Three sequential states that one button cycles through before
-// the event flips Live (red → yellow → green):
+// Four sequential states that one button cycles through before
+// the event flips Live (red → orange → yellow → green):
 //
-//   1. RANDOM   — randomise (or confirm) the start order.
+//   1. CHECK-IN — operator confirms attendance is recorded.
+//                 Click opens the check-in modal; the modal's
+//                 "Confirm Check-in Complete" footer button
+//                 stamps check_in_done_at and advances.
+//   2. RANDOM   — randomise (or confirm) the start order.
 //                 Click shuffles via the existing endpoint and
-//                 stamps dive_order_randomised_at on the event.
-//   2. SIGN-OFF — referee approves the published order.
+//                 stamps dive_order_randomised_at.
+//   3. SIGN-OFF — referee approves the published order.
 //                 Click stamps dive_order_signed_off_at + by.
-//   3. START    — flip the event status from Upcoming → Live.
+//   4. START    — flip the event status from Upcoming → Live.
 //
 // Re-randomising clears the sign-off because the order has
 // changed and the referee must re-approve. A small "↺ Reset"
 // link next to the button calls the /reset endpoint to walk
-// back to state 1 from anywhere in the flow.
+// back to state 1 — clears every workflow stamp.
 // =========================================================
 const orderBusy = ref(false)
 
@@ -430,6 +434,7 @@ const orderWorkflowState = computed(() => {
   const ev = currentEvent.value
   if (!ev) return null
   if (ev.status !== 'Upcoming') return 'live'
+  if (!ev.check_in_done_at)         return 'check-in'
   if (!ev.dive_order_randomised_at) return 'random'
   if (!ev.dive_order_signed_off_at) return 'sign-off'
   return 'start'
@@ -554,8 +559,8 @@ async function resetDiveOrderWorkflow() {
   if (!currentEvent.value) return
   if (!confirm(
     `Reset the pre-meet workflow for "${currentEvent.value.name}"?\n\n`
-    + `The randomise + referee sign-off stamps will be cleared so you can ` +
-    `walk through the steps again.`
+    + `Check-in, randomise, and referee sign-off stamps will be cleared ` +
+    `so you can walk the steps again.`
   )) return
   orderBusy.value = true
   try {
@@ -563,12 +568,48 @@ async function resetDiveOrderWorkflow() {
       method: 'POST',
     })
     patchCurrentEvent({
+      check_in_done_at:        null,
       dive_order_randomised_at: null,
       dive_order_signed_off_at: null,
       dive_order_signed_off_by: null,
     })
   } catch (err) {
     alert('Reset failed: ' + err.message)
+  } finally {
+    orderBusy.value = false
+  }
+}
+
+// State 1 click handler. Doesn't stamp on click — opens the
+// check-in modal so the operator can mark each diver. The
+// modal's "Confirm Check-in Complete" footer button (see
+// confirmCheckInComplete below) is what stamps check_in_done_at
+// and advances the workflow to state 2.
+function startCheckInStep() {
+  openCheckIn()
+}
+
+async function confirmCheckInComplete() {
+  if (!currentEvent.value) return
+  // Friendly nudge if no diver has been ticked off yet — the
+  // operator can still proceed, but they're advancing on an
+  // empty list which is usually a mistake.
+  const anyMarked = (checkInRows.value || []).some(r => r.status)
+  if (!anyMarked && !confirm(
+    `No divers have been marked yet for "${currentEvent.value.name}". ` +
+    `Confirm check-in complete anyway?`
+  )) return
+  orderBusy.value = true
+  try {
+    const r = await auth.apiFetch(`/api/events/${currentEvent.value.id}/check-in/confirm`, {
+      method: 'POST',
+    })
+    patchCurrentEvent({
+      check_in_done_at: r.check_in_done_at || new Date().toISOString(),
+    })
+    closeCheckIn()
+  } catch (err) {
+    alert('Failed to advance workflow: ' + err.message)
   } finally {
     orderBusy.value = false
   }
@@ -2016,21 +2057,26 @@ onUnmounted(() => {
                   :title="`Start order locked — event is ${currentEvent.status}. Withdraw a diver instead if they need to be skipped.`">
               🔒 Order locked
             </span>
-            <button v-if="currentEvent" class="btn btn-ghost btn-sm" @click="openCheckIn"
-                    title="Open the pre-meet check-in / accreditation list.">
-              ✓ Check-in
-            </button>
-            <!-- Pre-meet workflow: one button cycles through the
-                 three sequential states a competition needs before
-                 going live. Red → randomise the start order. Yellow
-                 → referee signs off on the published order. Green
-                 → flip the event to Live. The state lives on the
-                 event row (dive_order_randomised_at / signed_off_at)
-                 so a page reload picks up where the operator left
-                 off. The small "↺ Reset" link backtracks to red. -->
+            <!-- Pre-meet workflow: one button cycles through four
+                 sequential states before the event flips Live —
+                 red Check In → orange Randomise → yellow Referee
+                 Sign Off → green Start. State lives on the event
+                 row (check_in_done_at, dive_order_randomised_at,
+                 dive_order_signed_off_at) so a page reload picks
+                 up where the operator left off. The small "↺
+                 Reset" link backtracks to state 1. The standalone
+                 "Check-in" ghost button is gone — clicking the red
+                 state-1 button opens the same modal. -->
             <template v-if="currentEvent && roster.length && orderWorkflowState && orderWorkflowState !== 'live'">
-              <button v-if="orderWorkflowState === 'random'"
+              <button v-if="orderWorkflowState === 'check-in'"
                       class="btn btn-sm wf-btn wf-btn-red"
+                      :disabled="orderBusy"
+                      @click="startCheckInStep"
+                      title="Open the check-in modal. Mark each diver present / late / DNS, then confirm to advance.">
+                ✓ Check In Divers
+              </button>
+              <button v-else-if="orderWorkflowState === 'random'"
+                      class="btn btn-sm wf-btn wf-btn-orange"
                       :disabled="orderBusy || !canReorderQueue"
                       @click="randomizeStartOrder"
                       title="Shuffle the diver start order across every round.">
@@ -2052,8 +2098,8 @@ onUnmounted(() => {
               </button>
               <!-- Skip-randomise affordance: if the operator has
                    already arranged the order manually they can
-                   advance straight to sign-off. Hidden once we
-                   leave state 1. -->
+                   advance straight to sign-off. Hidden outside
+                   state 2. -->
               <button v-if="orderWorkflowState === 'random'"
                       class="btn btn-ghost btn-sm wf-skip"
                       :disabled="orderBusy"
@@ -2061,13 +2107,14 @@ onUnmounted(() => {
                       title="Skip randomise — keep the current order and advance to sign-off.">
                 Use current order →
               </button>
-              <!-- Reset link: clears stamps so the workflow walks
-                   again. Hidden in state 1 (nothing to reset). -->
-              <button v-if="orderWorkflowState !== 'random'"
+              <!-- Reset link: clears every workflow stamp so the
+                   operator can walk all four steps again. Hidden in
+                   state 1 (nothing to reset). -->
+              <button v-if="orderWorkflowState !== 'check-in'"
                       class="btn btn-ghost btn-sm wf-reset"
                       :disabled="orderBusy"
                       @click="resetDiveOrderWorkflow"
-                      title="Clear sign-off + randomise stamps and start the workflow over.">
+                      title="Clear all workflow stamps and walk the four steps again.">
                 ↺ Reset
               </button>
             </template>
@@ -2076,6 +2123,17 @@ onUnmounted(() => {
                   :title="`Event is ${currentEvent.status}`">
               {{ currentEvent.status === 'Live' ? '● Live' : '✓ Done' }}
             </span>
+            <!-- Check-in is reachable from inside the workflow's
+                 state-1 button. After advance, expose a quiet "Re-
+                 open check-in" link so the operator can still adjust
+                 attendance mid-meet (someone arrives late, etc.). -->
+            <button v-if="currentEvent && roster.length
+                          && orderWorkflowState !== 'check-in'
+                          && orderWorkflowState !== 'live'"
+                    class="btn btn-ghost btn-sm wf-skip" @click="openCheckIn"
+                    title="Reopen the check-in list to adjust attendance.">
+              Adjust check-in
+            </button>
             <button v-if="currentEvent" class="btn btn-ghost btn-sm" @click="openLateEntry"
                     title="Add a late-arriving diver">+ Add</button>
           </div>
@@ -2369,6 +2427,23 @@ onUnmounted(() => {
         </div>
       </div>
       <div v-if="checkInErr" class="msg msg-error">{{ checkInErr }}</div>
+    </div>
+    <!-- Footer: confirm-and-advance button when the workflow is
+         on state 1 (no check_in_done_at stamp yet). After confirm
+         the modal closes and the workflow button flips to orange
+         "Randomise". When the operator reopens the modal mid-meet
+         to adjust attendance, this footer is hidden because the
+         workflow has already moved past check-in. -->
+    <div v-if="orderWorkflowState === 'check-in'" class="lb-footer">
+      <span class="checkin-footer-hint">
+        Mark each diver, then confirm to advance the workflow.
+      </span>
+      <button class="btn btn-sm wf-btn wf-btn-red"
+              :disabled="orderBusy || checkInLoading"
+              @click="confirmCheckInComplete"
+              title="Stamp check-in complete and advance to Randomise.">
+        ✓ Check-in Complete — Continue
+      </button>
     </div>
   </div>
 
@@ -3084,6 +3159,11 @@ onUnmounted(() => {
 .wf-btn:hover:not(:disabled) { filter: brightness(1.08); }
 .wf-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .wf-btn-red    { background: var(--red);   border-color: var(--red); }
+/* Orange — sits between red (check-in) and yellow (referee
+   gate) on the spectrum so the operator reads the workflow as a
+   gradient progressing toward green. No global --orange var, so
+   inlined here. */
+.wf-btn-orange { background: #fb923c;      border-color: #fb923c;     }
 .wf-btn-yellow { background: var(--amber); border-color: var(--amber); }
 .wf-btn-green  { background: var(--green); border-color: var(--green); }
 /* Ghost-link affordances — Skip-randomise (state 1) and Reset
@@ -3170,6 +3250,12 @@ onUnmounted(() => {
    status semantics (cyan = present, amber = late, red = DNS).
    ========================================================= */
 .checkin-modal { max-width: 720px; }
+.lb-footer {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; padding: 1rem 2rem; border-top: 1px solid var(--border);
+  background: var(--surface); position: sticky; bottom: 0;
+}
+.checkin-footer-hint { font-size: 12px; color: var(--text-3); }
 .checkin-tally {
   display: inline-flex; gap: 0.6rem; margin-left: 0.8rem;
   font-family: var(--font-mono); font-size: 11px; font-weight: 400;

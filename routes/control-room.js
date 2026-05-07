@@ -355,10 +355,44 @@ module.exports = function createControlRoomRouter({
   });
 
   // -------------------------------------------------------------
-  // POST /api/events/:id/dive-order/reset — clears both the
-  // randomised_at and signed_off_at stamps so the operator can
-  // walk the workflow from the top. Used by the small "Reset"
-  // affordance next to the 3-state button.
+  // POST /api/events/:id/check-in/confirm — operator confirms
+  // pre-meet check-in is complete and the workflow can advance
+  // to the randomise step. Stamps check_in_done_at on the event.
+  // The actual per-diver attendance rows live in event_attendance
+  // and are unaffected; this is just the gate signal.
+  // -------------------------------------------------------------
+  router.post("/api/events/:id/check-in/confirm", requireMeetController, async (req, res) => {
+    const eventId = req.params.id;
+    try {
+      const ev = await pool.query(
+        `SELECT id, status, name FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)`,
+        [eventId, !!req.user.is_system_admin, req.user.org_id],
+      );
+      if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
+      if (ev.rows[0].status !== "Upcoming") {
+        return res.status(409).json({
+          error: `Cannot confirm check-in — event "${ev.rows[0].name}" is ${ev.rows[0].status}.`,
+        });
+      }
+      const r = await pool.query(
+        `UPDATE events
+         SET check_in_done_at = COALESCE(check_in_done_at, now())
+         WHERE id = $1
+         RETURNING check_in_done_at`,
+        [eventId],
+      );
+      res.json({ ok: true, ...r.rows[0] });
+    } catch (err) {
+      console.error("[Check-In Confirm Error]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // POST /api/events/:id/dive-order/reset — clears every pre-meet
+  // workflow stamp (check-in confirmation, randomise, sign-off)
+  // so the operator can walk the four states again from the top.
+  // Used by the "↺ Reset" affordance next to the workflow button.
   // -------------------------------------------------------------
   router.post("/api/events/:id/dive-order/reset", requireMeetController, async (req, res) => {
     const eventId = req.params.id;
@@ -375,7 +409,8 @@ module.exports = function createControlRoomRouter({
       }
       await pool.query(
         `UPDATE events
-         SET dive_order_randomised_at = NULL,
+         SET check_in_done_at         = NULL,
+             dive_order_randomised_at = NULL,
              dive_order_signed_off_at = NULL,
              dive_order_signed_off_by = NULL
          WHERE id = $1`,

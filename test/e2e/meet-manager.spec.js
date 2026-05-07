@@ -13,12 +13,16 @@
 //                       teams, links them to the event, posts each
 //                       team's dive list
 //   3. Manager closes entries (entries_close_at = now)
-//   4. Manager walks the 3-state pre-meet workflow button in the
-//      Control Room: red Randomise → yellow Referee Sign Off →
-//      green Start Event. Each click is fronted by a deliberate
-//      WORKFLOW_HOLD_MS dwell so the colour transition is
-//      visible to a watching human (CI overrides the dwell to
-//      ~200ms).
+//   4. Manager walks the 4-state pre-meet workflow button in the
+//      Control Room:
+//        red    Check In Divers     (opens check-in modal,
+//                                   click footer Continue)
+//        orange Randomise Dive Order
+//        yellow Referee Sign Off
+//        green  Start Event
+//      Each click is fronted by a deliberate WORKFLOW_HOLD_MS
+//      dwell so the colour transition is visible to a watching
+//      human (CI overrides the dwell to ~200ms).
 //   5. The Start Event click flips status Upcoming → Live in the
 //      same place as the old setEventStatus API call did.
 //   6. Judges connect via socket and submit scores while the
@@ -70,10 +74,11 @@ const PER_SCORE_MS   = Number(process.env.MM_PER_SCORE_MS   ?? 250);
 const POST_DIVE_MS   = Number(process.env.MM_POST_DIVE_MS   ?? 900);
 const LOGIN_HOLD_MS  = Number(process.env.MM_LOGIN_HOLD_MS  ?? 1500);
 const FINAL_HOLD_MS  = Number(process.env.MM_FINAL_HOLD_MS  ?? 4000);
-// Slow-mo dwell between the three pre-meet workflow steps
-// (Randomise → Sign Off → Start). Defaults to 2.5s so a watching
-// human can see the button shift colour from red → yellow →
-// green; CI shrinks it to 200ms via the env override above.
+// Slow-mo dwell between the four pre-meet workflow steps
+// (Check In → Randomise → Sign Off → Start). Defaults to 2.5s so
+// a watching human can see the button shift colour from red →
+// orange → yellow → green; CI shrinks it to 200ms via the env
+// override above.
 const WORKFLOW_HOLD_MS = Number(process.env.MM_WORKFLOW_HOLD_MS ?? 2500);
 
 test.describe.configure({ mode: "serial" });
@@ -335,41 +340,58 @@ test("meet-manager full E2E (random variant)", async ({
   await page.waitForTimeout(LOGIN_HOLD_MS);
 
   // ============================================================
-  // PHASE 4b — Pre-meet 3-state workflow.
+  // PHASE 4b — Pre-meet 4-state workflow.
   //
   // The Control Room owns a single button that walks the operator
-  // through three sequential states before the event flips Live.
-  // We exercise all three in the headed Chrome so a watching
-  // human sees the colour shift red → yellow → green:
+  // through four sequential states before the event flips Live.
+  // We exercise all four in headed Chrome so a watching human
+  // sees the colour shift red → orange → yellow → green:
   //
-  //   1. Red    — "🎲 Randomise Dive Order"
-  //   2. Yellow — "📋 Referee Sign Off"
-  //   3. Green  — "▶ Start Event"
+  //   1. Red    — "✓ Check In Divers" (opens modal)
+  //   2. Orange — "🎲 Randomise Dive Order"
+  //   3. Yellow — "📋 Referee Sign Off"
+  //   4. Green  — "▶ Start Event"
   //
   // The dwell between steps is WORKFLOW_HOLD_MS (default 2.5s in
-  // headed mode, 200ms in CI). Each click resolves an explicit
+  // headed mode, 200ms in CI). Each step resolves an explicit
   // .wf-btn-* selector so the test fails loudly if a future
   // refactor breaks the colour ↔ state mapping.
   // ============================================================
 
-  // STATE 1 — Red randomise button.
-  const wfRedBtn = page.locator(".wf-btn.wf-btn-red");
+  // STATE 1 — Red "Check In Divers" button. Click opens the
+  // modal; the modal's "✓ Check-in Complete — Continue" footer
+  // button stamps check_in_done_at and closes back to the queue
+  // header where the button has flipped to orange.
+  const wfRedBtn = page.locator(".wf-btn.wf-btn-red").first();
   await expect(wfRedBtn).toBeVisible({ timeout: 5000 });
-  await expect(wfRedBtn).toHaveText(/Randomise Dive Order/i);
+  await expect(wfRedBtn).toHaveText(/Check In Divers/i);
   await page.waitForTimeout(WORKFLOW_HOLD_MS);
-  // Confirm() pops up; the global dialog handler accepts.
   await wfRedBtn.click();
 
-  // STATE 2 — Button transitions to yellow "Referee Sign Off"
-  // once randomised_at is stamped on the event row.
+  // Check-in modal: surface the footer "Continue" button and
+  // click it. We don't bother marking divers — the confirm pop-up
+  // is auto-accepted by the global dialog handler.
+  const checkinContinueBtn = page.locator(".lb-footer .wf-btn.wf-btn-red");
+  await expect(checkinContinueBtn).toBeVisible({ timeout: 5000 });
+  await expect(checkinContinueBtn).toHaveText(/Check-in Complete/i);
+  await page.waitForTimeout(WORKFLOW_HOLD_MS);
+  await checkinContinueBtn.click();
+
+  // STATE 2 — Orange randomise button.
+  const wfOrangeBtn = page.locator(".wf-btn.wf-btn-orange");
+  await expect(wfOrangeBtn).toBeVisible({ timeout: 5000 });
+  await expect(wfOrangeBtn).toHaveText(/Randomise Dive Order/i);
+  await page.waitForTimeout(WORKFLOW_HOLD_MS);
+  await wfOrangeBtn.click();
+
+  // STATE 3 — Yellow referee sign-off button.
   const wfYellowBtn = page.locator(".wf-btn.wf-btn-yellow");
   await expect(wfYellowBtn).toBeVisible({ timeout: 5000 });
   await expect(wfYellowBtn).toHaveText(/Referee Sign Off/i);
   await page.waitForTimeout(WORKFLOW_HOLD_MS);
   await wfYellowBtn.click();
 
-  // STATE 3 — Button transitions to green "Start Event" once
-  // signed_off_at is stamped. Clicking it flips the event Live.
+  // STATE 4 — Green start-event button. Click flips Upcoming → Live.
   const wfGreenBtn = page.locator(".wf-btn.wf-btn-green");
   await expect(wfGreenBtn).toBeVisible({ timeout: 5000 });
   await expect(wfGreenBtn).toHaveText(/Start Event/i);

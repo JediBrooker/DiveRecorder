@@ -318,11 +318,13 @@ CREATE TABLE public.events (
     entries_close_at timestamptz,
     status           event_status DEFAULT 'Upcoming' NOT NULL,
     -- Pre-meet workflow stamps. The Control Room walks the operator
-    -- through three sequential states before the event flips to
-    -- Live: randomise the dive order, get the referee to sign off,
-    -- then start the event. Both timestamps reset whenever the
-    -- order changes (a re-randomise clears sign-off too) so the
-    -- referee always signs off on the FINAL order.
+    -- through four sequential states before the event flips to
+    -- Live: check divers in, randomise the dive order, get the
+    -- referee to sign off, then start the event. Re-randomising
+    -- clears sign-off (the order changed → re-approval needed);
+    -- a workflow reset clears all four stamps to walk the steps
+    -- again from the top.
+    check_in_done_at          timestamptz,
     dive_order_randomised_at  timestamptz,
     dive_order_signed_off_at  timestamptz,
     dive_order_signed_off_by  uuid REFERENCES public.users(id) ON DELETE SET NULL,
@@ -863,7 +865,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 27);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 28);
 
 
 -- =============================================================
