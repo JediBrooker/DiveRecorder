@@ -79,12 +79,22 @@ const id = computed(() => diverIdentity(props.row))
         {{ id.secondary }}
       </div>
     </div>
-    <!-- Right-side grouping. Badge first, then any trailing
-         content the parent slotted in. align-self: start anchors
-         the chip to the top of the names column even when a
-         synchro pair pushes the names down to two lines. -->
+    <!-- Right-side grouping. The badge column stacks chips
+         vertically so an international synchro pair (lead + a
+         partner from a different country / club) shows BOTH
+         flags top-right — the lead's chip lines up next to the
+         lead name, the partner's chip drops to the partner's
+         line. align-self: start anchors the column to the top
+         of the names; per-row alignment via the inner stack
+         keeps everything baseline-tidy.
+         The "trailing" slot (e.g. dive total) sits beside the
+         badges, not under them, so it doesn't shift when the
+         partner chip is/isn't there. -->
     <div class="di-trailing">
-      <span v-if="id.badge" class="di-badge">{{ id.badge }}</span>
+      <div v-if="id.badge || id.partnerBadge" class="di-badges">
+        <span v-if="id.badge" class="di-badge">{{ id.badge }}</span>
+        <span v-if="id.partnerBadge" class="di-badge di-badge-partner">{{ id.partnerBadge }}</span>
+      </div>
       <slot name="trailing"></slot>
     </div>
   </div>
@@ -130,8 +140,16 @@ const id = computed(() => diverIdentity(props.row))
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .di-trailing {
-  display: flex; align-items: center; gap: 0.4rem;
+  display: flex; align-items: flex-start; gap: 0.4rem;
   flex-shrink: 0; align-self: flex-start;
+}
+/* Vertical stack — lead's chip on top, partner's chip
+   underneath. Gap matches the names column's row gap (0.05rem)
+   plus the chip's vertical padding so the second chip lines up
+   visually next to the partner's name. */
+.di-badges {
+  display: flex; flex-direction: column; gap: 0.15rem;
+  align-items: flex-end;
 }
 .di-badge {
   font-family: var(--font-display); font-size: 0.75em; font-weight: 700;
@@ -139,5 +157,12 @@ const id = computed(() => diverIdentity(props.row))
   background: var(--bg); border: 1px solid var(--border);
   border-radius: 3px; padding: 0.1rem 0.4rem;
   white-space: nowrap;
+}
+/* Partner chip — uses a slightly muted background so the lead's
+   chip stays the visual anchor, but the partner chip is still
+   the same size + colour so the pair reads as two equal entries
+   in keeping with the lead/partner-equal-weight name treatment. */
+.di-badge-partner {
+  background: var(--bg-3, var(--bg));
 }
 </style>
