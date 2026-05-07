@@ -196,16 +196,41 @@ onMounted(async () => {
 <style scoped>
 .header-inner {
   display: flex; align-items: flex-start; justify-content: space-between;
+  /* flex-wrap + gap so the Sign Out button drops below the
+     welcome block on narrow viewports instead of forcing the
+     row past the viewport edge. */
+  flex-wrap: wrap;
+  gap: 1rem;
   padding: 2.5rem 2rem 2rem; max-width: 1400px; margin: 0 auto;
   border-bottom: 1px solid var(--border);
 }
 .welcome-label { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: var(--cyan); margin-bottom: 0.5rem; }
-.welcome-name  { font-family: var(--font-display); font-size: 56px; font-weight: 900; font-style: italic; line-height: 1; color: var(--text); }
-.role-line     { font-family: var(--font-display); font-size: 11px; font-weight: 600; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3); margin-top: 0.5rem; }
+.welcome-name  {
+  font-family: var(--font-display); font-weight: 900; font-style: italic;
+  line-height: 1; color: var(--text);
+  /* Clamp so a long full name doesn't force the document
+     wider than the viewport. */
+  font-size: clamp(32px, 6vw, 56px);
+  word-break: break-word;
+}
+.role-line     {
+  font-family: var(--font-display); font-size: 11px; font-weight: 600;
+  letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3);
+  margin-top: 0.5rem;
+  /* Roles are joined with " · " and can be a long single line
+     ("MEET MANAGER · REFEREE · JUDGE · …"). Allow wrapping so
+     the line doesn't push the page width past the viewport. */
+  white-space: normal;
+  word-break: break-word;
+}
 
 .main-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  /* minmax 240px (was 300) so the auto-fill packs more columns
+     onto narrow viewports without overflowing. min(100%, …) on
+     the min track stops a single tile from forcing the grid
+     wider than its container at very narrow widths. */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
   gap: 1.5rem;
   padding: 2.5rem 2rem;
   max-width: 1400px;
