@@ -595,6 +595,120 @@ If you're a paying customer or running a production federation, urgent issues ca
 | `npm start` | Run the Express server (serves `dist/` if built; serves the API and WebSocket on :3000) |
 | `npm run lint` | Syntax-check `server.js` |
 | `npm test` | Node's built-in test runner against `test/*.test.js` |
+| `npm run test:e2e` | Playwright end-to-end suite — see below |
+
+---
+
+## End-to-end tests
+
+Eight Playwright specs live under `test/e2e/`. They boot a real
+Express server on `:3097` (set via the `webServer` block in
+`playwright.config.js`), point Chromium at it, and drive the SPA
+through full user journeys. Each test creates an isolated org +
+admin per run via `_setup.createOrgAndAdmin`, then deletes the
+org in cleanup so parallel runs don't collide.
+
+### The specs
+
+| Spec | What it exercises |
+|---|---|
+| `smoke.spec.js` | Health endpoint, SPA boots, `/metrics`, public diver profile fall-through, OG-tagged HTML for crawler UAs |
+| `scoring.spec.js` | Five judges submit scores via `socket.io-client`; `/api/scoreboard` reflects the trimmed total. Catches regressions in the socket layer, the trim algorithm, and the standings query |
+| `admin.spec.js` | Org admin creates an event, late-adds a diver to the roster, flips Upcoming → Live → Completed |
+| `competitor.spec.js` | Diver self-registers, login is blocked with `code: "email_not_verified"`, verify-then-login works, diver submits a 2-round dive list |
+| `2fa.spec.js` | TOTP setup → confirm → two-step login → recovery-code login → disable. Recovery codes are one-time |
+| `scoreboard-ui.spec.js` | UI-driven simulation of a 3-diver × 3-round meet. Login → `/scoreboard/<id>` → live judge tiles fill with each socket event → standings re-sort → Completed flip → recap renders |
+| `meet-manager.spec.js` | Full meet-manager pipeline: pick event from Control Room dropdown, randomise start order via the UI button, judges score (admin clicks Next Diver between dives), Finalise → recap. Random `event_type` per run (individual / synchro_pair / team) |
+| `judge.spec.js` | Judge persona: log in → dashboard surfaces "Your Assigned Events" → click → `/judge?event=<id>` → tap numbers + Submit on the keypad as the admin walks through 3 rounds × 3 divers. Random variant — synchro runs randomise the test judge's role between Exec A / Exec B / Synchronisation |
+
+### Running
+
+The spec runs use the same Postgres test database as `npm test`
+(`diverecorder_test` by default — override with `DB_DATABASE`).
+
+```bash
+# Whole suite (parallel, headless)
+npm run test:e2e
+
+# One spec at a time
+npx playwright test test/e2e/judge.spec.js
+
+# Watch it live in a real Chrome window
+npx playwright test test/e2e/meet-manager.spec.js --headed --workers=1
+
+# Step through every action in the Inspector
+PWDEBUG=1 npx playwright test test/e2e/scoreboard-ui.spec.js
+
+# UI runner with a timeline + retry-from-step-N
+npx playwright test --ui
+```
+
+Headed runs open a normal Chromium window — `viewport: null` in
+the project config lets the page resize with the window like a
+regular browser.
+
+### Variant overrides for the random specs
+
+The `meet-manager` and `judge` specs randomise the meet shape
+each run. Pin a specific variant for repro / demos:
+
+```bash
+# Meet manager — pick event_type, height, pacing
+MM_VARIANT=synchro_pair MM_HEIGHT=10m \
+  npx playwright test test/e2e/meet-manager.spec.js --headed --workers=1
+
+# Judge — pick variant + the judge's panel position
+J_VARIANT=synchro_pair J_NUMBER=1 \
+  npx playwright test test/e2e/judge.spec.js --headed --workers=1   # Exec A
+J_VARIANT=synchro_pair J_NUMBER=3 \
+  npx playwright test test/e2e/judge.spec.js --headed --workers=1   # Exec B
+J_VARIANT=synchro_pair J_NUMBER=7 \
+  npx playwright test test/e2e/judge.spec.js --headed --workers=1   # Synchronisation
+```
+
+### Pacing knobs
+
+The UI-driven specs (`scoreboard-ui`, `meet-manager`, `judge`)
+default to human-watchable timings (~1 minute per dive). Override
+via env vars for a fast CI / smoke pass — every knob is
+documented at the top of each spec file:
+
+```bash
+# Faster pass through meet-manager
+MM_PRE_DIVE_MS=200 MM_PER_SCORE_MS=50 MM_POST_DIVE_MS=200 \
+MM_LOGIN_HOLD_MS=200 MM_FINAL_HOLD_MS=200 \
+  npx playwright test test/e2e/meet-manager.spec.js
+```
+
+### Rate limiter
+
+The auth + bulk-write rate limiters (20 / 15 min and 30 / min,
+both keyed by IP) would otherwise trip after a handful of test
+logins because every request comes from `127.0.0.1`. The
+Playwright `webServer` block sets `RATE_LIMIT_DISABLED=true` so
+the limiters opt out for the duration of a test run. The
+production `.env` never sets that variable, so deployed
+behaviour is unchanged.
+
+### What you'll see in `--headed` mode
+
+* `scoreboard-ui` — Chrome opens to `/login`, fills credentials,
+  redirects to `/dashboard`, then `/scoreboard/<id>`. Five judge
+  pills light up for each diver, the score-overlay flashes the
+  dive total, standings re-sort. After 9 dives the meet flips
+  Completed and the recap renders with podium + per-diver
+  leaderboard.
+* `meet-manager` — login as admin, navigate to `/control`, pick
+  the event from the dropdown, click "🎲 Randomise", flip Live
+  via API, walk through every diver clicking "Next Diver →"
+  between dives. Round-end modal auto-dismisses by clicking
+  "Announce standings". Finalise click at the end.
+* `judge` — login as a judge, see "Your Assigned Events"
+  notification on the dashboard, click through to `/judge?event=<id>`,
+  watch the diver name + dive code arrive via socket, tap a score
+  on the keypad, click Submit. Repeat for nine dives. Synchro runs
+  show the role badge ("EXEC A" / "EXEC B" / "SYNCHRONISATION")
+  for the randomly-assigned judge_number.
 
 ---
 
