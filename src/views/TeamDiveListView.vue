@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { diveDescription } from '@/composables/useDiveLabel'
 
 const route = useRoute()
 const router = useRouter()
@@ -274,7 +275,7 @@ onMounted(load)
               <div class="dive-code">
                 {{ r.dive.dive_code }}<span class="dive-pos">{{ r.dive.position }}</span>
               </div>
-              <div class="dive-desc">{{ r.dive.description }}</div>
+              <div class="dive-desc">{{ diveDescription(r.dive) }}</div>
               <div class="dive-dd">DD {{ r.dive.dd }}</div>
             </template>
             <template v-else>
@@ -299,7 +300,7 @@ onMounted(load)
       <div v-for="d in filteredDives" :key="d.id" class="dive-result" @click="pickDive(d)">
         <div>
           <div class="dive-code">{{ d.dive_code }}<span class="dive-pos">{{ d.position }}</span></div>
-          <div class="dive-desc">{{ d.description }}</div>
+          <div class="dive-desc">{{ diveDescription(d) }}</div>
         </div>
         <div class="dive-result-right">
           <div class="dive-dd">DD {{ d.dd }}</div>

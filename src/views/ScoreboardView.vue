@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useSocket } from '@/composables/useSocket'
 import { annotatedScores, groupedSynchroScoresForDisplay } from '@/composables/useScoreCategories'
+import { diveDescription } from '@/composables/useDiveLabel'
 import { cachedFetch } from '@/lib/idbCache'
 
 const route  = useRoute()
@@ -835,7 +836,7 @@ onMounted(async () => {
               <span class="hist-code">{{ h.dive_code ? `${h.dive_code}${h.position || ''}` : '—' }}</span>
               <span v-if="h.dd != null" class="hist-dd">DD {{ parseFloat(h.dd).toFixed(1) }}</span>
             </div>
-            <div v-if="h.description" class="hist-desc">{{ h.description }}</div>
+            <div v-if="h.description" class="hist-desc">{{ diveDescription(h) }}</div>
             <div v-if="h.judge_array" class="hist-scores">
               <template v-if="currentEvent?.event_type === 'synchro_pair'">
                 <div v-for="g in (groupedSynchroScoresForDisplay(h.judge_array, currentEvent.number_of_judges) || [])"
@@ -891,7 +892,7 @@ onMounted(async () => {
             <div class="sb-code">{{ activeDiver?.diveCode || '—' }}</div>
             <div class="sb-dd">{{ activeDiver?.dd ? `DD ${activeDiver.dd}` : 'DD —' }}</div>
           </div>
-          <div v-if="activeDiver?.description" class="sb-desc">{{ activeDiver.description }}</div>
+          <div v-if="activeDiver?.description" class="sb-desc">{{ diveDescription(activeDiver) }}</div>
 
           <!-- Live judges' scores for the active diver. Pills are
                styled with the same .j-score / .j-dropped classes
@@ -1198,7 +1199,7 @@ onMounted(async () => {
                   <div class="dr-code">
                     <span v-if="block.isTeam" class="dr-team-member">{{ d.full_name }}</span>
                     <span class="dr-code-main">{{ [d.dive_code, d.position].filter(Boolean).join(' ') }}</span>
-                    <span v-if="d.description" class="dr-code-desc">{{ d.description }}</span>
+                    <span v-if="d.description" class="dr-code-desc">{{ diveDescription(d) }}</span>
                   </div>
                   <div class="dr-dd">{{ d.dd != null ? parseFloat(d.dd).toFixed(1) : '—' }}</div>
                   <div class="dr-judges">

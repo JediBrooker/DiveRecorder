@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
+import { diveDescription } from '@/composables/useDiveLabel'
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -194,7 +195,7 @@ const submitLabel = computed(() => {
         <span class="dive-pill code">{{ activeDiver?.diveCode || '—' }}</span>
         <span class="dive-pill dd">{{ activeDiver?.dd ? `DD ${activeDiver.dd}` : 'DD —' }}</span>
       </div>
-      <div class="dive-desc">{{ activeDiver?.description || '—' }}</div>
+      <div class="dive-desc">{{ activeDiver ? (diveDescription(activeDiver) || '—') : '—' }}</div>
     </div>
 
     <!-- Score display -->

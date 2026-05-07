@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
+import { diveDescription } from '@/composables/useDiveLabel'
 
 const auth = useAuthStore()
 const socket = useSocket()
@@ -1029,7 +1030,14 @@ function setActive(idx) {
     club_name: currentActive.value.club_name || null,
     club_code: currentActive.value.club_code || null,
     diveCode: `${currentActive.value.dive_code}${currentActive.value.position}`,
-    description: currentActive.value.description || '—',
+    // description is the dive_directory action ("Forward Dive",
+    // "Back 2½ Somersaults", …); position is the FINA letter
+    // (A/B/C/D). Audience views recompose them via
+    // diveDescription() — pass null instead of '—' for missing
+    // values so the v-if hides the line cleanly when the row is
+    // incomplete.
+    description: currentActive.value.description || null,
+    position:    currentActive.value.position    || null,
     eventName: currentEvent.value?.name || '—',
   })
   resetJudgeTiles()
@@ -1937,14 +1945,14 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                   class="late-autocomplete-item"
                   @mousedown.prevent="latePickDive(idx, d)">
                 <span class="late-ac-code">{{ d.dive_code }}<span class="late-ac-pos">{{ d.position }}</span></span>
-                <span class="late-ac-desc">{{ d.description }}</span>
+                <span class="late-ac-desc">{{ diveDescription(d) }}</span>
                 <span class="late-ac-dd">DD {{ d.dd }}</span>
               </li>
             </ul>
           </div>
           <span class="late-row-meta">
             <template v-if="slot.dive">
-              <span class="late-row-desc">{{ slot.dive.description }}</span>
+              <span class="late-row-desc">{{ diveDescription(slot.dive) }}</span>
               <span class="late-row-dd">DD {{ slot.dive.dd }}</span>
             </template>
             <template v-else>

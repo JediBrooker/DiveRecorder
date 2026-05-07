@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { diveDescription } from '@/composables/useDiveLabel'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -527,7 +528,7 @@ watch(currentEvent, async (ev) => {
             <div :class="['row-num', dive ? 'filled-num' : '']">{{ idx + 1 }}</div>
             <div class="row-info" v-if="dive">
               <div class="row-code">{{ dive.dive_code }}<span class="result-pos">{{ dive.position }}</span></div>
-              <div class="row-desc">{{ dive.description }}</div>
+              <div class="row-desc">{{ diveDescription(dive) }}</div>
             </div>
             <div class="row-info" v-else>
               <div class="row-placeholder">Tap to select dive...</div>
@@ -584,7 +585,7 @@ watch(currentEvent, async (ev) => {
         >
           <div>
             <div class="result-code">{{ d.dive_code }}<span class="result-pos">{{ d.position }}</span></div>
-            <div class="result-desc">{{ d.description }}</div>
+            <div class="result-desc">{{ diveDescription(d) }}</div>
           </div>
           <div class="result-right">
             <div class="result-dd">DD {{ d.dd }}</div>

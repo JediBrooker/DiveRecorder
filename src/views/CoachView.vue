@@ -12,6 +12,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { diveDescription } from '@/composables/useDiveLabel'
 
 const auth = useAuthStore()
 const rows = ref([])
@@ -120,7 +121,7 @@ onMounted(load)
               <span class="next-code">{{ r.dive_code }}{{ r.position }}</span>
               <span class="next-dd">DD {{ Number(r.dd).toFixed(1) }}</span>
             </div>
-            <div v-if="r.description" class="diver-card-desc">{{ r.description }}</div>
+            <div v-if="r.description" class="diver-card-desc">{{ diveDescription(r) }}</div>
             <div class="diver-card-foot">
               <span v-if="r.current_total != null">Running {{ Number(r.current_total).toFixed(1) }}</span>
               <span class="diver-card-cta">View profile →</span>

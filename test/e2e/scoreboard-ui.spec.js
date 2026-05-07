@@ -201,12 +201,15 @@ test("watch a 3-diver, 3-round meet end-to-end with realistic pacing", async ({
     for (const diver of divers) {
       // 1. Push the active-diver banner. The SPA's .sb-name
       //    updates from "Waiting..." to "Diver Alpha" (etc.)
-      //    and the round pill shows "Round 1 / 3". The dd +
-      //    description fields are read by the centre column to
-      //    show "DD 1.8" / "Back Dive" — without them the SPA
-      //    falls back to "DD —".
+      //    and the round pill shows "Round 1 / 3". The
+      //    description + position fields drive the audience-
+      //    facing dive label ("Forward Dive Pike") via
+      //    diveDescription(), so we send both — same shape the
+      //    real Control Room emits.
       const dive = diveCodes[round - 1];
-      const diveLabel = ({
+      // Match the dive_directory.description column verbatim so
+      // the SPA renders the same string a real meet would.
+      const diveAction = ({
         "101": "Forward Dive",
         "201": "Back Dive",
         "301": "Reverse Dive",
@@ -219,7 +222,8 @@ test("watch a 3-diver, 3-round meet end-to-end with realistic pacing", async ({
         round_number:  round,
         diveCode:      `${dive.dive_code}${dive.position}`,
         dd:            dive.dd,
-        description:   diveLabel,
+        description:   diveAction,
+        position:      dive.position,
         eventName:     event.name,
       });
 
