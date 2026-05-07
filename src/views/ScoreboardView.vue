@@ -1029,10 +1029,17 @@ onMounted(async () => {
                 <span class="up-next-rd">R{{ u.round_number }}</span>
                 <span class="up-next-pos">{{ u.round_order }}</span>
                 <span class="up-next-name">
-                  {{ u.full_name }}<span v-if="u.country_code" class="up-next-ctry">{{ u.country_code }}</span>
+                  <RouterLink v-if="u.competitor_id"
+                              :to="`/profile/${u.competitor_id}`"
+                              class="diver-link">{{ u.full_name }}</RouterLink>
+                  <template v-else>{{ u.full_name }}</template>
+                  <span v-if="u.country_code" class="up-next-ctry">{{ u.country_code }}</span>
                   <template v-if="u.partner_name">
                     <span class="up-next-amp">&amp;</span>
-                    {{ u.partner_name }}
+                    <RouterLink v-if="u.partner_id"
+                                :to="`/profile/${u.partner_id}`"
+                                class="diver-link">{{ u.partner_name }}</RouterLink>
+                    <template v-else>{{ u.partner_name }}</template>
                   </template>
                   <span v-if="u.club_name && !u.country_code" class="up-next-club">{{ u.club_name }}</span>
                 </span>
@@ -1244,7 +1251,15 @@ onMounted(async () => {
                   <div v-for="d in block.dives" :key="d.round_number + (d.full_name || '')" class="dive-row">
                     <div class="dr-round">R{{ d.round_number }}</div>
                     <div class="dr-code">
-                      <span v-if="block.isTeam" class="dr-team-member">{{ d.full_name }}</span>
+                      <span v-if="block.isTeam" class="dr-team-member">
+                        <!-- Per-dive team-member name links to
+                             that diver's profile so the recap
+                             reads as a navigable scoresheet. -->
+                        <RouterLink v-if="d.competitor_id"
+                                    :to="`/profile/${d.competitor_id}`"
+                                    class="diver-link">{{ d.full_name }}</RouterLink>
+                        <template v-else>{{ d.full_name }}</template>
+                      </span>
                       <span class="dr-code-main">{{ [d.dive_code, d.position].filter(Boolean).join(' ') }}</span>
                       <span v-if="d.description" class="dr-code-desc">{{ diveDescription(d) }}</span>
                     </div>

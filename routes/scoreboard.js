@@ -200,6 +200,7 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
                AND cdl.withdrawn_at IS NULL
            )
            SELECT ordered.round_number, ordered.round_order,
+                  ordered.competitor_id, ordered.partner_id,
                   u.full_name, o.country_code,
                   cl.name AS club_name,
                   pu.full_name AS partner_name, pl.country_code AS partner_country,
