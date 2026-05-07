@@ -123,6 +123,36 @@ module.exports = function createDiveDirectoryRouter({ pool, verifyToken, require
       ? description.trim().slice(0, 280)
       : null;
     try {
+      // Pre-flight dedup check on the full 4-key (dive_code,
+      // position, height, dd). Catches the case the user explicitly
+      // asked us to refuse — "this exact dive already exists" — and
+      // produces a more readable 409 than the generic
+      // unique_violation that would otherwise trip from the
+      // (dive_code, height, position) index. We also flag whether
+      // the existing match is core or custom so the operator knows
+      // why they're being told no.
+      const heightNum = heightToNumber(height);
+      const dup = await pool.query(
+        `SELECT id, is_custom
+         FROM dive_directory
+         WHERE dive_code = $1
+           AND position  = $2
+           AND height    = $3
+           AND dd        = $4
+         LIMIT 1`,
+        [dive_code, position, heightNum, Number(dd)],
+      );
+      if (dup.rows.length) {
+        const existing = dup.rows[0];
+        return res.status(409).json({
+          error:
+            `${existing.is_custom ? "A custom" : "A core"} dive ${dive_code}${position} ` +
+            `at ${height} with DD ${Number(dd).toFixed(1)} already exists` +
+            (existing.is_custom ? "." : " — use the catalog entry instead of recreating it."),
+          existing_id: existing.id,
+        });
+      }
+
       const r = await pool.query(
         `INSERT INTO dive_directory
            (dive_code, height, position, dd, description,
@@ -132,7 +162,7 @@ module.exports = function createDiveDirectoryRouter({ pool, verifyToken, require
                    is_custom, created_by, created_org_id, created_at`,
         [
           dive_code,
-          heightToNumber(height),
+          heightNum,
           position,
           Number(dd),
           desc,
@@ -142,11 +172,17 @@ module.exports = function createDiveDirectoryRouter({ pool, verifyToken, require
       );
       res.status(201).json(r.rows[0]);
     } catch (err) {
-      // 23505 = unique_violation on (dive_code, height, position).
-      // Surface a friendly message rather than the raw DB error.
+      // 23505 = unique_violation. The pre-flight above catches the
+      // exact (code+pos+height+dd) case. This branch fires when
+      // (code, height, position) collides at a *different* DD — a
+      // custom row trying to override the official tariff or an
+      // existing custom variant. The message names the conflict so
+      // the operator can decide whether to edit the existing row.
       if (err.code === "23505") {
         return res.status(409).json({
-          error: `A dive with code ${dive_code} at ${height} in position ${position} already exists`,
+          error:
+            `A dive ${dive_code}${position} at ${height} already exists with a different DD. ` +
+            `Edit the existing entry rather than adding a second one.`,
         });
       }
       console.error("[Dive Directory Insert Error]", err.message);
@@ -178,9 +214,13 @@ module.exports = function createDiveDirectoryRouter({ pool, verifyToken, require
     try {
       // Single round-trip: gate AND update, returning rows iff
       // both the row exists and the gate passes. NULL row → 404
-      // path; gate fail → 403 path.
+      // path; gate fail → 403 path. Pull current field values too
+      // so the dedup pre-flight below knows the post-update key
+      // (the patch is partial — unchanged fields keep their old
+      // value via COALESCE in the UPDATE).
       const owner = await pool.query(
-        `SELECT is_custom, created_org_id FROM dive_directory WHERE id = $1`,
+        `SELECT is_custom, created_org_id, dive_code, height, position, dd
+         FROM dive_directory WHERE id = $1`,
         [id],
       );
       if (!owner.rows.length) return res.status(404).json({ error: "Dive not found" });
@@ -193,6 +233,38 @@ module.exports = function createDiveDirectoryRouter({ pool, verifyToken, require
       ) {
         return res.status(403).json({ error: "Custom dive belongs to another org" });
       }
+
+      // Project the post-patch state and dedup against any OTHER
+      // row matching all 4 keys. Excludes the row being edited so
+      // a no-op save (touch description only) doesn't reject
+      // itself. Mirrors the POST pre-flight so the same friendly
+      // 409 surfaces from either path.
+      const newCode   = dive_code ?? owner.rows[0].dive_code;
+      const newPos    = position  ?? owner.rows[0].position;
+      const newHeight = height != null ? heightToNumber(height) : owner.rows[0].height;
+      const newDD     = dd != null ? Number(dd) : Number(owner.rows[0].dd);
+      const dup = await pool.query(
+        `SELECT id, is_custom
+         FROM dive_directory
+         WHERE dive_code = $1
+           AND position  = $2
+           AND height    = $3
+           AND dd        = $4
+           AND id <> $5
+         LIMIT 1`,
+        [newCode, newPos, newHeight, newDD, id],
+      );
+      if (dup.rows.length) {
+        const existing = dup.rows[0];
+        return res.status(409).json({
+          error:
+            `${existing.is_custom ? "A custom" : "A core"} dive ${newCode}${newPos} ` +
+            `at ${newHeight}m with DD ${newDD.toFixed(1)} already exists` +
+            (existing.is_custom ? "." : " — use the catalog entry instead."),
+          existing_id: existing.id,
+        });
+      }
+
       const desc = typeof description === "string"
         ? description.trim().slice(0, 280)
         : description;
@@ -217,9 +289,14 @@ module.exports = function createDiveDirectoryRouter({ pool, verifyToken, require
       );
       res.json(r.rows[0]);
     } catch (err) {
+      // Same race fall-through as the POST handler — the (code,
+      // height, position) UNIQUE catches edits whose new keys
+      // collide with another row at a *different* DD.
       if (err.code === "23505") {
         return res.status(409).json({
-          error: "A dive with that code + height + position already exists",
+          error:
+            "A dive with that code + height + position already exists at a different DD. " +
+            "Edit the existing entry rather than duplicating it.",
         });
       }
       console.error("[Dive Directory Update Error]", err.message);
