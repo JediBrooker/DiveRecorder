@@ -1536,7 +1536,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
           </div>
           <div class="active-desc">{{ activeInfo.desc }}</div>
 
-          <div style="margin-bottom:0.75rem">
+          <div class="judge-block">
             <div style="font-family:var(--font-display);font-size:10px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:var(--text-3);margin-bottom:0.625rem">Judge Scores</div>
             <div class="judge-grid">
               <div
@@ -1554,43 +1554,52 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
                 </div>
               </div>
             </div>
-            <!-- Computed dive total once every judge tile is in.
-                 Shown directly under the judge grid so the operator
-                 can see the scored result without waiting for the
-                 audience scoreboard refresh. Hidden until complete. -->
-            <div v-if="liveDiveTotal != null" class="active-dive-total">
-              <span class="active-dive-total-label">Dive Total</span>
-              <span class="active-dive-total-value">{{ liveDiveTotal.toFixed(1) }}</span>
+            <!-- Reserved slot for the computed dive total. Always
+                 present so the controls below it never shift; the
+                 inner row uses v-show so it stays measurable but
+                 invisible until every tile is in. -->
+            <div class="active-dive-total-slot">
+              <div v-show="liveDiveTotal != null" class="active-dive-total">
+                <span class="active-dive-total-label">Dive Total</span>
+                <span class="active-dive-total-value">{{ liveDiveTotal != null ? liveDiveTotal.toFixed(1) : '' }}</span>
+              </div>
             </div>
           </div>
 
-          <div class="ref-actions" style="margin-bottom:1.25rem">
-            <button class="ref-btn" style="background:var(--red-dim);color:var(--red);border-color:rgba(239,68,68,0.3)" @click="refAction('failed')">Failed Dive</button>
-            <button class="ref-btn" style="background:var(--amber-dim);color:var(--amber);border-color:rgba(245,158,11,0.3);line-height:1.2" @click="refAction('cap')">Cap Score<br><span style="font-size:9px">Max 2.0</span></button>
-            <button class="ref-btn" style="background:var(--cyan-dim);color:var(--cyan);border-color:rgba(6,182,212,0.3)" @click="refAction('redive')">Re-Dive</button>
-          </div>
+          <!-- Bottom controls — pinned to the bottom of the centre
+               column via margin-top: auto so the layout uses the
+               full screen height regardless of how much active-
+               diver content is above. The operator's eye learns
+               that the action buttons live at the bottom edge. -->
+          <div class="active-bottom">
+            <div class="ref-actions">
+              <button class="ref-btn" style="background:var(--red-dim);color:var(--red);border-color:rgba(239,68,68,0.3)" @click="refAction('failed')">Failed Dive</button>
+              <button class="ref-btn" style="background:var(--amber-dim);color:var(--amber);border-color:rgba(245,158,11,0.3);line-height:1.2" @click="refAction('cap')">Cap Score<br><span style="font-size:9px">Max 2.0</span></button>
+              <button class="ref-btn" style="background:var(--cyan-dim);color:var(--cyan);border-color:rgba(6,182,212,0.3)" @click="refAction('redive')">Re-Dive</button>
+            </div>
 
-          <div class="nav-btns">
-            <button class="btn btn-ghost" @click="setActive(currentIndex - 1)" :disabled="currentIndex <= 0">← Prev</button>
-            <button
-              :class="['btn', nextBtnComplete ? 'btn-complete' : 'btn-primary']"
-              :disabled="nextBtnDisabled"
-              @click="nextDiver"
-            >{{ nextBtnText }}</button>
-          </div>
+            <div class="nav-btns">
+              <button class="btn btn-ghost" @click="setActive(currentIndex - 1)" :disabled="currentIndex <= 0">← Prev</button>
+              <button
+                :class="['btn', nextBtnComplete ? 'btn-complete' : 'btn-primary']"
+                :disabled="nextBtnDisabled"
+                @click="nextDiver"
+              >{{ nextBtnText }}</button>
+            </div>
 
-          <!-- Discoverability hint for the keyboard shortcuts.
-               The hotkeys are wired in onKeydown above. -->
-          <div class="kbd-hints">
-            <span><kbd>←</kbd> prev</span>
-            <span><kbd>→</kbd>/<kbd>Space</kbd> next</span>
-            <span><kbd>1</kbd>–<kbd>9</kbd> jump</span>
-            <span><kbd>S</kbd> status</span>
-            <span><kbd>T</kbd> reset clock</span>
-            <span><kbd>F</kbd> failed</span>
-            <span><kbd>R</kbd> redive</span>
-            <span><kbd>H</kbd> hold</span>
-            <span><kbd>L</kbd> leaderboard</span>
+            <!-- Discoverability hint for the keyboard shortcuts.
+                 The hotkeys are wired in onKeydown above. -->
+            <div class="kbd-hints">
+              <span><kbd>←</kbd> prev</span>
+              <span><kbd>→</kbd>/<kbd>Space</kbd> next</span>
+              <span><kbd>1</kbd>–<kbd>9</kbd> jump</span>
+              <span><kbd>S</kbd> status</span>
+              <span><kbd>T</kbd> reset clock</span>
+              <span><kbd>F</kbd> failed</span>
+              <span><kbd>R</kbd> redive</span>
+              <span><kbd>H</kbd> hold</span>
+              <span><kbd>L</kbd> leaderboard</span>
+            </div>
           </div>
         </div>
       </div>
@@ -2114,13 +2123,27 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .judge-tile-score { font-family: var(--font-mono); font-size: 16px; font-weight: 500; color: var(--text-3); }
 .judge-tile.scored .judge-tile-score { color: var(--text); }
 
-/* Computed dive total — surfaces under the judge grid the
-   moment all N tiles fill. Right-aligned so the eye lands on
-   the value rather than the label. */
+/* Wrapper around the judge grid + the reserved dive-total
+   slot. Kept as a single block so the bottom controls (pinned
+   via .active-bottom margin-top:auto) reliably sit beneath. */
+.judge-block {
+  margin-bottom: 0.75rem;
+}
+
+/* Reserved slot for the live dive total. The slot is always
+   present in the layout so its appearance/disappearance never
+   shifts the buttons below it — the operator's eye learns the
+   stable position of FAILED / CAP / RE-DIVE / NEXT. */
+.active-dive-total-slot {
+  min-height: 56px;
+  display: flex;
+  align-items: stretch;
+  margin-top: 0.5rem;
+}
 .active-dive-total {
+  flex: 1;
   display: flex; align-items: baseline; justify-content: flex-end;
   gap: 0.75rem;
-  margin-top: 0.25rem;
   padding: 0.5rem 0.75rem;
   background: var(--green-dim);
   border: 1px solid var(--green);
@@ -2135,6 +2158,18 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   font-family: var(--font-display); font-size: 28px; font-weight: 900;
   font-style: italic; color: var(--green);
   line-height: 1;
+}
+
+/* Bottom controls — ref actions, nav buttons, kbd hints. The
+   margin-top: auto pushes the whole group to the bottom of the
+   .active-zone flex column so the centre column fills the full
+   screen height regardless of how much content sits above. */
+.active-bottom {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-top: 1rem;
 }
 
 .ref-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; }
