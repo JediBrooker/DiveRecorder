@@ -255,94 +255,188 @@ async function installDialogDelay(page) {
 const HIGHLIGHT_ENABLED = process.env.E2E_HIGHLIGHT !== "0";
 async function installClickHighlight(page) {
   if (!HIGHLIGHT_ENABLED) return;
-  await page.addInitScript(() => {
-    // Click-highlight overlay. Earlier iteration used a thin
-    // cyan ring that was too subtle to see on a dark theme; this
-    // version is intentionally loud — bright magenta, big ring,
-    // crosshair through the middle, ~1.6s animation. The whole
-    // thing sits at z-index 2147483647 with pointer-events:none
-    // so it never intercepts the click that fired it or the
-    // next one. Two listeners (mousedown + pointerdown) plus
-    // capture-phase + window-level so we catch the click
-    // regardless of whether the SPA's modal backdrop / pointer-
-    // events overrides swallow either event.
-    const style = document.createElement("style");
-    style.id = "__e2e-click-style";
-    style.textContent = `
-      @keyframes e2eClickRing {
-        0%   { transform: scale(0.2); opacity: 1;   }
-        25%  { transform: scale(1.1); opacity: 0.95; }
-        100% { transform: scale(3.0); opacity: 0;    }
-      }
-      @keyframes e2eClickCore {
-        0%   { transform: scale(0.5); opacity: 1;   }
-        70%  { transform: scale(1.3); opacity: 0.85; }
-        100% { transform: scale(0.6); opacity: 0;    }
-      }
-      .__e2e-click-marker {
-        position: fixed; z-index: 2147483647; pointer-events: none;
-        width: 64px; height: 64px;
-        margin-left: -32px; margin-top: -32px;
-      }
-      .__e2e-click-marker .ring {
-        position: absolute; inset: 0;
-        border: 4px solid #ff2dd6;
-        border-radius: 50%;
-        box-shadow:
-          0 0 16px rgba(255, 45, 214, 0.9),
-          0 0 32px rgba(255, 45, 214, 0.55);
-        animation: e2eClickRing 1.6s cubic-bezier(0.2,0.6,0.3,1) forwards;
-      }
-      .__e2e-click-marker .core {
-        position: absolute; left: 50%; top: 50%;
-        width: 18px; height: 18px;
-        margin-left: -9px; margin-top: -9px;
-        background: #ff2dd6;
-        border: 2px solid #fff;
-        border-radius: 50%;
-        box-shadow: 0 0 10px #fff;
-        animation: e2eClickCore 1.6s ease-out forwards;
-      }
-      /* Plus-sign crosshair so the exact pixel is unambiguous. */
-      .__e2e-click-marker .core::before,
-      .__e2e-click-marker .core::after {
-        content: ""; position: absolute;
-        background: #fff;
-      }
-      .__e2e-click-marker .core::before {
-        left: 50%; top: -10px; bottom: -10px;
-        width: 2px; margin-left: -1px;
-      }
-      .__e2e-click-marker .core::after {
-        top: 50%; left: -10px; right: -10px;
-        height: 2px; margin-top: -1px;
-      }
-    `;
-    (document.head || document.documentElement).appendChild(style);
 
+  // Surface every captured click in the Playwright stdout
+  // (along with x,y) so a watching human can see in the test
+  // log whether the listener is actually firing. Useful when
+  // the visual marker is somehow being clipped / hidden by an
+  // SPA modal — confirms the click was caught even if the
+  // ring isn't visible on the screenshot/video.
+  page.on("console", (msg) => {
+    const t = msg.text();
+    if (t.startsWith("[e2e-")) {
+      process.stdout.write(`  ${t}\n`);
+    }
+  });
+
+  await page.addInitScript(() => {
+    // ----- 0. Init-script heartbeat ----------------------------
+    // Fires before any DOM exists. If this log doesn't show up
+    // in the test runner stdout, addInitScript isn't being
+    // applied to this page (e.g. page was closed and a new one
+    // opened without re-installing the helper). Everything else
+    // depends on this firing — debug from here first.
+    try { console.log(`[e2e-init] script loaded @ ${location.href}`); }
+    catch { /* console may not exist yet at document_start */ }
+    document.addEventListener("DOMContentLoaded", () => {
+      try { console.log(`[e2e-init] DOMContentLoaded @ ${location.href}`); }
+      catch { /* ignore */ }
+    });
+    // ----- 1. Click listeners (DOM-free, attach NOW) -----------
+    // These hang off `window` + `document`, both of which exist
+    // at document_start before any HTML is parsed. Attach first
+    // so even if the DOM-painting code below throws (e.g.
+    // documentElement is null this early), we still log every
+    // click that happens on the page.
+    let lastTs = 0;
+    const STYLE_ID = "__e2e-click-style";
+    const handler = (e) => {
+      if (e.timeStamp - lastTs < 80) return;
+      lastTs = e.timeStamp;
+      paintMarker(e.clientX, e.clientY);
+    };
+    for (const target of [window, document]) {
+      for (const evt of ["pointerdown", "mousedown", "click"]) {
+        target.addEventListener(evt, handler, true);
+      }
+    }
+
+    // ----- 2. Visible "I am alive" banner ----------------------
+    // Pinned-top-right pill that proves the init script is
+    // running on the current document. If you don't see this in
+    // headed mode, the script never loaded — debug from there
+    // rather than chasing the click handler.
+    function ensureBanner() {
+      if (!document.body) return;
+      if (document.getElementById("__e2e-banner")) return;
+      const b = document.createElement("div");
+      b.id = "__e2e-banner";
+      b.textContent = "● E2E click-highlight active";
+      b.style.cssText = [
+        "position:fixed", "top:8px", "right:8px",
+        "z-index:2147483647", "pointer-events:none",
+        "background:#ff2dd6", "color:#fff",
+        "font:700 11px/1 system-ui,sans-serif",
+        "letter-spacing:0.08em",
+        "padding:6px 10px", "border-radius:999px",
+        "box-shadow:0 0 12px rgba(255,45,214,0.7)",
+      ].join(";");
+      document.body.appendChild(b);
+    }
+
+    // ----- 3. Stylesheet --------------------------------------
+    // Defer attachment until something exists to attach to. At
+    // document_start neither documentElement nor head are
+    // present yet, so installing the <style> immediately throws
+    // and would silently truncate the rest of the init script.
+    function ensureStyle() {
+      if (document.getElementById(STYLE_ID)) return;
+      const host = document.head || document.documentElement;
+      if (!host) return;
+      const style = document.createElement("style");
+      style.id = STYLE_ID;
+      style.textContent = `
+        @keyframes e2eClickRing {
+          0%   { transform: scale(0.15); opacity: 1;    }
+          25%  { transform: scale(1.0);  opacity: 0.95; }
+          100% { transform: scale(3.5);  opacity: 0;    }
+        }
+        @keyframes e2eClickFlash {
+          0%   { opacity: 0.40; }
+          100% { opacity: 0;    }
+        }
+        @keyframes e2eClickDot {
+          0%, 70%   { opacity: 1;   transform: scale(1);   }
+          100%      { opacity: 0;   transform: scale(0.6); }
+        }
+        .__e2e-click-flash {
+          position: fixed; inset: 0;
+          z-index: 2147483646; pointer-events: none;
+          background: radial-gradient(circle at var(--cx, 50%) var(--cy, 50%),
+                                      rgba(255,45,214,0.55) 0%,
+                                      rgba(255,45,214,0.0) 35%);
+          animation: e2eClickFlash 0.45s ease-out forwards;
+        }
+        .__e2e-click-marker {
+          position: fixed; z-index: 2147483647; pointer-events: none;
+          width: 96px; height: 96px;
+          margin-left: -48px; margin-top: -48px;
+        }
+        .__e2e-click-marker .ring {
+          position: absolute; inset: 0;
+          border: 6px solid #ff2dd6;
+          border-radius: 50%;
+          box-shadow:
+            0 0 24px rgba(255, 45, 214, 1),
+            0 0 48px rgba(255, 45, 214, 0.7),
+            inset 0 0 16px rgba(255, 45, 214, 0.6);
+          animation: e2eClickRing 1.6s cubic-bezier(0.2,0.6,0.3,1) forwards;
+        }
+        .__e2e-click-marker .core {
+          position: absolute; left: 50%; top: 50%;
+          width: 22px; height: 22px;
+          margin-left: -11px; margin-top: -11px;
+          background: #ff2dd6;
+          border: 3px solid #fff;
+          border-radius: 50%;
+          box-shadow: 0 0 14px #fff, 0 0 28px rgba(255,45,214,0.9);
+          animation: e2eClickDot 2.0s ease-out forwards;
+        }
+        /* Plus-sign crosshair through the dot — exact pixel. */
+        .__e2e-click-marker .core::before,
+        .__e2e-click-marker .core::after {
+          content: ""; position: absolute; background: #fff;
+          box-shadow: 0 0 6px rgba(255,255,255,0.9);
+        }
+        .__e2e-click-marker .core::before {
+          left: 50%; top: -14px; bottom: -14px;
+          width: 3px; margin-left: -1.5px;
+        }
+        .__e2e-click-marker .core::after {
+          top: 50%; left: -14px; right: -14px;
+          height: 3px; margin-top: -1.5px;
+        }
+      `;
+      host.appendChild(style);
+    }
+
+    // ----- 4. paintMarker — used by the listener attached in §1
     function paintMarker(x, y) {
+      ensureStyle();
+      ensureBanner();
+      const target = document.body;
+      if (!target) {
+        // No body yet (click before HTML parsed?). Just log so
+        // the test runner can still see the listener fired.
+        try { console.log(`[e2e-click] ${Math.round(x)},${Math.round(y)} (no body)`); } catch {}
+        return;
+      }
+      // Full-screen tint flash.
+      const flash = document.createElement("div");
+      flash.className = "__e2e-click-flash";
+      flash.style.setProperty("--cx", x + "px");
+      flash.style.setProperty("--cy", y + "px");
+      target.appendChild(flash);
+      setTimeout(() => flash.remove(), 500);
+      // Pointer marker with ring + dot + crosshair.
       const wrap = document.createElement("div");
       wrap.className = "__e2e-click-marker";
       wrap.style.left = x + "px";
       wrap.style.top  = y + "px";
       wrap.innerHTML = '<div class="ring"></div><div class="core"></div>';
-      (document.body || document.documentElement).appendChild(wrap);
-      setTimeout(() => wrap.remove(), 1700);
+      target.appendChild(wrap);
+      setTimeout(() => wrap.remove(), 2100);
+      // Log so the test runner can confirm the listener fired.
+      try { console.log(`[e2e-click] ${Math.round(x)},${Math.round(y)}`); }
+      catch { /* console may be muted */ }
     }
 
-    // Belt + braces: capture-phase + bubble-phase, on both
-    // pointerdown and mousedown, on document AND window. If
-    // ANY of those fires we paint a marker. Dedup with a
-    // 50ms guard so a single click doesn't render twice when
-    // both event types fire.
-    let lastTs = 0;
-    const handler = (e) => {
-      if (e.timeStamp - lastTs < 50) return;
-      lastTs = e.timeStamp;
-      paintMarker(e.clientX, e.clientY);
-    };
-    window.addEventListener("pointerdown", handler, true);
-    window.addEventListener("mousedown",   handler, true);
+    // ----- 5. Run banner + style installation when DOM is ready
+    if (document.body) { ensureStyle(); ensureBanner(); }
+    document.addEventListener("DOMContentLoaded", () => {
+      ensureStyle();
+      ensureBanner();
+    });
   });
 }
 
