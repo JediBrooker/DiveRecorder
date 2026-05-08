@@ -2,6 +2,8 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { confirmAction } from '@/composables/useConfirm'
+import { showSuccess, showError } from '@/composables/useNotify'
 
 const auth = useAuthStore()
 
@@ -232,12 +234,18 @@ async function addCoachLink() {
 }
 
 async function removeCoachLink(id) {
-  if (!confirm('Remove this coach link?')) return
+  if (!await confirmAction({
+    title: 'Remove coach link?',
+    body:  'The coach will no longer see this diver in their roster. Both accounts stay intact.',
+    confirmLabel: 'Remove link',
+    confirmKind:  'warn',
+  })) return
   try {
     await auth.apiFetch(`/api/coach-links/${id}`, { method: 'DELETE' })
     drawerCoachLinks.value = drawerCoachLinks.value.filter(l => l.id !== id)
+    showSuccess('Coach link removed')
   } catch (err) {
-    alert('Failed to remove link: ' + err.message)
+    showError(`Failed to remove link: ${err.message}`)
   }
 }
 

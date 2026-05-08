@@ -2,6 +2,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { confirmAction } from '@/composables/useConfirm'
+import { showSuccess, showError } from '@/composables/useNotify'
 
 const auth = useAuthStore()
 
@@ -118,12 +120,18 @@ async function saveAsEventTemplate() {
 }
 
 async function deleteEventTemplate(t) {
-  if (!confirm(`Delete template "${t.name}"?`)) return
+  if (!await confirmAction({
+    title: `Delete template "${t.name}"?`,
+    body:  'Templates are scoped to your federation. Existing events keyed off this template are not affected.',
+    confirmLabel: 'Delete template',
+    confirmKind:  'danger',
+  })) return
   try {
     await auth.apiFetch(`/api/event-templates/${t.id}`, { method: 'DELETE' })
     eventTemplates.value = eventTemplates.value.filter(x => x.id !== t.id)
+    showSuccess(`Deleted template "${t.name}"`)
   } catch (err) {
-    alert('Failed: ' + err.message)
+    showError(`Failed to delete: ${err.message}`)
   }
 }
 
@@ -145,17 +153,24 @@ async function advanceToNextStage(ev) {
        : downstream.event_format === 'final'   ? 'final'
        : 'next stage')
     : 'next stage'
-  if (!confirm(
-    `Advance the top ${ev.advance_count || 12} divers from "${ev.name}" to its ${targetLabel}?\n\nThis seeds the ${targetLabel}'s roster with their dive lists. Re-running after score corrections is safe — existing rows for these divers will be overwritten.`,
-  )) return
+  if (!await confirmAction({
+    title: `Advance top ${ev.advance_count || 12} to ${targetLabel}?`,
+    body:  `Seeds "${targetLabel}" with the top ${ev.advance_count || 12} divers from "${ev.name}" plus their dive lists.`,
+    consequences: [
+      `Divers can edit their dive lists before the ${targetLabel} goes Live (subject to entries-close)`,
+      'Re-running after a score correction is safe — existing rows for these divers are overwritten (idempotent)',
+    ],
+    confirmLabel: `Advance to ${targetLabel}`,
+    confirmKind:  'primary',
+  })) return
   try {
     const result = await auth.apiFetch(`/api/events/${ev.id}/advance`, {
       method: 'POST',
     })
-    alert(`Advanced ${result.advanced} divers to the ${targetLabel}.`)
+    showSuccess(`Advanced ${result.advanced} diver${result.advanced === 1 ? '' : 's'} to the ${targetLabel}.`)
     await loadEvents()
   } catch (err) {
-    alert('Failed to advance: ' + err.message)
+    showError(`Failed to advance: ${err.message}`)
   }
 }
 
@@ -422,14 +437,23 @@ async function createMeet() {
 }
 
 async function deleteMeet(meet) {
-  if (!confirm(
-    `Delete meet "${meet.name}"?\n\nIts ${meet.event_count} event(s) will become standalone — they're not deleted.`,
-  )) return
+  if (!await confirmAction({
+    title: `Delete meet "${meet.name}"?`,
+    body:  `The meet bundle is removed but its ${meet.event_count} event${meet.event_count === 1 ? ' stays' : 's stay'} intact.`,
+    consequences: [
+      `${meet.event_count} event${meet.event_count === 1 ? '' : 's'} will become standalone (no meet attribution)`,
+      'Public meet landing page (/meet/<id>) becomes 404',
+      'Existing scores, audit log, and recap PDFs are unaffected',
+    ],
+    confirmLabel: 'Delete meet',
+    confirmKind:  'danger',
+  })) return
   try {
     await auth.apiFetch(`/api/meets/${meet.id}`, { method: 'DELETE' })
     await Promise.all([loadMeets(), loadEvents()])
+    showSuccess(`Deleted meet "${meet.name}"`)
   } catch (err) {
-    alert('Failed to delete meet: ' + err.message)
+    showError(`Failed to delete meet: ${err.message}`)
   }
 }
 
@@ -571,12 +595,24 @@ async function saveEdit() {
 }
 
 async function deleteEvent(id) {
-  if (!confirm('Delete this event?')) return
+  const ev = events.value.find(e => e.id === id)
+  if (!await confirmAction({
+    title: `Delete "${ev?.name || 'this event'}"?`,
+    body:  'Removes the event entirely — roster, dive lists, scores, and any record entries derived from it.',
+    consequences: [
+      'All dives, scores, and the audit log for this event are deleted',
+      'Personal bests / club records keyed off this event are recomputed from remaining data',
+      'This is not undoable',
+    ],
+    confirmLabel: 'Delete event',
+    confirmKind:  'danger',
+  })) return
   try {
     await auth.apiFetch(`/api/events/${id}`, { method: 'DELETE' })
     await loadEvents()
+    showSuccess(`Deleted "${ev?.name || 'event'}"`)
   } catch (err) {
-    alert(err.message)
+    showError(err.message)
   }
 }
 
@@ -632,15 +668,25 @@ async function addTeamToEvent() {
 }
 
 async function removeTeamFromEvent(team) {
-  if (!confirm(`Remove "${team.name}" from this event? Their dive list (if any) will lose its team attribution but the dive results stay intact.`)) return
+  if (!await confirmAction({
+    title: `Remove "${team.name}" from this event?`,
+    body:  'Unlinks the team from the event roster.',
+    consequences: [
+      'Existing dive list rows lose their team attribution',
+      'Per-dive scores and history stay intact — only the team grouping is removed',
+    ],
+    confirmLabel: 'Remove team',
+    confirmKind:  'danger',
+  })) return
   teamsBusy.value = true
   try {
     await auth.apiFetch(`/api/events/${teamsModalEvent.value.id}/teams/${team.id}`, {
       method: 'DELETE',
     })
     teamsInEvent.value = teamsInEvent.value.filter(t => t.id !== team.id)
+    showSuccess(`Removed "${team.name}" from event`)
   } catch (err) {
-    alert(err.message)
+    showError(err.message)
   } finally {
     teamsBusy.value = false
   }

@@ -2,6 +2,8 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { confirmAction } from '@/composables/useConfirm'
+import { showSuccess, showError } from '@/composables/useNotify'
 
 const auth = useAuthStore()
 
@@ -165,19 +167,34 @@ async function submitEdit() {
 }
 
 async function deleteTeam(team) {
-  const summary = team.member_count
-    ? `Delete team "${team.name}"? ${team.member_count} member${team.member_count === 1 ? ' is' : 's are'} currently in this team — they will be unassigned (their accounts stay). Any historical dive list rows lose their team attribution but the dive results are preserved.`
-    : `Delete team "${team.name}"? Any historical dive list rows lose their team attribution but the dive results are preserved.`
-  if (!confirm(summary)) return
+  const consequences = []
+  if (team.member_count) {
+    consequences.push(
+      `${team.member_count} member${team.member_count === 1 ? ' will be' : 's will be'} unassigned (their user accounts stay)`,
+    )
+  }
+  consequences.push(
+    'Historical dive list rows lose their team attribution',
+    'Per-dive results, scores, and the audit log are preserved',
+  )
+  if (!await confirmAction({
+    title: `Delete team "${team.name}"?`,
+    body:  team.member_count
+      ? `${team.member_count} member${team.member_count === 1 ? ' is' : 's are'} currently in this team.`
+      : 'No active members in this team.',
+    consequences,
+    confirmLabel: 'Delete team',
+    confirmKind:  'danger',
+  })) return
   try {
     const res = await auth.apiFetch(`/api/teams/${team.id}`, { method: 'DELETE' })
     await loadTeams()
+    showSuccess(`Deleted team "${team.name}"`)
     if (res.dives) {
-      // Light follow-up so the admin sees what happened
       console.info(`[Teams] Deleted ${team.name} — ${res.members} members detached, ${res.dives} historical dives unbound, ${res.events} event entries removed.`)
     }
   } catch (err) {
-    alert(err.message)
+    showError(err.message)
   }
 }
 
@@ -244,7 +261,12 @@ async function addMember() {
 
 async function removeMember(memberId) {
   if (!drawerTeam.value) return
-  if (!confirm('Remove this diver from the team?')) return
+  if (!await confirmAction({
+    title: 'Remove diver from team?',
+    body:  'The diver\'s account stays — only their team membership is removed.',
+    confirmLabel: 'Remove from team',
+    confirmKind:  'warn',
+  })) return
   drawerBusy.value = true
   try {
     await auth.apiFetch(`/api/teams/${drawerTeam.value.id}/members/${memberId}`, {

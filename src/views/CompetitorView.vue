@@ -3,6 +3,8 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { diveDescription } from '@/composables/useDiveLabel'
+import { confirmAction } from '@/composables/useConfirm'
+import { showSuccess, showError } from '@/composables/useNotify'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -247,12 +249,18 @@ async function saveAsTemplate() {
 }
 
 async function deleteTemplate(t) {
-  if (!confirm(`Delete template "${t.name}"?`)) return
+  if (!await confirmAction({
+    title: `Delete template "${t.name}"?`,
+    body:  'Templates are personal — deleting yours doesn\'t affect anyone else\'s.',
+    confirmLabel: 'Delete template',
+    confirmKind:  'danger',
+  })) return
   try {
     await auth.apiFetch(`/api/templates/${t.id}`, { method: 'DELETE' })
     templates.value = templates.value.filter(x => x.id !== t.id)
+    showSuccess(`Deleted template "${t.name}"`)
   } catch (err) {
-    alert('Failed to delete: ' + err.message)
+    showError(`Failed to delete: ${err.message}`)
   }
 }
 

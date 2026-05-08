@@ -430,12 +430,20 @@ test("meet-manager full E2E (random variant)", async ({
   await page.waitForTimeout(WORKFLOW_HOLD_MS);
   await checkinContinueBtn.click();
 
-  // STATE 2 — Orange randomise button.
+  // STATE 2 — Orange randomise button. Click opens a confirm
+  // modal (cut from native confirm() to a styled modal that
+  // spells out the consequences); click the modal's Randomise
+  // primary button to actually run the shuffle.
   const wfOrangeBtn = page.locator(".wf-btn.wf-btn-orange");
   await expect(wfOrangeBtn).toBeVisible({ timeout: 5000 });
   await expect(wfOrangeBtn).toHaveText(/Randomise Dive Order/i);
   await page.waitForTimeout(WORKFLOW_HOLD_MS);
   await wfOrangeBtn.click();
+  const randomiseConfirm = page.locator(".confirm-modal .confirm-btn-warn", {
+    hasText: /Randomise/i,
+  });
+  await expect(randomiseConfirm).toBeVisible({ timeout: 5000 });
+  await randomiseConfirm.click();
 
   // STATE 3 — Yellow referee sign-off button.
   // Cut 2: clicking the yellow button now opens a modal with two
@@ -646,9 +654,16 @@ test("meet-manager full E2E (random variant)", async ({
   // status to Completed and pops the in-room leaderboard.
   // ============================================================
   // The Next button morphs into a Finalise variant; clicking it
-  // calls finaliseEvent() which fires the same status flip the
-  // top-right Finalise button does.
+  // calls finaliseEvent() which now opens a confirm modal listing
+  // the consequences (recap publishes, results emails go out,
+  // …). Click the modal's primary "Finalise & publish" button to
+  // actually flip the status.
   await nextBtn.click();
+  const finaliseConfirm = page.locator(".confirm-modal .confirm-btn-primary", {
+    hasText: /Finalise/i,
+  });
+  await expect(finaliseConfirm).toBeVisible({ timeout: 5000 });
+  await finaliseConfirm.click();
   // The Control Room's lbShow modal opens; the underlying status
   // flip propagates so the audience scoreboard's recap is ready.
   await page.waitForTimeout(LOGIN_HOLD_MS);

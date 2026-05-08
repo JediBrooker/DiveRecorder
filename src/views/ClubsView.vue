@@ -2,6 +2,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { confirmAction } from '@/composables/useConfirm'
+import { showSuccess, showError } from '@/composables/useNotify'
 
 const auth = useAuthStore()
 
@@ -138,15 +140,28 @@ async function submitEdit() {
 }
 
 async function deleteClub(club) {
-  const warn = club.member_count
-    ? `Delete "${club.name}"? ${club.member_count} member${club.member_count === 1 ? ' is' : 's are'} currently in this club. They will be unassigned (their accounts stay).`
-    : `Delete "${club.name}"?`
-  if (!confirm(warn)) return
+  const consequences = []
+  if (club.member_count) {
+    consequences.push(
+      `${club.member_count} member${club.member_count === 1 ? ' will be' : 's will be'} unassigned (their accounts stay)`,
+    )
+  }
+  consequences.push('Historical scoreboard and recap views still show the club name on existing dives')
+  if (!await confirmAction({
+    title: `Delete club "${club.name}"?`,
+    body:  club.member_count
+      ? `${club.member_count} member${club.member_count === 1 ? ' is' : 's are'} currently in this club.`
+      : 'No active members in this club.',
+    consequences,
+    confirmLabel: 'Delete club',
+    confirmKind:  'danger',
+  })) return
   try {
     await auth.apiFetch(`/api/clubs/${club.id}`, { method: 'DELETE' })
     await loadClubs()
+    showSuccess(`Deleted "${club.name}"`)
   } catch (err) {
-    alert(err.message)
+    showError(err.message)
   }
 }
 

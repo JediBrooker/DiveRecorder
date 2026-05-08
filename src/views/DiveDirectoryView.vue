@@ -14,6 +14,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { confirmAction } from '@/composables/useConfirm'
+import { showSuccess, showError } from '@/composables/useNotify'
 
 const auth = useAuthStore()
 
@@ -214,12 +216,23 @@ async function submitEdit() {
 }
 
 async function deleteDive(d) {
-  if (!confirm(`Delete custom dive ${d.dive_code} ${d.position} (${fmtHeight(d.height)})?`)) return
+  if (!await confirmAction({
+    title: `Delete custom dive ${d.dive_code}${d.position}?`,
+    body:  `${fmtHeight(d.height)} · DD ${parseFloat(d.dd).toFixed(1)}`,
+    consequences: [
+      'Existing dive list rows referencing this code keep their stored DD',
+      'Future searches in the dive picker won\'t surface it',
+      'World Aquatics core dives are protected and never deletable',
+    ],
+    confirmLabel: 'Delete dive',
+    confirmKind:  'danger',
+  })) return
   try {
     await auth.apiFetch(`/api/dive-directory/${d.id}`, { method: 'DELETE' })
     await loadDives()
+    showSuccess(`Deleted ${d.dive_code}${d.position}`)
   } catch (err) {
-    alert(err.message)
+    showError(err.message)
   }
 }
 

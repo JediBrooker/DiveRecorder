@@ -697,11 +697,16 @@ async function randomizeStartOrder() {
     return
   }
   const ev = currentEvent.value
-  if (!confirm(
-    `Randomise the start order for "${ev.name}"?\n\n`
-    + `Every diver's position will be reshuffled across all rounds. `
-    + `You can re-run this until you're happy with the order.`
-  )) return
+  if (!await confirmAction({
+    title: 'Randomise dive order?',
+    body:  `Every diver's position in "${ev.name}" will be reshuffled across all rounds.`,
+    consequences: [
+      'You can re-run randomise as many times as you like before sign-off',
+      'Manual reordering after this overrides the random order',
+    ],
+    confirmLabel: 'Randomise',
+    confirmKind:  'warn',
+  })) return
   orderBusy.value = true
   try {
     await auth.apiFetch(`/api/events/${ev.id}/dive-lists/randomize`, {
@@ -733,9 +738,12 @@ async function randomizeStartOrder() {
 // advance to sign-off.
 async function confirmDiveOrder() {
   if (!currentEvent.value) return
-  if (!confirm(
-    `Lock in the current dive order for "${currentEvent.value.name}" without randomising?`
-  )) return
+  if (!await confirmAction({
+    title: 'Use current dive order?',
+    body:  `Skip randomise — lock in the order you've already arranged for "${currentEvent.value.name}" and advance to sign-off.`,
+    confirmLabel: 'Use current order',
+    confirmKind:  'primary',
+  })) return
   orderBusy.value = true
   try {
     await auth.apiFetch(`/api/events/${currentEvent.value.id}/dive-order/confirm`, {
@@ -944,12 +952,16 @@ async function generateSignoffCode() {
 // belt-and-braces server-trip.
 async function managerAttestSignoff() {
   if (!currentEvent.value) return
-  if (!confirm(
-    `Sign off as the meet manager?\n\n`
-    + `Your name (${auth.user?.full_name || 'manager'}) will be recorded ` +
-    `against the event audit trail. Use this only when you've already ` +
-    `confirmed the dive order with the referee verbally.`
-  )) return
+  if (!await confirmAction({
+    title: 'Sign off as meet manager?',
+    body:  `Use this fallback only when you've already confirmed the dive order with the referee verbally.`,
+    consequences: [
+      `Your name (${auth.user?.full_name || 'manager'}) is recorded against the event audit trail`,
+      'The referee can countersign later if your federation requires it',
+    ],
+    confirmLabel: 'Attest sign-off',
+    confirmKind:  'warn',
+  })) return
   orderBusy.value = true
   try {
     const r = await auth.apiFetch(
@@ -1074,11 +1086,16 @@ async function commitStartEvent() {
 
 async function resetDiveOrderWorkflow() {
   if (!currentEvent.value) return
-  if (!confirm(
-    `Reset the pre-meet workflow for "${currentEvent.value.name}"?\n\n`
-    + `Check-in, randomise, and referee sign-off stamps will be cleared ` +
-    `so you can walk the steps again.`
-  )) return
+  if (!await confirmAction({
+    title: 'Reset pre-meet workflow?',
+    body:  `Walk the four pre-meet steps again for "${currentEvent.value.name}".`,
+    consequences: [
+      'Check-in, randomise, and referee sign-off stamps will be cleared',
+      'The roster + dive order itself stays intact — only the workflow stamps reset',
+    ],
+    confirmLabel: 'Reset workflow',
+    confirmKind:  'warn',
+  })) return
   orderBusy.value = true
   try {
     await auth.apiFetch(`/api/events/${currentEvent.value.id}/dive-order/reset`, {
@@ -2191,7 +2208,7 @@ function refAction(type) {
   if (type === 'redive') socket.emit('referee_redive', payload)
 }
 
-function nextDiver() {
+async function nextDiver() {
   // Cancel any in-flight auto-advance — whether the operator
   // clicked Next manually OR the timer fired, the timer needs
   // to be gone before setActive() so it doesn't race a fresh
@@ -2206,7 +2223,16 @@ function nextDiver() {
   const scoresIn = Object.keys(scoresThisRound.value).length
   const partial = totalJudges > 0 && scoresIn > 0 && scoresIn < totalJudges
   if (!nextBtnComplete.value && partial) {
-    if (!confirm(`Move on with only ${scoresIn} of ${totalJudges} scores in?`)) return
+    if (!await confirmAction({
+      title: 'Skip ahead with partial scores?',
+      body: `Only ${scoresIn} of ${totalJudges} judges have submitted for this dive.`,
+      consequences: [
+        'The dive will close with whatever scores arrived',
+        'Missing judges can still amend via score correction afterwards',
+      ],
+      confirmLabel: 'Move on',
+      confirmKind: 'warn',
+    })) return
   }
   if (nextBtnComplete.value) {
     finaliseEvent()
@@ -2291,7 +2317,27 @@ async function showLeaderboard() {
 
 async function finaliseEvent() {
   if (!currentEvent.value) return
-  if (!confirm(`Finalise "${currentEvent.value.name}" and show the leaderboard?`)) return
+  const ev = currentEvent.value
+  // Compose competitor count for the consequences text — N
+  // unique non-withdrawn divers in the roster.
+  const diverIds = new Set()
+  for (const r of roster.value) {
+    if (r.withdrawn_at) continue
+    diverIds.add(r.competitor_id || r.diver_id || r.dive_list_id)
+  }
+  const n = diverIds.size
+  if (!await confirmAction({
+    title: 'Finalise event?',
+    body:  `"${ev.name}" will flip to Completed and the recap publishes.`,
+    consequences: [
+      'Public scoreboard switches to recap mode (podium + full standings)',
+      'Event lands in the public Results Archive',
+      n ? `"Results posted" emails go out to ${n} competitor${n === 1 ? '' : 's'} (if SMTP is configured)` : '"Results posted" emails go out to every competitor (if SMTP is configured)',
+      'Reversible by an org admin via Meet Manager → set status back to Live',
+    ],
+    confirmLabel: 'Finalise & publish',
+    confirmKind:  'primary',
+  })) return
   try {
     const evId = currentEvent.value.id
     const evName = currentEvent.value.name
