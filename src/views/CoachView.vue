@@ -82,10 +82,15 @@ onMounted(load)
 
     <div v-if="loading && !rows.length" class="empty">Loading your divers…</div>
     <div v-else-if="error" class="msg msg-error">{{ error }}</div>
-    <div v-else-if="!rows.length" class="empty">
-      No divers linked to your account yet.
-      <br>
-      <span style="font-size:11px">Ask your org admin to link your divers from the User Manager.</span>
+    <div v-else-if="!rows.length" class="empty-state-card">
+      <div class="empty-state-icon">🤝</div>
+      <div class="empty-state-title">No divers linked yet</div>
+      <div class="empty-state-body">
+        Once your org admin links you to the divers you coach, their
+        events, results, and analytics will appear here. Ask your
+        federation's admin to open <strong>User Manager → your row →
+        Coach Links</strong> and add the divers you mentor.
+      </div>
     </div>
 
     <template v-else>

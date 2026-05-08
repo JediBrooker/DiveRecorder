@@ -647,3 +647,41 @@ h1, h2, h3, h4 {
   /* Modal padding keeps shrinking with viewport. */
   .modal { padding: 1.25rem 1rem; }
 }
+
+/* =========================================================
+   Empty-state cards — surfaces that have nothing to show
+   yet (no events, no clubs, no linked divers, no events open
+   for entries) render this block instead of a thin "no rows"
+   line. Catches the user at exactly the moment they're
+   stuck and tells them what to do next without them having
+   to find the right tile / button by themselves.
+   ========================================================= */
+.empty-state-card {
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center;
+  padding: 3rem 1.5rem;
+  margin: 1.5rem auto;
+  max-width: 540px;
+  background: var(--bg-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-3);
+}
+.empty-state-icon {
+  font-size: 48px; line-height: 1;
+  margin-bottom: 1rem;
+  opacity: 0.85;
+}
+.empty-state-title {
+  font-family: var(--font-display); font-size: 18px; font-weight: 800;
+  font-style: italic; letter-spacing: 0.04em;
+  color: var(--text); margin-bottom: 0.6rem;
+}
+.empty-state-body {
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6;
+  color: var(--text-3);
+  max-width: 460px;
+}
+.empty-state-body strong {
+  color: var(--text-2); font-weight: 700;
+}

@@ -253,9 +253,24 @@ onMounted(async () => {
           <tr v-else-if="errorMsg">
             <td :colspan="isSysAdmin ? 6 : 5" class="empty-state">{{ errorMsg }}</td>
           </tr>
+          <tr v-else-if="!filteredClubs.length && !clubs.length">
+            <td :colspan="isSysAdmin ? 6 : 5">
+              <div class="empty-state-card">
+                <div class="empty-state-icon">🏢</div>
+                <div class="empty-state-title">No clubs yet</div>
+                <div class="empty-state-body">
+                  Clubs are the local groupings under your federation. They
+                  surface as the cyan short-code pill on the scoreboard
+                  ("NZL-1", "AUS-3", etc.) — useful when an event has divers
+                  from multiple clubs. Click <strong>+ New Club</strong> above
+                  to add your first one.
+                </div>
+              </div>
+            </td>
+          </tr>
           <tr v-else-if="!filteredClubs.length">
             <td :colspan="isSysAdmin ? 6 : 5" class="empty-state">
-              {{ clubs.length ? 'No clubs match the current filter.' : 'No clubs yet — create your first one above.' }}
+              No clubs match the current filter.
             </td>
           </tr>
           <template v-for="c in filteredClubs" :key="c.id">

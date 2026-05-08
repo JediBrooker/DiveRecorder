@@ -367,9 +367,24 @@ watch(() => drawerTeam.value, (val) => {
           <tr v-else-if="errorMsg">
             <td :colspan="isSysAdmin ? 6 : 5" class="empty-state">{{ errorMsg }}</td>
           </tr>
+          <tr v-else-if="!filteredTeams.length && !teams.length">
+            <td :colspan="isSysAdmin ? 6 : 5">
+              <div class="empty-state-card">
+                <div class="empty-state-icon">🏊‍♀️</div>
+                <div class="empty-state-title">No teams yet</div>
+                <div class="empty-state-body">
+                  Teams sit alongside clubs as a separate grouping for
+                  <strong>FINA Team Event</strong> entries — multiple members
+                  share a team and dive across rounds together. A diver can
+                  belong to several teams over time. Click
+                  <strong>+ New Team</strong> above to add your first one.
+                </div>
+              </div>
+            </td>
+          </tr>
           <tr v-else-if="!filteredTeams.length">
             <td :colspan="isSysAdmin ? 6 : 5" class="empty-state">
-              {{ teams.length ? 'No teams match the current filter.' : 'No teams yet — create your first one above.' }}
+              No teams match the current filter.
             </td>
           </tr>
           <template v-for="t in filteredTeams" :key="t.id">

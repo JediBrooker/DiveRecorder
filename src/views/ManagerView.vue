@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -594,8 +594,30 @@ async function removeTeamFromEvent(team) {
   }
 }
 
+// Per-event ⋯ overflow menu — Edit / Audit Log / Import
+// Roster / Delete moved here so the row's primary affordance
+// (status-aware: Open Control Room / View Results) is the
+// dominant button rather than fighting four equal-weight
+// siblings. Only one menu is open at a time, identified by
+// the event id; null means closed.
+const overflowOpenEventId = ref(null)
+function toggleOverflow(id) {
+  overflowOpenEventId.value = overflowOpenEventId.value === id ? null : id
+}
+function onOutsideClick(e) {
+  if (!e.target.closest?.('.dropdown-host')) overflowOpenEventId.value = null
+}
+
 onMounted(async () => {
   await Promise.all([loadEvents(), loadMeets(), loadEventTemplates()])
+  // Capture-phase mousedown closes the overflow menu when the
+  // user clicks anywhere outside its wrapper. Capture phase
+  // matters so the row's own ⋯ trigger still fires its toggle
+  // before this listener runs.
+  window.addEventListener('mousedown', onOutsideClick, true)
+})
+onUnmounted(() => {
+  window.removeEventListener('mousedown', onOutsideClick, true)
 })
 </script>
 
@@ -935,8 +957,21 @@ onMounted(async () => {
         </select>
       </div>
       <div class="events-list">
-        <div v-if="!filteredManagerEvents.length" class="empty">
-          {{ events.length ? 'No events match the filter.' : 'No events yet. Create one to get started.' }}
+        <!-- Empty state — first visit shows a richer card with a
+             pointer at the New Event form on the left; an
+             active filter shows a smaller "no matches" line so
+             the operator clears the filter without confusion. -->
+        <div v-if="!filteredManagerEvents.length && !events.length" class="empty-state-card">
+          <div class="empty-state-icon">📅</div>
+          <div class="empty-state-title">No events yet</div>
+          <div class="empty-state-body">
+            Events are the heart of a meet — they hold the judges, the rounds,
+            the dive lists, and the scoring. Build your first one using the
+            <strong>New Event</strong> form on the left.
+          </div>
+        </div>
+        <div v-else-if="!filteredManagerEvents.length" class="empty">
+          No events match the filter.
         </div>
         <div v-for="ev in filteredManagerEvents" :key="ev.id" class="event-item">
           <div style="flex:1;min-width:0">
@@ -976,26 +1011,79 @@ onMounted(async () => {
               <span :style="{ color: statusColor(ev.status) }">{{ ev.status }}</span>
             </div>
           </div>
+          <!-- Actions — restructured into:
+                 [optional secondaries] [primary action] [⋯]
+               so the operator sees ONE dominant call-to-action
+               per event. Primary is status-aware:
+                 Upcoming  → "Open Control Room →"  (drive pre-meet workflow)
+                 Live      → "🔴 LIVE — Open"        (jump back into the meet)
+                 Completed → "View Results"          (ghost; recap is the action)
+               Edit / Audit Log / Import Roster / Delete demote
+               into the ⋯ overflow menu so they don't compete
+               with the primary affordance. -->
           <div class="actions">
+            <!-- Optional context-specific secondaries — only
+                 surface when relevant to this event. -->
             <button v-if="ev.event_type === 'team'"
                     class="btn btn-ghost btn-sm"
                     @click="openTeamsModal(ev)">Teams</button>
-            <!-- "Advance Top N" — visible on any feeder stage
-                 (preliminary or semifinal) that has a linked
-                 next-stage event. Pulls top-N standings from
-                 the source and seeds the next stage's roster.
-                 Idempotent — re-run after a correction. -->
             <button v-if="(ev.event_format === 'preliminary' || ev.event_format === 'semifinal') && eventHasNextStage(ev)"
                     class="btn btn-ghost btn-sm advance-btn"
-                    @click="advanceToNextStage(ev)">
+                    @click="advanceToNextStage(ev)"
+                    title="Pull the top-N divers from this stage into the next stage's roster">
               Advance Top {{ ev.advance_count || 12 }} →
             </button>
-            <button class="btn btn-ghost btn-sm" @click="openRosterImport(ev)">
-              Import Roster
-            </button>
-            <RouterLink :to="`/events/${ev.id}/audit`" class="btn btn-ghost btn-sm">Audit Log</RouterLink>
-            <button class="btn btn-ghost btn-sm" @click="openEdit(ev)">Edit</button>
-            <button class="btn btn-danger btn-sm" @click="deleteEvent(ev.id)">Delete</button>
+            <!-- Status-aware primary action. Each path deep-
+                 links into the screen the operator's most
+                 likely to want next. -->
+            <RouterLink v-if="ev.status === 'Upcoming'"
+                        :to="`/control?event=${ev.id}`"
+                        class="btn btn-primary btn-sm"
+                        title="Open the Control Room with this event preselected — drive check-in, randomise, sign-off, and start the meet">
+              Open Control Room →
+            </RouterLink>
+            <RouterLink v-else-if="ev.status === 'Live'"
+                        :to="`/control?event=${ev.id}`"
+                        class="btn btn-live btn-sm"
+                        title="Live — drop back into the Control Room">
+              🔴 LIVE — Open
+            </RouterLink>
+            <RouterLink v-else
+                        :to="`/scoreboard/${ev.id}`"
+                        class="btn btn-ghost btn-sm"
+                        title="View the recap — podium, full standings, dive-by-dive">
+              View Results
+            </RouterLink>
+            <!-- ⋯ overflow — secondary maintenance actions the
+                 operator only touches occasionally. Edit /
+                 Audit Log / Import Roster / Delete all live
+                 here so the row reads as a single primary
+                 action at rest. -->
+            <div class="dropdown-host">
+              <button class="btn btn-ghost btn-sm btn-icon"
+                      :aria-expanded="overflowOpenEventId === ev.id"
+                      title="More actions"
+                      @click.stop="toggleOverflow(ev.id)">⋯</button>
+              <div v-if="overflowOpenEventId === ev.id" class="event-overflow-menu">
+                <button class="dropdown-item"
+                        @click="openEdit(ev); overflowOpenEventId = null">
+                  Edit event
+                </button>
+                <RouterLink :to="`/events/${ev.id}/audit`"
+                            class="dropdown-item"
+                            @click="overflowOpenEventId = null">
+                  Audit log
+                </RouterLink>
+                <button class="dropdown-item"
+                        @click="openRosterImport(ev); overflowOpenEventId = null">
+                  Import roster…
+                </button>
+                <button class="dropdown-item dropdown-item-danger"
+                        @click="deleteEvent(ev.id); overflowOpenEventId = null">
+                  Delete event
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1277,7 +1365,69 @@ onMounted(async () => {
   background: var(--green) !important;
   color: var(--bg) !important;
 }
-.actions{display:flex;gap:0.5rem;flex-shrink:0;}
+.actions{display:flex;gap:0.5rem;flex-shrink:0;align-items:center;}
+
+/* "🔴 LIVE — Open" — Live primary action. Same dimensions as
+   the other btn-sm pills, but red-tinted so the operator can
+   spot a running event at a glance from the Meet Manager
+   list. The pulse is subtle (opacity only — no movement) so
+   it doesn't compete with the audience-facing scoreboard's
+   own LIVE badge. */
+.btn-live {
+  background: rgba(239, 68, 68, 0.16);
+  color: var(--red);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  font-family: var(--font-display); font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 0.45rem 0.95rem; border-radius: var(--radius-sm);
+  text-decoration: none;
+  animation: pulse-live 2.4s ease-in-out infinite;
+}
+.btn-live:hover {
+  background: rgba(239, 68, 68, 0.26);
+  border-color: var(--red);
+}
+@keyframes pulse-live {
+  0%, 100% { opacity: 0.95; }
+  50%      { opacity: 0.7; }
+}
+
+/* ⋯ overflow menu on the event row. Same visual language as
+   the dropdown menus in the Control Room (header overflow,
+   Adjust ▾, Auto-next ▾) — small popover anchored under the
+   trigger, items as full-width buttons with hover tint. The
+   "delete" item gets the red:hover treatment so a destructive
+   action is colour-coded but doesn't dominate the list. */
+.btn-icon {
+  font-weight: 700; font-size: 16px; line-height: 1;
+  padding: 0.4rem 0.7rem;
+}
+.dropdown-host { position: relative; }
+.event-overflow-menu {
+  position: absolute; z-index: 50;
+  top: calc(100% + 0.4rem); right: 0;
+  min-width: 200px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 0.3rem;
+  display: flex; flex-direction: column;
+  font-family: var(--font-display); font-size: 12px;
+}
+.event-overflow-menu .dropdown-item {
+  background: transparent; border: 0; cursor: pointer;
+  padding: 0.55rem 0.7rem; border-radius: 4px;
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  letter-spacing: 0.04em; color: var(--text-2);
+  text-align: left; text-decoration: none;
+  transition: background 0.12s, color 0.12s;
+}
+.event-overflow-menu .dropdown-item:hover {
+  background: var(--bg-3); color: var(--text);
+}
+.event-overflow-menu .dropdown-item-danger:hover {
+  background: rgba(239, 68, 68, 0.12); color: var(--red);
+}
 .events-list{display:flex;flex-direction:column;gap:0.75rem;}
 .empty{color:var(--text-3);font-size:12px;text-align:center;padding:2rem;}
 .event-type-pill {

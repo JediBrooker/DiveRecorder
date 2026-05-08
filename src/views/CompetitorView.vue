@@ -386,7 +386,23 @@ watch(currentEvent, async (ev) => {
   </div>
 
   <div class="main">
-    <div class="card">
+    <!-- Empty state — diver landed here but their federation
+         doesn't have any events open for entries (or any events
+         at all). The form is useless without a pickable event,
+         so explain what's missing rather than show an empty
+         dropdown. -->
+    <div v-if="!eventOptions.open.length && !eventOptions.closed.length" class="empty-state-card">
+      <div class="empty-state-icon">📭</div>
+      <div class="empty-state-title">No events open for entries</div>
+      <div class="empty-state-body">
+        Your federation hasn't opened any events for entries yet. When the
+        meet manager creates an upcoming event, it'll appear here and
+        you'll be able to submit your dive list. Check back later, or ask
+        your meet manager when entries open.
+      </div>
+    </div>
+
+    <div v-else class="card">
       <label class="label" style="margin-bottom:0.75rem;display:block">Step 1 — Select Event</label>
       <select class="select" v-model="selectedEventId" @change="onEventChange">
         <option value="">— Choose Active Event —</option>
@@ -540,7 +556,10 @@ watch(currentEvent, async (ev) => {
         <div v-if="submitErr" class="msg msg-error" style="margin-top:1rem">{{ submitErr }}</div>
         <button class="btn btn-primary-lg" style="margin-top:1.5rem"
                 @click="submitList"
-                :disabled="loading || !isCurrentEventOpen">
+                :disabled="loading || !isCurrentEventOpen"
+                :title="!isCurrentEventOpen
+                  ? notAcceptingReason(currentEvent)
+                  : 'Submit your dive list for this event'">
           {{ loading ? 'Submitting...'
              : !isCurrentEventOpen ? 'Entries closed'
              : 'Finalise & Submit List' }}

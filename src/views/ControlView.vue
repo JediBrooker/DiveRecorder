@@ -69,6 +69,28 @@ const nextBtnComplete = ref(false)
 const finaliseBtnShow = ref(false)
 const finaliseBtnText = ref('Finalise Event ✓')
 
+// Explanatory tooltip for the Next Diver button so a new
+// operator can see WHY the button is disabled rather than
+// having to guess. Computes a rich reason from the current
+// state (no active diver / waiting for N more judge scores)
+// and falls back to a "what does this do + keyboard shortcut"
+// hint when enabled. Wired as :title on the button.
+const nextBtnTitle = computed(() => {
+  if (!nextBtnDisabled.value) {
+    return nextBtnComplete.value
+      ? 'All rounds complete — finalise the event'
+      : 'Advance to the next diver (→ or Space)'
+  }
+  if (!currentActive.value) {
+    return 'Pick an active diver from the queue first'
+  }
+  const need = parseInt(currentEvent.value?.number_of_judges) || 5
+  const have = Object.keys(scoresThisRound.value).length
+  const remaining = Math.max(0, need - have)
+  if (remaining === 0) return 'Loading…'
+  return `Waiting for ${remaining} more judge score${remaining === 1 ? '' : 's'}`
+})
+
 // =============================================================
 // SHOT CLOCK — 30-second WA rule timer.
 // Starts when a new active diver is set; operator can pause /
@@ -2119,6 +2141,16 @@ const medals = ['🥇', '🥈', '🥉']
 
 onMounted(async () => {
   events.value = await auth.apiFetch('/api/events')
+  // Honour /control?event=<id> so deep-links from Meet Manager
+  // (the per-event "Open Control Room" primary button) land on
+  // the right event preselected, instead of dumping the
+  // operator on the picker. Falls through silently if the id
+  // doesn't match any event the caller can see.
+  const preselectId = route.query.event
+  if (preselectId && events.value.some(e => e.id === preselectId)) {
+    selectedEventId.value = preselectId
+    await onEventChange()
+  }
   window.addEventListener('keydown', onKeydown)
   // Capture-phase mousedown so a click on the Adjust / kbd-? /
   // header-⋯ trigger fires its own toggle BEFORE this listener
@@ -2547,7 +2579,12 @@ onUnmounted(() => {
                trailing affordances, instead of three rows. -->
           <div class="active-bottom">
             <div class="nav-btns">
-              <button class="btn btn-ghost" @click="setActive(currentIndex - 1)" :disabled="currentIndex <= 0">← Prev</button>
+              <button class="btn btn-ghost"
+                      @click="setActive(currentIndex - 1)"
+                      :disabled="currentIndex <= 0"
+                      :title="currentIndex <= 0
+                        ? 'Already at the first diver in the queue'
+                        : 'Step back to the previous diver (←)'">← Prev</button>
               <!-- Adjust ▾ — Failed Dive / Cap Score / Re-Dive
                    collapsed into a single dropdown. F/R keyboard
                    shortcuts still work via onKeydown. -->
@@ -2557,7 +2594,9 @@ onUnmounted(() => {
                   :disabled="!currentActive"
                   @click.stop="toggleMenu('adjust')"
                   :aria-expanded="adjustMenuOpen"
-                  title="Failed dive, cap score, or re-dive"
+                  :title="!currentActive
+                    ? 'Pick an active diver from the queue first'
+                    : 'Failed dive, cap score, or re-dive'"
                 >Adjust ▾</button>
                 <div v-if="adjustMenuOpen" class="dropdown-menu adjust-menu">
                   <button class="dropdown-item dropdown-item-danger"
@@ -2586,6 +2625,7 @@ onUnmounted(() => {
                     nextBtnComplete ? 'btn-complete' : 'btn-primary',
                     autoAdvanceCountdown > 0 ? 'btn-counting' : '']"
                   :disabled="nextBtnDisabled"
+                  :title="nextBtnTitle"
                   @click="nextDiver"
                 >
                   {{ nextBtnText }}
@@ -3208,17 +3248,26 @@ onUnmounted(() => {
       <div class="signoff-tabs">
         <button :class="['signoff-tab', signoffMode === 'push' ? 'is-active' : '']"
                 @click="signoffMode = 'push'; signoffError = ''"
-                :disabled="!!signoffWaiting || !!signoffCode">
+                :disabled="!!signoffWaiting || !!signoffCode"
+                :title="(!!signoffWaiting || !!signoffCode)
+                  ? 'A request is already pending — close it (Cancel) before switching modes'
+                  : 'Push a notification to the referee’s phone for them to approve'">
           📱 Send to referee's device
         </button>
         <button :class="['signoff-tab', signoffMode === 'code' ? 'is-active' : '']"
                 @click="signoffMode = 'code'; signoffError = ''"
-                :disabled="!!signoffWaiting || !!signoffCode">
+                :disabled="!!signoffWaiting || !!signoffCode"
+                :title="(!!signoffWaiting || !!signoffCode)
+                  ? 'A request is already pending — close it (Cancel) before switching modes'
+                  : 'Generate a 6-digit code + QR for the referee to enter on their phone'">
           🔢 Code on referee's device
         </button>
         <button :class="['signoff-tab', signoffMode === 'credential' ? 'is-active' : '']"
                 @click="signoffMode = 'credential'; signoffError = ''"
-                :disabled="!!signoffWaiting || !!signoffCode">
+                :disabled="!!signoffWaiting || !!signoffCode"
+                :title="(!!signoffWaiting || !!signoffCode)
+                  ? 'A request is already pending — close it (Cancel) before switching modes'
+                  : 'Hand the laptop to the referee — they sign in with their own credentials'">
           🔐 Sign at this device
         </button>
         <button v-if="!enforceSignoff"
@@ -3250,6 +3299,7 @@ onUnmounted(() => {
           <div class="signoff-actions">
             <button class="btn btn-primary"
                     :disabled="orderBusy || !signoffPickedRefId"
+                    :title="!signoffPickedRefId ? 'Select a referee from the list above first' : ''"
                     @click="sendSignoffPush">
               {{ orderBusy ? 'Sending…' : 'Send sign-off request' }}
             </button>
@@ -3284,6 +3334,7 @@ onUnmounted(() => {
           <div class="signoff-actions">
             <button class="btn btn-primary"
                     :disabled="orderBusy || !signoffPickedRefId"
+                    :title="!signoffPickedRefId ? 'Select a referee from the list above first' : ''"
                     @click="generateSignoffCode">
               {{ orderBusy ? 'Generating…' : 'Generate code' }}
             </button>
@@ -3366,6 +3417,8 @@ onUnmounted(() => {
         <div class="signoff-actions">
           <button class="btn btn-primary"
                   :disabled="orderBusy || !credUsername.trim() || !credPassword"
+                  :title="!credUsername.trim() ? 'Enter the referee’s username'
+                    : (!credPassword ? 'Enter the referee’s password' : '')"
                   @click="submitCredentialSignoff">
             {{ orderBusy ? 'Verifying…' : 'Sign off' }}
           </button>
@@ -3484,7 +3537,11 @@ onUnmounted(() => {
       <div v-if="lateErr" class="msg msg-error">{{ lateErr }}</div>
       <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:1rem">
         <button class="btn btn-ghost btn-sm" @click="lateOpen = false">Cancel</button>
-        <button class="btn btn-primary btn-sm" :disabled="lateBusy || !lateAllFilled || !lateCompetitorId" @click="submitLateEntry">
+        <button class="btn btn-primary btn-sm"
+                :disabled="lateBusy || !lateAllFilled || !lateCompetitorId"
+                :title="!lateCompetitorId ? 'Pick a diver from the list above first'
+                  : (!lateAllFilled ? 'Fill in a dive for every round before submitting' : '')"
+                @click="submitLateEntry">
           {{ lateBusy ? 'Adding…' : `Add ${lateRounds.length}-round list` }}
         </button>
       </div>
