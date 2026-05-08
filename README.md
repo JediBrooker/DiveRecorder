@@ -97,19 +97,19 @@ Browse every completed meet across the platform. Filter by country, year, height
 
 #### Dashboard
 
-Each user's role-based hub. Tiles only show the surfaces the user can actually open — divers see Diver Portal + My Profile; org admins additionally see Meet Manager, User Manager, Clubs, Teams, Score Audit. The grid collapses to a single column on phone.
+Each user's role-based hub. The top section is **action-first** — operator-class users see a "What needs your attention" panel listing live events (🔴 red-tinted, single-click back into the Control Room) and the next few upcoming events sorted by closest entries-close deadline ("entries close in 1 day"). Below that, a tile grid of every surface the user can actually open — divers see Diver Portal + My Profile; org admins additionally see Meet Manager, User Manager, Clubs, Teams, Score Audit. The grid collapses to a single column on phone.
 
 ![Dashboard](./docs/screenshots/dashboard.png)
 
 #### Meet Manager
 
-The operator's event-configuration surface. Left column is the New Event form (event type, gender, board height, panel size, rounds, optional age group + per-round DD caps); right column lists Your Events with one-click access to Import Roster, Audit Log, Edit, Delete. Save a fully-built event configuration as a template once, apply to a new event with one click. Events that bundle into a meet share a public landing page and a printable PDF program.
+The operator's event-configuration surface. Left column is the New Event form (event type, gender, board height, panel size, rounds, optional age group + per-round DD caps). Right column is **status-aware**: each event row's primary action reflects what to do next — `Open Control Room →` for Upcoming, `🔴 LIVE — Open` (subtle pulse) for Live, `View Results` for Completed. Edit / Audit Log / Import Roster / Delete demote into a `⋯` overflow menu so the primary affordance dominates. Save a fully-built event configuration as a template once, apply to a new event with one click. Events that bundle into a meet share a public landing page and a printable PDF program.
 
 ![Meet Manager](./docs/screenshots/meet-manager.png)
 
 #### Control Room
 
-The operator's cockpit during a live meet, deliberately pared back so only the things you need every dive are visible at rest — secondary actions live behind small popovers. Left column is the running history of completed dives (click any card to open the Score Correction modal). Centre column is the active diver — name, country chip, club affiliation, dive code + DD + description, the live judge tile strip, an inline auto-cycling status pill (READY / DIVING / JUDGING), and the 30-second WA shot clock anchored top-right. The bottom action row reads `← Prev · Adjust ▾ · Next Diver → ▾ · ?` — Adjust houses Failed Dive / Cap Score / Re-Dive; Next Diver's `▾` opens the Auto-next picker; `?` reveals every keyboard shortcut. Right column is the diver queue with Up Next visible and Top 5 Right Now + Dive Order as collapsed accordions. Header `⋯` menu houses Hold / Broadcast mode / Dashboard.
+The operator's cockpit during a live meet, deliberately pared back so only the things you need every dive are visible at rest — secondary actions live behind small popovers. Left column is the running history of completed dives (click any card to open the Score Correction modal). Centre column is the active diver — name, country chip, club affiliation, dive code + DD + description, the live judge tile strip, an inline auto-cycling status pill (READY / DIVING / JUDGING), and the 30-second WA shot clock anchored top-right. The bottom action row reads `← Prev · Adjust ▾ · Next Diver → ▾ · ?` — Adjust houses Failed Dive / Cap Score / Re-Dive; Next Diver's `▾` opens the Auto-next picker; `?` reveals every keyboard shortcut. Right column is the **Dive Order** with a 4-pip pre-meet stepper (`✓ Check-in ── ✓ Randomise ── (3) Sign Off ── (4) Start`) above the colour-coded workflow button so a new operator sees the whole flow at a glance, plus Up Next visible and Top 5 Right Now + Dive Order panels as collapsed accordions. Header `⋯` menu houses Hold / Broadcast mode / Dashboard.
 
 ![Control Room](./docs/screenshots/control-room.png)
 
@@ -216,11 +216,14 @@ The project intentionally avoids a build-time framework like Nuxt or Next — th
 ### Live scoring & operations
 
 - Operator picks the active diver in the Control Room → judges' phones receive a `state_update` socket event → judges submit scores → control room advances to the next diver.
+- **Pre-meet stepper** — 4-pip indicator above the colour-cycling workflow button so a new operator sees the whole flow (`Check-in → Randomise → Sign Off → Start`) at a glance. Done steps tick green; the active step glows cyan.
 - **30-second shot clock** auto-starts when a diver is set; pause/reset; visual amber/red countdown; audible alert at 0.
+- **Auto-cycling status pill** — READY / DIVING / JUDGING derived off the shot clock + judge submissions; broadcasts to the spectator scoreboard so the audience sees what's happening in sync.
 - **Hold / resume** the meet (video review, judge consultation) — broadcasts an amber banner to the spectator scoreboard and disables the judge submit button. Reason text shown publicly.
 - **Score correction** — click any completed dive in the Control Room history; modal lets the manager pick a judge, edit the value, and provide a reason. Audit-logged with old/new values, actor, IP, user agent.
 - **Round-end transition** — when the last diver of a round scores their last judge, the operator gets a prompt to announce standings to the audience.
 - **Referee actions** — failed dive, cap score, redive — broadcast and persisted in the score audit log.
+- **Undo snackbar** for reversible destructive moves — withdraw a diver or finalise an event, get a 8 – 12 second Undo button at the bottom of the screen so a misclick is one tap away from being recovered without an admin's help.
 - **Score persistence + audit logging** on every submission (judge id, IP, user agent). Per-judge socket rate limit (60 submissions/min) blocks abuse.
 - **Connection-lost banners** on Judge + Scoreboard views so a flaky pool-deck wifi is visible immediately.
 
@@ -323,8 +326,12 @@ Email triggers (best-effort, never block the response):
 
 ### Operator surfaces
 
+- **Action-first dashboard** — operator-class users see "What needs your attention" cards above the navigation tile grid. Live events get red-tinted single-click cards (drop straight back into the Control Room); upcoming events sort by closest entries-close deadline ("entries close in 1 day").
+- **Status-aware event rows** in Meet Manager — each row's primary action reflects current state (`Open Control Room →` / `🔴 LIVE — Open` / `View Results`). Edit / Audit Log / Import Roster / Delete demote into a `⋯` overflow menu so the primary affordance dominates.
+- **Empty-state guidance** on Meet Manager / Clubs / Teams / Diver Portal / Coach screens — first visit shows a "what is this surface for, and how do I add my first thing" card instead of a thin "no rows" line.
 - **Broadcast / kiosk mode** — `/scoreboard/:eventId/broadcast` (spectator) and `/control?broadcast=1` (operator) hide page chrome for venue projectors; fonts and tile sizes scale up to read from the back of a pool deck.
 - **Operator keyboard shortcuts** in Control Room — ←/→/Space to advance, 1–9 to jump to roster position, T to reset shot clock, F failed, R redive, H hold, L leaderboard. Status pill (READY → DIVING → JUDGING) auto-cycles off the shot clock + judge submissions, so no manual key for it. A **?** popover next to the Next Diver button surfaces the full reference for new operators.
+- **Disabled-button tooltips** explain the gate — every disabled control says WHY it's disabled (e.g. *"Waiting for 2 more judge scores"* on Next Diver, *"Pick a referee from the list above first"* on Generate Code).
 - **Up Next preview** in the live scoreboard centre column.
 
 ### PWA / offline
