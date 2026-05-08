@@ -238,12 +238,12 @@ const historyItems = ref([])
 const standings = ref([])
 const upcoming = ref([])         // next ≤5 dives queued, populated for Live events
 
-// Show-more pagination — both the Completed Dives column and
-// the centre Up Next list default to a 3-row preview with a
-// toggle to expand. Mirrors the Control Room's same pattern.
-// Spectators get a calmer first paint; one click reveals the
-// full set when they want to scan further.
-const HISTORY_PREVIEW_COUNT  = 3
+// Show-more pagination — Completed Dives defaults to 5 cards
+// (most-recent round of a 5-judge meet usually fits a single
+// round of dives in view), Up Next stays at a tighter 3-row
+// preview because the audience really only needs to see "who's
+// next + on deck". Both have a toggle to expand to the full set.
+const HISTORY_PREVIEW_COUNT  = 5
 const UP_NEXT_PREVIEW_COUNT  = 3
 const historyShowAll = ref(false)
 const upNextShowAll  = ref(false)
@@ -612,6 +612,34 @@ const liveAnnotatedScores = computed(() => {
   if (!liveJudgeScores.value.length) return []
   const csv = liveJudgeScores.value.map(s => s.value).join(',')
   return annotatedScores(csv, currentEvent.value?.number_of_judges)
+})
+
+// Stable-layout placeholders — generates an array of `number_of_judges`
+// tiles ALWAYS (even when no scores have arrived), so the live-judges
+// row's height stays constant from the moment a diver becomes active.
+// Without this the row started at 0px, then jumped to ~50px the
+// instant the first score landed, shoving the catch-up + Up Next
+// blocks below it down. Each slot either carries a populated score
+// (with FINA category + dropped flag) or renders as a dim "—"
+// placeholder; either way the tile dimensions are identical.
+const liveJudgeSlots = computed(() => {
+  const numJudges = Number(currentEvent.value?.number_of_judges) || 5
+  const annotated = liveAnnotatedScores.value
+  const slots = []
+  for (let i = 0; i < numJudges; i++) {
+    const filled = annotated[i]
+    if (filled) {
+      slots.push({
+        filled: true,
+        value: filled.value,
+        category: filled.category,
+        dropped: filled.dropped,
+      })
+    } else {
+      slots.push({ filled: false })
+    }
+  }
+  return slots
 })
 
 // Dive total for the active diver — only populated once the full
@@ -1136,17 +1164,28 @@ onMounted(async () => {
                the Completed-Dives panel uses, so the visual
                vocabulary is consistent. Once the panel is full,
                the high + low pills shade out via .j-dropped and
-               the Dive Total appears below. -->
-          <div v-if="activeDiver && liveAnnotatedScores.length" class="sb-live-judges">
-            <span v-for="(j, i) in liveAnnotatedScores" :key="i"
-                  :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                  :title="j.dropped ? 'Dropped by trim rule' : ''">
-              {{ j.value.toFixed(1) }}
+               the Dive Total appears below.
+               STABLE LAYOUT: we render `number_of_judges` slots
+               ALWAYS — empty ones use `j-empty` styling (dim "—"
+               placeholder). Without this, scores arriving over
+               the socket would push the catch-up + Up Next blocks
+               below by ~70px the moment the first score lands.
+               The dive-total wrapper has a reserved min-height
+               for the same reason. -->
+          <div v-if="activeDiver" class="sb-live-judges">
+            <span v-for="(slot, i) in liveJudgeSlots" :key="i"
+                  :class="['j-score',
+                           slot.filled ? `j-${slot.category}` : 'j-empty',
+                           slot.dropped ? 'j-dropped' : '']"
+                  :title="slot.dropped ? 'Dropped by trim rule' : ''">
+              {{ slot.filled ? slot.value.toFixed(1) : '—' }}
             </span>
           </div>
-          <div v-if="liveDiveTotal != null" class="sb-live-total">
-            <span class="sb-live-total-label">Dive Total</span>
-            <span class="sb-live-total-value">{{ liveDiveTotal.toFixed(1) }}</span>
+          <div v-if="activeDiver" class="sb-live-total-slot">
+            <div v-show="liveDiveTotal != null" class="sb-live-total">
+              <span class="sb-live-total-label">Dive Total</span>
+              <span class="sb-live-total-value">{{ liveDiveTotal != null ? liveDiveTotal.toFixed(1) : '' }}</span>
+            </div>
           </div>
           <div v-if="activeDiver && activeDiverRank" class="sb-live-rank">
             Currently <strong>{{ ordinal(activeDiverRank) }}</strong>
@@ -1996,10 +2035,30 @@ onMounted(async () => {
   border-radius: var(--radius);
   min-width: 3ch;
 }
+/* Empty placeholder tile — same dimensions as a populated
+   .j-score so the row's height stays constant from the
+   moment the diver becomes active. Dim border + dash glyph
+   tells the audience "judge slot, no score yet" without
+   competing for visual weight. */
+.sb-live-judges .j-empty {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--text-3);
+  opacity: 0.55;
+}
+/* Reserved-height wrapper for the dive-total. Without this
+   the catch-up + Up Next blocks below would shift down by
+   ~52px the instant the panel completes and the total
+   appears. Inner div uses v-show so it's measurable but
+   invisible until the value lands. */
+.sb-live-total-slot {
+  margin-top: 1rem;
+  min-height: clamp(32px, 5vw, 52px);
+  display: flex; align-items: center; justify-content: center;
+}
 .sb-live-total {
   display: flex; align-items: baseline; justify-content: center;
   gap: 0.6rem;
-  margin-top: 1rem;
 }
 .sb-live-total-label {
   font-family: var(--font-display);

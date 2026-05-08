@@ -1570,14 +1570,15 @@ const filteredHistory = computed(() => {
   })
 })
 
-// Compressed-layout pass: only the most-recent 3 cards show
+// Compressed-layout pass: only the most-recent 5 cards show
 // at rest; the operator clicks "Show more" to expand. The full
 // list is one click away but the resting left column stays a
-// short, scannable strip — pairs with the same pattern in the
-// right column (Up Next default-3) and on the audience-facing
-// scoreboard. Reset on filter change so a "View all" expansion
-// doesn't carry over to a freshly filtered view.
-const HISTORY_PREVIEW_COUNT = 3
+// short, scannable strip — typically a full round's worth of
+// dives in a 5-judge individual event. Pairs with the same
+// pattern on the audience-facing scoreboard. Reset on filter
+// change so a "View all" expansion doesn't carry over to a
+// freshly filtered view.
+const HISTORY_PREVIEW_COUNT = 5
 const historyShowAll = ref(false)
 const visibleHistory = computed(() =>
   historyShowAll.value
