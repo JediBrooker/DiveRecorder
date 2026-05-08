@@ -24,8 +24,15 @@ const props = defineProps({
 
 const auth = useAuthStore()
 
+// The server's /api/events/:id/score-audit endpoint is gated by
+// requireEventManager(): system_admin, org_admin in the same
+// org, or per-event event_managers membership. We can't cheaply
+// check event_managers membership client-side, so we surface
+// the affordance to org_admin (a superset of typical event
+// managers in a single-org deployment) and let the server
+// reject anyone else with a 403 we render as the popover error.
 const visibleToUser = computed(() =>
-  auth.isLoggedIn && auth.hasAnyRole(['org_admin', 'meet_manager', 'referee']),
+  auth.isLoggedIn && (auth.user?.is_system_admin || auth.hasRole('org_admin')),
 )
 
 const open    = ref(false)

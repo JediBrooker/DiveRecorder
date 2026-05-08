@@ -62,15 +62,29 @@ function close()  { showTip.value = false }
   cursor: default;
 }
 .jargon.has-def {
+  /* Dotted underline + a small "?" superscript so the
+     affordance is discoverable without hover. The underline
+     alone vanishes against cyan text in some themes. */
   text-decoration: underline dotted;
+  text-decoration-thickness: 2px;
   text-underline-offset: 3px;
-  text-decoration-color: var(--text-3, #94a3b8);
+  text-decoration-color: currentColor;
+  opacity: 0.85;
   cursor: help;
 }
+.jargon.has-def::after {
+  content: 'ⓘ';
+  font-size: 0.75em;
+  margin-left: 0.18em;
+  opacity: 0.7;
+  vertical-align: super;
+  line-height: 0;
+}
 .jargon.has-def:hover, .jargon.has-def:focus-visible {
-  text-decoration-color: var(--cyan, #06b6d4);
+  opacity: 1;
   outline: none;
 }
+.jargon.has-def:hover::after, .jargon.has-def:focus-visible::after { opacity: 1; }
 .jargon-tip {
   position: absolute;
   bottom: calc(100% + 6px);

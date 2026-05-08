@@ -1599,20 +1599,21 @@ onMounted(async () => {
                           {{ j.value.toFixed(1) }}
                         </span>
                       </template>
-                    </div>
-                    <div class="dr-total">
-                      {{ parseFloat(d.total_dive_score).toFixed(1) }}
-                      <!-- Officials-only inline audit history.
-                           Spectators don't see the button at all
-                           (the component self-gates). One click
-                           opens a popover with every score
-                           submission/edit for this dive. -->
+                      <!-- Officials-only audit history. Sits at
+                           the trailing edge of the judges' chip
+                           row (.dr-judges already flex-wraps so
+                           the extra pill flows naturally). The
+                           component self-gates on org-admin —
+                           spectators don't see anything. -->
                       <ScoreHistoryButton
                         v-if="currentEventId && d.competitor_id"
                         :event-id="currentEventId"
                         :competitor-id="d.competitor_id || block.id"
                         :round-number="d.round_number"
                       />
+                    </div>
+                    <div class="dr-total">
+                      {{ parseFloat(d.total_dive_score).toFixed(1) }}
                     </div>
                   </div>
                 </div>
