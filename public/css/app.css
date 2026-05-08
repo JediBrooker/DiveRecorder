@@ -685,3 +685,219 @@ h1, h2, h3, h4 {
 .empty-state-body strong {
   color: var(--text-2); font-weight: 700;
 }
+
+/* =========================================================
+   Dashboard panels — shared rules for the per-role panel
+   chunks rendered inside DashboardView. Lifted out of
+   DashboardView's scoped <style> so the per-role panel
+   components (defineAsyncComponent'd from
+   src/components/dashboard/) can use them without each
+   needing to ship a duplicate copy. Class names are namespaced
+   enough (.panel-, .action-card-, .activity-, .event-row-,
+   .diver-next-, .goto-) that the global scope is safe.
+   ========================================================= */
+.panel {
+  max-width: 1400px;
+  margin: 1.5rem auto 0;
+  padding: 0 2rem;
+}
+.panel-section { margin-bottom: 2.25rem; }
+.panel-section-label {
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--text-3); margin-bottom: 0.85rem;
+}
+.panel-section-link {
+  display: inline-block; margin-top: 0.5rem;
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--cyan); text-decoration: none;
+}
+.panel-section-link:hover { text-decoration: underline; }
+.panel-blurb {
+  font-family: var(--font-mono); font-size: 13px; line-height: 1.6;
+  color: var(--text-2);
+  max-width: 640px;
+  margin: 0;
+}
+
+/* Action cards (org admin attention list) */
+.action-card {
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.6rem 0.95rem;
+  margin-bottom: 0.4rem;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  transition: transform 0.15s, border-color 0.15s, background 0.15s;
+}
+.action-card:hover { transform: translateX(2px); border-color: var(--border-2); }
+.action-card-live    { border-left-color: var(--red);  background: rgba(239,68,68,0.04); }
+.action-card-live:hover    { background: rgba(239,68,68,0.09); border-color: rgba(239,68,68,0.4); }
+.action-card-upcoming{ border-left-color: var(--cyan); }
+.action-card-upcoming:hover{ border-color: rgba(6,182,212,0.4); }
+.action-card-pending { border-left-color: #a78bfa; background: rgba(167,139,250,0.04); }
+.action-card-pending:hover { border-color: rgba(167,139,250,0.5); background: rgba(167,139,250,0.08); }
+.action-card-icon { font-size: 14px; line-height: 1; flex-shrink: 0; }
+.action-card-title {
+  font-family: var(--font-display); font-size: 14px; font-weight: 800;
+  font-style: italic; letter-spacing: 0.02em;
+  color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex: 1 1 auto; min-width: 0;
+}
+.action-card-meta {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex: 0 1 auto; min-width: 0;
+}
+.action-card-meta::before { content: '·'; margin-right: 0.5rem; color: var(--text-3); }
+.action-card-arrow {
+  font-family: var(--font-display); font-size: 16px;
+  color: var(--text-3);
+  margin-left: auto;
+  transition: transform 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.action-card:hover .action-card-arrow { transform: translateX(3px); color: var(--cyan); }
+
+/* Activity list (org admin recent feed) */
+.activity-list { list-style: none; padding: 0; margin: 0; }
+.activity-item {
+  display: flex; gap: 0.85rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono); font-size: 13px; color: var(--text-2);
+  line-height: 1.5;
+}
+.activity-item:last-child { border-bottom: none; }
+.activity-time {
+  flex-shrink: 0; width: 90px; font-size: 11px; color: var(--text-3);
+  letter-spacing: 0.04em;
+}
+.activity-text { min-width: 0; }
+.activity-text strong { font-family: var(--font-display); font-style: italic; color: var(--text); }
+
+/* Event rows (meet manager + judge) */
+.event-row {
+  display: flex; align-items: center; gap: 0.85rem;
+  padding: 0.7rem 1rem;
+  margin-bottom: 0.45rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  text-decoration: none;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.event-row:hover { transform: translateX(2px); border-color: var(--border-2); }
+.event-row-status {
+  font-family: var(--font-display); font-size: 10.5px; font-weight: 800;
+  letter-spacing: 0.12em;
+  flex-shrink: 0; min-width: 60px;
+}
+.evrs-live { color: var(--red); }
+.evrs-upcoming { color: var(--cyan); }
+.evrs-completed { color: var(--text-3); }
+.event-row-name {
+  font-family: var(--font-display); font-size: 14px; font-weight: 700;
+  color: var(--text);
+  flex: 1 1 auto; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.event-row-meta {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+  flex-shrink: 0;
+}
+.event-row-arrow { color: var(--text-3); font-size: 16px; }
+.event-row:hover .event-row-arrow { color: var(--cyan); }
+
+/* Diver next meet card */
+.diver-next-card {
+  display: flex; flex-direction: column; gap: 0.4rem;
+  padding: 1.4rem 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--green);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  position: relative;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.diver-next-card:hover { transform: translateX(2px); border-color: var(--green); }
+.diver-next-name {
+  font-family: var(--font-display); font-size: 22px; font-weight: 800;
+  font-style: italic; color: var(--text); letter-spacing: 0.02em;
+}
+.diver-next-meta { font-family: var(--font-mono); font-size: 13px; color: var(--green); }
+.diver-next-arrow {
+  position: absolute; top: 50%; right: 1.4rem;
+  transform: translateY(-50%);
+  font-size: 22px; color: var(--text-3);
+  transition: color 0.15s, transform 0.15s;
+}
+.diver-next-card:hover .diver-next-arrow { color: var(--green); transform: translate(3px, -50%); }
+
+/* GO TO tiles — small grid per panel */
+.goto-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+  gap: 0.85rem;
+}
+.goto-tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem 1.4rem;
+  text-decoration: none;
+  display: flex; flex-direction: column; gap: 0.55rem;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.goto-tile:hover { transform: translateY(-1px); border-color: var(--tc, var(--cyan)); }
+.tile-cyan   { --tc: var(--cyan);  }
+.tile-amber  { --tc: var(--amber); }
+.tile-green  { --tc: var(--green); }
+.tile-red    { --tc: var(--red);   }
+.tile-purple { --tc: #a78bfa;      }
+.goto-icon {
+  width: 36px; height: 36px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--tc, var(--text-2));
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.goto-tile:hover .goto-icon { background: var(--tc, var(--cyan)); color: var(--bg); border-color: transparent; }
+.goto-title {
+  font-family: var(--font-display); font-size: 16px; font-weight: 800;
+  font-style: italic; letter-spacing: 0.02em; color: var(--text);
+}
+.goto-desc {
+  font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--text-3); line-height: 1.5;
+}
+
+/* Per-panel empty-state card. The global .empty-state-card
+   above is similar but the dashboard variants need the
+   max-width + bottom margin tuned for inline use within a
+   panel-section. Override here. */
+.dashboard-panel-empty {
+  background: var(--surface);
+  border: 1px dashed var(--border-2);
+  border-radius: var(--radius-lg);
+  padding: 2rem;
+  text-align: center;
+  margin-bottom: 1.5rem;
+  max-width: 640px;
+}
+.dashboard-panel-empty .empty-state-icon { font-size: 28px; margin-bottom: 0.75rem; }
+.dashboard-panel-empty .empty-state-title {
+  font-family: var(--font-display); font-size: 16px; font-weight: 800;
+  font-style: italic; color: var(--text); margin-bottom: 0.5rem;
+}
+.dashboard-panel-empty .empty-state-body {
+  font-family: var(--font-mono); font-size: 13px; line-height: 1.55;
+  color: var(--text-3);
+}

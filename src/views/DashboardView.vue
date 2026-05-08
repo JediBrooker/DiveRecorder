@@ -28,10 +28,21 @@
 // Brand-new org admins (zero clubs + zero events + no
 // dismiss/complete stamp) still get the auto-redirect to
 // /setup — happens before the tab logic runs.
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, defineAsyncComponent } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
+
+// Per-role panels — async-imported so each tab's chunk only
+// loads when the user activates it. A diver-only account
+// never downloads the OrgAdmin / Audit-related markup.
+const OrgAdminPanel    = defineAsyncComponent(() => import('@/components/dashboard/OrgAdminPanel.vue'))
+const MeetManagerPanel = defineAsyncComponent(() => import('@/components/dashboard/MeetManagerPanel.vue'))
+const RefereePanel     = defineAsyncComponent(() => import('@/components/dashboard/RefereePanel.vue'))
+const JudgePanel       = defineAsyncComponent(() => import('@/components/dashboard/JudgePanel.vue'))
+const CoachPanel       = defineAsyncComponent(() => import('@/components/dashboard/CoachPanel.vue'))
+const DiverPanel       = defineAsyncComponent(() => import('@/components/dashboard/DiverPanel.vue'))
+const OtherPanel       = defineAsyncComponent(() => import('@/components/dashboard/OtherPanel.vue'))
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -1053,288 +1064,49 @@ function attachSocketHandlers() {
     </div>
 
     <!-- ===========================================
-         Active panels — one v-if per tab.
+         Active panels — one v-if per tab. Each panel is an
+         async-imported component so its chunk only loads
+         when the user activates that tab. Shared CSS lives
+         in public/css/app.css; the template + minimal logic
+         is in src/components/dashboard/<Role>Panel.vue.
          =========================================== -->
-
-    <!-- ORG ADMIN -->
-    <section v-if="activeTab === 'org_admin'" class="panel">
-      <div v-if="!attentionCards.length && !recentActivity.length" class="empty-state-card">
-        <div class="empty-state-icon">📊</div>
-        <div class="empty-state-title">All quiet</div>
-        <div class="empty-state-body">
-          No live events, no upcoming meets within the entries-close window,
-          and no role requests waiting. Use the GO TO links below to dive in.
-        </div>
-      </div>
-
-      <div v-if="attentionCards.length" class="panel-section">
-        <div class="panel-section-label">What needs your attention</div>
-        <RouterLink
-          v-for="card in attentionCards"
-          :key="card.id"
-          :to="card.to"
-          :class="['action-card', `action-card-${card.kind}`]"
-        >
-          <span class="action-card-icon">{{ card.icon }}</span>
-          <span class="action-card-title">{{ card.title }}</span>
-          <span v-if="card.meta" class="action-card-meta">{{ card.meta }}</span>
-          <span class="action-card-arrow" aria-hidden="true">→</span>
-        </RouterLink>
-      </div>
-
-      <div v-if="recentActivity.length" class="panel-section">
-        <div class="panel-section-label">Recent activity (7 days)</div>
-        <ul class="activity-list">
-          <li v-for="r in recentActivity" :key="`${r.kind}-${r.id}`" class="activity-item">
-            <span class="activity-time">{{ fmtRelative(r.created_at) }}</span>
-            <span class="activity-text">
-              <template v-if="r.kind === 'score'">
-                <strong>{{ r.competitor_name || 'Competitor' }}</strong>
-                {{ r.action === 'update' ? 'score amended in' : r.action === 'delete' ? 'score deleted in' : 'score in' }}
-                {{ r.event_name }}<template v-if="r.round_number"> · R{{ r.round_number }}</template>
-              </template>
-              <template v-else-if="r.kind === 'role'">
-                <strong>{{ r.role }}</strong> {{ r.action }} {{ r.action === 'granted' ? 'to' : 'from' }} <strong>{{ r.target_name }}</strong>
-              </template>
-              <template v-else>
-                <strong>{{ r.entity_name || r.entity_type }}</strong> · {{ r.action.replace(/^[a-z_]+\./, '').replace(/_/g, ' ') }}
-              </template>
-            </span>
-          </li>
-        </ul>
-        <RouterLink to="/audit" class="panel-section-link">View full audit log →</RouterLink>
-      </div>
-
-      <div class="panel-section">
-        <div class="panel-section-label">Go to</div>
-        <div class="goto-grid">
-          <RouterLink to="/manager" class="goto-tile tile-amber">
-            <div class="goto-icon" v-html="ICONS.manager"></div>
-            <div class="goto-title">Meet Manager</div>
-          </RouterLink>
-          <RouterLink to="/control" class="goto-tile tile-cyan">
-            <div class="goto-icon" v-html="ICONS.control"></div>
-            <div class="goto-title">Control Room</div>
-          </RouterLink>
-          <RouterLink to="/users" class="goto-tile tile-purple">
-            <div class="goto-icon" v-html="ICONS.users"></div>
-            <div class="goto-title">User Manager</div>
-          </RouterLink>
-          <RouterLink to="/audit" class="goto-tile tile-amber">
-            <div class="goto-icon" v-html="ICONS.audit"></div>
-            <div class="goto-title">Audit Log</div>
-          </RouterLink>
-          <RouterLink to="/clubs" class="goto-tile tile-green">
-            <div class="goto-icon" v-html="ICONS.clubs"></div>
-            <div class="goto-title">Clubs</div>
-          </RouterLink>
-          <RouterLink to="/teams" class="goto-tile tile-purple">
-            <div class="goto-icon" v-html="ICONS.teams"></div>
-            <div class="goto-title">Teams</div>
-          </RouterLink>
-          <RouterLink to="/assign-judges" class="goto-tile tile-cyan">
-            <div class="goto-icon" v-html="ICONS.judges"></div>
-            <div class="goto-title">Assign Judges</div>
-          </RouterLink>
-        </div>
-      </div>
-    </section>
-
-    <!-- MEET MANAGER -->
-    <section v-else-if="activeTab === 'meet_manager'" class="panel">
-      <div v-if="!operatorEvents.length" class="empty-state-card">
-        <div class="empty-state-icon">📅</div>
-        <div class="empty-state-title">No events yet</div>
-        <div class="empty-state-body">
-          Build your first event in <strong>Meet Manager</strong>. The pre-meet
-          workflow walks you through check-in, randomise, sign-off, and start.
-        </div>
-      </div>
-
-      <div v-if="operatorEvents.length" class="panel-section">
-        <div class="panel-section-label">Your events</div>
-        <RouterLink
-          v-for="ev in operatorEvents"
-          :key="ev.id"
-          :to="ev.status === 'Completed' ? `/scoreboard/${ev.id}` : `/control?event=${ev.id}`"
-          :class="['event-row', `event-row-${ev.status.toLowerCase()}`]"
-        >
-          <span :class="['event-row-status', `evrs-${ev.status.toLowerCase()}`]">
-            {{ ev.status === 'Live' ? '🔴 LIVE' : ev.status === 'Upcoming' ? '📅' : '✓' }}
-          </span>
-          <span class="event-row-name">{{ ev.name }}</span>
-          <span v-if="ev.status === 'Upcoming' && ev.entries_close_at" class="event-row-meta">
-            {{ fmtCloses(ev.entries_close_at) }}
-          </span>
-          <span v-else-if="ev.status === 'Completed'" class="event-row-meta">Completed</span>
-          <span v-else-if="ev.status === 'Live'" class="event-row-meta">Open Control Room</span>
-          <span class="event-row-arrow" aria-hidden="true">→</span>
-        </RouterLink>
-      </div>
-
-      <div class="panel-section">
-        <div class="panel-section-label">Go to</div>
-        <div class="goto-grid">
-          <RouterLink to="/manager" class="goto-tile tile-amber">
-            <div class="goto-icon" v-html="ICONS.manager"></div>
-            <div class="goto-title">Meet Manager</div>
-          </RouterLink>
-          <RouterLink to="/control" class="goto-tile tile-cyan">
-            <div class="goto-icon" v-html="ICONS.control"></div>
-            <div class="goto-title">Control Room</div>
-          </RouterLink>
-          <RouterLink to="/assign-judges" class="goto-tile tile-cyan">
-            <div class="goto-icon" v-html="ICONS.judges"></div>
-            <div class="goto-title">Assign Judges</div>
-          </RouterLink>
-        </div>
-      </div>
-    </section>
-
-    <!-- REFEREE -->
-    <section v-else-if="activeTab === 'referee'" class="panel">
-      <div class="panel-section">
-        <div class="panel-section-label">As a referee</div>
-        <p class="panel-blurb">
-          Meet managers send sign-off requests to your device when their pre-meet
-          workflow reaches the yellow Sign Off step. You can also enter a 6-digit
-          handoff code on your own device via the link below.
-        </p>
-      </div>
-      <div class="panel-section">
-        <div class="panel-section-label">Go to</div>
-        <div class="goto-grid">
-          <RouterLink to="/sign-off-codes" class="goto-tile tile-amber">
-            <div class="goto-icon" v-html="ICONS.signOff"></div>
-            <div class="goto-title">Sign-Off Codes</div>
-          </RouterLink>
-        </div>
-      </div>
-    </section>
-
-    <!-- JUDGE -->
-    <section v-else-if="activeTab === 'judge'" class="panel">
-      <div v-if="!judgeEvents.length" class="empty-state-card">
-        <div class="empty-state-icon">⚖️</div>
-        <div class="empty-state-title">No events assigned yet</div>
-        <div class="empty-state-body">
-          The meet manager will add you to a panel ahead of the next event.
-          You'll see assignments here when that happens.
-        </div>
-      </div>
-      <div v-if="judgeEvents.length" class="panel-section">
-        <div class="panel-section-label">Your assigned events</div>
-        <RouterLink
-          v-for="ev in judgeEvents"
-          :key="ev.id"
-          :to="`/judge?event=${ev.id}`"
-          :class="['event-row', `event-row-${ev.status.toLowerCase()}`]"
-        >
-          <span :class="['event-row-status', `evrs-${ev.status.toLowerCase()}`]">
-            {{ ev.status === 'Live' ? '🔴 LIVE' : ev.status === 'Upcoming' ? '📅' : '✓' }}
-          </span>
-          <span class="event-row-name">{{ ev.name }}</span>
-          <span class="event-row-meta">
-            {{ ev.total_rounds }} rounds · {{ ev.number_of_judges }} judges
-          </span>
-          <span class="event-row-arrow" aria-hidden="true">→</span>
-        </RouterLink>
-      </div>
-    </section>
-
-    <!-- COACH -->
-    <section v-else-if="activeTab === 'coach'" class="panel">
-      <div v-if="!coachData?.divers?.length" class="empty-state-card">
-        <div class="empty-state-icon">🎓</div>
-        <div class="empty-state-title">No divers linked yet</div>
-        <div class="empty-state-body">
-          Ask your org admin to link you to the divers you mentor. Once approved
-          you'll see their profiles, PBs, and analytics here.
-        </div>
-      </div>
-      <div v-if="coachData?.divers?.length" class="panel-section">
-        <div class="panel-section-label">Your divers ({{ coachData.divers.length }})</div>
-        <p class="panel-blurb">Open the Coach Dashboard for full per-diver analytics, score trends, and templates.</p>
-      </div>
-      <div class="panel-section">
-        <div class="panel-section-label">Go to</div>
-        <div class="goto-grid">
-          <RouterLink to="/coach" class="goto-tile tile-purple">
-            <div class="goto-icon" v-html="ICONS.coach"></div>
-            <div class="goto-title">Coach Dashboard</div>
-          </RouterLink>
-          <RouterLink to="/compare" class="goto-tile tile-amber">
-            <div class="goto-icon" v-html="ICONS.compare"></div>
-            <div class="goto-title">Compare Divers</div>
-          </RouterLink>
-        </div>
-      </div>
-    </section>
-
-    <!-- DIVER -->
-    <section v-else-if="activeTab === 'diver'" class="panel">
-      <div v-if="diverNextMeet" class="panel-section">
-        <div class="panel-section-label">Your next meet</div>
-        <RouterLink :to="`/competitor`" class="diver-next-card">
-          <div class="diver-next-name">{{ diverNextMeet.name }}</div>
-          <div class="diver-next-meta">
-            {{ fmtCloses(diverNextMeet.entries_close_at) || 'Walk through the dive list builder' }}
-          </div>
-          <div class="diver-next-arrow" aria-hidden="true">→</div>
-        </RouterLink>
-      </div>
-      <div v-else class="empty-state-card">
-        <div class="empty-state-icon">🤿</div>
-        <div class="empty-state-title">No upcoming meets</div>
-        <div class="empty-state-body">
-          When your federation lists an upcoming event, it'll show up here with
-          an "entries close in" countdown. Open the Diver Portal to see all
-          events your federation is running.
-        </div>
-      </div>
-
-      <div class="panel-section">
-        <div class="panel-section-label">Go to</div>
-        <div class="goto-grid">
-          <RouterLink to="/competitor" class="goto-tile tile-green">
-            <div class="goto-icon" v-html="ICONS.diver"></div>
-            <div class="goto-title">Submit Dive Sheets</div>
-          </RouterLink>
-          <RouterLink to="/profile" class="goto-tile tile-cyan">
-            <div class="goto-icon" v-html="ICONS.profile"></div>
-            <div class="goto-title">My Profile</div>
-          </RouterLink>
-          <RouterLink to="/compare" class="goto-tile tile-amber">
-            <div class="goto-icon" v-html="ICONS.compare"></div>
-            <div class="goto-title">Compare Divers</div>
-          </RouterLink>
-        </div>
-      </div>
-    </section>
-
-    <!-- OTHER — utility surfaces. Always available. -->
-    <section v-else-if="activeTab === 'other'" class="panel">
-      <div class="panel-section">
-        <div class="panel-section-label">Other surfaces</div>
-        <div class="goto-grid">
-          <RouterLink to="/scoreboard" class="goto-tile tile-red">
-            <div class="goto-icon" v-html="ICONS.scoreboard"></div>
-            <div class="goto-title">Scoreboard &amp; Results</div>
-            <div class="goto-desc">Watch live meets or browse completed-meet recaps.</div>
-          </RouterLink>
-          <RouterLink to="/dive-directory" class="goto-tile tile-cyan">
-            <div class="goto-icon" v-html="ICONS.diveDir"></div>
-            <div class="goto-title">Dive Directory</div>
-            <div class="goto-desc">Look up DDs across the World Aquatics catalog.</div>
-          </RouterLink>
-          <RouterLink to="/compare" class="goto-tile tile-amber">
-            <div class="goto-icon" v-html="ICONS.compare"></div>
-            <div class="goto-title">Compare Divers</div>
-            <div class="goto-desc">Two divers side-by-side — stats and PB diffs.</div>
-          </RouterLink>
-        </div>
-      </div>
-    </section>
+    <OrgAdminPanel
+      v-if="activeTab === 'org_admin'"
+      :attention-cards="attentionCards"
+      :recent-activity="recentActivity"
+      :fmt-relative="fmtRelative"
+      :icons="ICONS"
+    />
+    <MeetManagerPanel
+      v-else-if="activeTab === 'meet_manager'"
+      :operator-events="operatorEvents"
+      :fmt-closes="fmtCloses"
+      :icons="ICONS"
+    />
+    <RefereePanel
+      v-else-if="activeTab === 'referee'"
+      :icons="ICONS"
+    />
+    <JudgePanel
+      v-else-if="activeTab === 'judge'"
+      :judge-events="judgeEvents"
+      :icons="ICONS"
+    />
+    <CoachPanel
+      v-else-if="activeTab === 'coach'"
+      :coach-data="coachData"
+      :icons="ICONS"
+    />
+    <DiverPanel
+      v-else-if="activeTab === 'diver'"
+      :diver-next-meet="diverNextMeet"
+      :fmt-closes="fmtCloses"
+      :icons="ICONS"
+    />
+    <OtherPanel
+      v-else-if="activeTab === 'other'"
+      :icons="ICONS"
+    />
   </div>
 </template>
 
@@ -1786,223 +1558,7 @@ function attachSocketHandlers() {
   border-color: var(--cyan);
 }
 
-/* Panel container */
-.panel {
-  max-width: 1400px;
-  margin: 1.5rem auto 0;
-  padding: 0 2rem;
-}
-.panel-section { margin-bottom: 2.25rem; }
-.panel-section-label {
-  font-family: var(--font-display); font-size: 11px; font-weight: 700;
-  letter-spacing: 0.22em; text-transform: uppercase;
-  color: var(--text-3); margin-bottom: 0.85rem;
-}
-.panel-section-link {
-  display: inline-block; margin-top: 0.5rem;
-  font-family: var(--font-mono); font-size: 12px;
-  color: var(--cyan); text-decoration: none;
-}
-.panel-section-link:hover { text-decoration: underline; }
-.panel-blurb {
-  font-family: var(--font-mono); font-size: 13px; line-height: 1.6;
-  color: var(--text-2);
-  max-width: 640px;
-  margin: 0;
-}
-
-/* Action cards (org admin attention list) */
-.action-card {
-  display: flex; align-items: center; gap: 0.75rem;
-  padding: 0.6rem 0.95rem;
-  margin-bottom: 0.4rem;
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-left-width: 4px;
-  border-radius: var(--radius);
-  text-decoration: none;
-  transition: transform 0.15s, border-color 0.15s, background 0.15s;
-}
-.action-card:hover { transform: translateX(2px); border-color: var(--border-2); }
-.action-card-live    { border-left-color: var(--red);  background: rgba(239,68,68,0.04); }
-.action-card-live:hover    { background: rgba(239,68,68,0.09); border-color: rgba(239,68,68,0.4); }
-.action-card-upcoming{ border-left-color: var(--cyan); }
-.action-card-upcoming:hover{ border-color: rgba(6,182,212,0.4); }
-.action-card-pending { border-left-color: #a78bfa; background: rgba(167,139,250,0.04); }
-.action-card-pending:hover { border-color: rgba(167,139,250,0.5); background: rgba(167,139,250,0.08); }
-
-.action-card-icon { font-size: 14px; line-height: 1; flex-shrink: 0; }
-.action-card-title {
-  font-family: var(--font-display); font-size: 14px; font-weight: 800;
-  font-style: italic; letter-spacing: 0.02em;
-  color: var(--text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  flex: 1 1 auto; min-width: 0;
-}
-.action-card-meta {
-  font-family: var(--font-mono); font-size: 11px;
-  color: var(--text-3);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  flex: 0 1 auto; min-width: 0;
-}
-.action-card-meta::before { content: '·'; margin-right: 0.5rem; color: var(--text-3); }
-.action-card-arrow {
-  font-family: var(--font-display); font-size: 16px;
-  color: var(--text-3);
-  margin-left: auto;
-  transition: transform 0.15s, color 0.15s;
-  flex-shrink: 0;
-}
-.action-card:hover .action-card-arrow { transform: translateX(3px); color: var(--cyan); }
-
-/* Activity list (org admin recent feed) */
-.activity-list {
-  list-style: none; padding: 0; margin: 0;
-}
-.activity-item {
-  display: flex; gap: 0.85rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid var(--border);
-  font-family: var(--font-mono); font-size: 13px; color: var(--text-2);
-  line-height: 1.5;
-}
-.activity-item:last-child { border-bottom: none; }
-.activity-time {
-  flex-shrink: 0;
-  width: 90px;
-  font-size: 11px;
-  color: var(--text-3);
-  letter-spacing: 0.04em;
-}
-.activity-text { min-width: 0; }
-.activity-text strong { font-family: var(--font-display); font-style: italic; color: var(--text); }
-
-/* Event rows (meet manager + judge) */
-.event-row {
-  display: flex; align-items: center; gap: 0.85rem;
-  padding: 0.7rem 1rem;
-  margin-bottom: 0.45rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  text-decoration: none;
-  transition: border-color 0.15s, transform 0.15s;
-}
-.event-row:hover { transform: translateX(2px); border-color: var(--border-2); }
-.event-row-status {
-  font-family: var(--font-display); font-size: 10.5px; font-weight: 800;
-  letter-spacing: 0.12em;
-  flex-shrink: 0;
-  min-width: 60px;
-}
-.evrs-live { color: var(--red); }
-.evrs-upcoming { color: var(--cyan); }
-.evrs-completed { color: var(--text-3); }
-.event-row-name {
-  font-family: var(--font-display); font-size: 14px; font-weight: 700;
-  color: var(--text);
-  flex: 1 1 auto; min-width: 0;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.event-row-meta {
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
-  flex-shrink: 0;
-}
-.event-row-arrow { color: var(--text-3); font-size: 16px; }
-.event-row:hover .event-row-arrow { color: var(--cyan); }
-
-/* Diver next meet card */
-.diver-next-card {
-  display: flex; flex-direction: column;
-  gap: 0.4rem;
-  padding: 1.4rem 1.5rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--green);
-  border-radius: var(--radius-lg);
-  text-decoration: none;
-  position: relative;
-  transition: border-color 0.15s, transform 0.15s;
-}
-.diver-next-card:hover { transform: translateX(2px); border-color: var(--green); }
-.diver-next-name {
-  font-family: var(--font-display); font-size: 22px; font-weight: 800;
-  font-style: italic; color: var(--text); letter-spacing: 0.02em;
-}
-.diver-next-meta {
-  font-family: var(--font-mono); font-size: 13px; color: var(--green);
-}
-.diver-next-arrow {
-  position: absolute; top: 50%; right: 1.4rem;
-  transform: translateY(-50%);
-  font-size: 22px; color: var(--text-3);
-  transition: color 0.15s, transform 0.15s;
-}
-.diver-next-card:hover .diver-next-arrow { color: var(--green); transform: translate(3px, -50%); }
-
-/* GO TO tiles — small grid per panel */
-.goto-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
-  gap: 0.85rem;
-}
-.goto-tile {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 1.25rem 1.4rem;
-  text-decoration: none;
-  display: flex; flex-direction: column;
-  gap: 0.55rem;
-  transition: border-color 0.15s, transform 0.15s;
-}
-.goto-tile:hover { transform: translateY(-1px); border-color: var(--tc, var(--cyan)); }
-.tile-cyan   { --tc: var(--cyan);  }
-.tile-amber  { --tc: var(--amber); }
-.tile-green  { --tc: var(--green); }
-.tile-red    { --tc: var(--red);   }
-.tile-purple { --tc: #a78bfa;      }
-
-.goto-icon {
-  width: 36px; height: 36px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  display: flex; align-items: center; justify-content: center;
-  color: var(--tc, var(--text-2));
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-.goto-tile:hover .goto-icon { background: var(--tc, var(--cyan)); color: var(--bg); border-color: transparent; }
-.goto-title {
-  font-family: var(--font-display); font-size: 16px; font-weight: 800;
-  font-style: italic; letter-spacing: 0.02em; color: var(--text);
-}
-.goto-desc {
-  font-family: var(--font-mono); font-size: 11.5px;
-  color: var(--text-3); line-height: 1.5;
-}
-
-/* Empty-state cards (per panel) — same shape as the global
-   empty state used elsewhere in the app. Local copy because
-   this view doesn't pull the global app.css class. */
-.empty-state-card {
-  background: var(--surface);
-  border: 1px dashed var(--border-2);
-  border-radius: var(--radius-lg);
-  padding: 2rem;
-  text-align: center;
-  margin-bottom: 1.5rem;
-  max-width: 640px;
-}
-.empty-state-icon {
-  font-size: 28px; margin-bottom: 0.75rem;
-}
-.empty-state-title {
-  font-family: var(--font-display); font-size: 16px; font-weight: 800;
-  font-style: italic; color: var(--text); margin-bottom: 0.5rem;
-}
-.empty-state-body {
-  font-family: var(--font-mono); font-size: 13px; line-height: 1.55;
-  color: var(--text-3);
-}
+/* Panel + per-role panel CSS lives in public/css/app.css so
+   the per-role panel components can use it without each
+   shipping a duplicate. See app.css "Dashboard panels" block. */
 </style>
