@@ -19,6 +19,17 @@ const events = ref([])
 const showActionCards = computed(() =>
   auth.hasAnyRole(['org_admin', 'meet_manager']),
 )
+
+// Federation-level pending work for org admins / sysadmins.
+// These hit dedicated endpoints (role-requests, orgs) so the
+// counts are exact rather than derived from /api/events. Kept
+// in their own refs so the dashboard can render an empty list
+// until the data arrives without flickering.
+const pendingRoleRequests = ref([])
+const pendingOrgs         = ref([])
+const showPendingCards    = computed(() =>
+  auth.hasAnyRole(['org_admin']) || !!auth.user?.is_system_admin,
+)
 function fmtCloses(iso) {
   if (!iso) return null
   const d = new Date(iso)
@@ -74,6 +85,34 @@ const actionCards = computed(() => {
       to: `/control?event=${ev.id}`,
     })
   }
+  // Pending role requests — only one card collapsed at the
+  // count rather than one per request, since the User Manager
+  // already has its own list view. Keeps the action strip from
+  // ballooning when an org has 20+ pending registrations.
+  if (pendingRoleRequests.value.length) {
+    const n = pendingRoleRequests.value.length
+    cards.push({
+      id:    'pending-roles',
+      kind:  'pending',
+      icon:  '👥',
+      title: `${n} role request${n === 1 ? '' : 's'} waiting`,
+      meta:  'Review role requests in User Manager',
+      to:    '/users',
+    })
+  }
+  // Pending org registrations — sysadmin only. Same collapse
+  // pattern as role requests above.
+  if (auth.user?.is_system_admin && pendingOrgs.value.length) {
+    const n = pendingOrgs.value.length
+    cards.push({
+      id:    'pending-orgs',
+      kind:  'pending',
+      icon:  '🏛',
+      title: `${n} federation${n === 1 ? '' : 's'} awaiting approval`,
+      meta:  'Review in User Manager → org filter',
+      to:    '/users',
+    })
+  }
   return cards
 })
 
@@ -106,6 +145,15 @@ const liveCount = computed(() =>
 )
 const upcomingCount = computed(() =>
   actionCards.value.filter(c => c.kind === 'upcoming').length,
+)
+// Pending-work count is the SUM of the underlying lists (role
+// requests + pending orgs) rather than the cards length —
+// because each kind collapses to a single card, but the header
+// summary should reflect the actual queue depth so the
+// operator knows whether there are 1 or 50 things waiting.
+const pendingCount = computed(() =>
+  pendingRoleRequests.value.length
+  + (auth.user?.is_system_admin ? pendingOrgs.value.length : 0),
 )
 const visibleAttentionCards = computed(() => {
   if (attentionShowAll.value) return actionCards.value
@@ -328,6 +376,21 @@ onMounted(async () => {
       events.value = await auth.apiFetch('/api/events')
     } catch { /* silent — the tile grid still works */ }
   }
+  // Pending-attention sources for org admins (role requests)
+  // and sysadmins (org registrations awaiting approval). Both
+  // endpoints already exist; this just surfaces the counts in
+  // the action strip rather than burying them in User Manager.
+  if (auth.hasAnyRole(['org_admin'])) {
+    try {
+      pendingRoleRequests.value = await auth.apiFetch('/api/role-requests')
+    } catch { /* silent — no role requests is the same as none in flight */ }
+  }
+  if (auth.user?.is_system_admin) {
+    try {
+      const orgs = await auth.apiFetch('/api/orgs')
+      pendingOrgs.value = (orgs || []).filter(o => o.status === 'pending')
+    } catch { /* silent */ }
+  }
 })
 </script>
 
@@ -423,8 +486,10 @@ onMounted(async () => {
       <span class="action-cards-label">What needs your attention</span>
       <span class="action-cards-summary">
         <span v-if="liveCount" class="acs-live">{{ liveCount }} LIVE</span>
-        <span v-if="liveCount && upcomingCount" class="acs-sep">·</span>
+        <span v-if="liveCount && (upcomingCount || pendingCount)" class="acs-sep">·</span>
         <span v-if="upcomingCount" class="acs-upcoming">{{ upcomingCount }} UPCOMING</span>
+        <span v-if="upcomingCount && pendingCount" class="acs-sep">·</span>
+        <span v-if="pendingCount" class="acs-pending">{{ pendingCount }} PENDING</span>
       </span>
       <span class="action-cards-toggle" :class="{ open: attentionOpen }" aria-hidden="true">▾</span>
     </button>
@@ -559,6 +624,7 @@ onMounted(async () => {
 }
 .acs-live     { color: var(--red);  font-weight: 700; letter-spacing: 0.05em; }
 .acs-upcoming { color: var(--cyan); font-weight: 700; letter-spacing: 0.05em; }
+.acs-pending  { color: #a78bfa;     font-weight: 700; letter-spacing: 0.05em; }
 .acs-sep      { color: var(--text-3); }
 .action-cards-toggle {
   margin-left: auto;
@@ -606,6 +672,13 @@ onMounted(async () => {
 }
 .action-card-upcoming { border-left-color: var(--cyan); }
 .action-card-upcoming:hover { border-color: rgba(6, 182, 212, 0.4); }
+/* Pending federation work — role requests, org approvals.
+   Purple accent so it's distinct from event-state cards
+   (live/upcoming) and reads as "people / governance" rather
+   than "meet running right now". */
+.action-card-pending { border-left-color: #a78bfa; background: rgba(167, 139, 250, 0.04); }
+.action-card-pending:hover { border-color: rgba(167, 139, 250, 0.5); background: rgba(167, 139, 250, 0.08); }
+.action-card-pending:hover .action-card-arrow { color: #a78bfa; }
 .action-card-icon {
   font-size: 14px; line-height: 1;
   flex-shrink: 0;
