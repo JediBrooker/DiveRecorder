@@ -955,6 +955,7 @@ function attachSocketHandlers() {
             </button>
           </div>
         </div>
+        <RouterLink to="/inbox" class="btn btn-ghost">Inbox</RouterLink>
         <RouterLink to="/profile" class="btn btn-ghost">My Profile</RouterLink>
         <button class="btn btn-ghost" @click="logout">Sign Out</button>
       </div>
@@ -1561,4 +1562,120 @@ function attachSocketHandlers() {
 /* Panel + per-role panel CSS lives in public/css/app.css so
    the per-role panel components can use it without each
    shipping a duplicate. See app.css "Dashboard panels" block. */
+
+/* =========================================================
+   Mobile / narrow-viewport adaptations.
+   ========================================================= */
+
+/* Tablet & smaller — under 900 px viewport. The header's
+   account row drops onto its own line below the welcome
+   block (already handled by .header-inner's flex-wrap), the
+   pulse strip wraps more aggressively, and the tab strip
+   gets its own horizontal scroll affordance so a multi-role
+   user can flick through the tabs without them stacking. */
+@media (max-width: 900px) {
+  .header-inner { padding: 1.75rem 1.25rem 1.5rem; }
+  .header-account {
+    /* Allow wrapping onto multiple lines so search + buttons
+       can stack on phones. */
+    flex-wrap: wrap;
+  }
+  .find-diver-wrapper {
+    /* Take a full row when wrapped — the buttons sit below. */
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .pulse-strip {
+    /* Tighter gaps + less vertical noise. */
+    width: calc(100% - 2.5rem);
+    max-width: calc(1400px - 2.5rem);
+    padding: 0.6rem 0.85rem;
+    gap: 0.4rem 0.85rem;
+  }
+  .tab-strip {
+    padding: 0 1.25rem;
+    /* Horizontal scroll instead of wrap — keeps the strip a
+       single visual line on phones, swipeable. */
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;          /* Firefox */
+  }
+  .tab-strip::-webkit-scrollbar { display: none; }
+  .tab {
+    flex-shrink: 0;
+    padding: 0.85rem 1rem;
+    font-size: 13px;
+  }
+  .find-diver-dropdown {
+    /* On narrow viewports anchor to the left of the input
+       (since there's no right-edge real estate to spare).
+       Width clamps to viewport. */
+    right: auto; left: 0;
+    min-width: calc(100vw - 2.5rem);
+    max-width: calc(100vw - 2.5rem);
+  }
+}
+
+/* Phone — under 600 px viewport. Welcome name shrinks, pulse
+   chips become tappable instead of hover-only (popovers
+   collapse to a tap toggle), and the account row stacks
+   each button on its own line. */
+@media (max-width: 600px) {
+  .header-inner {
+    padding: 1.5rem 1rem 1.25rem;
+    gap: 0.75rem;
+  }
+  .welcome-name {
+    /* Cap so a long full name doesn't dominate the screen. */
+    font-size: clamp(28px, 9vw, 38px);
+  }
+  .header-account {
+    width: 100%;
+  }
+  .header-account .btn {
+    flex: 1 1 auto;
+    text-align: center;
+    font-size: 11px;
+    padding: 0.5rem 0.75rem;
+  }
+  .find-diver-wrapper { flex: 1 1 100%; }
+  .pulse-strip {
+    margin: 0.85rem auto 0;
+    width: calc(100% - 2rem);
+    padding: 0.55rem 0.7rem;
+    /* Allow horizontal scroll for the chips so the user can
+       still see all of them without forcing line-wrap that
+       eats vertical space. */
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .pulse-strip::-webkit-scrollbar { display: none; }
+  .pulse-chip { flex-shrink: 0; }
+  /* On phones, hover popovers don't make sense (no hover);
+     :focus-within still works for tap-to-focus, so users
+     can tap a chip to see the popover before tapping
+     again to navigate. */
+  .pulse-popover {
+    /* Anchor to the chip's left so the popover doesn't
+       fly off the right edge. */
+    left: 0; right: auto;
+    transform: none;
+    min-width: 220px;
+    max-width: calc(100vw - 2rem);
+  }
+  .pulse-ticker {
+    /* Hide the ticker on phones — it competes with the
+       chips for the (now scrollable) strip width and the
+       chips are more important. The activity feed is still
+       reachable via /audit. */
+    display: none;
+  }
+  .tab-strip { padding: 0 1rem; }
+  .tab {
+    padding: 0.7rem 0.8rem;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+  }
+}
 </style>

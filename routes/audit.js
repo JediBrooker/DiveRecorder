@@ -244,6 +244,126 @@ module.exports = function createAuditRouter({ pool, requireOrgAdmin }) {
   });
 
   // ---------------------------------------------------------------
+  // GET /api/audit/export.csv?kind=scores|roles|activity
+  // Streaming full-history export. Bypasses the 1000-row cap on
+  // the regular endpoints — useful for legal disputes /
+  // compliance reviews that need every audit row in a date
+  // window. Rows stream as CSV directly to the response so we
+  // don't have to load thousands into memory at once.
+  // ---------------------------------------------------------------
+  router.get("/api/audit/export.csv", requireOrgAdmin, async (req, res) => {
+    const kind = ["scores", "roles", "activity"].includes(req.query.kind)
+      ? req.query.kind
+      : "scores";
+    const isSysAdmin = !!req.user.is_system_admin;
+    const orgScope = !isSysAdmin ? req.user.org_id : (req.query.org_id || null);
+    const from = req.query.from || null;
+    const to   = req.query.to   || null;
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=audit_${kind}_${new Date().toISOString().slice(0, 10)}.csv`,
+    );
+
+    function csvCell(v) {
+      if (v == null) return "";
+      const s = String(v).replace(/"/g, '""');
+      return `"${s}"`;
+    }
+
+    try {
+      if (kind === "scores") {
+        res.write(
+          "time,action,event,org,round,competitor,judge,old_score,new_score,actor,reason,ip\n",
+        );
+        const r = await pool.query(
+          `SELECT a.created_at, a.action::text AS action,
+                  e.name AS event_name, o.name AS org_name,
+                  a.round_number, comp.full_name AS competitor_name,
+                  jud.full_name AS judge_name,
+                  a.old_score, a.new_score,
+                  act.full_name AS actor_name, a.reason,
+                  a.ip_address::text AS ip_address
+           FROM score_audit_log a
+           JOIN events e ON e.id = a.event_id
+           LEFT JOIN organisations o ON o.id = e.org_id
+           LEFT JOIN users comp ON comp.id = a.competitor_id
+           LEFT JOIN users jud  ON jud.id  = a.judge_id
+           LEFT JOIN users act  ON act.id  = a.actor_user_id
+           WHERE ($1::uuid IS NULL OR e.org_id = $1::uuid)
+             AND ($2::timestamptz IS NULL OR a.created_at >= $2::timestamptz)
+             AND ($3::timestamptz IS NULL OR a.created_at <= $3::timestamptz)
+           ORDER BY a.created_at DESC`,
+          [orgScope, from, to],
+        );
+        for (const row of r.rows) {
+          res.write(
+            [row.created_at, row.action, row.event_name, row.org_name,
+              row.round_number, row.competitor_name, row.judge_name,
+              row.old_score, row.new_score, row.actor_name, row.reason,
+              row.ip_address].map(csvCell).join(",") + "\n",
+          );
+        }
+      } else if (kind === "roles") {
+        res.write("time,action,role,target,target_username,org,actor,note\n");
+        const r = await pool.query(
+          `SELECT a.created_at, a.action::text AS action, a.role::text AS role,
+                  target.full_name AS target_name, target.username AS target_username,
+                  o.name AS org_name, actor.full_name AS actor_name, a.note
+           FROM role_audit_log a
+           JOIN organisations o ON o.id = a.org_id
+           LEFT JOIN users target ON target.id = a.user_id
+           LEFT JOIN users actor  ON actor.id  = a.actor_id
+           WHERE ($1::uuid IS NULL OR a.org_id = $1::uuid)
+             AND ($2::timestamptz IS NULL OR a.created_at >= $2::timestamptz)
+             AND ($3::timestamptz IS NULL OR a.created_at <= $3::timestamptz)
+           ORDER BY a.created_at DESC`,
+          [orgScope, from, to],
+        );
+        for (const row of r.rows) {
+          res.write(
+            [row.created_at, row.action, row.role, row.target_name,
+              row.target_username, row.org_name, row.actor_name, row.note]
+              .map(csvCell).join(",") + "\n",
+          );
+        }
+      } else {
+        // activity
+        res.write("time,action,entity_type,entity_name,org,actor,note,metadata\n");
+        const r = await pool.query(
+          `SELECT a.created_at, a.action, a.entity_type, a.entity_name,
+                  o.name AS org_name, actor.full_name AS actor_name,
+                  a.note, a.metadata
+           FROM audit_log a
+           LEFT JOIN organisations o ON o.id = a.org_id
+           LEFT JOIN users actor     ON actor.id = a.actor_id
+           WHERE ($1::uuid IS NULL OR a.org_id = $1::uuid)
+             AND ($2::timestamptz IS NULL OR a.created_at >= $2::timestamptz)
+             AND ($3::timestamptz IS NULL OR a.created_at <= $3::timestamptz)
+           ORDER BY a.created_at DESC`,
+          [orgScope, from, to],
+        );
+        for (const row of r.rows) {
+          res.write(
+            [row.created_at, row.action, row.entity_type, row.entity_name,
+              row.org_name, row.actor_name, row.note,
+              row.metadata ? JSON.stringify(row.metadata) : ""]
+              .map(csvCell).join(",") + "\n",
+          );
+        }
+      }
+      res.end();
+    } catch (err) {
+      console.error("[Audit Export Error]", err.message);
+      // If we've already started writing, just end the stream.
+      // Otherwise return JSON.
+      if (res.headersSent) res.end();
+      else res.status(500).json({ error: "Failed to export audit log" });
+    }
+  });
+
+  // ---------------------------------------------------------------
   // GET /api/audit/recent — interleaved feed for the dashboard tab
   // ---------------------------------------------------------------
   router.get("/api/audit/recent", requireOrgAdmin, async (req, res) => {

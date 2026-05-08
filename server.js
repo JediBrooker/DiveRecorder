@@ -828,12 +828,75 @@ async function bootChecks() {
   } catch (err) {
     logger.warn({ err: err.message }, "couldn't read schema_meta");
   }
+  // Snapshot the past 24 h of audit rows to AUDIT_SNAPSHOT_DIR
+  // BEFORE the purge runs, so legal-retention archives outlive
+  // the 30-day DB window. No-op when AUDIT_SNAPSHOT_DIR isn't
+  // set (dev / single-node deployments don't need it).
+  if (process.env.AUDIT_SNAPSHOT_DIR) {
+    try {
+      await snapshotAuditTables();
+    } catch (err) {
+      logger.warn(
+        { err: err.message },
+        "audit snapshot failed; purge will continue",
+      );
+    }
+  }
   try {
     const purge = await pool.query("SELECT * FROM purge_audit_logs(30)");
     const total = purge.rows.reduce((sum, r) => sum + Number(r.deleted_rows), 0);
     if (total > 0) logger.info({ deleted_rows: total }, "purged audit log");
   } catch (err) {
     logger.warn({ err: err.message }, "purge_audit_logs failed (run migration 008?)");
+  }
+}
+
+// Daily snapshot — writes the past 24 h of audit rows to JSONL
+// files in AUDIT_SNAPSHOT_DIR (one file per table per day).
+// Called from bootChecks before the purge so the rows about to
+// roll off the 30-day window survive externally. The operator
+// is expected to push the dir to S3 / off-site backup via a
+// separate cron / systemd job.
+async function snapshotAuditTables() {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const dir = process.env.AUDIT_SNAPSHOT_DIR;
+  if (!dir) return;
+  fs.mkdirSync(dir, { recursive: true });
+  const stamp = new Date().toISOString().slice(0, 10);
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  for (const [table, file] of [
+    ["score_audit_log", `score_audit_${stamp}.jsonl`],
+    ["role_audit_log",  `role_audit_${stamp}.jsonl`],
+    ["audit_log",       `audit_${stamp}.jsonl`],
+  ]) {
+    try {
+      const r = await pool.query(
+        `SELECT * FROM ${table} WHERE created_at >= $1 ORDER BY created_at`,
+        [since],
+      );
+      const out = path.join(dir, file);
+      // Append mode so multiple snapshots in the same day
+      // accumulate rather than overwrite — dedupe is the
+      // operator's problem if they run this manually.
+      const stream = fs.createWriteStream(out, { flags: "a" });
+      for (const row of r.rows) {
+        stream.write(JSON.stringify(row) + "\n");
+      }
+      stream.end();
+      if (r.rows.length) {
+        logger.info(
+          { table, file, rows: r.rows.length },
+          "audit snapshot written",
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        { table, err: err.message },
+        "audit snapshot failed for one table; continuing",
+      );
+    }
   }
 }
 

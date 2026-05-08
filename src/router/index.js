@@ -142,6 +142,14 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['org_admin'] },
   },
   {
+    // Notifications inbox — every push notification + in-app
+    // banner sent to the signed-in user. Available to any
+    // authenticated user (each row is scoped server-side).
+    path: '/inbox',
+    component: () => import('@/views/InboxView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     // Dive Directory browser: read the World Aquatics catalog,
     // add custom rows for poolside / progression dives. Anyone
     // signed in can browse; the create/edit/delete affordances
