@@ -52,6 +52,16 @@ const heightFilter  = ref('')
 const clubFilter    = ref('')
 const statusFilter  = ref('')      // '' | 'Live' | 'Completed'
 
+// View preferences. Persisted in localStorage so a returning
+// user lands on the layout they last picked. `viewMode` toggles
+// between roomy meet cards and a compact one-row-per-meet list
+// (better when scanning hundreds of events). `sortBy` controls
+// the order applied AFTER filtering.
+const viewMode = ref(localStorage.getItem('sb_view_mode') || 'cards') // 'cards' | 'list'
+const sortBy   = ref(localStorage.getItem('sb_sort_by')  || 'recent') // 'recent' | 'oldest' | 'name'
+watch(viewMode, (v) => localStorage.setItem('sb_view_mode', v))
+watch(sortBy,   (v) => localStorage.setItem('sb_sort_by',  v))
+
 const liveEvents = computed(() => events.value.filter(e => e.status === 'Live'))
 
 // Up Next: filter the server's queue to skip the current active
@@ -157,6 +167,45 @@ const filteredEvents = computed(() => {
       (e.country_code || '').toLowerCase().includes(term)
     )
   })
+})
+
+// Apply the current sort to the filtered event list. Live events
+// always rise to the top regardless of sort — operators landing
+// on /scoreboard mid-meet expect to see "what's broadcasting now"
+// before "what's archived".
+const sortedFilteredEvents = computed(() => {
+  const list = [...filteredEvents.value]
+  list.sort((a, b) => {
+    if (a.status === 'Live' && b.status !== 'Live') return -1
+    if (b.status === 'Live' && a.status !== 'Live') return  1
+    if (sortBy.value === 'name') {
+      return (a.name || '').localeCompare(b.name || '')
+    }
+    const ta = a.created_at ? new Date(a.created_at).getTime() : 0
+    const tb = b.created_at ? new Date(b.created_at).getTime() : 0
+    return sortBy.value === 'oldest' ? ta - tb : tb - ta
+  })
+  return list
+})
+
+// Group the sorted list by year for display when there are
+// enough results that a wall of cards becomes hard to scan
+// (≥12 entries, ≥2 distinct years). Below that threshold the
+// flat ungrouped list is friendlier.
+const GROUP_THRESHOLD = 12
+const groupedEvents = computed(() => {
+  const list = sortedFilteredEvents.value
+  if (list.length < GROUP_THRESHOLD) return null
+  const yrs = new Set()
+  const groups = new Map()    // year -> [event]
+  for (const e of list) {
+    const y = e.created_at ? new Date(e.created_at).getFullYear() : '—'
+    yrs.add(y)
+    if (!groups.has(y)) groups.set(y, [])
+    groups.get(y).push(e)
+  }
+  if (yrs.size < 2) return null
+  return [...groups.entries()].map(([year, items]) => ({ year, items }))
 })
 
 const activeFilterCount = computed(() => {
@@ -925,122 +974,236 @@ onMounted(async () => {
         Showing your last cached meets list — refreshing in the background
       </div>
 
-      <!-- Live banner: only visible when at least one meet is in
-           progress. Each card jumps straight into the live
-           broadcast layout for that event. -->
-      <div v-if="liveEvents.length" class="live-banner">
-        <div class="live-banner-head">
-          <div class="live-pulse">LIVE NOW</div>
-          <span class="live-banner-sub">
-            {{ liveEvents.length }} {{ liveEvents.length === 1 ? 'meet is' : 'meets are' }} broadcasting
+      <!-- Compact LIVE strip — horizontal-scrolling row of
+           clickable chips. Replaces the old multi-line card grid
+           that consumed half the viewport. Each chip jumps
+           straight into the broadcast layout. Caps at 8 visible
+           chips before horizontal scroll kicks in. -->
+      <div v-if="liveEvents.length" class="live-strip">
+        <div class="live-strip-head">
+          <span class="live-pulse">● LIVE NOW</span>
+          <span class="live-strip-sub">
+            {{ liveEvents.length }} broadcasting · click any to watch
           </span>
         </div>
-        <div class="live-banner-cards">
-          <button v-for="ev in liveEvents" :key="ev.id" class="live-event-card" @click="selectEvent(ev.id)">
-            <div class="live-event-name">{{ ev.name }}</div>
-            <div class="live-event-meta">
-              {{ ev.org_name }}<span v-if="ev.country_code" class="live-event-ctry">{{ ev.country_code }}</span>
-              <span v-if="ev.height"> · {{ ev.height }}</span>
-              <span> · {{ ev.total_rounds }} rounds</span>
-            </div>
-            <!-- Round + most-recent diver from /api/archive's
-                 LATERAL join. Only shows once at least one dive
-                 has scored — before that we keep the generic
-                 "Watch live" CTA. -->
-            <div v-if="ev.current_round" class="live-event-now">
-              Round {{ ev.current_round }} / {{ ev.total_rounds }}
-              <span v-if="ev.last_diver_name"> · {{ ev.last_diver_name }} just scored</span>
-            </div>
-            <div class="live-event-watch">Watch live →</div>
+        <div class="live-strip-row">
+          <button
+            v-for="ev in liveEvents"
+            :key="ev.id"
+            class="live-chip"
+            @click="selectEvent(ev.id)"
+            :title="ev.last_diver_name
+              ? `Round ${ev.current_round}/${ev.total_rounds} · ${ev.last_diver_name} just scored`
+              : `Round ${ev.current_round || 1}/${ev.total_rounds}`"
+          >
+            <span class="live-chip-dot" aria-hidden="true"></span>
+            <span class="live-chip-name">{{ ev.name }}</span>
+            <span v-if="ev.country_code" class="live-chip-ctry">{{ ev.country_code }}</span>
+            <span v-if="ev.current_round" class="live-chip-round">
+              R{{ ev.current_round }}/{{ ev.total_rounds }}
+            </span>
           </button>
         </div>
       </div>
 
-      <!-- Filter bar -->
-      <div v-if="events.length" class="filter-bar">
-        <input class="input" type="text" v-model="searchTerm"
-               placeholder="Search meet, host org, country…">
-        <select class="select" v-model="statusFilter">
+      <!-- Filter + tools row 1: search + result count + tools.
+           The search input dominates so it's reachable at any
+           viewport width; sort + view toggle + export sit on the
+           right. Filter dropdowns get their own row below. -->
+      <div v-if="events.length" class="sb-tools">
+        <div class="sb-tools-search">
+          <input
+            class="input sb-search-input"
+            type="text"
+            v-model="searchTerm"
+            placeholder="Search meet, host org, country…"
+            aria-label="Search meets"
+          >
+          <span class="sb-result-count">
+            {{ filteredEvents.length.toLocaleString() }} of {{ events.length.toLocaleString() }}
+            {{ events.length === 1 ? 'meet' : 'meets' }}
+          </span>
+        </div>
+        <div class="sb-tools-right">
+          <label class="sb-tool-label">Sort
+            <select class="select sb-tool-select" v-model="sortBy">
+              <option value="recent">Most recent</option>
+              <option value="oldest">Oldest first</option>
+              <option value="name">A–Z</option>
+            </select>
+          </label>
+          <div class="sb-view-toggle" role="group" aria-label="View mode">
+            <button
+              :class="['sb-view-btn', viewMode === 'cards' ? 'is-active' : '']"
+              @click="viewMode = 'cards'"
+              title="Card view"
+              aria-label="Card view"
+            >▦</button>
+            <button
+              :class="['sb-view-btn', viewMode === 'list' ? 'is-active' : '']"
+              @click="viewMode = 'list'"
+              title="Compact list view"
+              aria-label="Compact list view"
+            >☰</button>
+          </div>
+          <button
+            v-if="filteredEvents.length"
+            class="btn btn-ghost btn-sm"
+            @click="exportMeetsCsv"
+            title="Download the currently-filtered list as CSV"
+          >Export CSV</button>
+        </div>
+      </div>
+
+      <!-- Filter row 2: secondary dropdowns. Wrap freely on narrow
+           viewports rather than squeezing into one cramped line. -->
+      <div v-if="events.length" class="sb-filter-row">
+        <select class="select sb-filter-select" v-model="statusFilter">
           <option value="">All statuses</option>
           <option value="Live">Live now</option>
           <option value="Completed">Completed</option>
         </select>
-        <select class="select" v-model="countryFilter">
+        <select class="select sb-filter-select" v-model="countryFilter">
           <option value="">All countries ({{ countries.length }})</option>
           <option v-for="c in countries" :key="c.code" :value="c.code">
             {{ c.code }} — {{ c.org_name }}
           </option>
         </select>
-        <select class="select" v-model="yearFilter">
+        <select class="select sb-filter-select" v-model="yearFilter">
           <option value="">All years</option>
           <option v-for="y in years" :key="y" :value="y">{{ y }}</option>
         </select>
-        <select class="select" v-model="heightFilter">
+        <select class="select sb-filter-select" v-model="heightFilter">
           <option value="">All heights</option>
           <option v-for="h in heights" :key="h" :value="h">{{ h }}</option>
         </select>
-        <select class="select" v-model="clubFilter">
+        <select class="select sb-filter-select" v-model="clubFilter">
           <option value="">All clubs ({{ visibleClubs.length }})</option>
           <option v-for="c in visibleClubs" :key="c.id" :value="c.id">
             {{ c.name }}<template v-if="c.short_code"> ({{ c.short_code }})</template><template v-if="!countryFilter"> · {{ c.country_code }}</template>
           </option>
         </select>
-        <button v-if="activeFilterCount" class="btn btn-ghost btn-sm" @click="clearFilters">Clear filters</button>
-        <button
-          v-if="filteredEvents.length"
-          class="btn btn-ghost btn-sm"
-          @click="exportMeetsCsv"
-          title="Download the currently-filtered list as CSV"
-        >Export CSV</button>
-        <span class="result-count">
-          {{ filteredEvents.length.toLocaleString() }} of {{ events.length.toLocaleString() }} meets
-        </span>
+        <button v-if="activeFilterCount" class="btn btn-ghost btn-sm" @click="clearFilters">
+          Clear ({{ activeFilterCount }})
+        </button>
       </div>
 
-      <!-- Meet cards grid -->
+      <!-- Empty / loading states -->
       <div v-if="loadingList" class="meets-empty">Loading meets…</div>
       <div v-else-if="!events.length" class="meets-empty">No meets yet — check back when one starts.</div>
       <div v-else-if="!filteredEvents.length" class="meets-empty">
         No meets match these filters.
         <button class="btn btn-ghost btn-sm" style="margin-left:0.5rem" @click="clearFilters">Clear</button>
       </div>
-      <div v-else class="meets-grid">
-        <button v-for="ev in filteredEvents" :key="ev.id" class="meet-card" @click="selectEvent(ev.id)">
-          <div class="meet-card-head">
-            <span class="meet-card-name">{{ ev.name }}</span>
-            <span v-if="ev.status === 'Live'" class="meet-card-status live">LIVE</span>
-            <span v-else class="meet-card-status final">FINAL</span>
-          </div>
-          <div class="meet-card-org">
-            {{ ev.org_name }}<span v-if="ev.country_code" class="meet-card-ctry">{{ ev.country_code }}</span>
-          </div>
-          <!-- Meet badge — appears for events that belong to a
-               multi-event meet bundle. Tapping the badge stops
-               the card click and opens the meet landing page. -->
-          <RouterLink
-            v-if="ev.meet_id"
-            :to="`/meet/${ev.meet_id}`"
-            class="meet-card-meetlink"
-            @click.stop
-            :title="`Part of ${ev.meet_name}`"
-          >📅 {{ ev.meet_name }}</RouterLink>
-          <div class="meet-card-tags">
-            <span v-if="ev.gender" class="meet-tag">{{ ev.gender }}</span>
-            <span v-if="ev.height" class="meet-tag">{{ ev.height }}</span>
-            <span class="meet-tag">{{ ev.total_rounds }} rds</span>
-            <span class="meet-tag">{{ ev.number_of_judges }}j</span>
-            <span v-if="ev.event_type === 'synchro_pair'" class="meet-tag meet-tag-cyan">Synchro</span>
-            <span v-else-if="ev.event_type === 'team'" class="meet-tag meet-tag-cyan">Team</span>
-          </div>
-          <div class="meet-card-stats">
-            <span v-if="ev.competitor_count">
-              {{ ev.competitor_count }} {{ ev.competitor_count === 1 ? 'diver' : 'divers' }}
-            </span>
-            <span v-if="ev.club_count">
-              · {{ ev.club_count }} {{ ev.club_count === 1 ? 'club' : 'clubs' }}
-            </span>
-            <span class="meet-card-date">{{ fmtDate(ev.created_at) }}</span>
-          </div>
+
+      <!-- Card-mode results, optionally year-grouped. -->
+      <template v-else-if="viewMode === 'cards'">
+        <template v-if="groupedEvents">
+          <section v-for="g in groupedEvents" :key="g.year" class="sb-year-group">
+            <header class="sb-year-head">
+              <span class="sb-year-label">{{ g.year }}</span>
+              <span class="sb-year-count">{{ g.items.length }}</span>
+            </header>
+            <div class="meets-grid">
+              <button v-for="ev in g.items" :key="ev.id" class="meet-card" @click="selectEvent(ev.id)">
+                <div class="meet-card-head">
+                  <span class="meet-card-name">{{ ev.name }}</span>
+                  <span v-if="ev.status === 'Live'" class="meet-card-status live">LIVE</span>
+                  <span v-else class="meet-card-status final">FINAL</span>
+                </div>
+                <div class="meet-card-org">
+                  {{ ev.org_name }}<span v-if="ev.country_code" class="meet-card-ctry">{{ ev.country_code }}</span>
+                </div>
+                <RouterLink
+                  v-if="ev.meet_id"
+                  :to="`/meet/${ev.meet_id}`"
+                  class="meet-card-meetlink"
+                  @click.stop
+                  :title="`Part of ${ev.meet_name}`"
+                >📅 {{ ev.meet_name }}</RouterLink>
+                <div class="meet-card-tags">
+                  <span v-if="ev.gender" class="meet-tag">{{ ev.gender }}</span>
+                  <span v-if="ev.height" class="meet-tag">{{ ev.height }}</span>
+                  <span class="meet-tag">{{ ev.total_rounds }} rds</span>
+                  <span class="meet-tag">{{ ev.number_of_judges }}j</span>
+                  <span v-if="ev.event_type === 'synchro_pair'" class="meet-tag meet-tag-cyan">Synchro</span>
+                  <span v-else-if="ev.event_type === 'team'" class="meet-tag meet-tag-cyan">Team</span>
+                </div>
+                <div class="meet-card-stats">
+                  <span v-if="ev.competitor_count">
+                    {{ ev.competitor_count }} {{ ev.competitor_count === 1 ? 'diver' : 'divers' }}
+                  </span>
+                  <span v-if="ev.club_count">
+                    · {{ ev.club_count }} {{ ev.club_count === 1 ? 'club' : 'clubs' }}
+                  </span>
+                  <span class="meet-card-date">{{ fmtDate(ev.created_at) }}</span>
+                </div>
+              </button>
+            </div>
+          </section>
+        </template>
+        <div v-else class="meets-grid">
+          <button v-for="ev in sortedFilteredEvents" :key="ev.id" class="meet-card" @click="selectEvent(ev.id)">
+            <div class="meet-card-head">
+              <span class="meet-card-name">{{ ev.name }}</span>
+              <span v-if="ev.status === 'Live'" class="meet-card-status live">LIVE</span>
+              <span v-else class="meet-card-status final">FINAL</span>
+            </div>
+            <div class="meet-card-org">
+              {{ ev.org_name }}<span v-if="ev.country_code" class="meet-card-ctry">{{ ev.country_code }}</span>
+            </div>
+            <RouterLink
+              v-if="ev.meet_id"
+              :to="`/meet/${ev.meet_id}`"
+              class="meet-card-meetlink"
+              @click.stop
+              :title="`Part of ${ev.meet_name}`"
+            >📅 {{ ev.meet_name }}</RouterLink>
+            <div class="meet-card-tags">
+              <span v-if="ev.gender" class="meet-tag">{{ ev.gender }}</span>
+              <span v-if="ev.height" class="meet-tag">{{ ev.height }}</span>
+              <span class="meet-tag">{{ ev.total_rounds }} rds</span>
+              <span class="meet-tag">{{ ev.number_of_judges }}j</span>
+              <span v-if="ev.event_type === 'synchro_pair'" class="meet-tag meet-tag-cyan">Synchro</span>
+              <span v-else-if="ev.event_type === 'team'" class="meet-tag meet-tag-cyan">Team</span>
+            </div>
+            <div class="meet-card-stats">
+              <span v-if="ev.competitor_count">
+                {{ ev.competitor_count }} {{ ev.competitor_count === 1 ? 'diver' : 'divers' }}
+              </span>
+              <span v-if="ev.club_count">
+                · {{ ev.club_count }} {{ ev.club_count === 1 ? 'club' : 'clubs' }}
+              </span>
+              <span class="meet-card-date">{{ fmtDate(ev.created_at) }}</span>
+            </div>
+          </button>
+        </div>
+      </template>
+
+      <!-- Compact list view — one row per meet. Faster to scan
+           when the federation has hundreds of completed events. -->
+      <div v-else class="meets-list">
+        <button
+          v-for="ev in sortedFilteredEvents"
+          :key="ev.id"
+          class="meet-row"
+          @click="selectEvent(ev.id)"
+        >
+          <span :class="['meet-row-status', ev.status === 'Live' ? 'live' : 'final']">
+            {{ ev.status === 'Live' ? 'LIVE' : 'FINAL' }}
+          </span>
+          <span class="meet-row-name">{{ ev.name }}</span>
+          <span class="meet-row-org">
+            {{ ev.org_name }}<span v-if="ev.country_code" class="meet-row-ctry">{{ ev.country_code }}</span>
+          </span>
+          <span class="meet-row-meta">
+            <span v-if="ev.height">{{ ev.height }}</span>
+            <span v-if="ev.gender"> · {{ ev.gender }}</span>
+            <span v-if="ev.event_type === 'synchro_pair'"> · Synchro</span>
+            <span v-else-if="ev.event_type === 'team'"> · Team</span>
+          </span>
+          <span class="meet-row-date">{{ fmtDate(ev.created_at) }}</span>
+          <span class="meet-row-arrow" aria-hidden="true">→</span>
         </button>
       </div>
     </div>
@@ -1823,87 +1986,232 @@ onMounted(async () => {
   display: flex; flex-direction: column; gap: 1.25rem;
 }
 
-/* Live banner — only when at least one meet is in progress. */
-.live-banner {
+/* Compact LIVE strip — single horizontal row of clickable
+   chips. Replaced the prior multi-line card grid; recovers
+   significant vertical space while still surfacing every live
+   meet. Scrolls horizontally on narrow screens (federations
+   running multiple boards in parallel). */
+.live-strip {
   background: linear-gradient(135deg, rgba(239,68,68,0.10), rgba(239,68,68,0.02));
   border: 1px solid rgba(239,68,68,0.35);
   border-radius: var(--radius-lg);
-  padding: 1rem 1.25rem;
-  display: flex; flex-direction: column; gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  display: flex; flex-direction: column; gap: 0.55rem;
 }
-.live-banner-head {
+.live-strip-head {
   display: flex; align-items: center; gap: 0.6rem;
 }
 .live-pulse {
   font-family: var(--font-display); font-size: 10px; font-weight: 900;
-  letter-spacing: 0.2em; padding: 0.25rem 0.75rem;
+  letter-spacing: 0.2em; padding: 0.25rem 0.65rem;
   background: var(--red); color: white; border-radius: 4px;
   animation: pulse-red 2s infinite;
 }
-.live-banner-sub {
-  font-family: var(--font-display); font-size: 12px; font-weight: 700;
-  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-2);
+.live-strip-sub {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-3); letter-spacing: 0.04em;
 }
-.live-banner-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 0.75rem;
+.live-strip-row {
+  display: flex; gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+  scrollbar-width: thin;
 }
-.live-event-card {
-  text-align: left; cursor: pointer;
-  background: var(--surface);
-  border: 1px solid rgba(239,68,68,0.3);
-  border-radius: var(--radius);
-  padding: 0.875rem 1rem;
-  display: flex; flex-direction: column; gap: 0.4rem;
-  transition: all 0.15s; min-width: 0;
+.live-chip {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  flex-shrink: 0;
+  background: rgba(239,68,68,0.08);
+  border: 1px solid rgba(239,68,68,0.45);
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, transform 0.1s;
+  font-family: var(--font-display);
+  color: var(--text);
 }
-.live-event-card:hover {
+.live-chip:hover {
+  background: rgba(239,68,68,0.18);
   border-color: var(--red);
-  box-shadow: 0 0 16px rgba(239,68,68,0.2);
   transform: translateY(-1px);
 }
-.live-event-name {
-  font-family: var(--font-display); font-size: 15px; font-weight: 900;
-  font-style: italic; color: var(--text); line-height: 1.15;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.live-chip-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--red);
+  animation: pulse-red 1.5s infinite;
+  flex-shrink: 0;
 }
-.live-event-meta {
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+.live-chip-name {
+  font-size: 13px; font-weight: 800; font-style: italic;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 240px;
 }
-.live-event-ctry {
-  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
-  letter-spacing: 0.05em; color: var(--text-3);
+.live-chip-ctry {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.04em; color: var(--text-3);
   background: var(--bg-3); border: 1px solid var(--border);
   border-radius: 3px; padding: 0.1rem 0.35rem;
-  margin-left: 0.4rem; vertical-align: middle;
 }
-.live-event-watch {
-  font-family: var(--font-display); font-size: 11px; font-weight: 700;
-  letter-spacing: 0.15em; text-transform: uppercase; color: var(--red);
-  margin-top: 0.1rem;
-}
-.live-event-now {
-  font-family: var(--font-display); font-size: 12px; font-weight: 700;
-  color: var(--text);
-  background: rgba(239,68,68,0.08); border-left: 2px solid var(--red);
-  padding: 0.35rem 0.5rem; border-radius: 0 3px 3px 0;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.live-chip-round {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  color: var(--red);
 }
 
-/* Filter bar */
-.filter-bar {
-  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+/* Tools row 1: search dominates, sort + view toggle + export
+   align right. Two rows total (this + .sb-filter-row) so the
+   six-input cram of the prior layout breathes. */
+.sb-tools {
+  display: flex; align-items: center; gap: 1rem;
+  flex-wrap: wrap;
   padding: 0.75rem 1rem;
-  background: var(--surface); border: 1px solid var(--border);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
 }
-.filter-bar .input  { flex: 1 1 200px; max-width: 280px; font-size: 13px; padding: 0.55rem 0.75rem; }
-.filter-bar .select { flex: 0 1 160px; max-width: 200px; font-size: 13px; padding: 0.55rem 0.75rem; }
-.result-count {
-  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
-  margin-left: auto;
+.sb-tools-search {
+  display: flex; align-items: center; gap: 0.85rem;
+  flex: 1 1 320px; min-width: 0;
+}
+.sb-search-input {
+  flex: 1 1 auto;
+  font-size: 13px; padding: 0.55rem 0.75rem;
+}
+.sb-result-count {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.sb-tools-right {
+  display: flex; align-items: center; gap: 0.55rem;
+  flex-shrink: 0;
+}
+.sb-tool-label {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3);
+}
+.sb-tool-select { font-size: 12px; padding: 0.4rem 0.55rem; }
+
+.sb-view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.sb-view-btn {
+  background: transparent; border: 0;
+  padding: 0.45rem 0.65rem;
+  font-size: 13px; line-height: 1;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.sb-view-btn + .sb-view-btn { border-left: 1px solid var(--border); }
+.sb-view-btn:hover { color: var(--text); background: var(--bg-3); }
+.sb-view-btn.is-active {
+  background: rgba(6,182,212,0.12);
+  color: var(--cyan);
+}
+
+/* Filter row 2: secondary dropdowns. Wrap freely. */
+.sb-filter-row {
+  display: flex; flex-wrap: wrap; gap: 0.5rem;
+  padding: 0 0.25rem;
+}
+.sb-filter-select {
+  flex: 0 1 180px;
+  font-size: 12px; padding: 0.45rem 0.6rem;
+}
+
+/* Year-grouped sections (only shown when ≥12 results across ≥2
+   years — small lists stay flat). */
+.sb-year-group { display: flex; flex-direction: column; gap: 0.65rem; margin-bottom: 1.25rem; }
+.sb-year-head {
+  display: flex; align-items: baseline; gap: 0.55rem;
+  font-family: var(--font-display);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.35rem;
+}
+.sb-year-label {
+  font-size: 14px; font-weight: 900; font-style: italic;
+  color: var(--text); letter-spacing: 0.04em;
+}
+.sb-year-count {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-3);
+}
+
+/* Compact list view — one row per meet. Massively faster to
+   scan when a federation has hundreds of historical events. */
+.meets-list {
+  display: flex; flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.meet-row {
+  display: grid;
+  grid-template-columns: 64px 1.6fr 1.2fr 1fr 100px 24px;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.85rem;
+  background: var(--surface);
+  border: 0; border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+  transition: background 0.1s;
+}
+.meet-row:last-child { border-bottom: 0; }
+.meet-row:hover {
+  background: rgba(6,182,212,0.05);
+  color: var(--text);
+}
+.meet-row-status {
+  font-family: var(--font-display); font-size: 10px; font-weight: 900;
+  letter-spacing: 0.12em; padding: 0.2rem 0.4rem;
+  border-radius: 3px; text-align: center; flex-shrink: 0;
+}
+.meet-row-status.live  { background: var(--red); color: white; animation: pulse-red 2s infinite; }
+.meet-row-status.final { background: var(--bg-3); color: var(--text-3); }
+.meet-row-name {
+  font-family: var(--font-display); font-size: 13px; font-weight: 800;
+  font-style: italic; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.meet-row-org {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.meet-row-ctry {
+  display: inline-block; margin-left: 0.4rem;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
+  color: var(--text-3);
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: 3px; padding: 0.05rem 0.3rem;
+}
+.meet-row-meta { color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meet-row-date { color: var(--text-3); text-align: right; white-space: nowrap; }
+.meet-row-arrow { color: var(--text-3); text-align: right; font-family: var(--font-display); }
+.meet-row:hover .meet-row-arrow { color: var(--cyan); }
+
+@media (max-width: 720px) {
+  .meet-row {
+    grid-template-columns: 56px 1fr 80px;
+    grid-template-areas:
+      "status name name"
+      "status org  date"
+      "status meta meta";
+    gap: 0.4rem 0.65rem;
+    padding: 0.55rem 0.75rem;
+  }
+  .meet-row-status { grid-area: status; align-self: center; }
+  .meet-row-name   { grid-area: name; }
+  .meet-row-org    { grid-area: org; }
+  .meet-row-date   { grid-area: date; text-align: right; }
+  .meet-row-meta   { grid-area: meta; }
+  .meet-row-arrow  { display: none; }
 }
 
 /* Meet card grid — like the live cards but neutral colour. */

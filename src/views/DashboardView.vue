@@ -933,6 +933,16 @@ function attachSocketHandlers() {
         <RouterLink to="/profile" class="btn btn-ghost">My Profile</RouterLink>
         <button class="btn btn-ghost" @click="logout">Sign Out</button>
       </div>
+      <!-- Secondary nav row — right-aligned beneath the account
+           buttons, sitting just above the header bottom border.
+           Scoreboard is the one persistent destination useful to
+           every role (operators want to glance at standings
+           between dives; spectators land here first). Lives in
+           the dashboard chrome rather than a tab so it's
+           reachable regardless of which role tab is active. -->
+      <nav class="header-secondary-nav" aria-label="Secondary">
+        <RouterLink to="/scoreboard" class="header-secondary-link">Scoreboard</RouterLink>
+      </nav>
     </div>
 
     <!-- Pulse strip — always-visible cross-role digest. Each
@@ -1121,6 +1131,35 @@ function attachSocketHandlers() {
   letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3);
   margin-top: 0.5rem;
   white-space: normal; word-break: break-word;
+}
+
+/* Secondary nav row — sits inside .header-inner as a third flex
+   item that consumes full width, so it stacks below the
+   welcome/account row even though they're in the same flex
+   container. Right-aligned per the spec; reads as a quiet
+   strip of "always-on" destinations. Currently just Scoreboard;
+   easy to grow as more cross-role surfaces land. */
+.header-secondary-nav {
+  flex: 1 0 100%;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.85rem;
+  margin-top: 0.5rem;
+}
+.header-secondary-link {
+  font-family: var(--font-display);
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text-3);
+  text-decoration: none;
+  padding: 0.3rem 0.2rem;
+  border-bottom: 2px solid transparent;
+  transition: color 0.12s, border-color 0.12s;
+}
+.header-secondary-link:hover,
+.header-secondary-link.router-link-active {
+  color: var(--cyan);
+  border-bottom-color: var(--cyan);
 }
 
 /* Account-area buttons (and the diver-search input) in the
