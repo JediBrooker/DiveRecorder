@@ -939,9 +939,14 @@ function attachSocketHandlers() {
            every role (operators want to glance at standings
            between dives; spectators land here first). Lives in
            the dashboard chrome rather than a tab so it's
-           reachable regardless of which role tab is active. -->
+           reachable regardless of which role tab is active.
+           Styled as a loud cyan button rather than a quiet
+           text link so it actually catches the eye. -->
       <nav class="header-secondary-nav" aria-label="Secondary">
-        <RouterLink to="/scoreboard" class="header-secondary-link">Scoreboard</RouterLink>
+        <RouterLink to="/scoreboard" class="header-secondary-link">
+          <span class="header-secondary-link-icon" aria-hidden="true">🏆</span>
+          <span>Scoreboard &amp; Results</span>
+        </RouterLink>
       </nav>
     </div>
 
@@ -1147,19 +1152,36 @@ function attachSocketHandlers() {
   margin-top: 0.5rem;
 }
 .header-secondary-link {
+  display: inline-flex; align-items: center; gap: 0.5rem;
   font-family: var(--font-display);
-  font-size: 11px; font-weight: 700;
+  font-size: 12px; font-weight: 800;
   letter-spacing: 0.18em; text-transform: uppercase;
-  color: var(--text-3);
+  color: var(--cyan);
   text-decoration: none;
-  padding: 0.3rem 0.2rem;
-  border-bottom: 2px solid transparent;
-  transition: color 0.12s, border-color 0.12s;
+  padding: 0.55rem 1rem;
+  border: 1px solid rgba(6,182,212,0.45);
+  border-radius: var(--radius);
+  background: rgba(6,182,212,0.08);
+  transition: background 0.12s, border-color 0.12s, transform 0.1s, box-shadow 0.12s;
 }
 .header-secondary-link:hover,
+.header-secondary-link:focus-visible {
+  background: rgba(6,182,212,0.18);
+  border-color: var(--cyan);
+  box-shadow: 0 0 14px rgba(6,182,212,0.35);
+  transform: translateY(-1px);
+  outline: none;
+}
 .header-secondary-link.router-link-active {
-  color: var(--cyan);
-  border-bottom-color: var(--cyan);
+  color: var(--bg);
+  background: var(--cyan);
+  border-color: var(--cyan);
+}
+.header-secondary-link-icon {
+  font-size: 14px; line-height: 1;
+  /* Emojis carry their own colour — neutralise the cyan tint
+     that bleeds in from the parent. */
+  filter: none;
 }
 
 /* Account-area buttons (and the diver-search input) in the
