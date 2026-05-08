@@ -1507,21 +1507,22 @@ const availableRounds = computed(() => {
 })
 
 // =============================================================
-// UP NEXT (right-panel hero) — the next 5 (or all) divers in
-// roster order, starting AFTER the currently-active diver.
-// Withdrawn rows are excluded so the operator never queues a
-// scratched diver into a "next" slot.
+// UP NEXT (right-panel hero) — the next divers in roster
+// order, starting AFTER the currently-active diver. Withdrawn
+// rows are excluded so the operator never queues a scratched
+// diver into a "next" slot.
 //
-// Two pieces of state:
-//   upNextShowAll  toggle for the "Show all / Show first 5" link
-//   upNextDives    the actual list rendered, capped at 5 unless
-//                  the toggle is on
+// Resting view shows the next 3; click "Show N more ↓"
+// (rendered INSIDE the list after the 3rd row) to expand to
+// the full set. The same anchored-toggle pattern the history
+// columns + scoreboard Up Next use, so the button doesn't
+// jump down off the operator's eye-line on click.
 //
 // Drives the panel that replaces the old Diver Queue as the
 // primary right-panel surface; the full searchable roster lives
 // in a collapsed-by-default "Dive Order" panel underneath.
 // =============================================================
-const UP_NEXT_DEFAULT_LIMIT = 5
+const UP_NEXT_DEFAULT_LIMIT = 3
 const upNextShowAll = ref(false)
 const upNextDives = computed(() => {
   if (!roster.value.length) return []
@@ -2760,31 +2761,21 @@ onUnmounted(() => {
         </div>
 
         <!-- Up Next — primary right-panel surface during live
-             scoring. Shows the next 3 divers / pairs by default
-             with a "Show all (N)" toggle for the operator who
-             wants to see further down the queue without opening
-             the full Dive Order panel below. Withdrawn rows are
-             skipped server-side via the upNextDives computed.
-             Click a row to jump-set the active diver, same as a
-             Dive Order row click. -->
+             scoring. Shows the next 3 divers / pairs by default;
+             a "Show N more ↓" toggle rendered INSIDE the list
+             after row 3 expands to the full set without moving
+             the toggle off-screen. Withdrawn rows are skipped
+             server-side via the upNextDives computed. Click a
+             row to jump-set the active diver, same as a Dive
+             Order row click. -->
         <div v-if="upNextDives.length" class="up-next-panel">
           <div class="up-next-panel-head">
             <span class="up-next-panel-label">Up Next</span>
-            <button v-if="upNextTotal > 5"
-                    class="up-next-toggle"
-                    @click="upNextShowAll = !upNextShowAll"
-                    :title="upNextShowAll
-                      ? 'Show only the next 5'
-                      : `Show all ${upNextTotal} remaining`">
-              {{ upNextShowAll
-                  ? `Show first 5 ↑`
-                  : `Show all (${upNextTotal}) ↓` }}
-            </button>
           </div>
           <div class="up-next-list">
+            <template v-for="(row, idx) in upNextDives"
+                      :key="row.dive_list_id || row.originalIdx">
             <button
-              v-for="row in upNextDives"
-              :key="row.dive_list_id || row.originalIdx"
               :class="['up-next-row-btn']"
               :disabled="!!row.withdrawn_at"
               @click="setActive(row.originalIdx)"
@@ -2814,6 +2805,27 @@ onUnmounted(() => {
                 </div>
               </div>
             </button>
+            <!-- Anchored toggle — rendered INSIDE the v-for
+                 after the 3rd row so it stays at a fixed
+                 visual position when expanded. Extra rows
+                 drop down BELOW it. Only renders when there
+                 are more upcoming rows than the preview limit
+                 (so the button never appears with nothing to
+                 reveal). -->
+            <button
+              v-if="idx === UP_NEXT_DEFAULT_LIMIT - 1
+                    && upNextTotal > UP_NEXT_DEFAULT_LIMIT"
+              class="up-next-anchor-toggle"
+              @click="upNextShowAll = !upNextShowAll"
+              :title="upNextShowAll
+                ? `Show only the next ${UP_NEXT_DEFAULT_LIMIT}`
+                : `Show all ${upNextTotal} remaining`"
+            >
+              {{ upNextShowAll
+                  ? `Show fewer ↑`
+                  : `Show ${upNextTotal - UP_NEXT_DEFAULT_LIMIT} more ↓` }}
+            </button>
+            </template>
           </div>
         </div>
 
@@ -4609,16 +4621,31 @@ onUnmounted(() => {
   font-family: var(--font-display); font-size: 10px; font-weight: 700;
   letter-spacing: 0.25em; text-transform: uppercase; color: var(--cyan);
 }
-.up-next-toggle {
-  background: transparent; border: 1px solid var(--border);
-  color: var(--text-3); cursor: pointer;
-  font-family: var(--font-mono); font-size: 10px;
-  padding: 0.2rem 0.5rem; border-radius: 3px;
-  letter-spacing: 0.04em;
-}
-.up-next-toggle:hover { color: var(--text); border-color: var(--text-3); }
+/* (.up-next-toggle in the panel head retired — the toggle now
+    lives INSIDE the list as .up-next-anchor-toggle, anchored
+    after the (UP_NEXT_DEFAULT_LIMIT)th row so expanding the
+    list drops extra rows DOWN-WARD rather than shoving the
+    toggle off the operator's eye-line.) */
 .up-next-list {
   display: flex; flex-direction: column; gap: 0.3rem;
+}
+/* Anchored toggle — same visual language as .hist-toggle.
+   Fits inside the .up-next-list flex column so the row gap
+   spacing is preserved. Dashed border + display-font copy
+   reads as "list-expansion control" without competing with
+   the row buttons above. */
+.up-next-anchor-toggle {
+  display: block; width: 100%;
+  background: transparent; border: 1px dashed var(--border);
+  color: var(--text-3); cursor: pointer;
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.16em; text-transform: uppercase;
+  padding: 0.55rem 0.7rem; border-radius: var(--radius-sm);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.up-next-anchor-toggle:hover {
+  color: var(--cyan); border-color: var(--cyan);
+  background: var(--cyan-dim);
 }
 .up-next-row-btn {
   display: flex; flex-direction: column; gap: 0.2rem;
