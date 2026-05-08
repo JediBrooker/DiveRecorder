@@ -298,6 +298,7 @@ A meet bundles multiple events ("2026 National Open" → 1m M/F, 3m M/F, 10m M/F
 - **Coach ↔ Diver links** — a coach can mentor multiple divers; a diver may have multiple coaches over time. Org admins manage the links from the User Manager drawer.
 - Users belong to one org and optionally one club within it.
 - System admins see across all orgs; org admins / meet managers manage their own.
+- **International events** — a host org can opt other federations onto an event's participating list (Meet Manager → ⋯ → Federations…). Foreign divers self-enter without a shadow account; their results count toward **their home federation's** records (`lib/records.js` already keys federation records off `users.org_id`). The host org keeps full control of meet_manager / referee / score correction / audit log. Empty list = domestic-only event. See migration 036.
 
 ### Auth & accounts
 

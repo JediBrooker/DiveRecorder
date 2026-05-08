@@ -548,6 +548,7 @@ app.use(require("./routes/events")({
   pool,
   JWT_SECRET,
   io,
+  verifyToken,
   requireOrgAdmin,
   requireEventManager,
   sendEventStartedEmails,

@@ -50,9 +50,25 @@ module.exports = function createCompetitorRouter({
           return res.status(gate.status).json({ error: gate.error });
         }
         const evRow = gate.event;
-        if (evRow.org_id !== req.user.org_id && !req.user.is_system_admin) {
-          await client.query("ROLLBACK");
-          return res.status(403).json({ error: "Event is not in your organisation" });
+        // Multi-federation entry gate. The event's host org is
+        // always allowed; a sysadmin can act anywhere; otherwise
+        // the diver's org must be on the participating list (an
+        // explicit opt-in by the host org_admin).
+        if (
+          evRow.org_id !== req.user.org_id
+          && !req.user.is_system_admin
+        ) {
+          const part = await client.query(
+            `SELECT 1 FROM event_participating_orgs
+              WHERE event_id = $1 AND org_id = $2`,
+            [event_id, req.user.org_id],
+          );
+          if (!part.rows.length) {
+            await client.query("ROLLBACK");
+            return res.status(403).json({
+              error: "Your federation isn't on this event's participating list",
+            });
+          }
         }
         const eventType = evRow.event_type || "individual";
         const totalRounds = Number(evRow.total_rounds) || null;

@@ -573,6 +573,24 @@ CREATE TABLE public.event_live_state (
     updated_at            timestamptz NOT NULL DEFAULT now()
 );
 
+-- event_participating_orgs: join table that opts other federations
+-- into this event's roster. A populated row makes it an
+-- "international event" — divers from the listed org can
+-- self-enter, and their results count toward THEIR home
+-- federation's records rather than the host's. The host org is
+-- NOT listed here (events.org_id is the source of truth for the
+-- host); this table lists OTHER federations only. See migration
+-- 036.
+CREATE TABLE public.event_participating_orgs (
+    event_id    uuid NOT NULL REFERENCES public.events(id)        ON DELETE CASCADE,
+    org_id      uuid NOT NULL REFERENCES public.organisations(id) ON DELETE CASCADE,
+    added_at    timestamptz NOT NULL DEFAULT now(),
+    added_by    uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    PRIMARY KEY (event_id, org_id)
+);
+CREATE INDEX idx_event_participating_orgs_org
+  ON public.event_participating_orgs (org_id);
+
 CREATE TABLE public.audit_log (
     id           uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     org_id       uuid REFERENCES public.organisations(id) ON DELETE SET NULL,

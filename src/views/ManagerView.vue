@@ -313,6 +313,17 @@ const orgTeams = ref([])
 const teamToAdd = ref('')
 const teamsBusy = ref(false)
 
+// Participating-orgs modal — open when "Federations" clicked on
+// any event row by an org admin. Lists OTHER federations whose
+// divers can self-enter the event. Empty list = domestic-only.
+// All endpoints live in routes/events.js (migration 036).
+const partOrgsModalOpen  = ref(false)
+const partOrgsModalEvent = ref(null)
+const partOrgsInEvent    = ref([])    // currently invited
+const partOrgsAvailable  = ref([])    // active orgs not yet invited (excl. host)
+const partOrgsToAdd      = ref('')
+const partOrgsBusy       = ref(false)
+
 // Roster import modal — opened from the per-event "Import
 // Roster" button. Manager pastes a CSV; backend parses, looks
 // up each diver by username, validates dives in the directory,
@@ -644,6 +655,92 @@ function closeTeamsModal() {
   teamsModalEvent.value = null
   teamsInEvent.value = []
   orgTeams.value = []
+}
+
+// ---- Participating orgs (international event support) ------
+async function openPartOrgsModal(ev) {
+  partOrgsModalEvent.value = ev
+  partOrgsModalOpen.value  = true
+  partOrgsToAdd.value      = ''
+  partOrgsBusy.value       = true
+  try {
+    const [invited, allOrgs] = await Promise.all([
+      auth.apiFetch(`/api/events/${ev.id}/participating-orgs`),
+      auth.apiFetch(`/api/orgs/active`),
+    ])
+    partOrgsInEvent.value = invited
+    // Available = every active org except the host and any
+    // already invited.
+    const invitedSet = new Set(invited.map(o => o.org_id))
+    partOrgsAvailable.value = (Array.isArray(allOrgs) ? allOrgs : [])
+      .filter(o => o.id !== ev.org_id && !invitedSet.has(o.id))
+  } catch (err) {
+    showError(err.message)
+    partOrgsInEvent.value = []
+    partOrgsAvailable.value = []
+  } finally {
+    partOrgsBusy.value = false
+  }
+}
+
+function closePartOrgsModal() {
+  partOrgsModalOpen.value  = false
+  partOrgsModalEvent.value = null
+  partOrgsInEvent.value    = []
+  partOrgsAvailable.value  = []
+  partOrgsToAdd.value      = ''
+}
+
+async function addPartOrg() {
+  if (!partOrgsToAdd.value || !partOrgsModalEvent.value) return
+  const ev = partOrgsModalEvent.value
+  partOrgsBusy.value = true
+  try {
+    await auth.apiFetch(`/api/events/${ev.id}/participating-orgs`, {
+      method: 'POST',
+      body: JSON.stringify({ org_id: partOrgsToAdd.value }),
+    })
+    partOrgsInEvent.value = await auth.apiFetch(`/api/events/${ev.id}/participating-orgs`)
+    const invitedSet = new Set(partOrgsInEvent.value.map(o => o.org_id))
+    partOrgsAvailable.value = partOrgsAvailable.value.filter(o => !invitedSet.has(o.id))
+    partOrgsToAdd.value = ''
+    showSuccess('Federation invited to participate')
+  } catch (err) {
+    showError(err.message)
+  } finally {
+    partOrgsBusy.value = false
+  }
+}
+
+async function removePartOrg(org) {
+  if (!await confirmAction({
+    title: `Remove ${org.org_name} from this event?`,
+    body:  `Divers from ${org.country_code || org.org_name} can no longer self-enter. Existing dive list rows from their divers stay intact.`,
+    consequences: [
+      'Their divers stay on the roster if already entered',
+      'New entries from this federation will be rejected after removal',
+    ],
+    confirmLabel: 'Remove federation',
+    confirmKind:  'danger',
+  })) return
+  const ev = partOrgsModalEvent.value
+  partOrgsBusy.value = true
+  try {
+    await auth.apiFetch(`/api/events/${ev.id}/participating-orgs/${org.org_id}`, {
+      method: 'DELETE',
+    })
+    partOrgsInEvent.value = partOrgsInEvent.value.filter(o => o.org_id !== org.org_id)
+    // Make the org re-selectable in the dropdown.
+    partOrgsAvailable.value = [
+      ...partOrgsAvailable.value,
+      { id: org.org_id, name: org.org_name, country_code: org.country_code },
+    ].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    showSuccess(`Removed ${org.org_name}`)
+  } catch (err) {
+    showError(err.message)
+  } finally {
+    partOrgsBusy.value = false
+  }
 }
 
 const addableTeams = computed(() => {
@@ -1119,6 +1216,16 @@ onUnmounted(() => {
               </span>
               <span v-if="ev.event_type === 'synchro_pair'" class="event-type-pill">Synchro</span>
               <span v-else-if="ev.event_type === 'team'" class="event-type-pill team">Team</span>
+              <!-- 🌐 International chip: visible when one or more
+                   other federations are on the participating list.
+                   Click jumps straight into the Federations modal. -->
+              <button
+                v-if="ev.participating_orgs_count > 0"
+                type="button"
+                class="event-type-pill intl-pill"
+                @click.stop="openPartOrgsModal(ev)"
+                :title="`${ev.participating_orgs_count} federation${ev.participating_orgs_count === 1 ? '' : 's'} invited — click to manage`"
+              >🌐 International ({{ ev.participating_orgs_count }})</button>
               <!-- Format badges — distinguish prelim/semi/final
                    at a glance so an operator linking events can
                    find the right pair. -->
@@ -1210,6 +1317,11 @@ onUnmounted(() => {
                 <button class="dropdown-item"
                         @click="openRosterImport(ev); overflowOpenEventId = null">
                   Import roster…
+                </button>
+                <button class="dropdown-item"
+                        @click="openPartOrgsModal(ev); overflowOpenEventId = null"
+                        title="Invite other federations' divers to enter this event">
+                  Federations…
                 </button>
                 <button class="dropdown-item dropdown-item-danger"
                         @click="deleteEvent(ev.id); overflowOpenEventId = null">
@@ -1348,6 +1460,56 @@ onUnmounted(() => {
     <p v-if="!addableTeams.length && !teamsBusy" class="hint-line">
       No more teams available — every team in the org is already enrolled, or the org has no teams. Create teams from
       <RouterLink to="/teams" style="color:var(--cyan)">/teams</RouterLink>.
+    </p>
+  </div>
+
+  <!-- Participating-orgs modal — invite OTHER federations'
+       divers to enter this event. Empty list = domestic-only.
+       Endpoints in routes/events.js (migration 036). -->
+  <div v-if="partOrgsModalOpen" class="modal-backdrop" @click="closePartOrgsModal"></div>
+  <div v-if="partOrgsModalOpen" class="modal teams-modal" @click.stop>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+      <div>
+        <div class="teams-section-label">Participating Federations</div>
+        <h2 style="font-size:20px;font-style:italic;line-height:1.1">
+          {{ partOrgsModalEvent?.name }}
+        </h2>
+      </div>
+      <button class="btn btn-ghost btn-sm" @click="closePartOrgsModal">Close ✕</button>
+    </div>
+    <p class="hint" style="margin-bottom:1rem;line-height:1.5">
+      Listing a federation here lets its divers self-enter this event without a shadow account. Their results count toward <strong>their home federation's</strong> records, not yours. The host federation ({{ partOrgsModalEvent?.org_name || 'this org' }}) is implicit — don't add it.
+    </p>
+
+    <div class="teams-section-label">Currently participating ({{ partOrgsInEvent.length }})</div>
+    <ul v-if="partOrgsInEvent.length" class="enrolled-list">
+      <li v-for="o in partOrgsInEvent" :key="o.org_id" class="enrolled-row">
+        <span class="enrolled-name">
+          {{ o.org_name }}
+          <span v-if="o.country_code" class="enrolled-code">{{ o.country_code }}</span>
+        </span>
+        <button class="btn btn-danger btn-sm" :disabled="partOrgsBusy"
+                @click="removePartOrg(o)">Remove</button>
+      </li>
+    </ul>
+    <div v-else class="enrolled-empty">
+      Domestic-only event — only {{ partOrgsModalEvent?.org_name || 'host' }} divers can enter.
+    </div>
+
+    <div class="teams-section-label" style="margin-top:1.25rem">Invite a federation</div>
+    <div class="add-team-row">
+      <select class="select" v-model="partOrgsToAdd" :disabled="partOrgsBusy">
+        <option value="">— Select a federation —</option>
+        <option v-for="o in partOrgsAvailable" :key="o.id" :value="o.id">
+          {{ o.name }}{{ o.country_code ? ` (${o.country_code})` : '' }}
+        </option>
+      </select>
+      <button class="btn btn-primary btn-sm"
+              :disabled="!partOrgsToAdd || partOrgsBusy"
+              @click="addPartOrg">Invite</button>
+    </div>
+    <p v-if="!partOrgsAvailable.length && !partOrgsBusy" class="hint-line">
+      Every active federation is already participating, or there are no other federations on this server.
     </p>
   </div>
 
@@ -1643,6 +1805,18 @@ onUnmounted(() => {
 }
 .event-type-pill.age {
   color: #c4b5fd; background: rgba(139,92,246,0.08); border-color: rgba(139,92,246,0.4);
+}
+/* International chip: clickable button styled like the other
+   pills. Lights up cyan on hover so it reads as actionable. */
+.event-type-pill.intl-pill {
+  color: #67e8f9; background: rgba(34,211,238,0.12); border-color: rgba(34,211,238,0.45);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.event-type-pill.intl-pill:hover {
+  background: rgba(34,211,238,0.22);
+  border-color: var(--cyan);
+  color: var(--text);
 }
 .hint {
   font-size: 11px; color: var(--text-3); line-height: 1.5;

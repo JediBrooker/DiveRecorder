@@ -25,6 +25,7 @@ module.exports = function createEventsRouter({
   pool,
   JWT_SECRET,
   io,
+  verifyToken,
   requireOrgAdmin,
   requireEventManager,
   sendEventStartedEmails,
@@ -58,8 +59,17 @@ module.exports = function createEventsRouter({
       const authHeader = req.headers["authorization"];
       const token = authHeader && authHeader.split(" ")[1];
       let result;
+      // participating_orgs_count > 0 → international event (the
+       // SPA renders a 🌐 chip and the federations modal pre-loads
+       // the invited list). Subselect rather than LEFT JOIN +
+       // GROUP BY so the rest of the query stays readable.
       const SELECT = `
-        SELECT e.*, o.name AS org_name, o.country_code, o.slug AS org_slug
+        SELECT e.*, o.name AS org_name, o.country_code, o.slug AS org_slug,
+               COALESCE(
+                 (SELECT COUNT(*) FROM event_participating_orgs epo
+                   WHERE epo.event_id = e.id),
+                 0
+               )::int AS participating_orgs_count
         FROM events e
         JOIN organisations o ON o.id = e.org_id
       `;
@@ -73,8 +83,19 @@ module.exports = function createEventsRouter({
         if (decoded.is_system_admin) {
           result = await pool.query(`${SELECT} ORDER BY e.created_at DESC`);
         } else {
+          // Show events the caller's org hosts OR events that
+          // explicitly invited the caller's org via
+          // event_participating_orgs. The EXISTS subquery is
+          // short-circuited by the OR — domestic-only orgs pay
+          // no extra cost. Sysadmin already bypassed above.
           result = await pool.query(
-            `${SELECT} WHERE e.org_id = $1 ORDER BY e.created_at DESC`,
+            `${SELECT}
+             WHERE e.org_id = $1
+                OR EXISTS (
+                  SELECT 1 FROM event_participating_orgs epo
+                   WHERE epo.event_id = e.id AND epo.org_id = $1
+                )
+             ORDER BY e.created_at DESC`,
             [decoded.org_id],
           );
         }
@@ -485,6 +506,175 @@ module.exports = function createEventsRouter({
     } catch (err) {
       console.error("[Status Update Error]", err.message);
       res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // PARTICIPATING ORGS — opt-in list of OTHER federations whose
+  // divers can self-enter this event. Host-org_admin manages.
+  //
+  //   GET    /api/events/:id/participating-orgs
+  //   POST   /api/events/:id/participating-orgs   { org_id }
+  //   DELETE /api/events/:id/participating-orgs/:org_id
+  //
+  // Empty list = domestic-only event (host-org divers only). Any
+  // populated row makes this an international event in practice.
+  // The host org is NEVER inserted here — events.org_id is the
+  // source of truth for the host. See migration 036.
+  // -------------------------------------------------------------
+
+  // Public read — the meet's public landing page wants to render
+  // "participating: AUS / NZL / FIJ" badges, so this endpoint is
+  // open to anonymous spectators (consistent with /api/events
+  // listing live + completed publicly).
+  router.get("/api/events/:id/participating-orgs", async (req, res) => {
+    try {
+      const r = await pool.query(
+        `SELECT epo.org_id, epo.added_at,
+                o.name AS org_name, o.country_code, o.slug AS org_slug
+           FROM event_participating_orgs epo
+           JOIN organisations o ON o.id = epo.org_id
+          WHERE epo.event_id = $1
+          ORDER BY o.name ASC`,
+        [req.params.id],
+      );
+      res.json(r.rows);
+    } catch (err) {
+      console.error("[Participating Orgs List Error]", err.message);
+      res.status(500).json([]);
+    }
+  });
+
+  // Add — host org_admin only (or sysadmin). Same gate as POST
+  // /api/events. The event is loaded first so the response can
+  // confirm host-org match.
+  router.post("/api/events/:id/participating-orgs", requireOrgAdmin, async (req, res) => {
+    const { org_id } = req.body || {};
+    if (!org_id) return res.status(400).json({ error: "org_id is required" });
+    try {
+      const ev = await pool.query(
+        "SELECT id, org_id, name FROM events WHERE id = $1",
+        [req.params.id],
+      );
+      if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
+      // Only the HOST org's admin (or sysadmin) can grant
+      // entry to other federations. requireOrgAdmin already
+      // confirmed `org_admin` somewhere; tighten to "this event's
+      // host org".
+      if (!req.user.is_system_admin && ev.rows[0].org_id !== req.user.org_id) {
+        return res.status(403).json({ error: "You don't host this event" });
+      }
+      // Disallow listing the host's own org — that's the implicit
+      // entry path, not a participating-org row.
+      if (org_id === ev.rows[0].org_id) {
+        return res.status(400).json({
+          error: "Host org is implicit — don't list it as a participating org",
+        });
+      }
+      // Active orgs only — pending/rejected/suspended can't
+      // participate.
+      const target = await pool.query(
+        "SELECT id, name, status FROM organisations WHERE id = $1",
+        [org_id],
+      );
+      if (!target.rows.length) return res.status(404).json({ error: "Target org not found" });
+      if (target.rows[0].status !== "active") {
+        return res.status(409).json({
+          error: `${target.rows[0].name} is ${target.rows[0].status}; only active orgs can participate`,
+        });
+      }
+      await pool.query(
+        `INSERT INTO event_participating_orgs (event_id, org_id, added_by)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (event_id, org_id) DO NOTHING`,
+        [req.params.id, org_id, req.user.id],
+      );
+      // Audit row so the host federation has a clean record of
+      // who invited whom.
+      try {
+        await recordAudit(pool, {
+          ...auditFromReq(req),
+          org_id:      ev.rows[0].org_id,
+          entity_type: "event",
+          entity_id:   ev.rows[0].id,
+          entity_name: ev.rows[0].name,
+          action:      "event.participating_org.added",
+          metadata: { participating_org_id: org_id, participating_org_name: target.rows[0].name },
+        });
+      } catch (auditErr) {
+        console.error("[Participating Org Audit Skipped]", auditErr.message);
+      }
+      res.status(201).json({ ok: true });
+    } catch (err) {
+      console.error("[Add Participating Org Error]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Remove — host org_admin only.
+  router.delete("/api/events/:id/participating-orgs/:org_id", requireOrgAdmin, async (req, res) => {
+    try {
+      const ev = await pool.query(
+        "SELECT id, org_id, name FROM events WHERE id = $1",
+        [req.params.id],
+      );
+      if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
+      if (!req.user.is_system_admin && ev.rows[0].org_id !== req.user.org_id) {
+        return res.status(403).json({ error: "You don't host this event" });
+      }
+      const r = await pool.query(
+        "DELETE FROM event_participating_orgs WHERE event_id = $1 AND org_id = $2 RETURNING org_id",
+        [req.params.id, req.params.org_id],
+      );
+      if (!r.rows.length) return res.status(404).json({ error: "Not on the participating list" });
+      try {
+        await recordAudit(pool, {
+          ...auditFromReq(req),
+          org_id:      ev.rows[0].org_id,
+          entity_type: "event",
+          entity_id:   ev.rows[0].id,
+          entity_name: ev.rows[0].name,
+          action:      "event.participating_org.removed",
+          metadata: { participating_org_id: req.params.org_id },
+        });
+      } catch (auditErr) {
+        console.error("[Participating Org Audit Skipped]", auditErr.message);
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[Remove Participating Org Error]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Eligible divers for an event — host org's divers + every
+  // participating org's divers. Used by the synchro-partner
+  // picker and the late-entry roster lookup so a meet manager
+  // can find foreign divers without hitting the org-scoped
+  // /api/orgs/:id/divers endpoint. Authenticated; org-scoping
+  // happens via the JOIN against event_participating_orgs.
+  router.get("/api/events/:id/eligible-divers", verifyToken, async (req, res) => {
+    try {
+      const r = await pool.query(
+        `SELECT u.id, u.full_name,
+                u.org_id, o.name AS org_name, o.country_code,
+                cl.name AS club_name, cl.short_code AS club_code
+           FROM users u
+           JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id AND r.role = 'diver'
+           JOIN organisations o  ON o.id = u.org_id
+           LEFT JOIN clubs cl    ON cl.id = u.club_id
+          WHERE u.org_id IN (
+                  SELECT org_id FROM events WHERE id = $1
+                  UNION
+                  SELECT org_id FROM event_participating_orgs WHERE event_id = $1
+                )
+          ORDER BY o.name ASC, u.full_name ASC`,
+        [req.params.id],
+      );
+      res.json(r.rows);
+    } catch (err) {
+      console.error("[Eligible Divers Error]", err.message);
+      res.status(500).json([]);
     }
   });
 
