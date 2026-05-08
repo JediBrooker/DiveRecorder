@@ -2386,7 +2386,13 @@ onMounted(async () => {
   color: inherit;
   text-decoration: underline dashed transparent;
   text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
+  /* text-underline-offset stays small (1px) — the Up Next list
+     in particular wraps the link in a span with overflow:hidden
+     and a tight line-height, which clips a wider offset. 1px
+     keeps the underline cleanly under the text without
+     overlapping descenders, AND inside the parent's content
+     box so it survives every clipping context. */
+  text-underline-offset: 1px;
   transition: color 0.12s, text-decoration-color 0.12s;
 }
 .diver-link:hover {

@@ -198,7 +198,12 @@ const id = computed(() => diverIdentity(props.row))
   color: inherit;
   text-decoration: underline dashed transparent;
   text-decoration-thickness: 1px;
-  text-underline-offset: 3px;
+  /* 1px offset keeps the underline inside the line-box even
+     in tight clipping contexts (parent overflow:hidden +
+     line-height:normal). A larger offset would land below
+     the parent's content-box and get clipped — same root
+     cause as the .diver-link version. */
+  text-underline-offset: 1px;
   transition: color 0.12s, text-decoration-color 0.12s;
 }
 .di-link:hover {
