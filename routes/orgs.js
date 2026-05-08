@@ -14,6 +14,7 @@
 //   app.use(require('./routes/orgs')({ … }))
 
 const express = require("express");
+const { recordAudit, auditFromReq } = require("../lib/audit");
 
 module.exports = function createOrgsRouter({
   pool,
@@ -53,10 +54,36 @@ module.exports = function createOrgsRouter({
   router.put("/api/orgs/:id/status", requireSystemAdmin, async (req, res) => {
     const { status } = req.body || {};
     try {
+      // Read the previous status so the audit row has a
+      // before/after pair — sysadmins reviewing the audit later
+      // want "approved a pending org" / "suspended a live org"
+      // distinguishable at a glance.
+      const prior = await pool.query(
+        "SELECT status FROM organisations WHERE id = $1",
+        [req.params.id],
+      );
+      const previousStatus = prior.rows[0]?.status;
+
       const r = await pool.query(
         "UPDATE organisations SET status = $1 WHERE id = $2 RETURNING *",
         [status, req.params.id],
       );
+      if (!r.rows.length) return res.status(404).json({ error: "Org not found" });
+
+      if (previousStatus !== status) {
+        await recordAudit(pool, {
+          ...auditFromReq(req),
+          // org_id is the org being modified — the actor is a
+          // sysadmin who has no own org binding for this action.
+          org_id:      r.rows[0].id,
+          entity_type: "org",
+          entity_id:   r.rows[0].id,
+          entity_name: r.rows[0].name,
+          action:      "org.status_changed",
+          metadata: { from: previousStatus, to: status },
+        });
+      }
+
       res.json(r.rows[0]);
     } catch (err) {
       console.error("[Org Status Error]", err.message);
@@ -175,15 +202,18 @@ module.exports = function createOrgsRouter({
   // can confirm what just happened.
   router.delete("/api/clubs/:id", requireMeetEditor, async (req, res) => {
     try {
+      // Pull org_id + name in one read so the audit row has both
+      // (post-delete the row is gone).
       const target = await pool.query(
-        "SELECT org_id FROM clubs WHERE id = $1",
+        "SELECT id, org_id, name, short_code FROM clubs WHERE id = $1",
         [req.params.id],
       );
       if (!target.rows.length)
         return res.status(404).json({ error: "Club not found" });
+      const club = target.rows[0];
       if (
         !req.user.is_system_admin &&
-        target.rows[0].org_id !== req.user.org_id
+        club.org_id !== req.user.org_id
       ) {
         return res
           .status(403)
@@ -194,6 +224,18 @@ module.exports = function createOrgsRouter({
         [req.params.id],
       );
       await pool.query("DELETE FROM clubs WHERE id = $1", [req.params.id]);
+      await recordAudit(pool, {
+        ...auditFromReq(req),
+        org_id:      club.org_id,
+        entity_type: "club",
+        entity_id:   club.id,
+        entity_name: club.name,
+        action:      "club.deleted",
+        metadata: {
+          short_code:         club.short_code,
+          unassigned_members: memberCount.rows[0].n,
+        },
+      });
       res.json({
         message: "Club deleted",
         unassigned_members: memberCount.rows[0].n,

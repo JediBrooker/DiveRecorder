@@ -32,9 +32,10 @@ const isSysAdmin = computed(() => !!auth.user?.is_system_admin)
 
 // ----- Tab state -----
 const TABS = [
-  { id: 'recent', label: 'Recent activity' },
-  { id: 'scores', label: 'Score corrections' },
-  { id: 'roles',  label: 'Role changes' },
+  { id: 'recent',   label: 'Recent activity' },
+  { id: 'scores',   label: 'Score corrections' },
+  { id: 'roles',    label: 'Role changes' },
+  { id: 'activity', label: 'Event & admin actions' },
 ]
 const activeTab = ref('recent')
 
@@ -73,6 +74,25 @@ const roleOffset = ref(0)
 const roleHasMore = ref(false)
 
 const ORG_ROLES = ['org_admin', 'meet_manager', 'referee', 'judge', 'coach', 'diver']
+
+// ----- Activity (event + admin actions) tab state -----
+const activityFilters = ref({
+  action_prefix: 'all', // 'all' | 'event' | 'roster' | 'org' | 'club' | 'team'
+  from:          '',
+  to:            '',
+})
+const activityRows = ref([])
+const activityBusy = ref(false)
+const activityOffset = ref(0)
+const activityHasMore = ref(false)
+const ACTIVITY_PREFIXES = [
+  { value: 'all',    label: 'All' },
+  { value: 'event',  label: 'Event lifecycle' },
+  { value: 'roster', label: 'Roster (late entry / withdraw)' },
+  { value: 'org',    label: 'Org governance' },
+  { value: 'club',   label: 'Club deletes' },
+  { value: 'team',   label: 'Team deletes' },
+]
 
 // ----- Data loaders -----
 async function loadOrgs() {
@@ -156,19 +176,48 @@ async function loadRoles({ append = false } = {}) {
   }
 }
 
+async function loadActivity({ append = false } = {}) {
+  activityBusy.value = true
+  try {
+    const f = activityFilters.value
+    const params = new URLSearchParams()
+    if (f.action_prefix !== 'all') params.set('action_prefix', f.action_prefix)
+    if (f.from)                    params.set('from',          f.from)
+    if (f.to)                      params.set('to',            f.to)
+    params.set('limit',  PAGE)
+    params.set('offset', append ? activityOffset.value : 0)
+    if (isSysAdmin.value && orgFilter.value) params.set('org_id', orgFilter.value)
+    const rows = await auth.apiFetch(`/api/audit/activity?${params.toString()}`)
+    if (append) {
+      activityRows.value = [...activityRows.value, ...rows]
+    } else {
+      activityRows.value = rows
+      activityOffset.value = 0
+    }
+    activityOffset.value += rows.length
+    activityHasMore.value = rows.length === PAGE
+  } catch (err) {
+    showError(`Failed to load activity audit: ${err.message}`)
+  } finally {
+    activityBusy.value = false
+  }
+}
+
 // Re-load whichever tab is active when its filters change. Each
 // filter watcher hits its own loader so switching between tabs
 // is cheap (loader runs once, cached in the row ref).
 watch(() => activeTab.value, (next) => {
-  if (next === 'recent' && !recentRows.value.length) loadRecent()
-  if (next === 'scores' && !scoreRows.value.length)  loadScores()
-  if (next === 'roles'  && !roleRows.value.length)   loadRoles()
+  if (next === 'recent'   && !recentRows.value.length)   loadRecent()
+  if (next === 'scores'   && !scoreRows.value.length)    loadScores()
+  if (next === 'roles'    && !roleRows.value.length)     loadRoles()
+  if (next === 'activity' && !activityRows.value.length) loadActivity()
 })
 watch(() => orgFilter.value, () => {
   // Org filter is global — refetch whichever tab is visible.
-  if (activeTab.value === 'recent') loadRecent()
-  if (activeTab.value === 'scores') loadScores()
-  if (activeTab.value === 'roles')  loadRoles()
+  if (activeTab.value === 'recent')   loadRecent()
+  if (activeTab.value === 'scores')   loadScores()
+  if (activeTab.value === 'roles')    loadRoles()
+  if (activeTab.value === 'activity') loadActivity()
 })
 watch(() => recentDays.value, () => {
   if (activeTab.value === 'recent') loadRecent()
@@ -182,6 +231,9 @@ watch(() => [scoreFilters.value.action, scoreFilters.value.from, scoreFilters.va
 })
 watch(() => [roleFilters.value.action, roleFilters.value.role, roleFilters.value.from, roleFilters.value.to], () => {
   if (activeTab.value === 'roles') loadRoles()
+})
+watch(() => [activityFilters.value.action_prefix, activityFilters.value.from, activityFilters.value.to], () => {
+  if (activeTab.value === 'activity') loadActivity()
 })
 
 function applyScoreSearch() {
@@ -198,18 +250,89 @@ function fmtTime(iso) {
     hour: '2-digit', minute: '2-digit',
   })
 }
+// Friendlier label for each audit action. Score + role audits
+// store short enums (insert / update / delete / granted /
+// revoked); the activity log uses dotted verbs ('event.created',
+// 'roster.late_entry_added') — both shapes feed in here.
+const ACTIVITY_LABELS = {
+  'event.created':           'Event created',
+  'event.deleted':           'Event deleted',
+  'event.started':           'Event went Live',
+  'event.finalised':         'Event finalised',
+  'event.unfinalised':       'Event un-finalised',
+  'event.status_changed':    'Event status changed',
+  'event.workflow_reset':    'Pre-meet workflow reset',
+  'org.created':             'Org created',
+  'org.status_changed':      'Org status changed',
+  'club.deleted':            'Club deleted',
+  'team.deleted':            'Team deleted',
+  'roster.withdrew':         'Diver withdrawn',
+  'roster.reinstated':       'Diver reinstated',
+  'roster.late_entry_added': 'Late entry added',
+}
 function actionLabel(a) {
   if (a === 'insert')  return 'Submitted'
   if (a === 'update')  return 'Edited'
   if (a === 'delete')  return 'Deleted'
   if (a === 'granted') return 'Granted'
   if (a === 'revoked') return 'Revoked'
+  if (ACTIVITY_LABELS[a]) return ACTIVITY_LABELS[a]
   return a
 }
 function actionClass(a) {
-  if (a === 'insert' || a === 'granted') return 'act-pos'
-  if (a === 'update')                    return 'act-warn'
-  if (a === 'delete' || a === 'revoked') return 'act-neg'
+  if (a === 'insert' || a === 'granted')   return 'act-pos'
+  if (a === 'update')                      return 'act-warn'
+  if (a === 'delete' || a === 'revoked')   return 'act-neg'
+  // Activity-log actions: positive (created / reinstated /
+  // started), warn (status_changed / workflow_reset / late_entry),
+  // negative (deleted / withdrew / unfinalised).
+  if (a.endsWith('.created'))    return 'act-pos'
+  if (a.endsWith('.started'))    return 'act-pos'
+  if (a.endsWith('.finalised'))  return 'act-pos'
+  if (a.endsWith('.reinstated')) return 'act-pos'
+  if (a.endsWith('.deleted'))    return 'act-neg'
+  if (a.endsWith('.withdrew'))   return 'act-neg'
+  if (a.endsWith('.unfinalised')) return 'act-neg'
+  return 'act-warn'
+}
+
+// Compose a one-line "what happened" for an activity row. The
+// metadata jsonb's shape varies by action so a switch is
+// clearer than a generic JSON.stringify.
+function activitySummary(r) {
+  if (!r) return ''
+  const m = r.metadata || {}
+  if (r.action === 'event.created') {
+    const bits = []
+    if (m.event_type) bits.push(m.event_type)
+    if (m.height)     bits.push(m.height)
+    if (m.total_rounds) bits.push(`${m.total_rounds} rounds`)
+    if (m.number_of_judges) bits.push(`${m.number_of_judges}-judge panel`)
+    return bits.join(' · ')
+  }
+  if (r.action === 'event.deleted') {
+    return m.previous_status ? `was ${m.previous_status}` : ''
+  }
+  if (r.action === 'event.started')      return 'Upcoming → Live'
+  if (r.action === 'event.finalised')    return 'Live → Completed'
+  if (r.action === 'event.unfinalised')  return 'Completed → Live'
+  if (r.action === 'event.status_changed') return `${m.from} → ${m.to}`
+  if (r.action === 'org.status_changed')   return `${m.from} → ${m.to}`
+  if (r.action === 'roster.late_entry_added') {
+    return `Round ${m.round_number} of ${m.event_name || 'event'}`
+  }
+  if (r.action === 'roster.withdrew' || r.action === 'roster.reinstated') {
+    return m.event_name || ''
+  }
+  if (r.action === 'club.deleted') {
+    const n = m.unassigned_members
+    return n ? `${n} member${n === 1 ? ' unassigned' : 's unassigned'}` : ''
+  }
+  if (r.action === 'team.deleted') {
+    return [m.members_unbound && `${m.members_unbound} members`,
+            m.events_detached && `${m.events_detached} events`,
+           ].filter(Boolean).join(' · ')
+  }
   return ''
 }
 
@@ -230,20 +353,33 @@ function exportCsv(rows, kind) {
       r.created_at, r.action, r.role, r.target_name || '',
       r.org_name || '', r.actor_name || '', r.note || '',
     ])
+  } else if (kind === 'activity') {
+    header = ['Time','Action','Entity','Name','Org','Actor','Detail','Metadata']
+    body = rows.map(r => [
+      r.created_at, r.action, r.entity_type, r.entity_name || '',
+      r.org_name || '', r.actor_name || '',
+      activitySummary(r),
+      r.metadata ? JSON.stringify(r.metadata) : '',
+    ])
   } else {
     // recent (mixed)
     header = ['Time','Kind','Action','Subject','Org','Actor','Detail']
-    body = rows.map(r => [
-      r.created_at,
-      r.kind,
-      r.action,
-      r.kind === 'score' ? r.competitor_name : r.target_name,
-      r.org_name || '',
-      r.actor_name || '',
-      r.kind === 'score'
-        ? `${r.event_name || ''} · R${r.round_number} · ${r.old_score ?? ''}→${r.new_score ?? ''}${r.reason ? ` · ${r.reason}` : ''}`
-        : `${r.role}${r.note ? ` · ${r.note}` : ''}`,
-    ])
+    body = rows.map(r => {
+      let subject = ''
+      let detail  = ''
+      if (r.kind === 'score') {
+        subject = r.competitor_name || ''
+        detail  = `${r.event_name || ''} · R${r.round_number} · ${r.old_score ?? ''}→${r.new_score ?? ''}${r.reason ? ` · ${r.reason}` : ''}`
+      } else if (r.kind === 'role') {
+        subject = r.target_name || ''
+        detail  = `${r.role}${r.note ? ` · ${r.note}` : ''}`
+      } else {
+        // activity
+        subject = r.entity_name || r.entity_type
+        detail  = activitySummary(r)
+      }
+      return [r.created_at, r.kind, r.action, subject, r.org_name || '', r.actor_name || '', detail]
+    })
   }
   const csv = [header, ...body]
     .map(row => row.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
@@ -346,7 +482,7 @@ onMounted(async () => {
             <td>
               <span :class="['action-pill', actionClass(r.action)]">{{ actionLabel(r.action) }}</span>
               <span class="kind-pill" :class="`kind-${r.kind}`">
-                {{ r.kind === 'score' ? 'Score' : 'Role' }}
+                {{ r.kind === 'score' ? 'Score' : r.kind === 'role' ? 'Role' : 'Activity' }}
               </span>
             </td>
             <td>
@@ -362,11 +498,16 @@ onMounted(async () => {
                 </span>
                 <div v-if="r.reason" class="reason">"{{ r.reason }}"</div>
               </template>
-              <template v-else>
+              <template v-else-if="r.kind === 'role'">
                 <strong>{{ r.role }}</strong>
                 {{ r.action === 'granted' ? 'granted to' : 'revoked from' }}
                 <strong>{{ r.target_name || 'user' }}</strong>
                 <div v-if="r.note" class="reason">"{{ r.note }}"</div>
+              </template>
+              <template v-else>
+                <!-- activity -->
+                <strong>{{ r.entity_name || r.entity_type }}</strong>
+                <span v-if="activitySummary(r)" class="dim"> — {{ activitySummary(r) }}</span>
               </template>
             </td>
             <td v-if="isSysAdmin && !orgFilter" class="dim mono">{{ r.org_name || '—' }}</td>
@@ -537,6 +678,69 @@ onMounted(async () => {
         </button>
       </div>
     </section>
+
+    <!-- Event & admin actions -->
+    <section v-if="activeTab === 'activity'">
+      <div class="filters">
+        <div class="field-inline">
+          <span class="filter-label">Domain</span>
+          <select class="select select-sm" v-model="activityFilters.action_prefix">
+            <option v-for="p in ACTIVITY_PREFIXES" :key="p.value" :value="p.value">{{ p.label }}</option>
+          </select>
+        </div>
+        <div class="field-inline">
+          <span class="filter-label">From</span>
+          <input type="date" class="input input-sm" v-model="activityFilters.from">
+        </div>
+        <div class="field-inline">
+          <span class="filter-label">To</span>
+          <input type="date" class="input input-sm" v-model="activityFilters.to">
+        </div>
+        <span class="result-count">{{ activityRows.length }} entries</span>
+        <button type="button" class="btn btn-ghost btn-sm"
+                :disabled="!activityRows.length"
+                @click="exportCsv(activityRows, 'activity')">
+          Export CSV
+        </button>
+      </div>
+
+      <div v-if="activityBusy && !activityRows.length" class="empty">Loading…</div>
+      <div v-else-if="!activityRows.length" class="empty">
+        No activity audit entries match the current filters.
+      </div>
+      <table v-else class="audit-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Action</th>
+            <th>Subject</th>
+            <th>Detail</th>
+            <th v-if="isSysAdmin && !orgFilter">Org</th>
+            <th>Actor</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="r in activityRows" :key="r.id">
+            <td class="mono dim">{{ fmtTime(r.created_at) }}</td>
+            <td><span :class="['action-pill', actionClass(r.action)]">{{ actionLabel(r.action) }}</span></td>
+            <td>
+              <strong>{{ r.entity_name || '—' }}</strong>
+              <span class="dim"> · {{ r.entity_type }}</span>
+            </td>
+            <td class="reason-cell" :title="activitySummary(r)">{{ activitySummary(r) || '—' }}</td>
+            <td v-if="isSysAdmin && !orgFilter" class="dim mono">{{ r.org_name || '—' }}</td>
+            <td class="mono">{{ r.actor_name || '—' }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-if="activityHasMore" class="more-row">
+        <button type="button" class="btn btn-ghost btn-sm"
+                :disabled="activityBusy"
+                @click="loadActivity({ append: true })">
+          {{ activityBusy ? 'Loading…' : `Show ${PAGE} more` }}
+        </button>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -662,8 +866,9 @@ onMounted(async () => {
   color: var(--text-3);
   border: 1px solid var(--border);
 }
-.kind-score { color: var(--cyan); border-color: rgba(6,182,212,0.4); }
-.kind-role  { color: #a78bfa;     border-color: rgba(167,139,250,0.4); }
+.kind-score    { color: var(--cyan); border-color: rgba(6,182,212,0.4); }
+.kind-role     { color: #a78bfa;     border-color: rgba(167,139,250,0.4); }
+.kind-activity { color: var(--amber); border-color: rgba(245,158,11,0.4); }
 
 .judge-num {
   font-family: var(--font-mono); font-size: 10px; font-weight: 700;

@@ -182,6 +182,68 @@ module.exports = function createAuditRouter({ pool, requireOrgAdmin }) {
   });
 
   // ---------------------------------------------------------------
+  // GET /api/audit/activity — generic audit_log feed (event
+  // create/delete/status, org status, club/team delete,
+  // late-entry, withdraw/reinstate, workflow reset).
+  // ---------------------------------------------------------------
+  router.get("/api/audit/activity", requireOrgAdmin, async (req, res) => {
+    const isSysAdmin = !!req.user.is_system_admin;
+    const where = [];
+    const params = [];
+    function add(sql, value) {
+      params.push(value);
+      where.push(sql.replace("$$", `$${params.length}`));
+    }
+
+    if (!isSysAdmin) {
+      add("a.org_id = $$", req.user.org_id);
+    } else if (req.query.org_id) {
+      add("a.org_id = $$", req.query.org_id);
+    }
+
+    if (req.query.entity_type) add("a.entity_type = $$", req.query.entity_type);
+    if (req.query.entity_id)   add("a.entity_id = $$",   req.query.entity_id);
+    if (req.query.actor_id)    add("a.actor_id = $$",    req.query.actor_id);
+    if (req.query.action) {
+      // action is freeform; allow exact match only (ILIKE'd
+      // wildcard search invites accidental scans).
+      add("a.action = $$", req.query.action);
+    }
+    if (req.query.action_prefix) {
+      // 'event.' / 'roster.' / 'org.' / 'club.' — lets the SPA
+      // filter by domain in one tab.
+      add("a.action LIKE $$ || '%'", req.query.action_prefix);
+    }
+    if (req.query.from) add("a.created_at >= $$", req.query.from);
+    if (req.query.to)   add("a.created_at <= $$", req.query.to);
+
+    const limit  = clampInt(req.query.limit,  DEFAULT_LIMIT, 1, MAX_LIMIT);
+    const offset = clampInt(req.query.offset, 0,             0, 1_000_000);
+    params.push(limit, offset);
+
+    const sql =
+      `SELECT a.id, a.entity_type, a.entity_id, a.entity_name,
+              a.action, a.metadata, a.note, a.created_at,
+              a.org_id, o.name AS org_name, o.country_code,
+              a.actor_id, act.full_name AS actor_name,
+              a.ip_address::text AS ip_address, a.user_agent
+       FROM audit_log a
+       LEFT JOIN organisations o ON o.id = a.org_id
+       LEFT JOIN users act       ON act.id = a.actor_id
+       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+       ORDER BY a.created_at DESC, a.id DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`;
+
+    try {
+      const r = await pool.query(sql, params);
+      res.json(r.rows);
+    } catch (err) {
+      console.error("[Audit Activity Error]", err.message);
+      res.status(500).json({ error: "Failed to load activity audit" });
+    }
+  });
+
+  // ---------------------------------------------------------------
   // GET /api/audit/recent — interleaved feed for the dashboard tab
   // ---------------------------------------------------------------
   router.get("/api/audit/recent", requireOrgAdmin, async (req, res) => {
@@ -230,14 +292,30 @@ module.exports = function createAuditRouter({ pool, requireOrgAdmin }) {
          ORDER BY a.created_at DESC
          LIMIT $3`;
 
-      const [scoresR, rolesR] = await Promise.all([
-        pool.query(scoreSql, [since, orgScope, limit]),
-        pool.query(roleSql,  [since, orgScope, limit]),
+      const activitySql =
+        `SELECT a.id, a.created_at, a.action,
+                a.entity_type, a.entity_id, a.entity_name,
+                a.metadata, a.note,
+                a.actor_id, actor.full_name AS actor_name,
+                a.org_id, o.name AS org_name
+         FROM audit_log a
+         LEFT JOIN organisations o ON o.id = a.org_id
+         LEFT JOIN users actor     ON actor.id = a.actor_id
+         WHERE a.created_at >= $1
+           AND ($2::uuid IS NULL OR a.org_id = $2::uuid)
+         ORDER BY a.created_at DESC
+         LIMIT $3`;
+
+      const [scoresR, rolesR, activityR] = await Promise.all([
+        pool.query(scoreSql,    [since, orgScope, limit]),
+        pool.query(roleSql,     [since, orgScope, limit]),
+        pool.query(activitySql, [since, orgScope, limit]),
       ]);
 
       const merged = [
-        ...scoresR.rows.map(r => ({ kind: "score", ...r })),
-        ...rolesR.rows.map (r => ({ kind: "role",  ...r })),
+        ...scoresR.rows  .map(r => ({ kind: "score",    ...r })),
+        ...rolesR.rows   .map(r => ({ kind: "role",     ...r })),
+        ...activityR.rows.map(r => ({ kind: "activity", ...r })),
       ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
        .slice(0, limit);
 

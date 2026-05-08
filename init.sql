@@ -536,6 +536,37 @@ CREATE TABLE public.role_audit_log (
     created_at  timestamptz DEFAULT now() NOT NULL
 );
 
+-- audit_log: generic entity-lifecycle audit. The two domain
+-- logs above (score_audit_log / role_audit_log) cover their
+-- own use cases tightly; this table catches everything else —
+-- event create / delete / status flip, org status changes,
+-- club + team deletes, late-entry adds, withdraw / reinstate,
+-- pre-meet workflow resets, manager-attest sign-offs.
+--
+-- entity_type + action are short varchars (not enums) so
+-- adding new audited surfaces in future commits is a
+-- code-only change. metadata jsonb carries action-specific
+-- shape: { from, to } for status flips, { round_count } for
+-- late entries, etc. entity_id is nullable post-delete;
+-- entity_name is denormalised so the row reads correctly even
+-- after the source row is gone.
+--
+-- Also created via migration 032 for existing deployments.
+CREATE TABLE public.audit_log (
+    id           uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    org_id       uuid REFERENCES public.organisations(id) ON DELETE SET NULL,
+    actor_id     uuid REFERENCES public.users(id)         ON DELETE SET NULL,
+    entity_type  varchar(40) NOT NULL,
+    entity_id    uuid,
+    entity_name  varchar(255),
+    action       varchar(60) NOT NULL,
+    metadata     jsonb,
+    note         text,
+    ip_address   inet,
+    user_agent   text,
+    created_at   timestamptz DEFAULT now() NOT NULL
+);
+
 -- =============================================================
 -- EVENT ATTENDANCE — pre-meet door check-in (migration 016).
 -- One row per (event, competitor); no row = "not yet checked in".
@@ -831,6 +862,9 @@ CREATE INDEX idx_role_audit_org            ON public.role_audit_log (org_id, cre
 CREATE INDEX idx_role_audit_actor          ON public.role_audit_log (actor_id);
 CREATE INDEX idx_score_audit_created_at    ON public.score_audit_log (created_at);
 CREATE INDEX idx_role_audit_created_at     ON public.role_audit_log  (created_at);
+CREATE INDEX idx_audit_log_org_created     ON public.audit_log (org_id, created_at DESC);
+CREATE INDEX idx_audit_log_entity          ON public.audit_log (entity_type, entity_id, created_at DESC);
+CREATE INDEX idx_audit_log_actor           ON public.audit_log (actor_id, created_at DESC);
 CREATE INDEX idx_coach_diver_coach         ON public.coach_diver_links (coach_id);
 CREATE INDEX idx_coach_diver_diver         ON public.coach_diver_links (diver_id);
 CREATE INDEX idx_coach_diver_org           ON public.coach_diver_links (org_id);
@@ -979,6 +1013,7 @@ DECLARE
     cutoff timestamptz;
     n_score bigint;
     n_role  bigint;
+    n_audit bigint;
 BEGIN
     cutoff := now() - make_interval(days => retention_days);
 
@@ -988,10 +1023,15 @@ BEGIN
     DELETE FROM public.role_audit_log  WHERE created_at < cutoff;
     GET DIAGNOSTICS n_role = ROW_COUNT;
 
+    DELETE FROM public.audit_log       WHERE created_at < cutoff;
+    GET DIAGNOSTICS n_audit = ROW_COUNT;
+
     RETURN QUERY
         SELECT 'score_audit_log'::text, n_score
         UNION ALL
-        SELECT 'role_audit_log'::text,  n_role;
+        SELECT 'role_audit_log'::text,  n_role
+        UNION ALL
+        SELECT 'audit_log'::text,       n_audit;
 END
 $$;
 

@@ -24,6 +24,7 @@
 const express = require("express");
 const QRCode  = require("qrcode");
 const { publicId } = require("../lib/public-id");
+const { recordAudit, auditFromReq } = require("../lib/audit");
 
 // Light CSV parser. Handles "quoted, fields", "doubled""quotes"
 // inside quoted fields, and trailing/leading whitespace. Doesn't
@@ -468,7 +469,7 @@ module.exports = function createControlRoomRouter({
     const eventId = req.params.id;
     try {
       const ev = await pool.query(
-        `SELECT id, status, name FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)`,
+        `SELECT id, status, name, org_id FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)`,
         [eventId, !!req.user.is_system_admin, req.user.org_id],
       );
       if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
@@ -486,6 +487,14 @@ module.exports = function createControlRoomRouter({
          WHERE id = $1`,
         [eventId],
       );
+      await recordAudit(pool, {
+        ...auditFromReq(req),
+        org_id:      ev.rows[0].org_id,
+        entity_type: "event",
+        entity_id:   ev.rows[0].id,
+        entity_name: ev.rows[0].name,
+        action:      "event.workflow_reset",
+      });
       res.json({ ok: true });
     } catch (err) {
       console.error("[Dive Order Reset Error]", err.message);
@@ -1131,13 +1140,31 @@ module.exports = function createControlRoomRouter({
       const r = await pool.query(
         `UPDATE competitor_dive_lists cdl
          SET withdrawn_at = CASE WHEN $1::boolean THEN now() ELSE NULL END
-         FROM events e
-         WHERE cdl.id = $2 AND cdl.event_id = e.id
+         FROM events e, users u
+         WHERE cdl.id = $2 AND cdl.event_id = e.id AND cdl.competitor_id = u.id
            AND ($3::boolean OR e.org_id = $4)
-         RETURNING cdl.id, cdl.withdrawn_at`,
+         RETURNING cdl.id, cdl.event_id, cdl.competitor_id, cdl.withdrawn_at,
+                   e.org_id, e.name AS event_name, u.full_name AS diver_name`,
         [!!withdrawn, req.params.id, !!req.user.is_system_admin, req.user.org_id],
       );
       if (!r.rows.length) return res.status(404).json({ error: "Dive list row not found" });
+      const row = r.rows[0];
+      // Audit. Record the diver's name in entity_name so the
+      // audit feed reads "Withdrew Avery Ueno from 2024 FRA
+      // Grand Prix 10m" — both halves of the link are useful.
+      await recordAudit(pool, {
+        ...auditFromReq(req),
+        org_id:      row.org_id,
+        entity_type: "roster_entry",
+        entity_id:   row.id,
+        entity_name: row.diver_name,
+        action:      withdrawn ? "roster.withdrew" : "roster.reinstated",
+        metadata: {
+          event_id:      row.event_id,
+          event_name:    row.event_name,
+          competitor_id: row.competitor_id,
+        },
+      });
       res.json({ ok: true, ...r.rows[0] });
     } catch (err) {
       console.error("[Withdraw Error]", err.message);
@@ -1229,14 +1256,14 @@ module.exports = function createControlRoomRouter({
     }
     try {
       const ev = await pool.query(
-        "SELECT id, org_id FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)",
+        "SELECT id, org_id, name FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)",
         [req.params.id, !!req.user.is_system_admin, req.user.org_id],
       );
       if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
       const eventOrgId = ev.rows[0].org_id;
 
       const u = await pool.query(
-        "SELECT id, org_id FROM users WHERE id = $1",
+        "SELECT id, org_id, full_name FROM users WHERE id = $1",
         [competitor_id],
       );
       if (!u.rows.length || u.rows[0].org_id !== eventOrgId) {
@@ -1255,6 +1282,27 @@ module.exports = function createControlRoomRouter({
          RETURNING id`,
         [req.params.id, competitor_id, dive_id, round_number, partner_id || null, team_id || null],
       );
+      // Audit the late entry. Logged as roster.late_entry_added
+      // because this endpoint is used both for original entry
+      // and after entries close (the "late" override). The
+      // round_number tells the audit reviewer which round is
+      // affected; entity_id points at the new dive_list row.
+      await recordAudit(pool, {
+        ...auditFromReq(req),
+        org_id:      eventOrgId,
+        entity_type: "roster_entry",
+        entity_id:   r.rows[0].id,
+        entity_name: u.rows[0].full_name,
+        action:      "roster.late_entry_added",
+        metadata: {
+          event_id:      ev.rows[0].id,
+          event_name:    ev.rows[0].name,
+          competitor_id,
+          round_number,
+          partner_id:    partner_id || null,
+          team_id:       team_id || null,
+        },
+      });
       res.status(201).json({ ok: true, dive_list_id: r.rows[0].id });
     } catch (err) {
       console.error("[Late Entry Error]", err.message);

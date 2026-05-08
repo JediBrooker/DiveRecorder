@@ -20,6 +20,7 @@
 //   app.use(require('./routes/teams')({ … }))
 
 const express = require("express");
+const { recordAudit, auditFromReq } = require("../lib/audit");
 
 module.exports = function createTeamsRouter({
   pool,
@@ -116,14 +117,15 @@ module.exports = function createTeamsRouter({
   router.delete("/api/teams/:id", requireMeetEditor, async (req, res) => {
     try {
       const target = await pool.query(
-        "SELECT org_id FROM teams WHERE id = $1",
+        "SELECT id, org_id, name, short_code FROM teams WHERE id = $1",
         [req.params.id],
       );
       if (!target.rows.length)
         return res.status(404).json({ error: "Team not found" });
+      const team = target.rows[0];
       if (
         !req.user.is_system_admin &&
-        target.rows[0].org_id !== req.user.org_id
+        team.org_id !== req.user.org_id
       ) {
         return res
           .status(403)
@@ -139,6 +141,20 @@ module.exports = function createTeamsRouter({
         [req.params.id],
       );
       await pool.query("DELETE FROM teams WHERE id = $1", [req.params.id]);
+      await recordAudit(pool, {
+        ...auditFromReq(req),
+        org_id:      team.org_id,
+        entity_type: "team",
+        entity_id:   team.id,
+        entity_name: team.name,
+        action:      "team.deleted",
+        metadata: {
+          short_code:        team.short_code,
+          members_unbound:   impact.rows[0].members,
+          events_detached:   impact.rows[0].events,
+          dives_unattributed: impact.rows[0].dives,
+        },
+      });
       res.json({
         message: "Team deleted",
         ...impact.rows[0],

@@ -160,9 +160,10 @@ test("purge_audit_logs returns per-table counts", async (t) => {
   const r = await pool.query("SELECT * FROM purge_audit_logs(99999)");
   // 99999-day window means nothing should be deleted on a typical
   // test database. We just assert the function returns the
-  // documented shape.
+  // documented shape — three rows after migration 032 added
+  // audit_log alongside the existing two.
   const tables = r.rows.map((row) => row.table_name).sort();
-  assert.deepEqual(tables, ["role_audit_log", "score_audit_log"]);
+  assert.deepEqual(tables, ["audit_log", "role_audit_log", "score_audit_log"]);
   for (const row of r.rows) {
     assert.equal(typeof row.deleted_rows, "string", "row counts come back as bigint strings");
   }

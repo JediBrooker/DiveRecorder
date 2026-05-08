@@ -19,6 +19,7 @@
 
 const express = require("express");
 const jwt = require("jsonwebtoken");
+const { recordAudit, auditFromReq } = require("../lib/audit");
 
 module.exports = function createEventsRouter({
   pool,
@@ -211,6 +212,27 @@ module.exports = function createEventsRouter({
         "INSERT INTO event_managers (event_id, user_id, added_by) VALUES ($1,$2,$2)",
         [event.id, req.user.id],
       );
+      // Audit the create. metadata captures the headline config
+      // an admin would want to see when reviewing later — full
+      // event row is available via /events/:id if more detail
+      // is needed.
+      await recordAudit(client, {
+        ...auditFromReq(req),
+        org_id:      req.user.org_id,
+        entity_type: "event",
+        entity_id:   event.id,
+        entity_name: event.name,
+        action:      "event.created",
+        metadata: {
+          event_type: event.event_type,
+          height:     event.height,
+          number_of_judges: event.number_of_judges,
+          total_rounds:     event.total_rounds,
+          gender:     event.gender,
+          age_group:  event.age_group,
+          meet_id:    event.meet_id,
+        },
+      });
       await client.query("COMMIT");
       res.status(201).json(event);
     } catch (err) {
@@ -320,11 +342,31 @@ module.exports = function createEventsRouter({
   // -------------------------------------------------------------
   router.delete("/api/events/:id", requireOrgAdmin, async (req, res) => {
     try {
-      // sysadmin bypasses the org filter; org_admin scoped to own org.
-      await pool.query(
-        "DELETE FROM events WHERE id=$1 AND ($2::boolean OR org_id=$3)",
+      // Read the row first so the audit row carries the
+      // (post-delete-orphaned) name + org. RETURNING * inside the
+      // DELETE itself would also work but a separate SELECT is
+      // clearer for readers.
+      const prior = await pool.query(
+        "SELECT id, name, org_id, status FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)",
         [req.params.id, !!req.user.is_system_admin, req.user.org_id],
       );
+      if (!prior.rows.length) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const ev = prior.rows[0];
+      await pool.query("DELETE FROM events WHERE id = $1", [ev.id]);
+      // Audit. status preserved in metadata so a sysadmin
+      // investigation can spot "this event was deleted while
+      // it was Live" patterns.
+      await recordAudit(pool, {
+        ...auditFromReq(req),
+        org_id:      ev.org_id,
+        entity_type: "event",
+        entity_id:   ev.id,
+        entity_name: ev.name,
+        action:      "event.deleted",
+        metadata: { previous_status: ev.status },
+      });
       res.json({ message: "Event deleted" });
     } catch (err) {
       console.error("[Delete Event Error]", err.message);
@@ -366,6 +408,26 @@ module.exports = function createEventsRouter({
       if (previousStatus !== status) {
         if (status === "Live")      sendEventStartedEmails(r.rows[0]).catch(() => {});
         if (status === "Completed") sendEventResultsEmails(r.rows[0]).catch(() => {});
+
+        // Audit the status flip. Specific actions for the
+        // meaningful transitions ('event.started',
+        // 'event.finalised', 'event.unfinalised') so the audit
+        // view can colour-code or filter on them — falls back
+        // to a generic 'event.status_changed' for the unusual
+        // hops (e.g. Live → Upcoming for a workflow re-do).
+        let action = "event.status_changed";
+        if (previousStatus === "Upcoming" && status === "Live")      action = "event.started";
+        else if (previousStatus === "Live"     && status === "Completed") action = "event.finalised";
+        else if (previousStatus === "Completed" && status === "Live") action = "event.unfinalised";
+        await recordAudit(pool, {
+          ...auditFromReq(req),
+          org_id:      r.rows[0].org_id,
+          entity_type: "event",
+          entity_id:   r.rows[0].id,
+          entity_name: r.rows[0].name,
+          action,
+          metadata: { from: previousStatus, to: status },
+        });
       }
 
       // Free up the in-memory state for finished events.
