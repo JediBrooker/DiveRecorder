@@ -3774,6 +3774,13 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border);
   background: var(--bg-2);
   flex-shrink: 0;
+  /* Anchor for the absolutely-positioned .ctrl-header-ctx so
+     the meet name sits at the viewport's horizontal centre,
+     not the centre of the leftover space between the left and
+     right groups (which would shift left when the right group
+     was empty, e.g. mid-meet when no Finalise button was
+     showing). */
+  position: relative;
 }
 .ctrl-body {
   flex: 1;                              /* fill the layout vertically */
@@ -5280,13 +5287,33 @@ onUnmounted(() => {
    Header context — meet name + round/diver position badges
    ========================================================= */
 .ctrl-header-ctx {
+  /* Absolutely centred on the header so the meet name's
+     horizontal position is anchored to the viewport, not to
+     the gap between the left and right header groups.
+     Previously was flex: 1 + justify-content: center, which
+     centred the name between the groups — visually off-axis
+     whenever the two groups had different content widths
+     (left group is fixed: logo + picker + connection chip;
+     right group toggles between empty / one button / two
+     buttons). */
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
   display: flex; align-items: center; gap: 0.6rem;
-  flex: 1; min-width: 0; justify-content: center;
+  /* Cap so a very long meet name truncates via the ellipsis
+     on .ctx-meet rather than overlapping the side groups. */
+  max-width: min(50vw, 600px);
+  /* Header chrome lives behind / around the centred name; let
+     mouse events pass through the empty space of the ctx box
+     to anything beneath. The text itself re-enables pointer
+     events so a future :hover tooltip still works. */
+  pointer-events: none;
 }
 .ctx-meet {
   font-family: var(--font-display); font-size: 16px; font-weight: 700;
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3);
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  pointer-events: auto;
 }
 .ctx-badge {
   font-family: var(--font-display); font-size: 10px; font-weight: 900;
