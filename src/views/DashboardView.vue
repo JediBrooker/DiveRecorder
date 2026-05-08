@@ -31,6 +31,7 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useSocket } from '@/composables/useSocket'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -144,6 +145,7 @@ const pulseChips = computed(() => {
     chips.push({
       id:           'live',
       kind:         'live',
+      glyph:        '🔴',
       number:       liveCount.value,
       label:        'LIVE',
       layout:       'count-first',
@@ -152,14 +154,17 @@ const pulseChips = computed(() => {
       items: liveEvents.map((e) => ({
         id:    'ev-' + e.id,
         title: e.name,
-        meta:  '🔴 Open Control Room',
+        meta:  'Open Control Room',
         to:    `/control?event=${e.id}`,
+        urgency: null,                // live events themselves aren't "urgent" — they're already happening
       })),
     })
   }
 
-  // Upcoming events — operator chip
+  // Upcoming events — operator chip. Items get an `urgency`
+  // marker if the entries-close window is < 24h.
   if (upcomingCount.value && auth.hasAnyRole(['org_admin', 'meet_manager'])) {
+    const now = Date.now()
     const upcomingEvents = events.value
       .filter((e) => e.status === 'Upcoming')
       .sort((a, b) => {
@@ -170,44 +175,56 @@ const pulseChips = computed(() => {
     chips.push({
       id:           'upcoming',
       kind:         'upcoming',
+      glyph:        '📅',
       number:       upcomingCount.value,
       label:        'UPCOMING',
       layout:       'count-first',
       targetTab:    auth.hasRole('org_admin') ? 'org_admin' : 'meet_manager',
       popoverTitle: upcomingCount.value === 1 ? '1 upcoming event' : `${upcomingCount.value} upcoming events`,
-      items: upcomingEvents.slice(0, 8).map((e) => ({
-        id:    'up-' + e.id,
-        title: e.name,
-        meta:  fmtCloses(e.entries_close_at) || 'Pre-meet workflow',
-        to:    `/control?event=${e.id}`,
-      })),
+      items: upcomingEvents.slice(0, 8).map((e) => {
+        const closeMs = e.entries_close_at ? +new Date(e.entries_close_at) - now : null
+        return {
+          id:    'up-' + e.id,
+          title: e.name,
+          meta:  fmtCloses(e.entries_close_at) || 'Pre-meet workflow',
+          to:    `/control?event=${e.id}`,
+          urgency: (closeMs != null && closeMs > 0 && closeMs < 86_400_000) ? 'urgent' : null,
+        }
+      }),
     })
   }
 
-  // Pending governance work — org admin chip
+  // Pending governance work — org admin chip. Items older than
+  // 7 days get an `overdue` marker.
   if (pendingCount.value && auth.hasRole('org_admin')) {
+    const now = Date.now()
     const items = []
     for (const rr of roleRequests.value) {
+      const ageMs = rr.created_at ? now - +new Date(rr.created_at) : 0
       items.push({
         id:    'rr-' + rr.id,
         title: rr.full_name || rr.username || 'User',
         meta:  `requesting ${rr.requested_role}${rr.org_name ? ` · ${rr.org_name}` : ''}`,
         to:    '/users',
+        urgency: ageMs > 7 * 86_400_000 ? 'overdue' : null,
       })
     }
     if (auth.user?.is_system_admin) {
       for (const o of pendingOrgs.value) {
+        const ageMs = o.created_at ? now - +new Date(o.created_at) : 0
         items.push({
           id:    'po-' + o.id,
           title: o.name,
           meta:  o.country_code ? `${o.country_code} · awaiting approval` : 'awaiting approval',
           to:    '/users',
+          urgency: ageMs > 7 * 86_400_000 ? 'overdue' : null,
         })
       }
     }
     chips.push({
       id:           'pending',
       kind:         'pending',
+      glyph:        '👥',
       number:       pendingCount.value,
       label:        'PENDING',
       layout:       'count-first',
@@ -219,23 +236,29 @@ const pulseChips = computed(() => {
 
   // Diver — entries close countdown
   if (diverEntryCloseDays.value != null && auth.hasRole('diver')) {
+    const now = Date.now()
     const upcoming = events.value
       .filter((e) => e.status === 'Upcoming' && e.entries_close_at)
       .sort((a, b) => +new Date(a.entries_close_at) - +new Date(b.entries_close_at))
     chips.push({
       id:           'diver-entries',
       kind:         'diver',
+      glyph:        '🤿',
       number:       diverEntryCloseDays.value,
       label:        diverEntryCloseDays.value === 1 ? 'day until entries close' : 'days until entries close',
       layout:       'count-after',
       targetTab:    'diver',
       popoverTitle: 'Upcoming events',
-      items: upcoming.slice(0, 5).map((e) => ({
-        id:    'de-' + e.id,
-        title: e.name,
-        meta:  fmtCloses(e.entries_close_at) || 'Submit dive sheets',
-        to:    '/competitor',
-      })),
+      items: upcoming.slice(0, 5).map((e) => {
+        const closeMs = +new Date(e.entries_close_at) - now
+        return {
+          id:    'de-' + e.id,
+          title: e.name,
+          meta:  fmtCloses(e.entries_close_at) || 'Submit dive sheets',
+          to:    '/competitor',
+          urgency: closeMs < 86_400_000 ? 'urgent' : null,
+        }
+      }),
     })
   }
 
@@ -244,6 +267,7 @@ const pulseChips = computed(() => {
     chips.push({
       id:           'judge',
       kind:         'judge',
+      glyph:        '⚖️',
       number:       judgeEvents.value.length,
       label:        judgeEvents.value.length === 1 ? 'judging assignment' : 'judging assignments',
       layout:       'count-after',
@@ -256,6 +280,7 @@ const pulseChips = computed(() => {
                 ? '🔴 LIVE — open Judge View'
                 : `${e.total_rounds || '?'} rounds · ${e.number_of_judges || '?'} judges`,
         to:    `/judge?event=${e.id}`,
+        urgency: e.status === 'Live' ? 'live' : null,
       })),
     })
   }
@@ -265,6 +290,7 @@ const pulseChips = computed(() => {
     chips.push({
       id:           'coach',
       kind:         'coach',
+      glyph:        '🎓',
       number:       coachData.value.divers.length,
       label:        coachData.value.divers.length === 1 ? 'diver coaching' : 'divers coaching',
       layout:       'count-after',
@@ -275,6 +301,7 @@ const pulseChips = computed(() => {
         title: d.full_name,
         meta:  d.club_name ? `${d.club_name}${d.club_code ? ` (${d.club_code})` : ''}` : 'Open Coach Dashboard',
         to:    '/coach',
+        urgency: null,
       })),
     })
   }
@@ -669,16 +696,20 @@ onMounted(async () => {
   // so the strip and the smart-pick have something to chew on
   // ASAP. Coach data is also loaded here (rather than tab-on-
   // demand) because the coach chip lives in the pulse strip.
-  // Recent-activity is still tab-on-demand — it's only used
-  // inside the Org Admin panel, not by the pulse.
+  // Recent-activity is loaded too because the ticker pulls
+  // from it.
   await Promise.all([
     auth.hasAnyRole(['org_admin', 'meet_manager']) ? loadOperatorEvents() : Promise.resolve(),
-    auth.hasRole('org_admin')   ? loadRoleRequests() : Promise.resolve(),
-    auth.user?.is_system_admin  ? loadPendingOrgs()  : Promise.resolve(),
-    auth.hasRole('judge')       ? loadJudgeEvents()  : Promise.resolve(),
-    auth.hasRole('coach')       ? loadCoachData()    : Promise.resolve(),
-    auth.hasRole('diver')       ? loadOperatorEvents() : Promise.resolve(),
+    auth.hasRole('org_admin')   ? loadRoleRequests()    : Promise.resolve(),
+    auth.hasRole('org_admin')   ? loadRecentActivity()  : Promise.resolve(),
+    auth.user?.is_system_admin  ? loadPendingOrgs()     : Promise.resolve(),
+    auth.hasRole('judge')       ? loadJudgeEvents()     : Promise.resolve(),
+    auth.hasRole('coach')       ? loadCoachData()       : Promise.resolve(),
+    auth.hasRole('diver')       ? loadOperatorEvents()  : Promise.resolve(),
   ])
+  // Initial fetch settled — flip the skeleton off so the real
+  // chips render.
+  pulseInitiallyLoaded.value = true
 
   // Now smart-pick has the signals it needs.
   activeTab.value = pickInitialTab()
@@ -693,9 +724,17 @@ onMounted(async () => {
   // also polled even though it's tab-on-demand because the
   // coach chip lives in the pulse strip too.
   startPulsePolling()
+  // Real-time push: subscribe to dashboard-relevant socket
+  // emits so the strip updates the moment something happens.
+  // Polling continues as a fallback.
+  attachSocketHandlers()
+  // Activity ticker: kicks off the cycle through recent-
+  // activity rows. Pauses on hover via the @mouseenter handler.
+  startTicker()
 })
 onUnmounted(() => {
   stopPulsePolling()
+  stopTicker()
 })
 
 // ---- Live polling ------------------------------------------
@@ -726,6 +765,10 @@ async function refetchPulseData() {
       tasks.push(
         auth.apiFetch('/api/role-requests').then((rs) => { roleRequests.value = rs }).catch(() => {}),
       )
+      // Refetch recent-activity too — feeds the ticker chip.
+      tasks.push(
+        auth.apiFetch('/api/audit/recent?limit=10&days=7').then((rs) => { recentActivity.value = rs }).catch(() => {}),
+      )
     }
     if (auth.user?.is_system_admin) {
       tasks.push(
@@ -746,6 +789,102 @@ async function refetchPulseData() {
     }
     await Promise.all(tasks)
   } catch { /* swallow — next tick will retry */ }
+}
+
+// ---- Skeleton state ---------------------------------------
+// pulseInitiallyLoaded flips true once the first batch of pulse
+// data has settled. The strip renders skeleton ghost chips
+// until then so the user doesn't see "All quiet" briefly
+// before the real data crossfades in.
+const pulseInitiallyLoaded = ref(false)
+
+// ---- Latest-activity ticker -------------------------------
+// Auto-cycles every TICKER_MS through the most-recent rows in
+// recentActivity (loaded for org admins via /api/audit/recent).
+// Hover pauses the cycle. Each item is a one-line description
+// of the audit row so the strip shows a Twitter-style stream
+// of federation activity. Click → /audit.
+const TICKER_MS = 9000
+const tickerIndex = ref(0)
+const tickerPaused = ref(false)
+let tickerTimer = null
+function pauseTicker() { tickerPaused.value = true }
+function resumeTicker() { tickerPaused.value = false }
+function startTicker() {
+  if (tickerTimer) clearInterval(tickerTimer)
+  tickerTimer = setInterval(() => {
+    if (tickerPaused.value) return
+    const items = tickerSource.value
+    if (!items.length) return
+    tickerIndex.value = (tickerIndex.value + 1) % items.length
+  }, TICKER_MS)
+}
+function stopTicker() {
+  if (tickerTimer) { clearInterval(tickerTimer); tickerTimer = null }
+}
+
+// Format an audit row into a one-liner for the ticker strip.
+// Three kinds (score / role / activity) each get a different
+// shape; the strip is too narrow for everything, so we keep
+// it tight and trust the click-through to /audit for detail.
+function tickerTextFor(r) {
+  if (!r) return ''
+  if (r.kind === 'score') {
+    if (r.action === 'update') {
+      return `${r.competitor_name || 'Competitor'} score amended in ${r.event_name || 'event'}`
+    }
+    if (r.action === 'delete') {
+      return `${r.competitor_name || 'Competitor'} score deleted in ${r.event_name || 'event'}`
+    }
+    return `${r.competitor_name || 'Competitor'} scored ${r.new_score ?? '?'} in ${r.event_name || 'event'}`
+  }
+  if (r.kind === 'role') {
+    return `${r.role || 'Role'} ${r.action} ${r.action === 'granted' ? 'to' : 'from'} ${r.target_name || 'user'}`
+  }
+  // activity row
+  const verb = (r.action || '').replace(/^[a-z_]+\./, '').replace(/_/g, ' ')
+  return `${r.entity_name || r.entity_type || 'Entity'} · ${verb}`
+}
+const tickerSource = computed(() => recentActivity.value.slice(0, 5))
+const tickerActivity = computed(() => {
+  const items = tickerSource.value
+  if (!items.length) return null
+  const r = items[tickerIndex.value % items.length] || items[0]
+  return { ...r, text: tickerTextFor(r) }
+})
+
+// ---- Socket subscription ----------------------------------
+// Real-time push: when the server emits an event status change
+// or a new role request lands, refetch the pulse data so the
+// strip updates immediately rather than waiting up to 30 s for
+// the next polling tick. The 30 s polling stays as a safety
+// net for socket-disconnected edge cases.
+const dashboardSocket = useSocket()
+function attachSocketHandlers() {
+  if (!dashboardSocket) return
+  // Generic dashboard refresh signals. Server-side emits
+  // these at key moments (event flip Live → Completed,
+  // role-request creation). Keeps the chip counts in sync
+  // without client-side polling latency.
+  dashboardSocket.on('event_status_changed', () => { refetchPulseData() })
+  dashboardSocket.on('role_request_created', () => { refetchPulseData() })
+  // Score events also bump recent-activity for the ticker;
+  // they don't move the count chips but they keep the ticker
+  // current.
+  dashboardSocket.on('score_committed', () => {
+    if (auth.hasRole('org_admin')) {
+      auth.apiFetch('/api/audit/recent?limit=10&days=7')
+        .then((rs) => { recentActivity.value = rs })
+        .catch(() => {})
+    }
+  })
+  dashboardSocket.on('score_corrected', () => {
+    if (auth.hasRole('org_admin')) {
+      auth.apiFetch('/api/audit/recent?limit=10&days=7')
+        .then((rs) => { recentActivity.value = rs })
+        .catch(() => {})
+    }
+  })
 }
 </script>
 
@@ -810,44 +949,76 @@ async function refetchPulseData() {
          clickable to navigate directly to that thing). Polled
          every 30s; counts that change flash briefly. -->
     <div class="pulse-strip">
-      <button
-        v-for="chip in pulseChips"
-        :key="chip.id"
-        type="button"
-        :class="[
-          'pulse-chip',
-          `pulse-${chip.kind}`,
-          flashingChips.has(chip.id) ? 'pulse-flash' : '',
-        ]"
-        :aria-label="`${chip.popoverTitle} — click to view in ${chip.targetTab.replace('_', ' ')} tab`"
-        @click="onPulseChipClick(chip)"
-      >
-        <template v-if="chip.layout === 'count-after'">
-          <span class="pulse-text">{{ chip.label }}</span>
-          <span class="pulse-num">{{ chip.number }}</span>
-        </template>
-        <template v-else>
-          <span class="pulse-num">{{ chip.number }}</span>
-          <span class="pulse-text">{{ chip.label }}</span>
-        </template>
-        <!-- Hover/focus popover. items.length === 0 hides it
-             entirely — falling back to a simple chip. -->
-        <div v-if="chip.items.length" class="pulse-popover" role="menu">
-          <div class="pulse-popover-head">{{ chip.popoverTitle }}</div>
-          <RouterLink
-            v-for="item in chip.items"
-            :key="item.id"
-            :to="item.to"
-            class="pulse-popover-item"
-            role="menuitem"
-            @click.stop
-          >
-            <span class="pulse-popover-item-title">{{ item.title }}</span>
-            <span v-if="item.meta" class="pulse-popover-item-meta">{{ item.meta }}</span>
-          </RouterLink>
-        </div>
-      </button>
-      <span v-if="!pulseChips.length" class="pulse-quiet">All quiet — nothing pending.</span>
+      <!-- Skeleton placeholder while the initial pulse fetches.
+           Three ghost chips so the strip has visual mass before
+           the real data lands; prevents the brief flicker
+           "All quiet" → real chips that the prior layout had. -->
+      <template v-if="!pulseInitiallyLoaded">
+        <span v-for="n in 3" :key="`sk-${n}`" class="pulse-skeleton" aria-hidden="true"></span>
+      </template>
+      <template v-else>
+        <button
+          v-for="chip in pulseChips"
+          :key="chip.id"
+          type="button"
+          :class="[
+            'pulse-chip',
+            `pulse-${chip.kind}`,
+            flashingChips.has(chip.id) ? 'pulse-flash' : '',
+          ]"
+          :aria-label="`${chip.popoverTitle} — click to view in ${chip.targetTab.replace('_', ' ')} tab`"
+          @click="onPulseChipClick(chip)"
+        >
+          <span v-if="chip.glyph" class="pulse-glyph" aria-hidden="true">{{ chip.glyph }}</span>
+          <template v-if="chip.layout === 'count-after'">
+            <span class="pulse-text">{{ chip.label }}</span>
+            <span class="pulse-num">{{ chip.number }}</span>
+          </template>
+          <template v-else>
+            <span class="pulse-num">{{ chip.number }}</span>
+            <span class="pulse-text">{{ chip.label }}</span>
+          </template>
+          <!-- Hover/focus popover. items.length === 0 hides it
+               entirely — falling back to a simple chip. -->
+          <div v-if="chip.items.length" class="pulse-popover" role="menu">
+            <div class="pulse-popover-head">{{ chip.popoverTitle }}</div>
+            <RouterLink
+              v-for="item in chip.items"
+              :key="item.id"
+              :to="item.to"
+              :class="['pulse-popover-item', item.urgency ? `pulse-popover-${item.urgency}` : '']"
+              role="menuitem"
+              @click.stop
+            >
+              <span class="pulse-popover-item-title">{{ item.title }}</span>
+              <span v-if="item.meta" class="pulse-popover-item-meta">{{ item.meta }}</span>
+              <span v-if="item.urgency === 'urgent'" class="pulse-urgency-pill pulse-urgency-urgent">closing soon</span>
+              <span v-else-if="item.urgency === 'overdue'" class="pulse-urgency-pill pulse-urgency-overdue">overdue</span>
+              <span v-else-if="item.urgency === 'live'" class="pulse-urgency-pill pulse-urgency-live">live</span>
+            </RouterLink>
+          </div>
+        </button>
+
+        <!-- Latest-activity ticker. Shows for org admins (the
+             role that's most likely to want a live federation
+             pulse). Auto-cycles every 10s through the most-
+             recent activity rows; hover pauses the cycle.
+             Click → /audit. -->
+        <RouterLink
+          v-if="tickerActivity"
+          to="/audit"
+          class="pulse-ticker"
+          :title="`${tickerActivity.kind === 'score' ? 'Score' : tickerActivity.kind === 'role' ? 'Role change' : 'Activity'} — click to open Audit Log`"
+          @mouseenter="pauseTicker"
+          @mouseleave="resumeTicker"
+        >
+          <span class="pulse-ticker-bolt" aria-hidden="true">⚡</span>
+          <span class="pulse-ticker-text">{{ tickerActivity.text }}</span>
+          <span class="pulse-ticker-time">{{ fmtRelative(tickerActivity.created_at) }}</span>
+        </RouterLink>
+
+        <span v-if="!pulseChips.length && !tickerActivity" class="pulse-quiet">All quiet — nothing pending.</span>
+      </template>
     </div>
 
     <!-- Tab strip — one tab per visible role + Other. -->
@@ -1320,6 +1491,11 @@ async function refetchPulseData() {
   border: 1px solid var(--border);
   transition: transform 0.18s, box-shadow 0.18s;
 }
+.pulse-glyph {
+  display: inline-flex; align-items: center;
+  font-size: 14px; line-height: 1;
+  margin-right: 0.05rem;
+}
 .pulse-live     .pulse-num { color: var(--red);   border-color: rgba(239,68,68,0.4);   background: rgba(239,68,68,0.08); }
 .pulse-upcoming .pulse-num { color: var(--cyan);  border-color: rgba(6,182,212,0.4);   background: rgba(6,182,212,0.08); }
 .pulse-pending  .pulse-num { color: #a78bfa;      border-color: rgba(167,139,250,0.4); background: rgba(167,139,250,0.08); }
@@ -1408,6 +1584,114 @@ async function refetchPulseData() {
   font-size: 11px;
   color: var(--text-3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Urgency markers — surface the genuinely time-sensitive
+   items inside a popover so an operator can scan the list and
+   spot the 2 of 60 things that need attention now. Three
+   levels: urgent (closing soon / live), overdue (older than 7d
+   pending). The pill sits at the right of the row; the row's
+   left border picks up the urgency colour too. */
+.pulse-popover-urgent {
+  border-left: 3px solid var(--amber);
+}
+.pulse-popover-overdue {
+  border-left: 3px solid var(--red);
+}
+.pulse-popover-live {
+  border-left: 3px solid var(--red);
+}
+.pulse-urgency-pill {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  margin-top: 0.25rem;
+  align-self: flex-start;
+}
+.pulse-urgency-urgent  { color: var(--amber); background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.35); }
+.pulse-urgency-overdue { color: var(--red);   background: rgba(239,68,68,0.12);  border: 1px solid rgba(239,68,68,0.35); }
+.pulse-urgency-live    { color: var(--red);   background: rgba(239,68,68,0.12);  border: 1px solid rgba(239,68,68,0.4); }
+
+/* Skeleton ghost chips — shown briefly on first mount before
+   real pulse data arrives, so the strip never flashes "All
+   quiet" before the actual chips appear. Three placeholder
+   widths so it looks like real chip variation. */
+.pulse-skeleton {
+  display: inline-block;
+  width: 110px;
+  height: 22px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--bg-2), var(--bg-3), var(--bg-2));
+  background-size: 200% 100%;
+  animation: pulseSkeletonSweep 1.4s ease-in-out infinite;
+}
+.pulse-skeleton:nth-child(2) { width: 140px; }
+.pulse-skeleton:nth-child(3) { width: 90px; }
+@keyframes pulseSkeletonSweep {
+  0%   { background-position: 200% 0; opacity: 0.55; }
+  50%  { opacity: 0.85; }
+  100% { background-position: -200% 0; opacity: 0.55; }
+}
+
+/* Breathing animation on the LIVE chip — slow opacity loop
+   reinforces "this is happening right now" without being
+   distracting. Only fires when there are live events (the
+   chip itself only renders then). */
+@keyframes pulseLiveBreathing {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50%      { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.10); }
+}
+.pulse-chip.pulse-live {
+  animation: pulseLiveBreathing 3.2s ease-in-out infinite;
+}
+/* When the LIVE chip is also flashing (count just changed),
+   suppress the breathing for the duration of the flash so
+   the two animations don't fight. */
+.pulse-chip.pulse-live.pulse-flash {
+  animation: pulseFlash 1.4s ease-out;
+}
+
+/* Latest-activity ticker — auto-cycling chip on the right of
+   the strip showing the most recent audit row. Hover (handled
+   in JS via @mouseenter) pauses the cycle. Click → /audit. */
+.pulse-ticker {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  margin-left: auto;                  /* pushes it to the right edge of the strip */
+  padding: 0.2rem 0.7rem 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--text-2);
+  text-decoration: none;
+  max-width: min(40vw, 460px);
+  transition: background 0.15s, border-color 0.15s;
+}
+.pulse-ticker:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border-2);
+  color: var(--text);
+}
+.pulse-ticker-bolt {
+  font-size: 12px;
+  color: var(--cyan);
+}
+.pulse-ticker-text {
+  flex: 1 1 auto; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  letter-spacing: 0;
+}
+.pulse-ticker-time {
+  flex-shrink: 0;
+  color: var(--text-3);
+  font-size: 10.5px;
 }
 
 /* Tab strip — primary navigation, so styled with the same

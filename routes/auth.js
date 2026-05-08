@@ -33,6 +33,7 @@ const DUMMY_BCRYPT_HASH = bcrypt.hashSync(
 
 module.exports = function createAuthRouter({
   pool,
+  io,
   authLimiter,
   verifyToken,
   buildTokenPayload,
@@ -489,6 +490,17 @@ module.exports = function createAuthRouter({
           [newUserId, org_id, requested_role, safeText(note, 500)],
         );
         requestedRoleSaved = requested_role;
+        // Real-time push for the dashboard pulse strip — let any
+        // connected org admin's dashboard tab refetch its pending
+        // count immediately. Best-effort.
+        if (io && typeof io.emit === "function") {
+          try {
+            io.emit("role_request_created", {
+              org_id,
+              requested_role,
+            });
+          } catch (_e) { /* ignore */ }
+        }
       }
 
       await client.query("COMMIT");

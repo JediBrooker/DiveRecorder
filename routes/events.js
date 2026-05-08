@@ -24,6 +24,7 @@ const { recordAudit, auditFromReq } = require("../lib/audit");
 module.exports = function createEventsRouter({
   pool,
   JWT_SECRET,
+  io,
   requireOrgAdmin,
   requireEventManager,
   sendEventStartedEmails,
@@ -408,6 +409,23 @@ module.exports = function createEventsRouter({
       if (previousStatus !== status) {
         if (status === "Live")      sendEventStartedEmails(r.rows[0]).catch(() => {});
         if (status === "Completed") sendEventResultsEmails(r.rows[0]).catch(() => {});
+
+        // Real-time push for the dashboard pulse strip — emit
+        // globally so any connected dashboard tab can refetch
+        // its pulse data and update the LIVE / UPCOMING /
+        // COMPLETED counts immediately. Cheap broadcast (no
+        // sensitive data); recipients filter by what they're
+        // authorised to see via their existing API gates.
+        if (io && typeof io.emit === "function") {
+          try {
+            io.emit("event_status_changed", {
+              event_id: r.rows[0].id,
+              org_id:   r.rows[0].org_id,
+              from:     previousStatus,
+              to:       status,
+            });
+          } catch (_e) { /* ignore — best-effort */ }
+        }
 
         // Audit the status flip. Specific actions for the
         // meaningful transitions ('event.started',

@@ -401,6 +401,7 @@ app.get("/metrics", async (_req, res) => {
 app.use(
   require("./routes/auth")({
     pool,
+    io,
     authLimiter,
     verifyToken,
     buildTokenPayload,
@@ -502,6 +503,7 @@ app.use(require("./routes/meets")({
 app.use(require("./routes/events")({
   pool,
   JWT_SECRET,
+  io,
   requireOrgAdmin,
   requireEventManager,
   sendEventStartedEmails,
