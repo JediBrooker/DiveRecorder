@@ -2774,9 +2774,17 @@ onUnmounted(() => {
            — three terms for the same concept fragmented the
            operator's mental model. -->
       <div class="ctrl-panel">
-        <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center">
-          <span>Dive Order</span>
-          <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+        <!-- Dive Order panel head — restructured into a vertical
+             stack: section title at the top, then count, then
+             stepper, then the workflow + utility buttons. The
+             previous side-by-side layout (label LEFT / everything
+             ELSE right) was forcing "Dive Order" to wrap to two
+             lines on narrow column widths because the right-side
+             flex group (4-pip stepper + chunky workflow button)
+             overflowed the available space. -->
+        <div class="panel-head dive-order-head">
+          <div class="dive-order-title">Dive Order</div>
+          <div class="dive-order-meta">
             <span class="roster-count">{{ roster.length ? currentIndex + 1 : 0 }}/{{ roster.length }}</span>
             <!-- Once the event flips out of 'Upcoming' the start
                  order is locked. Show a small badge so the operator
@@ -2786,45 +2794,49 @@ onUnmounted(() => {
                   :title="`Start order locked — event is ${currentEvent.status}. Withdraw a diver instead if they need to be skipped.`">
               🔒 Order locked
             </span>
-            <!-- Pre-meet workflow stepper — shows all four steps
-                 with the current one highlighted and completed
-                 ones ticked. Renders ABOVE the action button so
-                 a new operator sees the full flow at a glance
-                 instead of having to remember that red →
-                 orange → yellow → green is "step 1 of 4". -->
-            <div v-if="currentEvent && roster.length && orderWorkflowState && orderWorkflowState !== 'live'"
-                 class="wf-stepper"
-                 :title="`Pre-meet step ${WORKFLOW_STEPS.indexOf(orderWorkflowState) + 1} of 4`">
-              <div :class="['wf-step', wfStepClass('check-in')]">
-                <span class="wf-step-num">{{ wfStepClass('check-in') === 'wf-step-done' ? '✓' : '1' }}</span>
-                <span class="wf-step-label">Check-in</span>
-              </div>
-              <div :class="['wf-step-divider', wfStepClass('check-in') === 'wf-step-done' ? 'wf-divider-done' : '']"></div>
-              <div :class="['wf-step', wfStepClass('random')]">
-                <span class="wf-step-num">{{ wfStepClass('random') === 'wf-step-done' ? '✓' : '2' }}</span>
-                <span class="wf-step-label">Randomise</span>
-              </div>
-              <div :class="['wf-step-divider', wfStepClass('random') === 'wf-step-done' ? 'wf-divider-done' : '']"></div>
-              <div :class="['wf-step', wfStepClass('sign-off')]">
-                <span class="wf-step-num">{{ wfStepClass('sign-off') === 'wf-step-done' ? '✓' : '3' }}</span>
-                <span class="wf-step-label">Sign Off</span>
-              </div>
-              <div :class="['wf-step-divider', wfStepClass('sign-off') === 'wf-step-done' ? 'wf-divider-done' : '']"></div>
-              <div :class="['wf-step', wfStepClass('start')]">
-                <span class="wf-step-num">4</span>
-                <span class="wf-step-label">Start</span>
-              </div>
+          </div>
+          <!-- Pre-meet workflow stepper — shows all four steps
+               with the current one highlighted and completed
+               ones ticked. Renders ABOVE the action button so
+               a new operator sees the full flow at a glance
+               instead of having to remember that red →
+               orange → yellow → green is "step 1 of 4". -->
+          <div v-if="currentEvent && roster.length && orderWorkflowState && orderWorkflowState !== 'live'"
+               class="wf-stepper"
+               :title="`Pre-meet step ${WORKFLOW_STEPS.indexOf(orderWorkflowState) + 1} of 4`">
+            <div :class="['wf-step', wfStepClass('check-in')]">
+              <span class="wf-step-num">{{ wfStepClass('check-in') === 'wf-step-done' ? '✓' : '1' }}</span>
+              <span class="wf-step-label">Check-in</span>
             </div>
-            <!-- Pre-meet workflow: one button cycles through four
-                 sequential states before the event flips Live —
-                 red Check In → orange Randomise → yellow Referee
-                 Sign Off → green Start. State lives on the event
-                 row (check_in_done_at, dive_order_randomised_at,
-                 dive_order_signed_off_at) so a page reload picks
-                 up where the operator left off. The small "↺
-                 Reset" link backtracks to state 1. The standalone
-                 "Check-in" ghost button is gone — clicking the red
-                 state-1 button opens the same modal. -->
+            <div :class="['wf-step-divider', wfStepClass('check-in') === 'wf-step-done' ? 'wf-divider-done' : '']"></div>
+            <div :class="['wf-step', wfStepClass('random')]">
+              <span class="wf-step-num">{{ wfStepClass('random') === 'wf-step-done' ? '✓' : '2' }}</span>
+              <span class="wf-step-label">Randomise</span>
+            </div>
+            <div :class="['wf-step-divider', wfStepClass('random') === 'wf-step-done' ? 'wf-divider-done' : '']"></div>
+            <div :class="['wf-step', wfStepClass('sign-off')]">
+              <span class="wf-step-num">{{ wfStepClass('sign-off') === 'wf-step-done' ? '✓' : '3' }}</span>
+              <span class="wf-step-label">Sign Off</span>
+            </div>
+            <div :class="['wf-step-divider', wfStepClass('sign-off') === 'wf-step-done' ? 'wf-divider-done' : '']"></div>
+            <div :class="['wf-step', wfStepClass('start')]">
+              <span class="wf-step-num">4</span>
+              <span class="wf-step-label">Start</span>
+            </div>
+          </div>
+          <!-- Action row: pre-meet workflow button (one button
+               cycles through four sequential states before the
+               event flips Live — red Check In → orange Randomise
+               → yellow Referee Sign Off → green Start), plus the
+               Adjust check-in / + Add utility actions. State
+               lives on the event row (check_in_done_at,
+               dive_order_randomised_at, dive_order_signed_off_at)
+               so a page reload picks up where the operator left
+               off. The small "↺ Reset" link backtracks to state 1.
+               The standalone "Check-in" ghost button is gone —
+               clicking the red state-1 button opens the same
+               modal. -->
+          <div class="dive-order-actions">
             <template v-if="currentEvent && roster.length && orderWorkflowState && orderWorkflowState !== 'live'">
               <button v-if="orderWorkflowState === 'check-in'"
                       class="btn btn-sm wf-btn wf-btn-red"
@@ -3723,6 +3735,34 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
+/* Dive Order panel head — vertical stack variant. The section
+   title sits at the top; the count, stepper, and action buttons
+   centre-align below it. The previous side-by-side flex layout
+   (label LEFT / contents RIGHT) was making "Dive Order" wrap to
+   two lines and cramping the stepper because it had to share
+   the row with a 4-pip stepper + workflow button. */
+.dive-order-head {
+  display: flex; flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  text-align: center;
+}
+.dive-order-meta {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 0.5rem; flex-wrap: wrap;
+  /* Roster count's normal-case font breaks out of the panel-head
+     letter-spacing/uppercase context — the .roster-count rule
+     already has its own font, so no override needed here. */
+}
+.dive-order-actions {
+  display: flex; align-items: center; justify-content: center;
+  gap: 0.5rem; flex-wrap: wrap;
+}
+/* The stepper has its own bottom margin for non-stack contexts.
+   Inside the centred stack the parent's row gap already handles
+   spacing — neutralise the extra margin so the rhythm stays
+   consistent. */
+.dive-order-head .wf-stepper { margin-bottom: 0; }
 .panel-body {
   padding: 1rem;
 }
