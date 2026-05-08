@@ -28,7 +28,7 @@
 // Brand-new org admins (zero clubs + zero events + no
 // dismiss/complete stamp) still get the auto-redirect to
 // /setup — happens before the tab logic runs.
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -118,6 +118,212 @@ const diverEntryCloseDays = computed(() => {
   if (!Number.isFinite(nearest)) return null
   return Math.max(0, Math.round(nearest / 86_400_000))
 })
+
+// ---- Pulse chips ------------------------------------------
+// Structured config for every chip the strip can render. Each
+// chip carries:
+//   - kind            visual variant (live/upcoming/pending/…)
+//   - number, label   the count + caption
+//   - layout          'count-first' for "5 LIVE" or 'count-after'
+//                     for "entries close in 14 days"
+//   - targetTab       which tab to switch to when the chip is
+//                     clicked (#1 — clickable chips)
+//   - popoverTitle    heading at the top of the hover popover
+//   - items           [{ id, title, meta, to }] — the actual
+//                     things behind the count, rendered as
+//                     RouterLink rows in the popover (#2)
+//
+// Computed off the live pulse data, so polling refreshes flow
+// through automatically.
+const pulseChips = computed(() => {
+  const chips = []
+
+  // Live events — operator chip
+  if (liveCount.value && auth.hasAnyRole(['org_admin', 'meet_manager'])) {
+    const liveEvents = events.value.filter((e) => e.status === 'Live')
+    chips.push({
+      id:           'live',
+      kind:         'live',
+      number:       liveCount.value,
+      label:        'LIVE',
+      layout:       'count-first',
+      targetTab:    auth.hasRole('org_admin') ? 'org_admin' : 'meet_manager',
+      popoverTitle: liveCount.value === 1 ? '1 live event' : `${liveCount.value} live events`,
+      items: liveEvents.map((e) => ({
+        id:    'ev-' + e.id,
+        title: e.name,
+        meta:  '🔴 Open Control Room',
+        to:    `/control?event=${e.id}`,
+      })),
+    })
+  }
+
+  // Upcoming events — operator chip
+  if (upcomingCount.value && auth.hasAnyRole(['org_admin', 'meet_manager'])) {
+    const upcomingEvents = events.value
+      .filter((e) => e.status === 'Upcoming')
+      .sort((a, b) => {
+        const ad = a.entries_close_at ? +new Date(a.entries_close_at) : Infinity
+        const bd = b.entries_close_at ? +new Date(b.entries_close_at) : Infinity
+        return ad - bd
+      })
+    chips.push({
+      id:           'upcoming',
+      kind:         'upcoming',
+      number:       upcomingCount.value,
+      label:        'UPCOMING',
+      layout:       'count-first',
+      targetTab:    auth.hasRole('org_admin') ? 'org_admin' : 'meet_manager',
+      popoverTitle: upcomingCount.value === 1 ? '1 upcoming event' : `${upcomingCount.value} upcoming events`,
+      items: upcomingEvents.slice(0, 8).map((e) => ({
+        id:    'up-' + e.id,
+        title: e.name,
+        meta:  fmtCloses(e.entries_close_at) || 'Pre-meet workflow',
+        to:    `/control?event=${e.id}`,
+      })),
+    })
+  }
+
+  // Pending governance work — org admin chip
+  if (pendingCount.value && auth.hasRole('org_admin')) {
+    const items = []
+    for (const rr of roleRequests.value) {
+      items.push({
+        id:    'rr-' + rr.id,
+        title: rr.full_name || rr.username || 'User',
+        meta:  `requesting ${rr.requested_role}${rr.org_name ? ` · ${rr.org_name}` : ''}`,
+        to:    '/users',
+      })
+    }
+    if (auth.user?.is_system_admin) {
+      for (const o of pendingOrgs.value) {
+        items.push({
+          id:    'po-' + o.id,
+          title: o.name,
+          meta:  o.country_code ? `${o.country_code} · awaiting approval` : 'awaiting approval',
+          to:    '/users',
+        })
+      }
+    }
+    chips.push({
+      id:           'pending',
+      kind:         'pending',
+      number:       pendingCount.value,
+      label:        'PENDING',
+      layout:       'count-first',
+      targetTab:    'org_admin',
+      popoverTitle: 'Awaiting your review',
+      items,
+    })
+  }
+
+  // Diver — entries close countdown
+  if (diverEntryCloseDays.value != null && auth.hasRole('diver')) {
+    const upcoming = events.value
+      .filter((e) => e.status === 'Upcoming' && e.entries_close_at)
+      .sort((a, b) => +new Date(a.entries_close_at) - +new Date(b.entries_close_at))
+    chips.push({
+      id:           'diver-entries',
+      kind:         'diver',
+      number:       diverEntryCloseDays.value,
+      label:        diverEntryCloseDays.value === 1 ? 'day until entries close' : 'days until entries close',
+      layout:       'count-after',
+      targetTab:    'diver',
+      popoverTitle: 'Upcoming events',
+      items: upcoming.slice(0, 5).map((e) => ({
+        id:    'de-' + e.id,
+        title: e.name,
+        meta:  fmtCloses(e.entries_close_at) || 'Submit dive sheets',
+        to:    '/competitor',
+      })),
+    })
+  }
+
+  // Judge — assignments
+  if (judgeEvents.value.length && auth.hasRole('judge')) {
+    chips.push({
+      id:           'judge',
+      kind:         'judge',
+      number:       judgeEvents.value.length,
+      label:        judgeEvents.value.length === 1 ? 'judging assignment' : 'judging assignments',
+      layout:       'count-after',
+      targetTab:    'judge',
+      popoverTitle: 'Your panels',
+      items: judgeEvents.value.slice(0, 8).map((e) => ({
+        id:    'jd-' + e.id,
+        title: e.name,
+        meta:  e.status === 'Live'
+                ? '🔴 LIVE — open Judge View'
+                : `${e.total_rounds || '?'} rounds · ${e.number_of_judges || '?'} judges`,
+        to:    `/judge?event=${e.id}`,
+      })),
+    })
+  }
+
+  // Coach — divers under the user's wing
+  if (coachData.value?.divers?.length && auth.hasRole('coach')) {
+    chips.push({
+      id:           'coach',
+      kind:         'coach',
+      number:       coachData.value.divers.length,
+      label:        coachData.value.divers.length === 1 ? 'diver coaching' : 'divers coaching',
+      layout:       'count-after',
+      targetTab:    'coach',
+      popoverTitle: 'Your divers',
+      items: coachData.value.divers.slice(0, 8).map((d) => ({
+        id:    'cd-' + d.id,
+        title: d.full_name,
+        meta:  d.club_name ? `${d.club_name}${d.club_code ? ` (${d.club_code})` : ''}` : 'Open Coach Dashboard',
+        to:    '/coach',
+      })),
+    })
+  }
+
+  return chips
+})
+
+// Click handler — switches to the chip's target tab. Used both
+// for the chip itself and (implicitly) when the user clicks
+// outside a popover item.
+function onPulseChipClick(chip) {
+  if (!chip || !chip.targetTab) return
+  setTab(chip.targetTab)
+}
+
+// Flash animation when a chip's count changes (e.g. live
+// polling picks up a new live event). flashingChips is a Set
+// so multiple chips can flash at once. The CSS class clears
+// after 1.4 s.
+const flashingChips = ref(new Set())
+function flashChip(id) {
+  flashingChips.value = new Set([...flashingChips.value, id])
+  setTimeout(() => {
+    const next = new Set(flashingChips.value)
+    next.delete(id)
+    flashingChips.value = next
+  }, 1400)
+}
+// Watchers — fire flashChip when the underlying count changes.
+// Initial mount also triggers (oldVal undefined → newVal
+// number); a small guard prevents flashing on first paint.
+let pulseInitialised = false
+watch(
+  [liveCount, upcomingCount, pendingCount, diverEntryCloseDays,
+    () => judgeEvents.value.length, () => coachData.value?.divers?.length || 0],
+  ([nLive, nUp, nPend, nDiv, nJudge, nCoach],
+   [pLive, pUp, pPend, pDiv, pJudge, pCoach]) => {
+    if (!pulseInitialised) {
+      pulseInitialised = true
+      return
+    }
+    if (nLive !== pLive)   flashChip('live')
+    if (nUp   !== pUp)     flashChip('upcoming')
+    if (nPend !== pPend)   flashChip('pending')
+    if (nDiv  !== pDiv)    flashChip('diver-entries')
+    if (nJudge !== pJudge) flashChip('judge')
+    if (nCoach !== pCoach) flashChip('coach')
+  },
+)
 
 // ---- Smart-pick --------------------------------------------
 // Called after the initial pulse fetch. Returns a tab id that
@@ -461,14 +667,16 @@ onMounted(async () => {
 
   // Pulse data — fire all the cross-role fetches in parallel
   // so the strip and the smart-pick have something to chew on
-  // ASAP. Only fetches the bits the user's roles authorise.
+  // ASAP. Coach data is also loaded here (rather than tab-on-
+  // demand) because the coach chip lives in the pulse strip.
+  // Recent-activity is still tab-on-demand — it's only used
+  // inside the Org Admin panel, not by the pulse.
   await Promise.all([
     auth.hasAnyRole(['org_admin', 'meet_manager']) ? loadOperatorEvents() : Promise.resolve(),
     auth.hasRole('org_admin')   ? loadRoleRequests() : Promise.resolve(),
     auth.user?.is_system_admin  ? loadPendingOrgs()  : Promise.resolve(),
     auth.hasRole('judge')       ? loadJudgeEvents()  : Promise.resolve(),
-    // Activity + coach are tab-on-demand; diver-leaning users
-    // benefit from events fetched too for the "next meet" panel.
+    auth.hasRole('coach')       ? loadCoachData()    : Promise.resolve(),
     auth.hasRole('diver')       ? loadOperatorEvents() : Promise.resolve(),
   ])
 
@@ -477,7 +685,68 @@ onMounted(async () => {
   // Make sure the picked tab's data is fully loaded (some need
   // fetches the pulse step skipped, e.g. recent activity).
   await ensureTabDataLoaded(activeTab.value)
+
+  // Live polling — refetch the pulse-driving sources every
+  // POLL_MS so the strip stays current without a full page
+  // refresh. The watchers on each count then flash the
+  // corresponding chip when something changes. Coach data is
+  // also polled even though it's tab-on-demand because the
+  // coach chip lives in the pulse strip too.
+  startPulsePolling()
 })
+onUnmounted(() => {
+  stopPulsePolling()
+})
+
+// ---- Live polling ------------------------------------------
+const POLL_MS = 30_000
+let pollTimer = null
+function startPulsePolling() {
+  stopPulsePolling()
+  pollTimer = setInterval(() => { refetchPulseData() }, POLL_MS)
+}
+function stopPulsePolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+// Refetch the data the pulse depends on, bypassing the
+// `tabsLoaded` cache so each call hits the server. Watchers
+// on the underlying refs flash the chips when counts change.
+async function refetchPulseData() {
+  try {
+    const tasks = []
+    if (auth.hasAnyRole(['org_admin', 'meet_manager']) || auth.hasRole('diver')) {
+      tasks.push(
+        auth.apiFetch('/api/events').then((rs) => { events.value = rs }).catch(() => {}),
+      )
+    }
+    if (auth.hasRole('org_admin')) {
+      tasks.push(
+        auth.apiFetch('/api/role-requests').then((rs) => { roleRequests.value = rs }).catch(() => {}),
+      )
+    }
+    if (auth.user?.is_system_admin) {
+      tasks.push(
+        auth.apiFetch('/api/orgs').then((orgs) => {
+          pendingOrgs.value = (orgs || []).filter((o) => o.status === 'pending')
+        }).catch(() => {}),
+      )
+    }
+    if (auth.hasRole('judge')) {
+      tasks.push(
+        auth.apiFetch('/api/judge/my-events').then((rs) => { judgeEvents.value = rs }).catch(() => {}),
+      )
+    }
+    if (auth.hasRole('coach')) {
+      tasks.push(
+        auth.apiFetch('/api/coach/dashboard').then((rs) => { coachData.value = rs }).catch(() => {}),
+      )
+    }
+    await Promise.all(tasks)
+  } catch { /* swallow — next tick will retry */ }
+}
 </script>
 
 <template>
@@ -534,29 +803,51 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- Pulse strip — always-visible cross-role digest. -->
+    <!-- Pulse strip — always-visible cross-role digest. Each
+         chip is a button (clickable to switch to the chip's
+         target tab) AND a popover trigger (hover / focus shows
+         a list of the actual items behind the count, each
+         clickable to navigate directly to that thing). Polled
+         every 30s; counts that change flash briefly. -->
     <div class="pulse-strip">
-      <span v-if="liveCount" class="pulse-bit pulse-live">
-        <span class="pulse-num">{{ liveCount }}</span> LIVE
-      </span>
-      <span v-if="upcomingCount" class="pulse-bit pulse-upcoming">
-        <span class="pulse-num">{{ upcomingCount }}</span> UPCOMING
-      </span>
-      <span v-if="pendingCount" class="pulse-bit pulse-pending">
-        <span class="pulse-num">{{ pendingCount }}</span> PENDING
-      </span>
-      <span v-if="diverEntryCloseDays != null && auth.hasRole('diver')" class="pulse-bit pulse-diver">
-        entries close in
-        <span class="pulse-num">{{ diverEntryCloseDays }}</span> day{{ diverEntryCloseDays === 1 ? '' : 's' }}
-      </span>
-      <span v-if="judgeEvents.length && auth.hasRole('judge')" class="pulse-bit pulse-judge">
-        <span class="pulse-num">{{ judgeEvents.length }}</span>
-        judging assignment{{ judgeEvents.length === 1 ? '' : 's' }}
-      </span>
-      <span v-if="!liveCount && !upcomingCount && !pendingCount && diverEntryCloseDays == null && !judgeEvents.length"
-            class="pulse-quiet">
-        All quiet — nothing pending.
-      </span>
+      <button
+        v-for="chip in pulseChips"
+        :key="chip.id"
+        type="button"
+        :class="[
+          'pulse-chip',
+          `pulse-${chip.kind}`,
+          flashingChips.has(chip.id) ? 'pulse-flash' : '',
+        ]"
+        :aria-label="`${chip.popoverTitle} — click to view in ${chip.targetTab.replace('_', ' ')} tab`"
+        @click="onPulseChipClick(chip)"
+      >
+        <template v-if="chip.layout === 'count-after'">
+          <span class="pulse-text">{{ chip.label }}</span>
+          <span class="pulse-num">{{ chip.number }}</span>
+        </template>
+        <template v-else>
+          <span class="pulse-num">{{ chip.number }}</span>
+          <span class="pulse-text">{{ chip.label }}</span>
+        </template>
+        <!-- Hover/focus popover. items.length === 0 hides it
+             entirely — falling back to a simple chip. -->
+        <div v-if="chip.items.length" class="pulse-popover" role="menu">
+          <div class="pulse-popover-head">{{ chip.popoverTitle }}</div>
+          <RouterLink
+            v-for="item in chip.items"
+            :key="item.id"
+            :to="item.to"
+            class="pulse-popover-item"
+            role="menuitem"
+            @click.stop
+          >
+            <span class="pulse-popover-item-title">{{ item.title }}</span>
+            <span v-if="item.meta" class="pulse-popover-item-meta">{{ item.meta }}</span>
+          </RouterLink>
+        </div>
+      </button>
+      <span v-if="!pulseChips.length" class="pulse-quiet">All quiet — nothing pending.</span>
     </div>
 
     <!-- Tab strip — one tab per visible role + Other. -->
@@ -997,9 +1288,28 @@ onMounted(async () => {
   letter-spacing: 0.16em; text-transform: uppercase;
   color: var(--text-3);
 }
-.pulse-bit {
+/* Chip — button + popover container. Chips are clickable to
+   switch tabs; hovering / focusing reveals a popover listing
+   the actual items behind the count, each clickable as a
+   RouterLink. */
+.pulse-chip {
+  position: relative;
   display: inline-flex; align-items: center; gap: 0.4rem;
+  background: transparent; border: 0;
+  padding: 0.2rem 0.4rem;
+  margin: -0.2rem -0.4rem;
+  border-radius: 4px;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  transition: background 0.12s, transform 0.12s;
 }
+.pulse-chip:hover  { background: rgba(255, 255, 255, 0.04); }
+.pulse-chip:focus  { outline: none; }
+.pulse-chip:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.pulse-text { font-style: normal; }
+
 .pulse-num {
   font-family: var(--font-mono);
   font-size: 13px; font-weight: 800;
@@ -1008,16 +1318,96 @@ onMounted(async () => {
   border-radius: 3px;
   background: var(--bg-2);
   border: 1px solid var(--border);
+  transition: transform 0.18s, box-shadow 0.18s;
 }
-.pulse-live    .pulse-num { color: var(--red);   border-color: rgba(239,68,68,0.4);   background: rgba(239,68,68,0.08); }
+.pulse-live     .pulse-num { color: var(--red);   border-color: rgba(239,68,68,0.4);   background: rgba(239,68,68,0.08); }
 .pulse-upcoming .pulse-num { color: var(--cyan);  border-color: rgba(6,182,212,0.4);   background: rgba(6,182,212,0.08); }
-.pulse-pending .pulse-num { color: #a78bfa;      border-color: rgba(167,139,250,0.4); background: rgba(167,139,250,0.08); }
-.pulse-diver   .pulse-num { color: var(--green); border-color: rgba(16,185,129,0.4);  background: rgba(16,185,129,0.08); }
-.pulse-judge   .pulse-num { color: var(--amber); border-color: rgba(245,158,11,0.4);  background: rgba(245,158,11,0.08); }
+.pulse-pending  .pulse-num { color: #a78bfa;      border-color: rgba(167,139,250,0.4); background: rgba(167,139,250,0.08); }
+.pulse-diver    .pulse-num { color: var(--green); border-color: rgba(16,185,129,0.4);  background: rgba(16,185,129,0.08); }
+.pulse-judge    .pulse-num { color: var(--amber); border-color: rgba(245,158,11,0.4);  background: rgba(245,158,11,0.08); }
+.pulse-coach    .pulse-num { color: #f472b6;      border-color: rgba(244,114,182,0.4); background: rgba(244,114,182,0.08); }
+
+/* Flash — fires for ~1.4s after a count changes (live polling
+   picked up a new event / role request / etc.). The pulse-num
+   chip pulses up + glows briefly so the operator's eye lands
+   on the change without it being intrusive. */
+@keyframes pulseFlash {
+  0%   { transform: scale(1);    box-shadow: 0 0 0 0 currentColor; }
+  20%  { transform: scale(1.18); box-shadow: 0 0 0 6px rgba(6, 182, 212, 0.15); }
+  100% { transform: scale(1);    box-shadow: 0 0 0 0 transparent; }
+}
+.pulse-chip.pulse-flash .pulse-num {
+  animation: pulseFlash 1.4s ease-out;
+}
+
 .pulse-quiet {
   font-family: var(--font-mono); font-size: 12px; font-weight: 500;
   letter-spacing: 0.04em; text-transform: none; color: var(--text-3);
   font-style: italic;
+}
+
+/* Popover — shows on hover or keyboard focus of the chip.
+   Lists the actual items behind the count as clickable rows.
+   Anchored below the chip; max-width keeps long event names
+   from sprawling, ellipsizing if needed. */
+.pulse-popover {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  min-width: 280px;
+  max-width: min(420px, 90vw);
+  z-index: 100;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+  padding: 0.45rem 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s, transform 0.15s;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.pulse-chip:hover .pulse-popover,
+.pulse-chip:focus-within .pulse-popover {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+.pulse-popover-head {
+  font-family: var(--font-display);
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text-3);
+  padding: 0.45rem 0.95rem 0.55rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.35rem;
+}
+.pulse-popover-item {
+  display: flex; flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.5rem 0.95rem;
+  text-decoration: none;
+  text-align: left;
+  transition: background 0.12s;
+}
+.pulse-popover-item:hover {
+  background: var(--bg-3);
+}
+.pulse-popover-item-title {
+  font-family: var(--font-display);
+  font-size: 13px; font-weight: 700;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pulse-popover-item-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* Tab strip — primary navigation, so styled with the same
