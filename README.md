@@ -109,7 +109,7 @@ The operator's event-configuration surface. Left column is the New Event form (e
 
 #### Control Room
 
-The operator's cockpit during a live meet. Left column is the running history of completed dives (click any card to open the Score Correction modal). Centre column is the active diver — name, country chip, club affiliation, dive code + DD + description, the live judge tile strip, the auto-cycling status pill (READY / DIVING / JUDGING), and the 30-second WA shot clock. Right column is the diver queue with Up Next, the full Dive Order panel, the Top 5 Right Now standings, and a catch-up projection. Keyboard shortcuts (←/→ advance, T reset clock, F failed, R redive, H hold, L leaderboard) drive the whole flow without leaving the keyboard.
+The operator's cockpit during a live meet, deliberately pared back so only the things you need every dive are visible at rest — secondary actions live behind small popovers. Left column is the running history of completed dives (click any card to open the Score Correction modal). Centre column is the active diver — name, country chip, club affiliation, dive code + DD + description, the live judge tile strip, an inline auto-cycling status pill (READY / DIVING / JUDGING), and the 30-second WA shot clock anchored top-right. The bottom action row reads `← Prev · Adjust ▾ · Next Diver → ▾ · ?` — Adjust houses Failed Dive / Cap Score / Re-Dive; Next Diver's `▾` opens the Auto-next picker; `?` reveals every keyboard shortcut. Right column is the diver queue with Up Next visible and Top 5 Right Now + Dive Order as collapsed accordions. Header `⋯` menu houses Hold / Broadcast mode / Dashboard.
 
 ![Control Room](./docs/screenshots/control-room.png)
 
@@ -324,7 +324,7 @@ Email triggers (best-effort, never block the response):
 ### Operator surfaces
 
 - **Broadcast / kiosk mode** — `/scoreboard/:eventId/broadcast` (spectator) and `/control?broadcast=1` (operator) hide page chrome for venue projectors; fonts and tile sizes scale up to read from the back of a pool deck.
-- **Operator keyboard shortcuts** in Control Room — ←/→/Space to advance, 1–9 to jump to roster position, S to cycle status (READY → DIVING → JUDGING), T to reset shot clock, F failed, R redive, H hold, L leaderboard.
+- **Operator keyboard shortcuts** in Control Room — ←/→/Space to advance, 1–9 to jump to roster position, T to reset shot clock, F failed, R redive, H hold, L leaderboard. Status pill (READY → DIVING → JUDGING) auto-cycles off the shot clock + judge submissions, so no manual key for it. A **?** popover next to the Next Diver button surfaces the full reference for new operators.
 - **Up Next preview** in the live scoreboard centre column.
 
 ### PWA / offline
