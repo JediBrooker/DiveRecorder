@@ -31,6 +31,10 @@ module.exports = function createEventsRouter({
   sendEventResultsEmails,
   activeDivers,
   meetHolds,
+  // Optional — when supplied, the Completed-status cleanup
+  // also drops the matching event_live_state row so the
+  // table doesn't accumulate dead state.
+  persistClearAll,
 }) {
   if (!pool || !JWT_SECRET) {
     throw new Error("createEventsRouter requires { pool, JWT_SECRET, … }");
@@ -450,10 +454,15 @@ module.exports = function createEventsRouter({
 
       // Free up the in-memory state for finished events.
       // activeDivers and meetHolds are keyed by event_id and
-      // would otherwise accumulate as meets pile up.
+      // would otherwise accumulate as meets pile up. Also
+      // clear the persisted row in event_live_state so a
+      // restart doesn't rehydrate dead state.
       if (status === "Completed") {
         delete activeDivers[r.rows[0].id];
         delete meetHolds[r.rows[0].id];
+        if (typeof persistClearAll === "function") {
+          persistClearAll(r.rows[0].id);
+        }
       }
 
       res.json(r.rows[0]);

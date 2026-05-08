@@ -436,6 +436,44 @@ async function loadCoachData() {
   tabsLoaded.value.add('coach')
 }
 
+// One-shot bundle endpoint that returns every role-scoped slice
+// the dashboard needs in a single round trip. Hydrates all
+// the per-role refs simultaneously, marks the corresponding
+// tabsLoaded flags so per-tab loaders short-circuit, and the
+// pulse strip + smart-pick can act on the data right away.
+//
+// Used on initial mount and on every poll/socket-driven
+// refresh. The per-tab loaders (loadOperatorEvents, etc.) are
+// kept as a fallback for any code path that doesn't go through
+// the bundle.
+async function loadDashboardBundle() {
+  let bundle = null
+  try {
+    bundle = await auth.apiFetch('/api/dashboard')
+  } catch {
+    return false
+  }
+  if (!bundle) return false
+  if (Array.isArray(bundle.events))           events.value          = bundle.events
+  if (Array.isArray(bundle.role_requests))    roleRequests.value    = bundle.role_requests
+  if (Array.isArray(bundle.pending_orgs))     pendingOrgs.value     = bundle.pending_orgs
+  if (Array.isArray(bundle.recent_activity))  recentActivity.value  = bundle.recent_activity
+  if (Array.isArray(bundle.judge_events))     judgeEvents.value     = bundle.judge_events
+  if (bundle.coach && Array.isArray(bundle.coach.divers)) {
+    coachData.value = bundle.coach
+  }
+  // Mark tabsLoaded so per-tab loaders don't refetch what we
+  // already have. Recent-activity is the only org-admin slice
+  // that has a separate tabsLoaded key.
+  tabsLoaded.value.add('events')
+  tabsLoaded.value.add('role-requests')
+  tabsLoaded.value.add('pending-orgs')
+  tabsLoaded.value.add('activity')
+  tabsLoaded.value.add('judge')
+  tabsLoaded.value.add('coach')
+  return true
+}
+
 // Per-tab dispatcher. Org admin wants events + role requests +
 // pending orgs (sysadmin) + recent activity. Meet manager
 // reuses events. Judge / Coach are independent.
@@ -692,21 +730,23 @@ onMounted(async () => {
     }
   }
 
-  // Pulse data — fire all the cross-role fetches in parallel
-  // so the strip and the smart-pick have something to chew on
-  // ASAP. Coach data is also loaded here (rather than tab-on-
-  // demand) because the coach chip lives in the pulse strip.
-  // Recent-activity is loaded too because the ticker pulls
-  // from it.
-  await Promise.all([
-    auth.hasAnyRole(['org_admin', 'meet_manager']) ? loadOperatorEvents() : Promise.resolve(),
-    auth.hasRole('org_admin')   ? loadRoleRequests()    : Promise.resolve(),
-    auth.hasRole('org_admin')   ? loadRecentActivity()  : Promise.resolve(),
-    auth.user?.is_system_admin  ? loadPendingOrgs()     : Promise.resolve(),
-    auth.hasRole('judge')       ? loadJudgeEvents()     : Promise.resolve(),
-    auth.hasRole('coach')       ? loadCoachData()       : Promise.resolve(),
-    auth.hasRole('diver')       ? loadOperatorEvents()  : Promise.resolve(),
-  ])
+  // One-shot bundle endpoint that returns every role-scoped
+  // slice in a single round trip. Replaces the previous
+  // 5-6 parallel API calls. If the bundle endpoint isn't
+  // available (older server, network glitch), fall back to
+  // the per-source loaders.
+  const bundled = await loadDashboardBundle()
+  if (!bundled) {
+    await Promise.all([
+      auth.hasAnyRole(['org_admin', 'meet_manager']) ? loadOperatorEvents() : Promise.resolve(),
+      auth.hasRole('org_admin')   ? loadRoleRequests()    : Promise.resolve(),
+      auth.hasRole('org_admin')   ? loadRecentActivity()  : Promise.resolve(),
+      auth.user?.is_system_admin  ? loadPendingOrgs()     : Promise.resolve(),
+      auth.hasRole('judge')       ? loadJudgeEvents()     : Promise.resolve(),
+      auth.hasRole('coach')       ? loadCoachData()       : Promise.resolve(),
+      auth.hasRole('diver')       ? loadOperatorEvents()  : Promise.resolve(),
+    ])
+  }
   // Initial fetch settled — flip the skeleton off so the real
   // chips render.
   pulseInitiallyLoaded.value = true
@@ -750,45 +790,12 @@ function stopPulsePolling() {
     pollTimer = null
   }
 }
-// Refetch the data the pulse depends on, bypassing the
-// `tabsLoaded` cache so each call hits the server. Watchers
-// on the underlying refs flash the chips when counts change.
+// Refetch the data the pulse depends on. Now goes through the
+// /api/dashboard bundle so a poll tick is one HTTP round trip
+// rather than 5–6. Watchers on the underlying refs flash the
+// chips when counts change.
 async function refetchPulseData() {
-  try {
-    const tasks = []
-    if (auth.hasAnyRole(['org_admin', 'meet_manager']) || auth.hasRole('diver')) {
-      tasks.push(
-        auth.apiFetch('/api/events').then((rs) => { events.value = rs }).catch(() => {}),
-      )
-    }
-    if (auth.hasRole('org_admin')) {
-      tasks.push(
-        auth.apiFetch('/api/role-requests').then((rs) => { roleRequests.value = rs }).catch(() => {}),
-      )
-      // Refetch recent-activity too — feeds the ticker chip.
-      tasks.push(
-        auth.apiFetch('/api/audit/recent?limit=10&days=7').then((rs) => { recentActivity.value = rs }).catch(() => {}),
-      )
-    }
-    if (auth.user?.is_system_admin) {
-      tasks.push(
-        auth.apiFetch('/api/orgs').then((orgs) => {
-          pendingOrgs.value = (orgs || []).filter((o) => o.status === 'pending')
-        }).catch(() => {}),
-      )
-    }
-    if (auth.hasRole('judge')) {
-      tasks.push(
-        auth.apiFetch('/api/judge/my-events').then((rs) => { judgeEvents.value = rs }).catch(() => {}),
-      )
-    }
-    if (auth.hasRole('coach')) {
-      tasks.push(
-        auth.apiFetch('/api/coach/dashboard').then((rs) => { coachData.value = rs }).catch(() => {}),
-      )
-    }
-    await Promise.all(tasks)
-  } catch { /* swallow — next tick will retry */ }
+  await loadDashboardBundle()
 }
 
 // ---- Skeleton state ---------------------------------------

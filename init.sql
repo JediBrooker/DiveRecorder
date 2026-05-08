@@ -552,6 +552,19 @@ CREATE TABLE public.role_audit_log (
 -- after the source row is gone.
 --
 -- Also created via migration 032 for existing deployments.
+-- event_live_state: the "currently on the board" diver + the
+-- meet hold reason (if any), per event. Persisted so a server
+-- restart doesn't leak the live meet's state — the in-memory
+-- maps in lib/live-state.js are a write-through cache rebuilt
+-- from this table on boot. See migration 034.
+CREATE TABLE public.event_live_state (
+    event_id              uuid PRIMARY KEY REFERENCES public.events(id) ON DELETE CASCADE,
+    active_diver_payload  jsonb,
+    on_hold_reason        text,
+    hold_since            timestamptz,
+    updated_at            timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE public.audit_log (
     id           uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     org_id       uuid REFERENCES public.organisations(id) ON DELETE SET NULL,
@@ -857,6 +870,7 @@ CREATE INDEX idx_score_audit_event_round   ON public.score_audit_log (event_id, 
 CREATE INDEX idx_score_audit_event_created ON public.score_audit_log (event_id, created_at DESC);
 CREATE INDEX idx_score_audit_competitor    ON public.score_audit_log (competitor_id);
 CREATE INDEX idx_score_audit_judge         ON public.score_audit_log (judge_id);
+CREATE INDEX idx_score_audit_actor         ON public.score_audit_log (actor_user_id, created_at DESC);
 CREATE INDEX idx_role_audit_user           ON public.role_audit_log (user_id, created_at DESC);
 CREATE INDEX idx_role_audit_org            ON public.role_audit_log (org_id, created_at DESC);
 CREATE INDEX idx_role_audit_actor          ON public.role_audit_log (actor_id);

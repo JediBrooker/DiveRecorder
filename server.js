@@ -294,12 +294,25 @@ const {
 // take it via dependency injection.
 const scoreboardCache = require("./lib/scoreboard-cache")();
 
-// Live in-memory state — activeDivers (current performer per
-// event) + meetHolds (per-event hold reason). Shared by
+// Live state — activeDivers (current performer per event) +
+// meetHolds (per-event hold reason). Shared by
 // routes/events.js (PUT /:id/status clears them on Completed),
 // routes/socket.js (set/get from set_active_diver, meet_hold),
 // and any future handler that needs to read live state.
-const { activeDivers, meetHolds } = require("./lib/live-state");
+//
+// Backed by the `event_live_state` table (migration 034) — the
+// in-memory maps are a write-through cache rebuilt from the
+// DB on boot via init(pool), so a server restart mid-meet
+// doesn't wipe the live state.
+const liveState = require("./lib/live-state");
+const {
+  activeDivers,
+  meetHolds,
+  persistActiveDiver,
+  persistMeetHold,
+  persistClearMeetHold,
+  persistClearAll,
+} = liveState;
 
 // Reusable push engine — wires Web Push (when VAPID is set) plus
 // in-app socket banners. Created here so route modules mounted
@@ -510,6 +523,7 @@ app.use(require("./routes/events")({
   sendEventResultsEmails,
   activeDivers,
   meetHolds,
+  persistClearAll,
 }));
 
 // =============================================================
@@ -576,6 +590,20 @@ app.use(require("./routes/score-correction")({
   scoreboardCache,
   requireOrgRole,
   requireEventManager,
+}));
+
+// =============================================================
+// DASHBOARD BUNDLE
+// [SECTION: ROUTES — DASHBOARD]
+// /api/dashboard returns every role-scoped slice the dashboard
+// view needs in one round trip — events, role requests,
+// pending orgs, recent activity, judge events, coach divers.
+// Replaces the previous fan-out of 5–6 separate API calls on
+// dashboard mount.
+// =============================================================
+app.use(require("./routes/dashboard")({
+  pool,
+  verifyToken,
 }));
 
 // =============================================================
@@ -680,6 +708,9 @@ require("./routes/socket")({
   checkAndApplyRecords,
   activeDivers,
   meetHolds,
+  persistActiveDiver,
+  persistMeetHold,
+  persistClearMeetHold,
   scoreboardCache,
   metrics,
   push,
@@ -774,6 +805,16 @@ app.use((req, res) => {
 // Both queries are best-effort: a failure (e.g. running against
 // an old DB that pre-dates migration 008) just logs a warning.
 async function bootChecks() {
+  // Rehydrate live-state cache from event_live_state. Best-
+  // effort — if the table doesn't exist yet (DB pre-dates
+  // migration 034) the helper logs and returns. After
+  // rehydrate the in-memory maps reflect any meet that was
+  // running when the previous server instance shut down.
+  try {
+    await liveState.init(pool);
+  } catch (err) {
+    logger.warn({ err: err.message }, "live-state rehydrate failed");
+  }
   try {
     const v = await pool.query("SELECT version, applied_at FROM schema_meta WHERE id = 1");
     if (v.rows[0]) {
@@ -809,6 +850,70 @@ if (require.main === module) {
     logger.info({ port: PORT }, "diving app started");
     bootChecks();
   });
+
+  // -------- Graceful shutdown --------
+  // SIGTERM (deploy script / Docker / pm2 reload) and SIGINT
+  // (Ctrl-C in dev) drop us here. Without trapping these, Node
+  // exits the process while in-flight HTTP requests are still
+  // running, sockets get yanked without a `disconnect` event,
+  // and the pg pool's open connections become Postgres zombies
+  // for a few seconds. With this handler:
+  //
+  //   1. Stop accepting new connections (server.close stops
+  //      .listen but lets active requests finish).
+  //   2. Close all socket.io connections (io.close drains).
+  //   3. Drain the pg pool (pool.end waits for queries in
+  //      flight).
+  //   4. Exit 0.
+  //
+  // 25-second deadline forces an exit if any of the above
+  // hangs — better to bounce loudly than to leave a half-dead
+  // process holding a port. The deploy environment's grace
+  // period (pm2 default 30s, Kubernetes default 30s) matches.
+  let shuttingDown = false;
+  async function gracefulShutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info({ signal }, "graceful shutdown beginning");
+
+    const deadline = setTimeout(() => {
+      logger.error("graceful shutdown deadline hit — forcing exit");
+      process.exit(1);
+    }, 25_000);
+    deadline.unref();
+
+    try {
+      // Stop accepting new HTTP — promisified so we await the close.
+      await new Promise((resolve, reject) =>
+        server.close((err) => (err ? reject(err) : resolve())),
+      );
+      logger.info("http server closed");
+      // Detach all socket clients.
+      try {
+        io.close();
+        logger.info("socket.io server closed");
+      } catch (err) {
+        logger.warn({ err: err.message }, "io.close threw; continuing");
+      }
+      // Drain the pg pool. New queries on this pool will reject
+      // immediately after end() is called.
+      try {
+        await pool.end();
+        logger.info("pg pool drained");
+      } catch (err) {
+        logger.warn({ err: err.message }, "pool.end threw; continuing");
+      }
+      logger.info("graceful shutdown complete");
+      clearTimeout(deadline);
+      process.exit(0);
+    } catch (err) {
+      logger.error({ err: err.message }, "graceful shutdown failed");
+      clearTimeout(deadline);
+      process.exit(1);
+    }
+  }
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT",  () => gracefulShutdown("SIGINT"));
 }
 
 module.exports = { app, server, pool, io };

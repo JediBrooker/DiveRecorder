@@ -44,6 +44,12 @@ module.exports = function attachSocket({
   // From lib/live-state:
   activeDivers,
   meetHolds,
+  // Persistence helpers — fire-and-forget DB writes that
+  // mirror the in-memory map mutations so a server restart
+  // mid-meet doesn't leak the live state.
+  persistActiveDiver,
+  persistMeetHold,
+  persistClearMeetHold,
   // From lib/scoreboard-cache: optional, invalidated whenever a
   // score commits or a referee action lands so the next
   // /api/scoreboard read rebuilds. Pass null in tests where the
@@ -235,7 +241,14 @@ module.exports = function attachSocket({
       if (!(await socketCanManageEvent(socket, data?.event_id,
                                        ["meet_manager", "referee", "org_admin"]))) return;
       if (socketActionRateLimited("set_active_diver", socket.userId)) return;
-      if (data.event_id) activeDivers[data.event_id] = data;
+      if (data.event_id) {
+        activeDivers[data.event_id] = data;
+        // Write-through to event_live_state so a server
+        // restart picks the same diver back up on rehydrate.
+        if (typeof persistActiveDiver === "function") {
+          persistActiveDiver(data.event_id, data);
+        }
+      }
       io.to(`event:${data.event_id}`).emit("state_update", data);
     });
 
@@ -553,6 +566,13 @@ module.exports = function attachSocket({
         reason: data.reason || null,
         since: Date.now(),
       };
+      // Write-through to event_live_state.
+      if (typeof persistMeetHold === "function") {
+        persistMeetHold(data.event_id, {
+          reason: meetHolds[data.event_id].reason,
+          since:  new Date(meetHolds[data.event_id].since),
+        });
+      }
       io.to(`event:${data.event_id}`).emit("meet_held",
         { event_id: data.event_id, ...meetHolds[data.event_id] });
     });
@@ -561,6 +581,9 @@ module.exports = function attachSocket({
                                        ["meet_manager", "referee", "org_admin"]))) return;
       if (socketActionRateLimited("meet_resume", socket.userId)) return;
       delete meetHolds[data.event_id];
+      if (typeof persistClearMeetHold === "function") {
+        persistClearMeetHold(data.event_id);
+      }
       io.to(`event:${data.event_id}`).emit("meet_resumed", { event_id: data.event_id });
     });
     socket.on("get_meet_hold", (data) => {
