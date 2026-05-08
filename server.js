@@ -577,6 +577,21 @@ app.use(require("./routes/score-correction")({
 }));
 
 // =============================================================
+// FEDERATION-WIDE AUDIT
+// [SECTION: ROUTES — AUDIT]
+// /api/audit/scores + /api/audit/roles + /api/audit/recent —
+// cross-event / cross-user audit views for org admins doing
+// dispute investigations and compliance review. The per-event
+// /api/events/:id/score-audit (inside score-correction.js) and
+// per-user /api/users/:id/role-audit (inside users.js) remain
+// for drill-down navigation.
+// =============================================================
+app.use(require("./routes/audit")({
+  pool,
+  requireOrgAdmin,
+}));
+
+// =============================================================
 // LIVE STATE — activeDivers + meetHolds
 // [SECTION: LIVE STATE]
 // activeDivers + meetHolds are imported earlier in the file (just

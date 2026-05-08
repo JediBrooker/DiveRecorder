@@ -1,0 +1,262 @@
+// Federation-wide audit log endpoints.
+//
+// The per-event score audit (/api/events/:id/score-audit) and the
+// per-user role audit (/api/users/:id/role-audit) already exist in
+// routes/score-correction.js + routes/users.js, but both are
+// scoped to a single subject. Org admins / sysadmins running
+// dispute investigations or doing periodic compliance review want
+// a federation-wide cross-cutting view: "every score correction
+// in the last week", "who's been granted org_admin recently".
+//
+// Endpoints (org-admin gated; sysadmin passes the same gate):
+//
+//   GET /api/audit/scores
+//     Filters: event_id, competitor_id, judge_id, actor_id,
+//              action (insert | update | delete), from, to,
+//              q (substring search of reason), org_id (sysadmin
+//              only — narrows across orgs), limit, offset
+//
+//   GET /api/audit/roles
+//     Filters: user_id, actor_id, role, action (granted |
+//              revoked), from, to, org_id (sysadmin only),
+//              limit, offset
+//
+//   GET /api/audit/recent
+//     Returns the most recent score + role rows interleaved so
+//     the dashboard "Recent activity" tab can show a feed
+//     without coordinating two separate fetches.
+//
+// All three return JSON arrays of rows enriched with the
+// joined user / event / org names so the SPA doesn't need to
+// secondary-fetch those.
+//
+// Mounted via:
+//   app.use(require('./routes/audit')({ pool, requireOrgAdmin }))
+
+const express = require("express");
+
+const MAX_LIMIT = 500;
+const DEFAULT_LIMIT = 100;
+
+module.exports = function createAuditRouter({ pool, requireOrgAdmin }) {
+  if (!pool || !requireOrgAdmin) {
+    throw new Error("createAuditRouter requires { pool, requireOrgAdmin }");
+  }
+  const router = express.Router();
+
+  // ---------------------------------------------------------------
+  // GET /api/audit/scores — federation-wide score audit
+  // ---------------------------------------------------------------
+  router.get("/api/audit/scores", requireOrgAdmin, async (req, res) => {
+    const isSysAdmin = !!req.user.is_system_admin;
+    // Build a parameterised WHERE incrementally so a request
+    // with no filters falls back to "everything in this org".
+    const where = [];
+    const params = [];
+    function add(sql, value) {
+      params.push(value);
+      where.push(sql.replace("$$", `$${params.length}`));
+    }
+
+    // Org scope. Org admins are pinned to their org; sysadmins
+    // can pass `?org_id=` to narrow but otherwise see all orgs.
+    if (!isSysAdmin) {
+      add("e.org_id = $$", req.user.org_id);
+    } else if (req.query.org_id) {
+      add("e.org_id = $$", req.query.org_id);
+    }
+
+    if (req.query.event_id)      add("a.event_id = $$",      req.query.event_id);
+    if (req.query.competitor_id) add("a.competitor_id = $$", req.query.competitor_id);
+    if (req.query.judge_id)      add("a.judge_id = $$",      req.query.judge_id);
+    if (req.query.actor_id)      add("a.actor_user_id = $$", req.query.actor_id);
+    if (req.query.action) {
+      const allowed = new Set(["insert", "update", "delete"]);
+      if (allowed.has(req.query.action)) {
+        add("a.action = $$::score_audit_action", req.query.action);
+      }
+    }
+    if (req.query.from) add("a.created_at >= $$", req.query.from);
+    if (req.query.to)   add("a.created_at <= $$", req.query.to);
+    if (req.query.q && req.query.q.trim()) {
+      // ILIKE substring match on reason — most common operator
+      // workflow is "find every correction that mentioned 'video'".
+      add("a.reason ILIKE $$", `%${req.query.q.trim()}%`);
+    }
+
+    const limit  = clampInt(req.query.limit,  DEFAULT_LIMIT, 1, MAX_LIMIT);
+    const offset = clampInt(req.query.offset, 0,             0, 1_000_000);
+    params.push(limit, offset);
+
+    const sql =
+      `SELECT a.id, a.score_id, a.event_id, a.round_number, a.action::text AS action,
+              a.old_score, a.new_score,
+              a.ip_address::text AS ip_address,
+              a.user_agent, a.reason, a.created_at,
+              a.competitor_id, comp.full_name AS competitor_name,
+              a.judge_id,      jud.full_name  AS judge_name,
+              ej.judge_number,
+              a.actor_user_id, act.full_name  AS actor_name,
+              e.name AS event_name,
+              e.org_id, o.name AS org_name, o.country_code
+       FROM score_audit_log a
+       JOIN events e        ON e.id = a.event_id
+       LEFT JOIN organisations o ON o.id = e.org_id
+       LEFT JOIN users comp ON comp.id = a.competitor_id
+       LEFT JOIN users jud  ON jud.id  = a.judge_id
+       LEFT JOIN users act  ON act.id  = a.actor_user_id
+       LEFT JOIN event_judges ej
+         ON ej.event_id = a.event_id AND ej.judge_id = a.judge_id
+       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+       ORDER BY a.created_at DESC, a.id DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`;
+
+    try {
+      const r = await pool.query(sql, params);
+      res.json(r.rows);
+    } catch (err) {
+      console.error("[Audit Scores Error]", err.message);
+      res.status(500).json({ error: "Failed to load score audit" });
+    }
+  });
+
+  // ---------------------------------------------------------------
+  // GET /api/audit/roles — federation-wide role audit
+  // ---------------------------------------------------------------
+  router.get("/api/audit/roles", requireOrgAdmin, async (req, res) => {
+    const isSysAdmin = !!req.user.is_system_admin;
+    const where = [];
+    const params = [];
+    function add(sql, value) {
+      params.push(value);
+      where.push(sql.replace("$$", `$${params.length}`));
+    }
+
+    if (!isSysAdmin) {
+      add("a.org_id = $$", req.user.org_id);
+    } else if (req.query.org_id) {
+      add("a.org_id = $$", req.query.org_id);
+    }
+
+    if (req.query.user_id)  add("a.user_id = $$",  req.query.user_id);
+    if (req.query.actor_id) add("a.actor_id = $$", req.query.actor_id);
+    if (req.query.role)     add("a.role = $$::org_role", req.query.role);
+    if (req.query.action) {
+      const allowed = new Set(["granted", "revoked"]);
+      if (allowed.has(req.query.action)) {
+        add("a.action = $$::role_audit_action", req.query.action);
+      }
+    }
+    if (req.query.from) add("a.created_at >= $$", req.query.from);
+    if (req.query.to)   add("a.created_at <= $$", req.query.to);
+
+    const limit  = clampInt(req.query.limit,  DEFAULT_LIMIT, 1, MAX_LIMIT);
+    const offset = clampInt(req.query.offset, 0,             0, 1_000_000);
+    params.push(limit, offset);
+
+    const sql =
+      `SELECT a.id, a.user_id, a.org_id, a.role::text AS role,
+              a.action::text AS action,
+              a.note, a.created_at,
+              a.actor_id,
+              target.full_name AS target_name,
+              target.username  AS target_username,
+              actor.full_name  AS actor_name,
+              actor.username   AS actor_username,
+              o.name AS org_name, o.country_code
+       FROM role_audit_log a
+       JOIN organisations o ON o.id = a.org_id
+       LEFT JOIN users target ON target.id = a.user_id
+       LEFT JOIN users actor  ON actor.id  = a.actor_id
+       ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+       ORDER BY a.created_at DESC, a.id DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`;
+
+    try {
+      const r = await pool.query(sql, params);
+      res.json(r.rows);
+    } catch (err) {
+      console.error("[Audit Roles Error]", err.message);
+      res.status(500).json({ error: "Failed to load role audit" });
+    }
+  });
+
+  // ---------------------------------------------------------------
+  // GET /api/audit/recent — interleaved feed for the dashboard tab
+  // ---------------------------------------------------------------
+  router.get("/api/audit/recent", requireOrgAdmin, async (req, res) => {
+    const isSysAdmin = !!req.user.is_system_admin;
+    const orgScope = !isSysAdmin ? req.user.org_id : (req.query.org_id || null);
+    const days = clampInt(req.query.days, 7, 1, 90);
+    const limit = clampInt(req.query.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
+
+    try {
+      // Two queries → merge in JS rather than a SQL UNION because
+      // the row shapes are different and the SPA wants discriminated
+      // entries (`kind: 'score' | 'role'`) for tab-filter rendering.
+      const since = new Date(Date.now() - days * 86_400_000).toISOString();
+
+      const scoreSql =
+        `SELECT a.id, a.created_at, a.action::text AS action,
+                a.competitor_id, comp.full_name AS competitor_name,
+                a.judge_id, jud.full_name AS judge_name,
+                a.actor_user_id, act.full_name AS actor_name,
+                a.event_id, e.name AS event_name,
+                a.round_number, a.old_score, a.new_score, a.reason,
+                e.org_id, o.name AS org_name
+         FROM score_audit_log a
+         JOIN events e        ON e.id = a.event_id
+         LEFT JOIN organisations o ON o.id = e.org_id
+         LEFT JOIN users comp ON comp.id = a.competitor_id
+         LEFT JOIN users jud  ON jud.id  = a.judge_id
+         LEFT JOIN users act  ON act.id  = a.actor_user_id
+         WHERE a.created_at >= $1
+           AND ($2::uuid IS NULL OR e.org_id = $2::uuid)
+         ORDER BY a.created_at DESC
+         LIMIT $3`;
+
+      const roleSql =
+        `SELECT a.id, a.created_at, a.action::text AS action,
+                a.user_id, target.full_name AS target_name,
+                a.actor_id, actor.full_name AS actor_name,
+                a.role::text AS role, a.note,
+                a.org_id, o.name AS org_name
+         FROM role_audit_log a
+         JOIN organisations o ON o.id = a.org_id
+         LEFT JOIN users target ON target.id = a.user_id
+         LEFT JOIN users actor  ON actor.id  = a.actor_id
+         WHERE a.created_at >= $1
+           AND ($2::uuid IS NULL OR a.org_id = $2::uuid)
+         ORDER BY a.created_at DESC
+         LIMIT $3`;
+
+      const [scoresR, rolesR] = await Promise.all([
+        pool.query(scoreSql, [since, orgScope, limit]),
+        pool.query(roleSql,  [since, orgScope, limit]),
+      ]);
+
+      const merged = [
+        ...scoresR.rows.map(r => ({ kind: "score", ...r })),
+        ...rolesR.rows.map (r => ({ kind: "role",  ...r })),
+      ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+       .slice(0, limit);
+
+      res.json(merged);
+    } catch (err) {
+      console.error("[Audit Recent Error]", err.message);
+      res.status(500).json({ error: "Failed to load recent audit" });
+    }
+  });
+
+  return router;
+};
+
+// ---- helpers ----------------------------------------------------
+
+function clampInt(v, fallback, min, max) {
+  const n = parseInt(v, 10);
+  if (!Number.isFinite(n)) return fallback;
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
+}

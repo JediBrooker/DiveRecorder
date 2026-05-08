@@ -133,6 +133,15 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['org_admin', 'meet_manager'] },
   },
   {
+    // Federation-wide audit log — three tabs: recent activity,
+    // score corrections, role changes. Org-admin gated; sysadmin
+    // passes the same gate (the API enforces org scope) and gets
+    // an extra "all orgs" filter inside the view.
+    path: '/audit',
+    component: () => import('@/views/AuditLogView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['org_admin'] },
+  },
+  {
     // Dive Directory browser: read the World Aquatics catalog,
     // add custom rows for poolside / progression dives. Anyone
     // signed in can browse; the create/edit/delete affordances

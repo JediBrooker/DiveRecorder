@@ -290,6 +290,19 @@ const allTiles = [
     action: 'Manage Users',
   },
   {
+    // Federation-wide audit log — score corrections + role
+    // changes across every event / user. Org-admin gated;
+    // sysadmins also see an "all orgs" filter inside the view.
+    id: 'audit',
+    roles: ['org_admin'],
+    to: '/audit',
+    colour: 'tile-amber',
+    icon: `<svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>`,
+    title: 'Audit Log',
+    desc: 'Every score correction and role change across the federation, searchable + filterable + CSV-exportable.',
+    action: 'View Audit',
+  },
+  {
     id: 'clubs',
     roles: ['org_admin', 'meet_manager'],
     to: '/clubs',
