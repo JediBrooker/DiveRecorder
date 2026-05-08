@@ -488,7 +488,14 @@ onMounted(async () => {
         <div class="welcome-name">{{ welcomeName }}</div>
         <div class="role-line">{{ roleLine }}</div>
       </div>
-      <button class="btn btn-ghost" @click="logout">Sign Out</button>
+      <!-- Account-area buttons. My Profile is the standard
+           top-right link users reach for when they're hunting
+           for "their stuff" — keeps it discoverable even when
+           the active tab is something else. -->
+      <div class="header-account">
+        <RouterLink to="/profile" class="btn btn-ghost">My Profile</RouterLink>
+        <button class="btn btn-ghost" @click="logout">Sign Out</button>
+      </div>
     </div>
 
     <!-- Find Diver typeahead — preserved from old layout. -->
@@ -882,6 +889,17 @@ onMounted(async () => {
   white-space: normal; word-break: break-word;
 }
 
+/* Account-area buttons in the top-right of the header.
+   Wraps to its own row on narrow viewports so a long welcome
+   name doesn't push them off the edge. */
+.header-account {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.header-account .btn { text-decoration: none; }
+
 /* Find Diver bar */
 .find-diver {
   position: relative;
@@ -929,11 +947,16 @@ onMounted(async () => {
 
 /* Pulse strip — always-visible cross-role digest. Sits above
    the tabs so a multi-role user sees activity in roles other
-   than their active tab without switching. */
+   than their active tab without switching. Width math: the
+   strip's outer edges align with the inner-content edges of
+   the surrounding sections (which use `padding: 0 2rem` inside
+   a 1400px max-width). 1400 - (2 × 2rem) = 1400px - 4rem. */
 .pulse-strip {
   display: flex; align-items: center; flex-wrap: wrap;
   gap: 0.45rem 1.1rem;
-  max-width: 1400px; margin: 1.25rem auto 0;
+  width: calc(100% - 4rem);
+  max-width: calc(1400px - 4rem);
+  margin: 1.25rem auto 0;
   padding: 0.75rem 1rem;
   background: var(--bg-3);
   border: 1px solid var(--border);
@@ -942,7 +965,6 @@ onMounted(async () => {
   font-size: 11px; font-weight: 700;
   letter-spacing: 0.16em; text-transform: uppercase;
   color: var(--text-3);
-  margin-left: 2rem; margin-right: 2rem;
 }
 .pulse-bit {
   display: inline-flex; align-items: center; gap: 0.4rem;
@@ -967,39 +989,63 @@ onMounted(async () => {
   font-style: italic;
 }
 
-/* Tab strip */
+/* Tab strip — primary navigation, so styled with the same
+   display-italic typography the rest of the dashboard uses
+   for "important things". Active tab gets a subtle cyan tint
+   + thicker bottom border to read as the current section,
+   not a button. Hover paints a hint so the strip feels
+   interactive even before any click. */
 .tab-strip {
-  display: flex; align-items: center; gap: 0.15rem;
+  display: flex; align-items: stretch; gap: 0.15rem;
   flex-wrap: wrap;
-  max-width: 1400px; margin: 1.25rem auto 0;
+  max-width: 1400px; margin: 1.5rem auto 0;
   padding: 0 2rem;
   border-bottom: 1px solid var(--border);
 }
 .tab {
   background: transparent; border: 0;
-  padding: 0.85rem 1.2rem;
-  font-family: var(--font-display); font-size: 11px; font-weight: 700;
-  letter-spacing: 0.18em; text-transform: uppercase;
+  padding: 0.95rem 1.4rem;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--text-3);
   cursor: pointer;
-  border-bottom: 2px solid transparent;
+  border-bottom: 3px solid transparent;
   margin-bottom: -1px;
-  transition: color 0.12s, border-color 0.12s;
-  display: inline-flex; align-items: center; gap: 0.45rem;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+  display: inline-flex; align-items: center; gap: 0.55rem;
+  border-radius: 6px 6px 0 0;
 }
-.tab:hover { color: var(--text-2); }
-.tab-active { color: var(--cyan); border-bottom-color: var(--cyan); }
+.tab:hover {
+  color: var(--text);
+  background: var(--bg-3);
+}
+.tab-active {
+  color: var(--cyan);
+  border-bottom-color: var(--cyan);
+  background: rgba(6, 182, 212, 0.06);
+}
+.tab-active:hover {
+  /* Don't darken the active tab on hover — it should read as
+     "you are here", not "you can click this". */
+  background: rgba(6, 182, 212, 0.06);
+}
 .tab-badge {
-  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 11px; font-weight: 700;
+  font-style: normal;        /* override the parent italic */
   letter-spacing: 0;
-  padding: 0.05rem 0.45rem;
+  padding: 0.1rem 0.5rem;
   border-radius: 999px;
   background: var(--bg-3);
   border: 1px solid var(--border);
   color: inherit;
 }
 .tab-active .tab-badge {
-  background: var(--cyan-dim); border-color: var(--cyan);
+  background: var(--cyan-dim);
+  border-color: var(--cyan);
 }
 
 /* Panel container */
