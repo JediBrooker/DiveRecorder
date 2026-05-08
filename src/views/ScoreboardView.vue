@@ -2013,13 +2013,15 @@ onMounted(async () => {
 }
 .live-strip-row {
   display: flex; gap: 0.5rem;
-  overflow-x: auto;
-  padding-bottom: 0.25rem;
-  scrollbar-width: thin;
+  /* Wrap onto multiple lines when there are more chips than fit
+     on one row — never scroll horizontally. A federation running
+     8 live boards in parallel sees them stack into 2-3 lines
+     rather than getting hidden behind a scroll affordance the
+     audience would miss. */
+  flex-wrap: wrap;
 }
 .live-chip {
   display: inline-flex; align-items: center; gap: 0.5rem;
-  flex-shrink: 0;
   background: rgba(239,68,68,0.08);
   border: 1px solid rgba(239,68,68,0.45);
   border-radius: 999px;
