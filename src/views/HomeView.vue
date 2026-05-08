@@ -53,7 +53,7 @@ onMounted(() => {
           <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
         </div>
         <div class="feat-title">Control Room</div>
-        <div class="feat-desc">Advance the diver queue, monitor incoming judge scores in real time, and issue referee rulings without leaving the screen.</div>
+        <div class="feat-desc">Advance through the dive order, monitor incoming judge scores in real time, and issue referee rulings without leaving the screen.</div>
         <div class="feat-tags">
           <span class="feat-tag" style="color:var(--red);border-color:rgba(239,68,68,0.3);background:var(--red-dim)">Referee</span>
           <span class="feat-tag" style="color:var(--amber);border-color:rgba(245,158,11,0.3);background:var(--amber-dim)">Manager</span>
@@ -125,7 +125,7 @@ onMounted(() => {
       <div class="how-step">
         <div class="step-num">03</div>
         <div class="step-title">Scoring goes live</div>
-        <div class="step-desc">The referee steps through the queue on the control room screen. Judges score on their own devices in real time.</div>
+        <div class="step-desc">The referee steps through the dive order on the control room screen. Judges score on their own devices in real time.</div>
       </div>
       <div class="how-step">
         <div class="step-num">04</div>

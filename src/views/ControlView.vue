@@ -4,6 +4,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
 import { diveDescription } from '@/composables/useDiveLabel'
+import { showUndo } from '@/composables/useUndo'
 import DiverIdentity from '@/components/DiverIdentity.vue'
 import {
   annotatedScores,
@@ -539,6 +540,22 @@ const orderWorkflowState = computed(() => {
   return 'start'
 })
 
+// Stepper helper — classifies each pre-meet step as done /
+// active / future relative to the current workflow state.
+// Drives the four-pip indicator that renders ABOVE the action
+// button so the operator sees the whole flow at a glance
+// instead of having to remember the order red → orange →
+// yellow → green carries.
+const WORKFLOW_STEPS = ['check-in', 'random', 'sign-off', 'start']
+function wfStepClass(stepName) {
+  const cur = WORKFLOW_STEPS.indexOf(orderWorkflowState.value)
+  const idx = WORKFLOW_STEPS.indexOf(stepName)
+  if (cur === -1 || idx === -1) return 'wf-step-future'
+  if (cur > idx) return 'wf-step-done'
+  if (cur === idx) return 'wf-step-active'
+  return 'wf-step-future'
+}
+
 // Replace the stamps on currentEvent (and the matching events
 // list row) without re-fetching the whole list. Keeps the button
 // in sync after every workflow step.
@@ -1036,18 +1053,31 @@ async function withdrawRosterRow(idx) {
   const row = roster.value[idx]
   if (!row) return
   const willWithdraw = !row.withdrawn_at
-  const verb = willWithdraw ? 'Withdraw' : 'Reinstate'
-  if (!confirm(`${verb} ${row.full_name} from round ${row.round_number}?`)) return
+  // No confirm() dialog — fires immediately + offers Undo via
+  // the snackbar. The reverse op is just calling the same
+  // endpoint with the opposite withdrawn flag, so a misclick
+  // is one tap away from being recovered without an admin.
   try {
     await auth.apiFetch(`/api/dive-lists/${row.dive_list_id}/withdraw`, {
       method: 'PUT', body: JSON.stringify({ withdrawn: willWithdraw }),
     })
     row.withdrawn_at = willWithdraw ? new Date().toISOString() : null
-    // If the active diver got withdrawn, advance past them
+    // If the active diver got withdrawn, advance past them.
     if (willWithdraw && currentIndex.value === idx) {
       const next = roster.value.findIndex((r, i) => i > idx && !r.withdrawn_at)
       if (next >= 0) setActive(next)
     }
+    showUndo({
+      message: willWithdraw
+        ? `Withdrew ${row.full_name} from round ${row.round_number}`
+        : `Reinstated ${row.full_name} in round ${row.round_number}`,
+      onUndo: async () => {
+        await auth.apiFetch(`/api/dive-lists/${row.dive_list_id}/withdraw`, {
+          method: 'PUT', body: JSON.stringify({ withdrawn: !willWithdraw }),
+        })
+        row.withdrawn_at = !willWithdraw ? new Date().toISOString() : null
+      },
+    })
   } catch (err) {
     alert('Failed: ' + err.message)
   }
@@ -2062,13 +2092,34 @@ async function finaliseEvent() {
   if (!currentEvent.value) return
   if (!confirm(`Finalise "${currentEvent.value.name}" and show the leaderboard?`)) return
   try {
-    await auth.apiFetch(`/api/events/${currentEvent.value.id}/status`, {
+    const evId = currentEvent.value.id
+    const evName = currentEvent.value.name
+    await auth.apiFetch(`/api/events/${evId}/status`, {
       method: 'PUT',
       body: JSON.stringify({ status: 'Completed' }),
     })
     currentEvent.value.status = 'Completed'
     finaliseBtnText.value = 'View Results'
     await showLeaderboard()
+    // Offer an Undo. Finalising flips status Live → Completed,
+    // which is fully reversible by an org admin via the same
+    // status endpoint. Common misclick recovery — the operator
+    // hits Finalise expecting "Next Diver" or vice versa.
+    showUndo({
+      message: `Finalised "${evName}" — results published.`,
+      timeoutMs: 12000,
+      onUndo: async () => {
+        await auth.apiFetch(`/api/events/${evId}/status`, {
+          method: 'PUT',
+          body: JSON.stringify({ status: 'Live' }),
+        })
+        if (currentEvent.value && currentEvent.value.id === evId) {
+          currentEvent.value.status = 'Live'
+          finaliseBtnText.value = 'Finalise Event ✓'
+          lbShow.value = false
+        }
+      },
+    })
   } catch (err) {
     alert('Failed to finalise: ' + err.message)
   }
@@ -2189,7 +2240,10 @@ onUnmounted(() => {
           <option value="">— Select Event —</option>
           <option v-for="ev in events" :key="ev.id" :value="ev.id">{{ ev.name }}</option>
         </select>
-        <span class="conn-badge">
+        <span class="conn-badge"
+              :title="connStatus
+                ? 'Live socket connection healthy — score events are streaming in real time'
+                : 'Re-establishing socket connection — incoming scores are queued until this turns green'">
           <span class="status-dot" :class="{ connected: connStatus }"></span>
           <span>{{ connStatus ? 'Connected' : 'Connecting' }}</span>
         </span>
@@ -2425,7 +2479,12 @@ onUnmounted(() => {
               </span>
             </span>
             <div v-if="currentActive" :class="['shot-clock', shotClockClass]">
-              <button class="shot-clock-face" @click="pauseShotClock" title="Pause / resume">
+              <button class="shot-clock-face" @click="pauseShotClock"
+                      :title="shotClockRunning
+                        ? '30-second WA shot clock — click to pause'
+                        : (shotClockExpired
+                          ? 'Shot clock expired — diver should have begun by now'
+                          : '30-second WA shot clock — click to resume')">
                 <span class="shot-clock-num">{{ shotClock }}</span>
                 <span class="shot-clock-unit">s</span>
               </button>
@@ -2477,7 +2536,11 @@ onUnmounted(() => {
             <span
               v-if="currentActive"
               :class="['status-pill', `status-${activeStatus}`, 'status-pill-inline']"
-              title="Auto-updates as the dive progresses"
+              :title="activeStatus === 'ready'
+                ? 'READY — diver is on the board, shot clock running. Auto-advances to DIVING when the clock expires.'
+                : activeStatus === 'diving'
+                ? 'DIVING — shot clock has expired, the dive is happening. Auto-advances to JUDGING when the first score lands.'
+                : 'JUDGING — the panel is scoring. Stays here until the next diver is set.'"
             >
               {{ activeStatus.toUpperCase() }}
             </span>
@@ -2704,10 +2767,15 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Right: Queue -->
+      <!-- Right: Dive Order column. Houses the Up Next preview,
+           the (collapsed) Top 5 + full Dive Order panels, and
+           the workflow stepper + late-entry button. We say
+           "Dive Order" everywhere instead of "Queue" / "Roster"
+           — three terms for the same concept fragmented the
+           operator's mental model. -->
       <div class="ctrl-panel">
         <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center">
-          <span>Diver Queue</span>
+          <span>Dive Order</span>
           <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
             <span class="roster-count">{{ roster.length ? currentIndex + 1 : 0 }}/{{ roster.length }}</span>
             <!-- Once the event flips out of 'Upcoming' the start
@@ -2718,6 +2786,35 @@ onUnmounted(() => {
                   :title="`Start order locked — event is ${currentEvent.status}. Withdraw a diver instead if they need to be skipped.`">
               🔒 Order locked
             </span>
+            <!-- Pre-meet workflow stepper — shows all four steps
+                 with the current one highlighted and completed
+                 ones ticked. Renders ABOVE the action button so
+                 a new operator sees the full flow at a glance
+                 instead of having to remember that red →
+                 orange → yellow → green is "step 1 of 4". -->
+            <div v-if="currentEvent && roster.length && orderWorkflowState && orderWorkflowState !== 'live'"
+                 class="wf-stepper"
+                 :title="`Pre-meet step ${WORKFLOW_STEPS.indexOf(orderWorkflowState) + 1} of 4`">
+              <div :class="['wf-step', wfStepClass('check-in')]">
+                <span class="wf-step-num">{{ wfStepClass('check-in') === 'wf-step-done' ? '✓' : '1' }}</span>
+                <span class="wf-step-label">Check-in</span>
+              </div>
+              <div :class="['wf-step-divider', wfStepClass('check-in') === 'wf-step-done' ? 'wf-divider-done' : '']"></div>
+              <div :class="['wf-step', wfStepClass('random')]">
+                <span class="wf-step-num">{{ wfStepClass('random') === 'wf-step-done' ? '✓' : '2' }}</span>
+                <span class="wf-step-label">Randomise</span>
+              </div>
+              <div :class="['wf-step-divider', wfStepClass('random') === 'wf-step-done' ? 'wf-divider-done' : '']"></div>
+              <div :class="['wf-step', wfStepClass('sign-off')]">
+                <span class="wf-step-num">{{ wfStepClass('sign-off') === 'wf-step-done' ? '✓' : '3' }}</span>
+                <span class="wf-step-label">Sign Off</span>
+              </div>
+              <div :class="['wf-step-divider', wfStepClass('sign-off') === 'wf-step-done' ? 'wf-divider-done' : '']"></div>
+              <div :class="['wf-step', wfStepClass('start')]">
+                <span class="wf-step-num">4</span>
+                <span class="wf-step-label">Start</span>
+              </div>
+            </div>
             <!-- Pre-meet workflow: one button cycles through four
                  sequential states before the event flips Live —
                  red Check In → orange Randomise → yellow Referee
@@ -4329,6 +4426,62 @@ onUnmounted(() => {
   border-radius: 3px; padding: 0.15rem 0.45rem;
   letter-spacing: 0.05em; cursor: help;
 }
+
+/* Pre-meet workflow stepper — four-pip indicator that
+   renders ABOVE the action button so a new operator can
+   read the whole flow at a glance instead of having to
+   remember red → orange → yellow → green is "step 1 of 4".
+   Done steps tick green; the active step glows cyan; future
+   steps stay muted grey. The connecting dividers brighten
+   too as the operator advances. */
+.wf-stepper {
+  display: flex; align-items: center;
+  gap: 0;
+  margin-bottom: 0.7rem;
+  font-family: var(--font-display);
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.wf-step {
+  display: flex; align-items: center;
+  gap: 0.45rem;
+  white-space: nowrap;
+}
+.wf-step-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 700;
+  letter-spacing: 0;
+  border: 1.5px solid;
+  flex-shrink: 0;
+}
+/* Done — green tick, faded label so completed steps recede. */
+.wf-step.wf-step-done .wf-step-num {
+  background: var(--green-dim); color: var(--green); border-color: var(--green);
+}
+.wf-step.wf-step-done .wf-step-label { color: var(--text-3); }
+/* Active — cyan ring + bold label so the eye lands here. */
+.wf-step.wf-step-active .wf-step-num {
+  background: var(--cyan-dim); color: var(--cyan); border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.18);
+}
+.wf-step.wf-step-active .wf-step-label { color: var(--cyan); }
+/* Future — quiet grey so they read as "coming up". */
+.wf-step.wf-step-future .wf-step-num {
+  background: transparent; color: var(--text-3); border-color: var(--border);
+}
+.wf-step.wf-step-future .wf-step-label { color: var(--text-3); }
+/* Connecting line between pips. Lights up green for the
+   transitions that have already happened. */
+.wf-step-divider {
+  flex: 0 0 auto; width: 24px; height: 2px;
+  background: var(--border);
+  margin: 0 0.55rem;
+  border-radius: 1px;
+  transition: background 0.2s;
+}
+.wf-step-divider.wf-divider-done { background: var(--green); }
 
 /* Pre-meet 3-state workflow button — the same control cycles
    through randomise (red) → referee sign-off (yellow) → start

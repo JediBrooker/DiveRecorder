@@ -9,6 +9,71 @@ const auth = useAuthStore()
 const judgeEvents = ref([])
 const showJudgeSection = computed(() => auth.hasRole('judge'))
 
+// "What needs your attention" action cards. Live events the
+// operator can drive get top priority; nearest-deadline
+// Upcoming events come next. Driven off /api/events which
+// the user already has access to. The card grid below stays
+// as the secondary navigation surface — this section is the
+// "do this now" cue, the grid is "everywhere I can go".
+const events = ref([])
+const showActionCards = computed(() =>
+  auth.hasAnyRole(['org_admin', 'meet_manager']),
+)
+function fmtCloses(iso) {
+  if (!iso) return null
+  const d = new Date(iso)
+  const now = Date.now()
+  const ms = d.getTime() - now
+  if (ms < 0) return 'entries already closed'
+  const day = 86_400_000
+  if (ms < day) {
+    const hr = Math.max(1, Math.round(ms / 3_600_000))
+    return `entries close in ${hr}h`
+  }
+  if (ms < 7 * day) {
+    const dy = Math.round(ms / day)
+    return `entries close in ${dy} day${dy === 1 ? '' : 's'}`
+  }
+  return `entries close ${d.toLocaleString(undefined, { month: 'short', day: 'numeric' })}`
+}
+const actionCards = computed(() => {
+  if (!showActionCards.value) return []
+  const cards = []
+  // Live events — single-tap return to the Control Room.
+  for (const ev of events.value.filter(e => e.status === 'Live')) {
+    cards.push({
+      id: 'live-' + ev.id,
+      kind: 'live',
+      icon: '🔴',
+      title: `${ev.name} is LIVE`,
+      meta: 'Drop back into the Control Room — scoring is in progress.',
+      to: `/control?event=${ev.id}`,
+    })
+  }
+  // Upcoming events sorted by closest deadline first. Cap at 3
+  // so the actionable section doesn't grow longer than the
+  // main tile grid below it.
+  const upcoming = events.value
+    .filter(e => e.status === 'Upcoming')
+    .sort((a, b) => {
+      const ad = a.entries_close_at ? +new Date(a.entries_close_at) : Infinity
+      const bd = b.entries_close_at ? +new Date(b.entries_close_at) : Infinity
+      return ad - bd
+    })
+    .slice(0, 3)
+  for (const ev of upcoming) {
+    cards.push({
+      id: 'upcoming-' + ev.id,
+      kind: 'upcoming',
+      icon: '📅',
+      title: `Prepare ${ev.name}`,
+      meta: fmtCloses(ev.entries_close_at) || 'Walk through the pre-meet workflow',
+      to: `/control?event=${ev.id}`,
+    })
+  }
+  return cards
+})
+
 // =========================================================
 // Find Diver — global typeahead so anyone on the dashboard
 // can jump to another diver's profile. Hits the existing
@@ -216,6 +281,15 @@ onMounted(async () => {
       judgeEvents.value = await auth.apiFetch('/api/judge/my-events')
     } catch { /* silent */ }
   }
+  // Pull events for operator-class users so the "what needs
+  // your attention" cards above the tile grid have something
+  // to render. Same /api/events endpoint Meet Manager uses;
+  // returns the events the caller's role can see.
+  if (showActionCards.value) {
+    try {
+      events.value = await auth.apiFetch('/api/events')
+    } catch { /* silent — the tile grid still works */ }
+  }
 })
 </script>
 
@@ -288,6 +362,31 @@ onMounted(async () => {
     </RouterLink>
   </div>
 
+  <!-- Action cards — "what needs your attention right now".
+       Lives ABOVE the navigation tile grid for operator-class
+       users so the dashboard's first answer is "do this next"
+       rather than "here are all the screens you can open".
+       Scoped to org_admin / meet_manager because they're the
+       roles whose attention is split across multiple events;
+       judges see their own assigned-events list higher up. -->
+  <div v-if="actionCards.length" class="action-cards">
+    <div class="action-cards-label">What needs your attention</div>
+    <RouterLink
+      v-for="(card, idx) in actionCards"
+      :key="card.id"
+      :to="card.to"
+      :class="['action-card', `action-card-${card.kind}`]"
+      :style="{ animationDelay: `${idx * 40}ms` }"
+    >
+      <div class="action-card-icon">{{ card.icon }}</div>
+      <div class="action-card-body">
+        <div class="action-card-title">{{ card.title }}</div>
+        <div class="action-card-meta">{{ card.meta }}</div>
+      </div>
+      <div class="action-card-arrow">→</div>
+    </RouterLink>
+  </div>
+
   <div class="main-grid">
     <RouterLink
       v-for="(tile, idx) in visibleTiles"
@@ -348,6 +447,84 @@ onMounted(async () => {
      the line doesn't push the page width past the viewport. */
   white-space: normal;
   word-break: break-word;
+}
+
+/* "What needs your attention" action cards — high-priority
+   operator tasks above the tile grid. Live events get a red
+   tint + subtle pulse so they're impossible to miss; Upcoming
+   events use the standard cyan accent. Click goes straight
+   to the Control Room with the event preselected. */
+.action-cards {
+  margin-top: 2rem;
+  display: flex; flex-direction: column;
+  gap: 0.75rem;
+}
+.action-cards-label {
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 0.25rem;
+}
+.action-card {
+  display: flex; align-items: center; gap: 1rem;
+  padding: 1.1rem 1.25rem;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  transition: transform 0.15s, border-color 0.15s, background 0.15s;
+  animation: fadeUp 0.3s ease both;
+}
+.action-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-2);
+  background: rgba(6, 182, 212, 0.04);
+}
+.action-card-live {
+  border-left-color: var(--red);
+  background: rgba(239, 68, 68, 0.05);
+  animation: fadeUp 0.3s ease both, pulse-live 2.6s ease-in-out infinite 0.4s;
+}
+.action-card-live:hover {
+  background: rgba(239, 68, 68, 0.10);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+.action-card-upcoming { border-left-color: var(--cyan); }
+.action-card-upcoming:hover { border-color: rgba(6, 182, 212, 0.4); }
+.action-card-icon {
+  font-size: 24px; line-height: 1;
+  flex-shrink: 0;
+}
+.action-card-body {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 0.2rem;
+}
+.action-card-title {
+  font-family: var(--font-display); font-size: 16px; font-weight: 800;
+  font-style: italic; letter-spacing: 0.02em;
+  color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.action-card-meta {
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.action-card-arrow {
+  font-family: var(--font-display); font-size: 22px;
+  color: var(--text-3);
+  transition: transform 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+.action-card:hover .action-card-arrow {
+  transform: translateX(3px);
+  color: var(--cyan);
+}
+.action-card-live:hover .action-card-arrow { color: var(--red); }
+@keyframes pulse-live {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50%      { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.12); }
 }
 
 .main-grid {
