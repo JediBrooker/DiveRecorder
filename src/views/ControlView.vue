@@ -4473,19 +4473,33 @@ onUnmounted(() => {
    remember red → orange → yellow → green is "step 1 of 4".
    Done steps tick green; the active step glows cyan; future
    steps stay muted grey. The connecting dividers brighten
-   too as the operator advances. */
+   too as the operator advances.
+
+   Layout: pips inline horizontally with labels stacked
+   directly under each pip. Labels-next-to-pips overflowed
+   the 350px Dive Order column (≈520px content width); the
+   stacked-label layout lets each step claim only
+   max(pip_width, label_width) so the full stepper fits in
+   ~240px. */
 .wf-stepper {
-  display: flex; align-items: center;
+  display: flex; align-items: flex-start;
   gap: 0;
-  margin-bottom: 0.7rem;
   font-family: var(--font-display);
-  font-size: 11px; font-weight: 700;
-  letter-spacing: 0.08em; text-transform: uppercase;
+  font-size: 9.5px; font-weight: 700;
+  letter-spacing: 0.05em; text-transform: uppercase;
+  /* Don't grow past the parent — if a future translation
+     widens labels, the stepper will scroll inside its row
+     rather than push the dive-order-head off-axis. */
+  max-width: 100%;
 }
 .wf-step {
-  display: flex; align-items: center;
-  gap: 0.45rem;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 4px;
   white-space: nowrap;
+  /* Each step claims the natural width of pip OR label,
+     whichever is larger — typically ~50px for the longest
+     label ("Randomise"). */
+  flex-shrink: 0;
 }
 .wf-step-num {
   display: inline-flex; align-items: center; justify-content: center;
@@ -4513,11 +4527,15 @@ onUnmounted(() => {
 }
 .wf-step.wf-step-future .wf-step-label { color: var(--text-3); }
 /* Connecting line between pips. Lights up green for the
-   transitions that have already happened. */
+   transitions that have already happened. With the column
+   stepper layout (pip on top, label below) the parent uses
+   align-items: flex-start, so the divider gets a top margin
+   equal to half the pip height (22 / 2 - 1 ≈ 10 px) to sit
+   horizontally aligned with the pip centres. */
 .wf-step-divider {
-  flex: 0 0 auto; width: 24px; height: 2px;
+  flex: 0 0 auto; width: 16px; height: 2px;
   background: var(--border);
-  margin: 0 0.55rem;
+  margin: 10px 4px 0;
   border-radius: 1px;
   transition: background 0.2s;
 }
