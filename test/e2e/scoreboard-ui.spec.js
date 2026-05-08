@@ -150,9 +150,14 @@ test("watch a 3-diver, 3-round meet end-to-end with realistic pacing", async ({
   // every remaining dive. With no active diver yet, the centre
   // hoists the head of the queue into its own block (labelled
   // "On Deck — Up Next") and the row list excludes that diver,
-  // so we see 8 rows here + Diver Alpha in the centre block.
-  // 3 divers × 3 rounds = 9 total upcoming.
+  // so the FULL queue is 8 (3 divers × 3 rounds = 9 minus the
+  // on-deck diver). The Up Next panel only renders the first 3
+  // at rest with a "Show 5 more" toggle below; expand it before
+  // asserting the full row count so this test exercises both
+  // preview + expanded states.
   const upNextRows = page.locator(".up-next-row");
+  await expect(upNextRows).toHaveCount(3, { timeout: 5_000 });
+  await page.locator(".up-next-toggle").click();
   await expect(upNextRows).toHaveCount(8, { timeout: 5_000 });
   // Centre on-deck block should show Diver Alpha (alphabetical
   // first since display_order is unset in the fixture) along

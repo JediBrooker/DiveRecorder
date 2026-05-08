@@ -237,6 +237,26 @@ async function fetchJsonArray(url) {
 const historyItems = ref([])
 const standings = ref([])
 const upcoming = ref([])         // next ≤5 dives queued, populated for Live events
+
+// Show-more pagination — both the Completed Dives column and
+// the centre Up Next list default to a 3-row preview with a
+// toggle to expand. Mirrors the Control Room's same pattern.
+// Spectators get a calmer first paint; one click reveals the
+// full set when they want to scan further.
+const HISTORY_PREVIEW_COUNT  = 3
+const UP_NEXT_PREVIEW_COUNT  = 3
+const historyShowAll = ref(false)
+const upNextShowAll  = ref(false)
+const visibleHistory = computed(() =>
+  historyShowAll.value
+    ? historyItems.value
+    : historyItems.value.slice(0, HISTORY_PREVIEW_COUNT),
+)
+const visibleUpcoming = computed(() =>
+  upNextShowAll.value
+    ? upcomingDisplay.value
+    : upcomingDisplay.value.slice(0, UP_NEXT_PREVIEW_COUNT),
+)
 const leaderboardRounds = ref([])     // [{ round_number, rankings: [...] }]
 const standingsTab = ref('final')     // 'final' | 'by-round'
 const expandedRound = ref(null)       // currently expanded round in by-round view
@@ -372,6 +392,11 @@ function selectEvent(id, { pushUrl = true } = {}) {
   activeDiver.value = null
   isHeld.value = false
   holdReason.value = ''
+  // Reset the show-more pagination state so a freshly opened
+  // event lands in the calmer 3-row preview rather than
+  // inheriting a previous event's expanded view.
+  historyShowAll.value = false
+  upNextShowAll.value  = false
   refreshData()
   // Pull the current active diver from the server. socket.io
   // buffers the emit until the connection is up, so this works
@@ -998,7 +1023,7 @@ onMounted(async () => {
         <div class="col-head">Completed Dives</div>
         <div class="col-body">
           <p v-if="!historyItems.length" style="color:var(--text-3);font-size:12px;text-align:center;padding:2rem">No scores yet</p>
-          <div v-for="(h, idx) in historyItems" :key="idx" class="hist-card">
+          <div v-for="(h, idx) in visibleHistory" :key="idx" class="hist-card">
             <div class="hist-round">Round {{ h.round_number }}{{ currentEvent?.total_rounds ? ` / ${currentEvent.total_rounds}` : '' }}</div>
             <!-- Shared identity block — same source of truth as
                  the Control Room. Lead + synchro partner stack
@@ -1046,6 +1071,19 @@ onMounted(async () => {
               </template>
             </div>
           </div>
+          <!-- Show-more toggle for the history column. Mirrors
+               the Control Room's same control. Spectators land
+               on a calmer 3-card preview; one click reveals the
+               full set. -->
+          <button
+            v-if="historyItems.length > HISTORY_PREVIEW_COUNT"
+            class="hist-toggle"
+            @click="historyShowAll = !historyShowAll"
+          >
+            {{ historyShowAll
+                ? `Show fewer ↑`
+                : `Show ${historyItems.length - HISTORY_PREVIEW_COUNT} more ↓` }}
+          </button>
         </div>
       </div>
 
@@ -1174,20 +1212,22 @@ onMounted(async () => {
             </template>
           </div>
 
-          <!-- Up Next: every remaining dive in the meet, scrollable
-               when the list is long. Each row reads:
+          <!-- Up Next: each row reads
                  R# · order-in-round · Name · TST · 103B · DD 1.6 · Forward 1½ Somersaults Pike
                so a spectator scanning the panel knows exactly
                who's up, what they're doing, and how hard it is.
                Hidden when the queue is empty (end-of-meet) so we
                don't dangle a blank panel. Filters out the current
-               active diver so they're not double-shown. -->
+               active diver so they're not double-shown.
+               At rest only the next 3 dives render — keeps the
+               centre column light. A "Show N more" toggle below
+               expands to the full upcoming list. -->
           <div v-if="upcomingDisplay.length" class="up-next">
             <div class="up-next-label">
               Up Next · {{ upcomingDisplay.length }} remaining
             </div>
             <div class="up-next-scroll">
-              <div v-for="(u, i) in upcomingDisplay" :key="i" class="up-next-row">
+              <div v-for="(u, i) in visibleUpcoming" :key="i" class="up-next-row">
                 <span class="up-next-rd">R{{ u.round_number }}</span>
                 <span class="up-next-pos">{{ u.round_order }}</span>
                 <span class="up-next-name">
@@ -1214,6 +1254,19 @@ onMounted(async () => {
                 </span>
               </div>
             </div>
+            <!-- Show-more toggle for Up Next. Only renders when
+                 the queue has more than UP_NEXT_PREVIEW_COUNT
+                 entries; click to expand to the full list,
+                 click again to collapse back to the preview. -->
+            <button
+              v-if="upcomingDisplay.length > UP_NEXT_PREVIEW_COUNT"
+              class="up-next-toggle"
+              @click="upNextShowAll = !upNextShowAll"
+            >
+              {{ upNextShowAll
+                  ? `Show fewer ↑`
+                  : `Show ${upcomingDisplay.length - UP_NEXT_PREVIEW_COUNT} more ↓` }}
+            </button>
           </div>
         </div>
       </div>
@@ -2071,6 +2124,28 @@ onMounted(async () => {
 .up-next-scroll {
   max-height: 500px;
   overflow-y: auto;
+}
+
+/* Show-more toggle — sits below the Up Next list (and below the
+   Completed Dives column). Same compact display-font styling
+   the other "Show all" toggles in the SPA use, so the eye
+   recognises it as a list-expansion control. Full-width inside
+   its container; clicks expand the preview to the full set. */
+.up-next-toggle,
+.hist-toggle {
+  display: block; width: 100%;
+  background: transparent; border: 0;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--text-3);
+  padding: 0.7rem 1rem;
+  transition: color 0.15s, background 0.15s;
+}
+.up-next-toggle:hover,
+.hist-toggle:hover {
+  color: var(--cyan); background: var(--bg-3);
 }
 .up-next-row {
   display: grid;

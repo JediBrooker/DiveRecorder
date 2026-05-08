@@ -1570,6 +1570,24 @@ const filteredHistory = computed(() => {
   })
 })
 
+// Compressed-layout pass: only the most-recent 3 cards show
+// at rest; the operator clicks "Show more" to expand. The full
+// list is one click away but the resting left column stays a
+// short, scannable strip — pairs with the same pattern in the
+// right column (Up Next default-3) and on the audience-facing
+// scoreboard. Reset on filter change so a "View all" expansion
+// doesn't carry over to a freshly filtered view.
+const HISTORY_PREVIEW_COUNT = 3
+const historyShowAll = ref(false)
+const visibleHistory = computed(() =>
+  historyShowAll.value
+    ? filteredHistory.value
+    : filteredHistory.value.slice(0, HISTORY_PREVIEW_COUNT),
+)
+watch([historyDiverFilter, historyRoundFilter], () => {
+  historyShowAll.value = false
+})
+
 const historyDivers = computed(() => {
   const set = new Set(historyCards.value.map(h => h.name))
   return [...set].sort()
@@ -2244,7 +2262,7 @@ onUnmounted(() => {
         </div>
         <div class="panel-body">
           <div
-            v-for="(card, idx) in filteredHistory"
+            v-for="(card, idx) in visibleHistory"
             :key="idx"
             :class="['hist-card', card.score_ids?.length ? 'hist-card-correctable' : '']"
             :title="card.score_ids?.length ? 'Click to amend a score' : ''"
@@ -2309,6 +2327,21 @@ onUnmounted(() => {
               </template>
             </div>
           </div>
+          <!-- Show-more toggle — only renders when the filtered
+               list has more than HISTORY_PREVIEW_COUNT cards.
+               Default state is collapsed; clicking expands the
+               full list, clicking again returns to the 3-card
+               preview. Filter changes reset to collapsed via the
+               watch above. -->
+          <button
+            v-if="filteredHistory.length > HISTORY_PREVIEW_COUNT"
+            class="hist-toggle"
+            @click="historyShowAll = !historyShowAll"
+          >
+            {{ historyShowAll
+                ? `Show fewer ↑`
+                : `Show ${filteredHistory.length - HISTORY_PREVIEW_COUNT} more ↓` }}
+          </button>
         </div>
       </div>
 
@@ -3925,6 +3958,25 @@ onUnmounted(() => {
    in view at once, which is what an operator scanning recent
    results actually wants. */
 .hist-card { padding: 0.4rem 0.6rem; border-left: 2px solid var(--cyan); background: var(--bg-3); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin-bottom: 0.3rem; }
+/* Show-more toggle for the history column. Sits beneath the
+   visible cards; the resting state is a 3-card preview, click
+   to expand to the full list. Same display-font styling as the
+   other "Show all" toggles in the SPA so the eye recognises it
+   as a list-expansion control. */
+.hist-toggle {
+  display: block; width: 100%;
+  background: transparent; border: 1px dashed var(--border);
+  color: var(--text-3); cursor: pointer;
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.16em; text-transform: uppercase;
+  padding: 0.55rem 0.7rem; border-radius: var(--radius-sm);
+  margin-top: 0.4rem;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.hist-toggle:hover {
+  color: var(--cyan); border-color: var(--cyan);
+  background: var(--cyan-dim);
+}
 .hist-round { font-size: 9px; color: var(--text-3); margin-bottom: 0.1rem; font-family: var(--font-mono); }
 /* History card identity block — set the font-size base so the
    <DiverIdentity> component's `inherit`-based typography
