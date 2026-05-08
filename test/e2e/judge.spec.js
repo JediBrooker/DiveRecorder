@@ -251,10 +251,17 @@ test("judge full E2E (random variant)", async ({
   await page.getByRole("button", { name: /Sign In/i }).click();
   await page.waitForURL(/\/dashboard$/);
 
-  // The "Your Assigned Events" card carries the event name +
-  // round/judge counts. It's a RouterLink to /judge?event=<id>.
+  // The Judge tab's "Your assigned events" list — RouterLink
+  // rows pointing at /judge?event=<id>. The dashboard now uses
+  // a tabbed layout; smart-pick lands on the Judge tab when
+  // judging assignments are the only signal, but for safety we
+  // also click into the tab in case smart-pick chose Other.
+  const judgeTab = page.getByRole("button", { name: /^Judge\s/i });
+  if (await judgeTab.isVisible().catch(() => false)) {
+    await judgeTab.click();
+  }
   const eventCard = page
-    .locator(".event-card")
+    .locator(".event-row")
     .filter({ hasText: event.name })
     .first();
   await expect(eventCard).toBeVisible({ timeout: 10_000 });
