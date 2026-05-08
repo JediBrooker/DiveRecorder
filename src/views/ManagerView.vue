@@ -173,6 +173,33 @@ const meetFormErr = ref('')
 // without re-fetching.
 const orgFilter = ref('')
 
+// Free-text search over the events list — matches event name,
+// venue name (when present), age group, and the linked meet
+// name. Pure client-side; the events array is already in
+// memory after the initial /api/events fetch.
+const eventSearch = ref('')
+
+// Status filter chips — null = "show all", or one of the event
+// status values. Lets an operator focus on whatever lifecycle
+// stage they're currently working on (live runs first, post-
+// meet recap browsing second, etc.).
+const eventStatusFilter = ref(null)
+const STATUS_CHIPS = [
+  { value: null,        label: 'All' },
+  { value: 'Upcoming',  label: 'Upcoming' },
+  { value: 'Live',      label: 'Live' },
+  { value: 'Completed', label: 'Completed' },
+]
+function statusChipCount(value) {
+  // Count is org-aware so the sysadmin's All-orgs view doesn't
+  // misreport when an org filter is active.
+  const base = orgFilter.value
+    ? events.value.filter(e => e.org_id === orgFilter.value)
+    : events.value
+  if (value === null) return base.length
+  return base.filter(e => e.status === value).length
+}
+
 const uniqueOrgs = computed(() => {
   const map = new Map()
   for (const ev of events.value) {
@@ -192,8 +219,33 @@ const uniqueOrgs = computed(() => {
 const uniqueOrgCount = computed(() => uniqueOrgs.value.length)
 
 const filteredManagerEvents = computed(() => {
-  if (!orgFilter.value) return events.value
-  return events.value.filter(ev => ev.org_id === orgFilter.value)
+  let list = events.value
+  // 1. Org filter (sysadmin only).
+  if (orgFilter.value) {
+    list = list.filter(ev => ev.org_id === orgFilter.value)
+  }
+  // 2. Status chip.
+  if (eventStatusFilter.value) {
+    list = list.filter(ev => ev.status === eventStatusFilter.value)
+  }
+  // 3. Free-text search across name + age group + venue + meet
+  //    name. Substring match (case-insensitive); the input is
+  //    debounced via Vue's reactivity granularity already, no
+  //    explicit timer needed for an in-memory list.
+  const q = eventSearch.value.trim().toLowerCase()
+  if (q) {
+    list = list.filter((ev) => {
+      const haystack = [
+        ev.name,
+        ev.age_group,
+        ev.venue,
+        ev.meet_name,
+        ev.org_name,
+      ].filter(Boolean).join(' ').toLowerCase()
+      return haystack.includes(q)
+    })
+  }
+  return list
 })
 
 // Candidate parent events for the prelim → semi → final chain.
@@ -956,6 +1008,33 @@ onUnmounted(() => {
           </option>
         </select>
       </div>
+
+      <!-- Search + status filter chips. Hidden when there are
+           fewer than 4 events — at that scale the list is
+           already easy to scan and the controls are noise. -->
+      <div v-if="events.length >= 4" class="events-toolbar">
+        <input
+          class="input events-search"
+          type="search"
+          v-model="eventSearch"
+          placeholder="Search events…"
+          aria-label="Search events"
+        >
+        <div class="events-status-chips">
+          <button
+            v-for="chip in STATUS_CHIPS"
+            :key="chip.label"
+            type="button"
+            :class="['status-chip', { active: eventStatusFilter === chip.value }]"
+            @click="eventStatusFilter = chip.value"
+            :title="`Show ${chip.label.toLowerCase()} events`"
+          >
+            {{ chip.label }}
+            <span class="status-chip-count">{{ statusChipCount(chip.value) }}</span>
+          </button>
+        </div>
+      </div>
+
       <div class="events-list">
         <!-- Empty state — first visit shows a richer card with a
              pointer at the New Event form on the left; an
@@ -971,7 +1050,13 @@ onUnmounted(() => {
           </div>
         </div>
         <div v-else-if="!filteredManagerEvents.length" class="empty">
-          No events match the filter.
+          <span>No events match the current filters.</span>
+          <button
+            v-if="eventSearch || eventStatusFilter || orgFilter"
+            type="button"
+            class="link-btn"
+            @click="eventSearch = ''; eventStatusFilter = null; orgFilter = ''"
+          >Clear filters</button>
         </div>
         <div v-for="ev in filteredManagerEvents" :key="ev.id" class="event-item">
           <div style="flex:1;min-width:0">
@@ -1429,7 +1514,68 @@ onUnmounted(() => {
   background: rgba(239, 68, 68, 0.12); color: var(--red);
 }
 .events-list{display:flex;flex-direction:column;gap:0.75rem;}
-.empty{color:var(--text-3);font-size:12px;text-align:center;padding:2rem;}
+.empty{
+  color:var(--text-3);font-size:12px;text-align:center;padding:2rem;
+  display:flex;flex-direction:column;align-items:center;gap:0.6rem;
+}
+.link-btn {
+  background: transparent; border: 0;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--cyan); cursor: pointer;
+  padding: 0.3rem 0.5rem; border-radius: var(--radius-sm);
+  text-decoration: underline; text-underline-offset: 3px;
+  transition: color 0.12s, background 0.12s;
+}
+.link-btn:hover { color: var(--text); background: rgba(6,182,212,0.08); }
+
+/* Search + status-chip toolbar above the events list. Search
+   takes the available width; chips align to the right at wide
+   widths and wrap to a second row on narrow viewports so the
+   list never has to fight the toolbar for space. */
+.events-toolbar {
+  display: flex; align-items: center; gap: 0.85rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.events-search {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.events-status-chips {
+  display: inline-flex; gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.status-chip {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: var(--font-display);
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.status-chip:hover { color: var(--text-2); border-color: var(--border-2); }
+.status-chip.active {
+  background: var(--cyan-dim);
+  color: var(--cyan);
+  border-color: var(--cyan);
+}
+.status-chip-count {
+  font-family: var(--font-mono);
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+}
+.status-chip.active .status-chip-count {
+  background: rgba(6, 182, 212, 0.18);
+}
 .event-type-pill {
   font-family: var(--font-display); font-size: 9px; font-weight: 900;
   letter-spacing: 0.18em; text-transform: uppercase;
