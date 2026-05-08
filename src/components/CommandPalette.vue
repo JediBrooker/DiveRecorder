@@ -97,6 +97,10 @@ async function primeCache() {
 
 // ----- Keyboard glue -------------------------------------------
 function onGlobalKey(e) {
+  // Held-key debounce — without this, holding ⌘K or / opens the
+  // palette repeatedly until the user lets go.
+  if (e.repeat) return
+
   // Toggle on Cmd/Ctrl-K. Always — even inside inputs (returning
   // users use Cmd-K mid-typing; stealing focus is the point).
   const isMod = e.metaKey || e.ctrlKey
@@ -216,12 +220,14 @@ watch(query, (q) => {
     const ctrl = new AbortController()
     diverAbort.value = ctrl
     try {
-      const res = await fetch(`/api/divers/search?q=${encodeURIComponent(q)}`, {
-        headers: auth.getHeaders(),
-        signal: ctrl.signal,
-      })
-      if (res.ok) divers.value = await res.json()
-    } catch { /* aborted or network — ignore */ }
+      // auth.apiFetch routes through the central 401-handler so a
+      // stale-token user gets bounced to /login rather than seeing
+      // a silently-empty palette.
+      divers.value = await auth.apiFetch(
+        `/api/divers/search?q=${encodeURIComponent(q)}`,
+        { signal: ctrl.signal },
+      )
+    } catch { /* aborted, 401, or network — ignore */ }
     diverLoading.value = false
   }, 180)
 })

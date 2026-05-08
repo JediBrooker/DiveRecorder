@@ -64,7 +64,11 @@ const historyCards = ref([])
 const judgeTiles = ref([])
 const lbShow = ref(false)
 const lbRows = ref([])
-const connStatus = ref(false)
+// Connection state lives on the singleton socket itself
+// (`socket.isConnected`, a ref). A parallel `connStatus` ref
+// would just shadow that state — and now that useSocket is a
+// real singleton, two listeners on connect/disconnect (the
+// composable's + this view's) would race.
 const meetName = ref('')
 const activeInfo = ref({ name: '—', code: '—', dd: 'DD —', desc: 'Select an event to begin.' })
 const nextBtnDisabled = ref(true)
@@ -694,7 +698,7 @@ function patchCurrentEvent(patch) {
 async function randomizeStartOrder() {
   if (!currentEvent.value) return
   if (!canReorderQueue.value) {
-    alert('The dive order is locked once the event has started.')
+    showInfo('The dive order is locked once the event has started.')
     return
   }
   const ev = currentEvent.value
@@ -728,7 +732,7 @@ async function randomizeStartOrder() {
       dive_order_signed_off_by: null,
     })
   } catch (err) {
-    alert('Randomise failed: ' + err.message)
+    showError('Randomise failed: ' + err.message)
   } finally {
     orderBusy.value = false
   }
@@ -754,7 +758,7 @@ async function confirmDiveOrder() {
       dive_order_randomised_at: new Date().toISOString(),
     })
   } catch (err) {
-    alert('Failed: ' + err.message)
+    showError('Failed: ' + err.message)
   } finally {
     orderBusy.value = false
   }
@@ -1109,7 +1113,7 @@ async function resetDiveOrderWorkflow() {
       dive_order_signed_off_by: null,
     })
   } catch (err) {
-    alert('Reset failed: ' + err.message)
+    showError('Reset failed: ' + err.message)
   } finally {
     orderBusy.value = false
   }
@@ -1144,7 +1148,7 @@ async function confirmCheckInComplete() {
     })
     closeCheckIn()
   } catch (err) {
-    alert('Failed to advance workflow: ' + err.message)
+    showError('Failed to advance workflow: ' + err.message)
   } finally {
     orderBusy.value = false
   }
@@ -1229,7 +1233,7 @@ async function onRosterDrop(originalIdx, ev) {
       body: JSON.stringify({ rows: payload }),
     })
   } catch (err) {
-    alert('Failed to save order: ' + err.message)
+    showError('Failed to save order: ' + err.message)
     roster.value = before
   }
 }
@@ -1267,7 +1271,7 @@ async function reorderRosterRow(idx, dir) {
       }),
     ])
   } catch (err) {
-    alert('Failed to save order: ' + err.message)
+    showError('Failed to save order: ' + err.message)
     // Revert local swap on failure
     roster.value[idx] = cur
     roster.value[targetIdx] = target
@@ -1304,7 +1308,7 @@ async function withdrawRosterRow(idx) {
       },
     })
   } catch (err) {
-    alert('Failed: ' + err.message)
+    showError('Failed: ' + err.message)
   }
 }
 
@@ -1936,9 +1940,8 @@ async function submitLateEntry() {
   }
 }
 
-// Socket connection
-socket.on('connect', () => { connStatus.value = true })
-socket.on('disconnect', () => { connStatus.value = false })
+// Connection state is exposed by the composable as
+// socket.isConnected — no parallel listeners here.
 
 // Hold-state sync — for multi-operator setups + late-joining
 // Control Room sessions. The server replays meet_held when we
@@ -2372,12 +2375,27 @@ async function finaliseEvent() {
       },
     })
   } catch (err) {
-    alert('Failed to finalise: ' + err.message)
+    showError('Failed to finalise: ' + err.message)
   }
 }
 
 async function onEventChange() {
   if (!selectedEventId.value) return
+  // Modal/state reset — switching events shouldn't carry over
+  // half-typed score corrections, an unconfirmed sign-off
+  // dialog, or a stale round-end prompt from the prior event.
+  // Each helper is a no-op when the modal isn't open.
+  closeCorrection()
+  if (typeof closeSignoffModal === 'function') closeSignoffModal()
+  holdPromptOpen.value = false
+  roundEndPromptOpen.value = false
+  // Reset score-correction draft fields too — the modal is gone
+  // but their refs would otherwise pre-populate the next dialog
+  // with the previous event's score values.
+  correctNewScore.value = ''
+  correctReason.value = ''
+  correctJudgeIdx.value = -1
+
   currentEvent.value = events.value.find(e => e.id == selectedEventId.value) || null
   if (!currentEvent.value) return
   meetName.value = currentEvent.value.name
@@ -2494,11 +2512,11 @@ onUnmounted(() => {
           <option v-for="ev in events" :key="ev.id" :value="ev.id">{{ ev.name }}</option>
         </select>
         <span class="conn-badge"
-              :title="connStatus
+              :title="socket.isConnected.value
                 ? 'Live socket connection healthy — score events are streaming in real time'
                 : 'Re-establishing socket connection — incoming scores are queued until this turns green'">
-          <span class="status-dot" :class="{ connected: connStatus }"></span>
-          <span>{{ connStatus ? 'Connected' : 'Connecting' }}</span>
+          <span class="status-dot" :class="{ connected: socket.isConnected.value }"></span>
+          <span>{{ socket.isConnected.value ? 'Connected' : 'Connecting' }}</span>
         </span>
       </div>
       <!-- Header context — meet name centred. Page-chrome

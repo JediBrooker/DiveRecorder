@@ -13,6 +13,7 @@ import { useRouter } from 'vue-router'
 import { usePush } from '@/composables/usePush'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
+import { showError } from '@/composables/useNotify'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -45,7 +46,7 @@ async function onActionClick(n, action) {
       })
       await ack(n.id)
     } catch (err) {
-      alert(`Could not record ${action}: ${err.message}`)
+      showError(`Could not record ${action}: ${err.message}`)
     }
     return
   }

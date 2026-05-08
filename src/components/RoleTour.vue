@@ -16,7 +16,7 @@
  * that user. A Cmd-K palette entry under "Help" lets the user
  * replay any time.
  */
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
 
@@ -153,11 +153,36 @@ onMounted(() => {
 
 // Watch for sign-out → bail.
 watch(() => auth.isLoggedIn, (now) => { if (!now) open.value = false })
+
+// Keyboard handling — Esc dismisses (treated as "skip"), the
+// Next button auto-focuses on open so a keyboard-only user can
+// hit Enter/Space immediately. Both gated on `open` so the
+// listener doesn't fire while the tour is dormant. Without this,
+// the previously-shipped role="dialog" + aria-modal="true" was
+// only theatrical — no actual keyboard escape route.
+const cardEl = ref(null)
+const nextBtn = ref(null)
+function onTourKey(e) {
+  if (!open.value) return
+  if (e.key === 'Escape') { e.preventDefault(); skip() }
+}
+watch(open, async (now) => {
+  if (now) {
+    document.addEventListener('keydown', onTourKey)
+    await nextTick()
+    // Focus the primary action so screen readers announce the
+    // dialog title and Tab cycles within the card.
+    nextBtn.value?.focus?.()
+  } else {
+    document.removeEventListener('keydown', onTourKey)
+  }
+})
+onBeforeUnmount(() => document.removeEventListener('keydown', onTourKey))
 </script>
 
 <template>
-  <div v-if="open && slide" class="role-tour-backdrop" role="dialog" aria-modal="true" aria-labelledby="role-tour-title">
-    <div class="role-tour-card">
+  <div v-if="open && slide" class="role-tour-backdrop" role="dialog" aria-modal="true" aria-labelledby="role-tour-title" @click.self="skip">
+    <div ref="cardEl" class="role-tour-card" tabindex="-1">
       <div class="role-tour-progress">
         <span
           v-for="(_, i) in slides"
@@ -178,7 +203,7 @@ watch(() => auth.isLoggedIn, (now) => { if (!now) open.value = false })
         <span class="role-tour-step">{{ cursor + 1 }} / {{ slides.length }}</span>
         <div class="role-tour-controls">
           <button v-if="cursor > 0" class="btn btn-ghost btn-sm" @click="back">← Back</button>
-          <button class="btn btn-primary btn-sm" @click="next">
+          <button ref="nextBtn" class="btn btn-primary btn-sm" @click="next">
             {{ isLast ? (slide.cta?.label || 'Got it') : 'Next →' }}
           </button>
         </div>

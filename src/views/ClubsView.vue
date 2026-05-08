@@ -108,7 +108,7 @@ async function submitCreate() {
     creating.value = false
     await loadClubs()
   } catch (err) {
-    alert(err.message)
+    showError(err.message)
   } finally {
     createBusy.value = false
   }
@@ -133,7 +133,7 @@ async function submitEdit() {
     editing.value = null
     await loadClubs()
   } catch (err) {
-    alert(err.message)
+    showError(err.message)
   } finally {
     editBusy.value = false
   }

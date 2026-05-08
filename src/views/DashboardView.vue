@@ -32,6 +32,7 @@ import { ref, onMounted, onUnmounted, computed, watch, defineAsyncComponent } fr
 import { useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
+import { fmtCloses, fmtRelative } from '@/lib/format'
 
 // Per-role panels — async-imported so each tab's chunk only
 // loads when the user activates it. A diver-only account
@@ -542,35 +543,8 @@ function onDiverSearchBlur() {
   setTimeout(() => { diverDropdown.value = false }, 150)
 }
 
-// ---- Helpers -----------------------------------------------
-function fmtCloses(iso) {
-  if (!iso) return null
-  const d = new Date(iso)
-  const ms = d.getTime() - Date.now()
-  if (ms < 0) return 'entries already closed'
-  const day = 86_400_000
-  if (ms < day) {
-    const hr = Math.max(1, Math.round(ms / 3_600_000))
-    return `entries close in ${hr}h`
-  }
-  if (ms < 7 * day) {
-    const dy = Math.round(ms / day)
-    return `entries close in ${dy} day${dy === 1 ? '' : 's'}`
-  }
-  return `entries close ${d.toLocaleString(undefined, { month: 'short', day: 'numeric' })}`
-}
-function fmtRelative(iso) {
-  if (!iso) return ''
-  const ms = Date.now() - new Date(iso).getTime()
-  const min = Math.round(ms / 60_000)
-  if (min < 1) return 'just now'
-  if (min < 60) return `${min}m ago`
-  const hr = Math.round(min / 60)
-  if (hr < 24) return `${hr}h ago`
-  const dy = Math.round(hr / 24)
-  if (dy < 7) return `${dy}d ago`
-  return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
+// fmtCloses + fmtRelative are imported from @/lib/format —
+// they used to live inline in 11+ views with subtle drift.
 
 // ---- Tile catalog (now role-scoped per panel) --------------
 // The flat allTiles config of the previous layout is gone; each

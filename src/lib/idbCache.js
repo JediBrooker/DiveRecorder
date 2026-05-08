@@ -77,15 +77,6 @@ export async function idbDelete(key) {
   })
 }
 
-// Delete a single cached entry under the SAME per-user key
-// cachedFetch writes it under. Use this from useOfflineApi's
-// force-refresh path so the next fetch goes to the network.
-// Bare-URL `idbDelete(url)` won't match because cachedFetch
-// always prefixes with the token fingerprint.
-export async function idbDeleteFor(token, url) {
-  return idbDelete(keyFor(token, url));
-}
-
 // Wipe every cached API response. Call from logout so user B doesn't
 // inherit user A's cached payloads on a shared device.
 export async function idbClear() {

@@ -396,7 +396,7 @@ async function reviewRequest(id, decision) {
     })
     await Promise.all([loadRequests(), loadUsers()])
   } catch (err) {
-    alert(err.message)
+    showError(err.message)
   }
 }
 

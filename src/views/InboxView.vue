@@ -25,6 +25,7 @@ import { RouterLink, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { showError, showSuccess } from '@/composables/useNotify'
 import EmptyState from '@/components/EmptyState.vue'
+import { fmtRelative } from '@/lib/format'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -114,19 +115,9 @@ function clickRow(row) {
   }
 }
 
-function fmtTime(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  const ms = Date.now() - d.getTime()
-  const min = Math.round(ms / 60_000)
-  if (min < 1) return 'just now'
-  if (min < 60) return `${min}m ago`
-  const hr = Math.round(min / 60)
-  if (hr < 24) return `${hr}h ago`
-  const dy = Math.round(hr / 24)
-  if (dy < 7) return `${dy}d ago`
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-}
+// fmtTime was a local copy of the same fmtRelative the dashboard
+// uses. Reuse the shared helper from @/lib/format.
+const fmtTime = fmtRelative
 
 function categoryLabel(cat) {
   const map = {

@@ -1,27 +1,66 @@
-import { ref, onUnmounted } from 'vue'
+import { ref, getCurrentInstance, onUnmounted } from 'vue'
 import { io } from 'socket.io-client'
 import { useAuthStore } from '@/stores/auth'
 
-// Wraps socket.io-client with a reactive `connected` ref so views
-// can show a "Reconnecting…" banner when the socket drops. The
-// raw socket is still returned so callers can .on/.emit as before;
-// the connection state is exposed as a `.connected` property.
+// Singleton socket pool keyed by `(spectator, token)` so every
+// view + global component sharing the same auth share one
+// transport. Without this, every `useSocket()` call creates a
+// fresh `io(...)` connection — a tab on /dashboard with the
+// global NotificationCenter mounted ends up with two-or-three
+// concurrent sockets joining the same event rooms, doubling
+// server connections and forcing every broadcast to be sent
+// twice to the same client. Refcounted so the last consumer
+// disconnecting actually closes the transport.
+//
+// Public surface stays exactly the same: returns a socket-like
+// object with `.isConnected` (a Vue ref) plus the original
+// socket.io methods (.on, .off, .emit, .connected, etc.).
+const pool = new Map() // key -> { socket, isConnected, refs }
+
+function poolKey({ spectator, token }) {
+  return spectator ? 'spectator' : `auth:${token || 'spectator'}`
+}
+
+function acquire({ spectator, token }) {
+  const key = poolKey({ spectator, token })
+  let entry = pool.get(key)
+  if (!entry) {
+    const socket = io({ auth: { token: spectator ? 'spectator' : (token || 'spectator') } })
+    const isConnected = ref(true)
+    socket.on('connect',       () => { isConnected.value = true })
+    socket.on('disconnect',    () => { isConnected.value = false })
+    socket.on('connect_error', () => { isConnected.value = false })
+    socket.isConnected = isConnected
+    entry = { socket, isConnected, refs: 0 }
+    pool.set(key, entry)
+  }
+  entry.refs += 1
+  return entry
+}
+
+function release(key) {
+  const entry = pool.get(key)
+  if (!entry) return
+  entry.refs -= 1
+  if (entry.refs <= 0) {
+    try { entry.socket.disconnect() } catch { /* ignore */ }
+    pool.delete(key)
+  }
+}
+
 export function useSocket({ spectator = false } = {}) {
   const auth = useAuthStore()
-  const socket = io({ auth: { token: spectator ? 'spectator' : (auth.token || 'spectator') } })
+  const token = auth.token
+  const key = poolKey({ spectator, token })
+  const entry = acquire({ spectator, token })
 
-  // Reactive connection state. Starts true assuming a fast
-  // initial handshake; flips to false only after a real drop so
-  // the banner doesn't flash at page load.
-  // Named `isConnected` to avoid clobbering socket.io's built-in
-  // `socket.connected` boolean primitive.
-  const isConnected = ref(true)
-  socket.on('connect',       () => { isConnected.value = true })
-  socket.on('disconnect',    () => { isConnected.value = false })
-  socket.on('connect_error', () => { isConnected.value = false })
+  // Only refcount-decrement on unmount when called from a component
+  // setup context. Calling `useSocket` from a non-component module
+  // (e.g. a top-level imported helper) doesn't have a lifecycle to
+  // hook, and we definitely don't want to disconnect there.
+  if (getCurrentInstance()) {
+    onUnmounted(() => release(key))
+  }
 
-  socket.isConnected = isConnected
-
-  onUnmounted(() => socket.disconnect())
-  return socket
+  return entry.socket
 }

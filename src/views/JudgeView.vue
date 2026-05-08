@@ -4,6 +4,7 @@ import { useRoute, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
 import { diveDescription } from '@/composables/useDiveLabel'
+import { showInfo } from '@/composables/useNotify'
 
 // Pool deck ergonomics — judging often happens on a phone left
 // face-up on a table for an entire round. Two helpers:
@@ -54,7 +55,11 @@ const currentScore = ref(0)
 const isHalf = ref(false)
 const activeDiver = ref(null)
 const judgeLabel = ref(user?.full_name || 'Judge')
-const connStatus = ref(false)
+// Connection state lives on the singleton socket itself
+// (`socket.isConnected`, a ref), so a parallel `connStatus` ref
+// would just duplicate that state — and since useSocket is now
+// a real singleton, two listeners on `connect`/`disconnect` (the
+// composable's + this view's) would race.
 const submitted = ref(false)
 const judgeNumber = ref(null)
 const pendingScore = ref(null)
@@ -138,7 +143,6 @@ function joinEventRoom() {
 }
 
 socket.on('connect', () => {
-  connStatus.value = true
   if (pendingScore.value) {
     socket.emit('submit_score', pendingScore.value)
     pendingScore.value = null
@@ -160,8 +164,6 @@ onBeforeUnmount(() => {
   try { wakeLock.value?.release?.() } catch { /* ignore */ }
   wakeLock.value = null
 })
-socket.on('disconnect', () => { connStatus.value = false })
-
 // Hold-state propagation. A held meet should disable scoring —
 // judges shouldn't accidentally submit during a video review.
 const isHeld = ref(false)
@@ -255,7 +257,7 @@ function resetScore() {
 
 function submitScore() {
   if (!activeDiver.value) {
-    alert('Waiting for an active diver — please wait for the control room to set the current diver.')
+    showInfo('Waiting for an active diver — please wait for the control room to set the current diver.')
     return
   }
   const finalScore = currentScore.value + (isHalf.value ? 0.5 : 0)
@@ -368,7 +370,7 @@ const submitLabel = computed(() => {
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:0.5rem">
           <div class="judge-id">
-            <span class="status-dot" :class="{ connected: connStatus }"></span>
+            <span class="status-dot" :class="{ connected: socket.isConnected.value }"></span>
             <span>{{ judgeLabel }}</span>
           </div>
           <RouterLink to="/dashboard" class="btn-back-judge">← Dashboard</RouterLink>

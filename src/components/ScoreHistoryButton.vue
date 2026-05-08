@@ -13,8 +13,9 @@
  * The popover is inline (not modal) so it doesn't disrupt the
  * recap. Click outside to close; Esc also closes.
  */
-import { ref, computed, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useAuthStore } from '@/stores/auth'
+import { fmtDateTime } from '@/lib/format'
 
 const props = defineProps({
   eventId:        { type: [String, Number], required: true },
@@ -72,14 +73,8 @@ const filtered = computed(() => {
   )
 })
 
-function fmtTime(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  return d.toLocaleString(undefined, {
-    month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
-}
+// fmtDateTime imported from @/lib/format — single source of
+// truth across views. Was a local copy.
 
 async function toggle(e) {
   e.stopPropagation()
@@ -92,19 +87,33 @@ function close() {
   error.value = ''
 }
 
+// Outside-click + Esc handling. Each dive row mounts an instance,
+// and the recap can have 30+ dives — attaching the listeners
+// unconditionally at script-setup top level would mean 30+
+// document mousedown listeners firing on every click. Watch
+// `open` so listeners are attached ONLY while a popover is
+// actually open. The marker attribute carries the instance id
+// so a click inside popover B doesn't close popover A (an issue
+// with the previous shared-marker approach).
+const popoverId = `sha-${Math.random().toString(36).slice(2, 8)}`
 function onDocClick(e) {
   if (!open.value) return
-  // The popover root has `data-score-history-popover`; clicks
-  // inside don't close.
   const t = e.target
-  if (t && t.closest && t.closest('[data-score-history-popover]')) return
+  if (t && t.closest && t.closest(`[data-score-history-popover="${popoverId}"]`)) return
   close()
 }
 function onKey(e) {
   if (e.key === 'Escape') close()
 }
-document.addEventListener('mousedown', onDocClick)
-document.addEventListener('keydown', onKey)
+watch(open, (now) => {
+  if (now) {
+    document.addEventListener('mousedown', onDocClick)
+    document.addEventListener('keydown', onKey)
+  } else {
+    document.removeEventListener('mousedown', onDocClick)
+    document.removeEventListener('keydown', onKey)
+  }
+})
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onDocClick)
   document.removeEventListener('keydown', onKey)
@@ -123,8 +132,8 @@ onBeforeUnmount(() => {
 
     <div
       v-if="open"
+      :data-score-history-popover="popoverId"
       class="score-history-pop"
-      data-score-history-popover
       role="dialog"
       aria-label="Score audit history"
     >
@@ -142,7 +151,7 @@ onBeforeUnmount(() => {
         <li v-for="r in filtered" :key="r.id" class="score-history-row">
           <div class="score-history-row-head">
             <span :class="['score-history-action', `act-${r.action}`]">{{ r.action }}</span>
-            <span class="score-history-time">{{ fmtTime(r.created_at) }}</span>
+            <span class="score-history-time">{{ fmtDateTime(r.created_at) }}</span>
           </div>
           <div class="score-history-row-body">
             <template v-if="r.action === 'update'">

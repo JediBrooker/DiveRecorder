@@ -468,7 +468,7 @@ async function assignEventToMeet(event, meetId) {
     // Refresh meet event-counts
     await loadMeets()
   } catch (err) {
-    alert('Failed: ' + err.message)
+    showError('Failed: ' + err.message)
   }
 }
 
@@ -662,7 +662,7 @@ async function addTeamToEvent() {
     teamsInEvent.value = await auth.apiFetch(`/api/events/${teamsModalEvent.value.id}/teams`)
     teamToAdd.value = ''
   } catch (err) {
-    alert(err.message)
+    showError(err.message)
   } finally {
     teamsBusy.value = false
   }

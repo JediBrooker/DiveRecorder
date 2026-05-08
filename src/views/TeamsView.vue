@@ -135,7 +135,7 @@ async function submitCreate() {
     creating.value = false
     await loadTeams()
   } catch (err) {
-    alert(err.message)
+    showError(err.message)
   } finally {
     createBusy.value = false
   }
@@ -160,7 +160,7 @@ async function submitEdit() {
     editing.value = null
     await loadTeams()
   } catch (err) {
-    alert(err.message)
+    showError(err.message)
   } finally {
     editBusy.value = false
   }
@@ -253,7 +253,7 @@ async function addMember() {
     if (t) t.member_count = refreshed.length
     memberToAdd.value = ''
   } catch (err) {
-    alert(err.message)
+    showError(err.message)
   } finally {
     drawerBusy.value = false
   }
@@ -276,7 +276,7 @@ async function removeMember(memberId) {
     const t = teams.value.find(x => x.id === drawerTeam.value.id)
     if (t) t.member_count = drawerMembers.value.length
   } catch (err) {
-    alert(err.message)
+    showError(err.message)
   } finally {
     drawerBusy.value = false
   }
