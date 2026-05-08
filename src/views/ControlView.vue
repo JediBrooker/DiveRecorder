@@ -67,8 +67,53 @@ const activeInfo = ref({ name: '—', code: '—', dd: 'DD —', desc: 'Select a
 const nextBtnDisabled = ref(true)
 const nextBtnText = ref('Next Diver →')
 const nextBtnComplete = ref(false)
-const finaliseBtnShow = ref(false)
-const finaliseBtnText = ref('Finalise Event ✓')
+// Finalise button state — driven by event status + whether
+// the very last dive of the very last round has been scored.
+// Was a pair of refs that an explicit updateFinaliseButton()
+// kept in sync; now derived computeds so the visibility and
+// label react automatically to (status, nextBtnComplete).
+//
+// Visibility rules:
+//   - Upcoming     → hidden. "Finalise" makes no sense before
+//                    the event has even started; the pre-meet
+//                    workflow handles event start.
+//   - Live mid-meet → hidden from the header chrome. The
+//                    operator can still trigger an early
+//                    finalise via the ⋯ menu's "Finalise event
+//                    early" item (rare: postponement, cut
+//                    short for safety, etc.). Centre column's
+//                    Next Diver button is still the primary
+//                    affordance to advance through the meet.
+//   - Live + every dive scored → shown prominently. This is
+//                    the natural finalise moment. The centre
+//                    column's Next Diver button also morphs
+//                    into "✓ Event Complete — Finalise & View
+//                    Results" at the same time, so both
+//                    affordances are available.
+//   - Completed    → shown as "View Results" — opens the
+//                    leaderboard modal.
+const finaliseBtnShow = computed(() => {
+  const ev = currentEvent.value
+  if (!ev) return false
+  if (ev.status === 'Completed') return true
+  if (ev.status === 'Live' && nextBtnComplete.value) return true
+  return false
+})
+const finaliseBtnText = computed(() =>
+  currentEvent.value?.status === 'Completed' ? 'View Results' : 'Finalise Event ✓',
+)
+const finaliseBtnTitle = computed(() =>
+  currentEvent.value?.status === 'Completed'
+    ? 'View final standings'
+    : 'Every dive is in — click to publish the recap and send the "results posted" emails.',
+)
+// "Finalise event early" menu item — only relevant during
+// Live, before the natural completion moment.
+const finaliseEarlyVisible = computed(() =>
+  !!currentEvent.value
+  && currentEvent.value.status === 'Live'
+  && !nextBtnComplete.value,
+)
 
 // Explanatory tooltip for the Next Diver button so a new
 // operator can see WHY the button is disabled rather than
@@ -2075,12 +2120,6 @@ function onKeydown(e) {
   }
 }
 
-function updateFinaliseButton() {
-  if (!currentEvent.value) { finaliseBtnShow.value = false; return }
-  finaliseBtnShow.value = true
-  finaliseBtnText.value = currentEvent.value.status === 'Completed' ? 'View Results' : 'Finalise Event ✓'
-}
-
 async function showLeaderboard() {
   const data = await auth.apiFetch(`/api/scoreboard/${currentEvent.value.id}`)
   lbRows.value = data.standings || []
@@ -2099,7 +2138,9 @@ async function finaliseEvent() {
       body: JSON.stringify({ status: 'Completed' }),
     })
     currentEvent.value.status = 'Completed'
-    finaliseBtnText.value = 'View Results'
+    // finaliseBtnText is computed off currentEvent.status, so
+    // flipping the status above also flips the label to
+    // "View Results" without an explicit assignment here.
     await showLeaderboard()
     // Offer an Undo. Finalising flips status Live → Completed,
     // which is fully reversible by an org admin via the same
@@ -2115,7 +2156,8 @@ async function finaliseEvent() {
         })
         if (currentEvent.value && currentEvent.value.id === evId) {
           currentEvent.value.status = 'Live'
-          finaliseBtnText.value = 'Finalise Event ✓'
+          // Computed labels reset automatically — no manual
+          // finaliseBtnText assignment needed here.
           lbShow.value = false
         }
       },
@@ -2179,7 +2221,9 @@ async function onEventChange() {
   } else {
     activeInfo.value = { name: 'No divers registered', code: '—', dd: 'DD —', desc: 'No competitors have submitted dive lists.' }
   }
-  updateFinaliseButton()
+  // finaliseBtnShow / finaliseBtnText are now computed off
+  // currentEvent.status + nextBtnComplete — no manual refresh
+  // needed when the event changes.
 }
 
 function rankClass(i) {
@@ -2295,6 +2339,21 @@ onUnmounted(() => {
               class="dropdown-item"
               @click="headerMenuOpen = false"
             >📺 Broadcast mode</RouterLink>
+            <!-- Finalise event early — only relevant during a
+                 Live meet that hasn't reached its last dive. The
+                 prominent header "Finalise Event ✓" button only
+                 appears at the natural completion moment, but
+                 occasionally an operator needs to cut a meet
+                 short (postponement, equipment failure, safety).
+                 Amber hover treatment so the operator pauses
+                 before clicking; finaliseEvent() already wraps
+                 the action in a confirm() dialog. -->
+            <button
+              v-if="finaliseEarlyVisible"
+              class="dropdown-item dropdown-item-amber"
+              @click="finaliseEvent(); headerMenuOpen = false"
+              title="Finalise the meet now even though dives are still pending. Use sparingly — postponement, equipment failure, etc."
+            >✓ Finalise event early…</button>
             <RouterLink to="/dashboard" class="dropdown-item"
                         @click="headerMenuOpen = false">← Dashboard</RouterLink>
           </div>
@@ -2302,6 +2361,7 @@ onUnmounted(() => {
         <button
           v-if="finaliseBtnShow"
           class="btn-finalise"
+          :title="finaliseBtnTitle"
           @click="currentEvent?.status === 'Completed' ? showLeaderboard() : finaliseEvent()"
         >{{ finaliseBtnText }}</button>
       </div>
