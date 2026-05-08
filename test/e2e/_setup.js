@@ -57,6 +57,11 @@ async function createOrgAndAdmin(request, opts = {}) {
   const orgName = opts.orgName || `E2E Org ${slug}`;
 
   // 1. Create the org + founding admin via the public API.
+  // `email` is required by the validation hardening in
+  // routes/auth.js's register-org handler (commit 1169992).
+  // The synthetic mailbox doesn't exist, but step 2 below
+  // marks the admin email-verified directly via SQL so no
+  // verification email is actually needed.
   const reg = await request.post("/api/auth/register-org", {
     data: {
       org_name:     orgName,
@@ -65,6 +70,7 @@ async function createOrgAndAdmin(request, opts = {}) {
       username,
       password:     TEST_PASSWORD,
       full_name:    "E2E Test Admin",
+      email:        `${username}@example.test`,
     },
   });
   if (reg.status() !== 201) {

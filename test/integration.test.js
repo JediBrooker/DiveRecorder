@@ -198,14 +198,18 @@ test("end-to-end happy path", async (t) => {
   // 1. register-org
   await t.test("register-org creates an org + founding admin", async () => {
     const slug = `int-${crypto.randomBytes(4).toString("hex")}`;
+    const username = `int-admin-${slug}`;
     const res = await fetchJson("POST", "/api/auth/register-org", {
       body: {
         org_name:     `Integration Test ${slug}`,
         country_code: "TST",
         slug,
-        username:     `int-admin-${slug}`,
+        username,
         password:     TEST_PASSWORD,
         full_name:    "Integration Tester",
+        // Required by the validation hardening in commit 1169992.
+        // Synthetic; the next step marks email_verified directly.
+        email:        `${username}@example.test`,
       },
     });
     assert.equal(res.status, 201, `register-org: ${res.status} ${JSON.stringify(res.body)}`);
