@@ -957,10 +957,17 @@ function attachSocketHandlers() {
         <span v-for="n in 3" :key="`sk-${n}`" class="pulse-skeleton" aria-hidden="true"></span>
       </template>
       <template v-else>
-        <button
+        <!-- Chip is a role="button" div (NOT a <button>) because
+             it nests <RouterLink> popover items, and an anchor
+             inside a button is invalid HTML — browsers handle
+             that inconsistently and the inner navigation can
+             get swallowed. Keyboard handlers below preserve the
+             button-like Enter/Space activation. -->
+        <div
           v-for="chip in pulseChips"
           :key="chip.id"
-          type="button"
+          role="button"
+          tabindex="0"
           :class="[
             'pulse-chip',
             `pulse-${chip.kind}`,
@@ -968,6 +975,8 @@ function attachSocketHandlers() {
           ]"
           :aria-label="`${chip.popoverTitle} — click to view in ${chip.targetTab.replace('_', ' ')} tab`"
           @click="onPulseChipClick(chip)"
+          @keydown.enter.prevent="onPulseChipClick(chip)"
+          @keydown.space.prevent="onPulseChipClick(chip)"
         >
           <span v-if="chip.glyph" class="pulse-glyph" aria-hidden="true">{{ chip.glyph }}</span>
           <template v-if="chip.layout === 'count-after'">
@@ -997,7 +1006,7 @@ function attachSocketHandlers() {
               <span v-else-if="item.urgency === 'live'" class="pulse-urgency-pill pulse-urgency-live">live</span>
             </RouterLink>
           </div>
-        </button>
+        </div>
 
         <!-- Latest-activity ticker. Shows for org admins (the
              role that's most likely to want a live federation
@@ -1524,13 +1533,16 @@ function attachSocketHandlers() {
 
 /* Popover — shows on hover or keyboard focus of the chip.
    Lists the actual items behind the count as clickable rows.
-   Anchored below the chip; max-width keeps long event names
-   from sprawling, ellipsizing if needed. */
+   Anchored flush with the chip's bottom edge (top: 100%) so
+   the mouse can move from chip → popover without crossing a
+   hover-killing gap. The visual breathing room comes from
+   the popover's ::before bridge + internal padding instead. */
 .pulse-popover {
   position: absolute;
-  top: calc(100% + 0.5rem);
+  top: 100%;
   left: 50%;
-  transform: translateX(-50%) translateY(-4px);
+  transform: translateX(-50%);
+  margin-top: 0.4rem;                /* visual gap, NOT a hover gap (see ::before) */
   min-width: 280px;
   max-width: min(420px, 90vw);
   z-index: 100;
@@ -1541,15 +1553,29 @@ function attachSocketHandlers() {
   padding: 0.45rem 0;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.15s, transform 0.15s;
+  transition: opacity 0.15s;
   letter-spacing: 0;
   text-transform: none;
+}
+/* Invisible bridge between the chip and the popover. The
+   popover has a 0.4rem margin-top for breathing room, but the
+   ::before extends back up over that margin so the mouse can
+   traverse from chip → popover without ever leaving a hover
+   surface. Without this bridge, :hover stops matching mid-
+   traversal, the popover gets pointer-events:none, and the
+   item click fails to register. Standard CSS dropdown trick. */
+.pulse-popover::before {
+  content: '';
+  position: absolute;
+  top: -0.5rem;
+  left: 0; right: 0;
+  height: 0.5rem;
+  /* invisible — purely a hover-continuation surface */
 }
 .pulse-chip:hover .pulse-popover,
 .pulse-chip:focus-within .pulse-popover {
   opacity: 1;
   pointer-events: auto;
-  transform: translateX(-50%) translateY(0);
 }
 .pulse-popover-head {
   font-family: var(--font-display);
