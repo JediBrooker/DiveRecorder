@@ -12,21 +12,27 @@
  *     if the network actually fails. This means a fresh deploy
  *     reaches users immediately rather than being shadowed by
  *     a stale cache entry that points at vanished asset hashes.
- *   - Static SPA assets (/assets/*, /css/*, /icon.svg,
- *     /manifest.webmanifest, etc.): CACHE-FIRST. Asset URLs are
- *     content-hashed, so it's safe to keep them around — once
- *     the new index.html lands, it asks for new hashes that the
- *     SW just hasn't seen yet (they go through to network and
- *     get cached on the way back).
+ *   - Vite-bundled hashed assets (/assets/*): CACHE-FIRST. URLs
+ *     are content-hashed, so stale ones are never asked for
+ *     again once the new index.html lands.
+ *   - Non-hashed static files (/css/app.css, /sw.js, root
+ *     /icon.svg, /manifest.webmanifest, etc.): NETWORK-FIRST.
+ *     These keep their filenames across deploys, so a cache-first
+ *     entry would serve stale CSS/icons forever. We update the
+ *     cache copy on the way through so an offline visit still
+ *     has something to serve.
  *   - Anything else (API, sockets, PDFs): NETWORK ONLY.
  *
  * The cache name is versioned; bumping CACHE drops every prior
  * cached asset on activate. v3 = navigation switched from
  * cache-first to network-first to fix the "white page after
- * deploy" issue.
+ * deploy" issue. v4 = non-hashed static files (/css/*, root
+ * icons) switched from cache-first to network-first to fix the
+ * "stale app.css" issue (panel CSS lifted to app.css wasn't
+ * reaching browsers that had cached the previous app.css).
  */
 
-const CACHE = "diverecorder-shell-v3";
+const CACHE = "diverecorder-shell-v4";
 const SHELL = [
   "/",
   "/index.html",
@@ -86,21 +92,40 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Everything else (assets, css, manifest, icon): cache-first.
-  // Asset URLs are content-hashed so it's safe to keep stale
-  // ones around — they're never asked for again once the new
-  // index.html lands.
+  // Vite-bundled hashed assets at /assets/* — content-hashed
+  // URLs, so cache-first is safe and fastest.
+  if (url.pathname.startsWith("/assets/")) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((res) => {
+          if (res.ok && res.status === 200) {
+            const clone = res.clone();
+            caches.open(CACHE).then((c) => c.put(request, clone)).catch(() => {});
+          }
+          return res;
+        });
+      }),
+    );
+    return;
+  }
+
+  // Everything else same-origin (/css/app.css, /sw.js,
+  // /icon.svg, /manifest.webmanifest, etc.): NETWORK-FIRST.
+  // These keep stable filenames across deploys, so a cache-first
+  // entry would serve stale content forever. Fall back to cache
+  // only when the network is actually unreachable so the offline
+  // shell still loads.
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request).then((res) => {
+    fetch(request)
+      .then((res) => {
         if (res.ok && res.status === 200) {
           const clone = res.clone();
           caches.open(CACHE).then((c) => c.put(request, clone)).catch(() => {});
         }
         return res;
-      });
-    }),
+      })
+      .catch(() => caches.match(request).then((cached) => cached || Response.error())),
   );
 });
 

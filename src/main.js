@@ -2,6 +2,12 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
+// Global styles. Imported here (not via <link> in index.html) so
+// Vite content-hashes the output filename — any edit to app.css
+// produces a new hashed URL, which makes browser + service-worker
+// caches transparent rather than something we have to manually
+// bust.
+import './styles/app.css'
 
 const app = createApp(App)
 app.use(createPinia())
