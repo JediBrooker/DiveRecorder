@@ -169,6 +169,18 @@ module.exports = function createTeamsRouter({
   // dive list" links inside the TeamsView drawer.
   router.get("/api/teams/:id/events", requireMeetEditor, async (req, res) => {
     try {
+      // Cross-org IDOR plug. requireMeetEditor only confirms the
+      // caller has org_admin / meet_manager somewhere; the team
+      // UUID came from the URL with no guarantee it belongs to
+      // their org. Mirror the rename / delete check above.
+      const team = await pool.query(
+        "SELECT org_id FROM teams WHERE id = $1",
+        [req.params.id],
+      );
+      if (!team.rows.length) return res.status(404).json({ error: "Team not found" });
+      if (!req.user.is_system_admin && team.rows[0].org_id !== req.user.org_id) {
+        return res.status(403).json({ error: "Cannot read teams in other organisations" });
+      }
       const r = await pool.query(
         `SELECT e.id, e.name, e.gender, e.height, e.event_type::text AS event_type,
                 e.total_rounds, e.number_of_judges, e.status,
@@ -302,6 +314,17 @@ module.exports = function createTeamsRouter({
     requireMeetEditor,
     async (req, res) => {
       try {
+        // IDOR plug — both the team and the event must belong to
+        // the caller's org. requireMeetEditor only checks that the
+        // caller holds the role somewhere.
+        const team = await pool.query(
+          "SELECT org_id FROM teams WHERE id = $1",
+          [req.params.teamId],
+        );
+        if (!team.rows.length) return res.status(404).json({ error: "Team not found" });
+        if (!req.user.is_system_admin && team.rows[0].org_id !== req.user.org_id) {
+          return res.status(403).json({ error: "Cannot read teams in other organisations" });
+        }
         const r = await pool.query(
           `SELECT cdl.round_number, cdl.competitor_id, cdl.partner_id, cdl.dive_id,
                   u.full_name AS competitor_name,

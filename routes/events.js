@@ -359,6 +359,22 @@ module.exports = function createEventsRouter({
         return res.status(404).json({ error: "Event not found" });
       }
       const ev = prior.rows[0];
+      // Refuse delete once any score has landed. The event's audit
+      // trail and result history are evidentiary; deleting the row
+      // would orphan score_audit rows (SET NULL post-035) and lose
+      // the parent context. Sysadmins can still force the delete by
+      // passing ?force=1, recorded in the audit metadata.
+      const force = req.query.force === "1" || req.query.force === "true";
+      const scoreCount = await pool.query(
+        "SELECT COUNT(*)::int AS n FROM scores WHERE event_id = $1",
+        [ev.id],
+      );
+      if (scoreCount.rows[0].n > 0 && !(force && req.user.is_system_admin)) {
+        return res.status(409).json({
+          error: `Refusing to delete: event has ${scoreCount.rows[0].n} recorded scores. Cancel or finalise the event instead.`,
+          score_count: scoreCount.rows[0].n,
+        });
+      }
       await pool.query("DELETE FROM events WHERE id = $1", [ev.id]);
       // Audit. status preserved in metadata so a sysadmin
       // investigation can spot "this event was deleted while

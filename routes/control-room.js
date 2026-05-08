@@ -875,16 +875,26 @@ module.exports = function createControlRoomRouter({
       // Stamp the sign-off in the event row + close any pending
       // push request for the same event (the referee just signed
       // in person, the push is moot).
-      await pool.query("BEGIN");
+      //
+      // IMPORTANT: BEGIN/COMMIT must run on the same pooled
+      // connection. Using `pool.query` here checks out a fresh
+      // connection per call, so the BEGIN ran on a connection
+      // that was returned to the pool before the UPDATEs ran on
+      // (potentially different) ones — i.e. no transaction at
+      // all. A failure between the two UPDATEs would leave the
+      // event signed off but the referee_signoff_requests row
+      // stuck "pending" forever.
+      const txClient = await pool.connect();
       try {
-        await pool.query(
+        await txClient.query("BEGIN");
+        await txClient.query(
           `UPDATE events
            SET dive_order_signed_off_at = now(),
                dive_order_signed_off_by = $1
            WHERE id = $2`,
           [user.id, req.params.id],
         );
-        await pool.query(
+        await txClient.query(
           `UPDATE referee_signoff_requests
            SET status = 'approved', decision_method = 'credential',
                responded_at = now()
@@ -892,10 +902,12 @@ module.exports = function createControlRoomRouter({
              AND target_referee_id = $2`,
           [req.params.id, user.id],
         );
-        await pool.query("COMMIT");
+        await txClient.query("COMMIT");
       } catch (err) {
-        await pool.query("ROLLBACK");
+        await txClient.query("ROLLBACK").catch(() => {});
         throw err;
+      } finally {
+        txClient.release();
       }
 
       res.json({
@@ -1019,8 +1031,20 @@ module.exports = function createControlRoomRouter({
       // still requires the referee's own JWT (target_referee_id =
       // req.user.id) so a leaked QR is useless to anyone but the
       // specific referee the manager picked.
-      const baseUrl = process.env.APP_BASE_URL
-        || `${req.protocol}://${req.get("host")}`;
+      // APP_BASE_URL must be configured. Without it the previous
+      // fallback used `req.get('host')` — a client-supplied header
+      // that an attacker can spoof to point the QR at their own
+      // domain (the referee would then type the code into the
+      // attacker's site, which replays it to the real server).
+      // Refusing to issue a code when the env is missing surfaces
+      // the misconfiguration loudly instead of silently exposing
+      // the open-redirect.
+      const baseUrl = process.env.APP_BASE_URL;
+      if (!baseUrl || !/^https?:\/\//.test(baseUrl)) {
+        return res.status(503).json({
+          error: "Sign-off codes are not available — APP_BASE_URL is not configured",
+        });
+      }
       const deepLink = `${baseUrl}/sign-off-codes?code=${encodeURIComponent(inserted.rows[0].handoff_code)}`;
       let qrDataUrl = null;
       try {

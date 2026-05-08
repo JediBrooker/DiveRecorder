@@ -69,6 +69,25 @@ module.exports = function createScoreCorrectionRouter({
           return res.status(403).json({ error: "Cannot correct scores in other organisations" });
         }
 
+        // Per-event authorisation: org_admin (or sysadmin) can
+        // correct any event in the org; everyone else (meet_manager,
+        // referee role) must be a registered manager of THIS event.
+        // Without this check, anyone holding `referee` anywhere in
+        // the org could rewrite scores on meets they aren't on.
+        const isOrgAdmin = req.user.is_system_admin
+          || (req.user.org_roles || []).includes("org_admin");
+        if (!isOrgAdmin) {
+          const ok = await pool.query(
+            "SELECT 1 FROM event_managers WHERE event_id = $1 AND user_id = $2",
+            [existing.event_id, req.user.id],
+          );
+          if (ok.rows.length === 0) {
+            return res.status(403).json({
+              error: "You are not a manager of this event",
+            });
+          }
+        }
+
         const oldScore = Number(existing.score);
         if (oldScore === newScore) {
           return res.json({ ok: true, unchanged: true });

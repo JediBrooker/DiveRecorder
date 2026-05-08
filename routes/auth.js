@@ -279,7 +279,7 @@ module.exports = function createAuthRouter({
     }
   });
 
-  router.post("/api/auth/2fa/confirm", verifyToken, async (req, res) => {
+  router.post("/api/auth/2fa/confirm", authLimiter, verifyToken, async (req, res) => {
     const { code } = req.body || {};
     if (typeof code !== "string" || !/^\d{6}$/.test(code)) {
       return res.status(400).json({ error: "code must be the 6-digit TOTP from your authenticator" });
@@ -325,7 +325,7 @@ module.exports = function createAuthRouter({
     }
   });
 
-  router.post("/api/auth/2fa/disable", verifyToken, async (req, res) => {
+  router.post("/api/auth/2fa/disable", authLimiter, verifyToken, async (req, res) => {
     const { password, code } = req.body || {};
     if (typeof password !== "string" || !password) {
       return res.status(400).json({ error: "Password is required to disable 2FA" });
@@ -567,22 +567,46 @@ module.exports = function createAuthRouter({
 
   // Register a new organisation + its founding org_admin
   router.post("/api/auth/register-org", authLimiter, async (req, res) => {
-    const { org_name, country_code, slug, username, password, full_name } =
+    const { org_name, country_code, slug, username, password, full_name, email } =
       req.body || {};
+
+    // Apply the same input validation we run on /api/auth/register.
+    // Without these checks the org-founding flow accepted blank
+    // passwords, missing emails, and CR/LF-laced names — every
+    // pending org seeded a row that a sysadmin clicking Approve
+    // turned into a 0-character-password active account.
+    const cleanOrgName  = safeText(org_name, 100);
+    const cleanFullName = safeText(full_name, 100);
+    const cleanSlug     = safeText(slug, 60);
+    const cleanUsername = safeText(username, 60);
+    if (!cleanOrgName)  return res.status(400).json({ error: "Organisation name is required" });
+    if (!cleanFullName) return res.status(400).json({ error: "Full name is required" });
+    if (!cleanSlug)     return res.status(400).json({ error: "Slug is required" });
+    if (!cleanUsername) return res.status(400).json({ error: "Username is required" });
+    if (typeof password !== "string" || password.length < 8) {
+      return res.status(400).json({ error: "Password must be at least 8 characters" });
+    }
+    if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: "A valid email address is required" });
+    }
+    if (country_code != null && !/^[A-Z]{2,3}$/.test(country_code)) {
+      return res.status(400).json({ error: "country_code must be a 2-3 letter ISO code" });
+    }
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
 
       const orgRes = await client.query(
         "INSERT INTO organisations (name, country_code, slug, status) VALUES ($1,$2,$3,'pending') RETURNING id",
-        [org_name, country_code || null, slug],
+        [cleanOrgName, country_code || null, cleanSlug],
       );
       const orgId = orgRes.rows[0].id;
 
       const hash = await bcrypt.hash(password, 12);
       const uRes = await client.query(
-        "INSERT INTO users (username, password, full_name, org_id) VALUES ($1,$2,$3,$4) RETURNING id",
-        [username, hash, full_name, orgId],
+        "INSERT INTO users (username, password, full_name, email, org_id) VALUES ($1,$2,$3,$4,$5) RETURNING id",
+        [cleanUsername, hash, cleanFullName, email, orgId],
       );
       const userId = uRes.rows[0].id;
 

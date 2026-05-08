@@ -86,6 +86,30 @@ module.exports = function createCompetitorRouter({
           }
         }
 
+        // Validate every dive_id against the directory at the
+        // event's height. Without this, a diver could submit
+        // dive_ids that don't exist (or exist for a different
+        // height), polluting standings + history. The directory
+        // check is one round-trip — cheap relative to the per-row
+        // INSERTs below.
+        const ids = dives.map(d => d.dive_id);
+        const heightVal = evRow.height ? parseFloat(evRow.height) : null;
+        const validIds = await client.query(
+          `SELECT id FROM dive_directory
+           WHERE id = ANY($1::uuid[])
+             AND ($2::numeric IS NULL OR height = $2)`,
+          [ids, heightVal],
+        );
+        const okIds = new Set(validIds.rows.map(r => r.id));
+        for (const d of dives) {
+          if (!okIds.has(d.dive_id)) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({
+              error: `dive_id ${d.dive_id} is not in the dive directory at this event's height`,
+            });
+          }
+        }
+
         // For synchro events, validate the partner exists, isn't
         // the user themselves, and is a diver in the same org.
         let resolvedPartnerId = null;

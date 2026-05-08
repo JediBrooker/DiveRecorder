@@ -378,11 +378,14 @@ module.exports = function createUsersRouter({
     }
   });
 
-  // Judges within the current user's org.
+  // Judges within the current user's org. Drop username — the
+  // judge picker uses id + full_name; username is the credential
+  // identifier and the meet_manager-gate isn't a high enough bar
+  // to justify spraying it across every responder.
   router.get("/api/judges", requireMeetEditor, async (req, res) => {
     try {
       const r = await pool.query(
-        `SELECT u.id, u.full_name, u.username
+        `SELECT u.id, u.full_name
          FROM users u
          JOIN user_org_roles r ON u.id = r.user_id
          WHERE r.org_id = $1 AND r.role = 'judge'

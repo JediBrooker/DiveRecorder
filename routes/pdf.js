@@ -20,13 +20,23 @@
 const express = require("express");
 const PDFDocument = require("pdfkit");
 
-// CSV escaping. Only quote-and-escape if the cell contains a
-// comma, quote, or newline — keeps the output diffable for cells
-// that don't actually need it.
+// CSV escaping + spreadsheet-formula-injection guard.
+//
+// RFC 4180 quoting handles commas, quotes, newlines. The
+// leading-character guard handles the Excel/Google Sheets
+// "if the cell starts with =, +, -, @, tab, or CR, evaluate
+// it as a formula" foot-gun — a diver registering with
+// full_name = "=cmd|'/c calc'!A0" would otherwise execute on
+// every operator's machine when they open the exported CSV.
+// Prepending a single quote forces Excel to treat the cell as
+// literal text; the apostrophe doesn't render in the cell but
+// is still valid CSV.
 function csvCell(s) {
   if (s == null) return "";
-  const text = String(s);
-  if (/[",\n\r]/.test(text)) {
+  let text = String(s);
+  const dangerous = /^[=+\-@\t\r]/.test(text);
+  if (dangerous) text = "'" + text;
+  if (/[",\n\r]/.test(text) || dangerous) {
     return `"${text.replace(/"/g, '""')}"`;
   }
   return text;

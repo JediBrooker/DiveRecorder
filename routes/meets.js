@@ -22,6 +22,34 @@ module.exports = function createMeetsRouter({
   if (!pool) throw new Error("createMeetsRouter requires { pool, … }");
   const router = express.Router();
 
+  // Sponsor URL hardening. The sponsor_link_url field renders into
+  // a Vue :href binding on the public meet detail page, so any
+  // visitor (including not-yet-signed-in spectators) clicks
+  // whatever a meet manager pasted in. Reject anything that isn't
+  // a parsable absolute http/https URL — blocks javascript: /
+  // data: / file: schemes that would otherwise become a one-click
+  // session-takeover. sponsor_logo_url is image src so we apply
+  // the same allowlist for defence in depth.
+  function safeHttpUrl(u) {
+    if (u == null || u === "") return null;
+    if (typeof u !== "string") return null;
+    try {
+      const parsed = new URL(u);
+      return ["http:", "https:"].includes(parsed.protocol) ? u : null;
+    } catch { return null; }
+  }
+  function rejectIfUnsafeUrl(res, label, raw) {
+    if (raw == null || raw === "") return null;
+    const cleaned = safeHttpUrl(raw);
+    if (cleaned === null) {
+      res.status(400).json({
+        error: `${label} must be an absolute http(s) URL`,
+      });
+      return false;   // sentinel: caller bails
+    }
+    return cleaned;
+  }
+
   // List meets in an organisation. Public — used by the
   // Scoreboard list to group events by meet.
   router.get("/api/orgs/:id/meets", async (req, res) => {
@@ -92,6 +120,10 @@ module.exports = function createMeetsRouter({
     if (!name || !name.trim()) {
       return res.status(400).json({ error: "Meet name is required" });
     }
+    const safeLogo = rejectIfUnsafeUrl(res, "sponsor_logo_url", sponsor_logo_url);
+    if (safeLogo === false) return;
+    const safeLink = rejectIfUnsafeUrl(res, "sponsor_link_url", sponsor_link_url);
+    if (safeLink === false) return;
     try {
       const r = await pool.query(
         `INSERT INTO meets
@@ -101,7 +133,7 @@ module.exports = function createMeetsRouter({
         [
           req.user.org_id, name.trim(), venue || null,
           start_date || null, end_date || null, description || null,
-          sponsor_name || null, sponsor_logo_url || null, sponsor_link_url || null,
+          sponsor_name || null, safeLogo, safeLink,
         ],
       );
       res.status(201).json(r.rows[0]);
@@ -116,6 +148,10 @@ module.exports = function createMeetsRouter({
       name, venue, start_date, end_date, description,
       sponsor_name, sponsor_logo_url, sponsor_link_url,
     } = req.body || {};
+    const safeLogo = rejectIfUnsafeUrl(res, "sponsor_logo_url", sponsor_logo_url);
+    if (safeLogo === false) return;
+    const safeLink = rejectIfUnsafeUrl(res, "sponsor_link_url", sponsor_link_url);
+    if (safeLink === false) return;
     try {
       const r = await pool.query(
         `UPDATE meets SET
@@ -132,7 +168,7 @@ module.exports = function createMeetsRouter({
         [
           name?.trim() || null, venue || null,
           start_date || null, end_date || null, description || null,
-          sponsor_name || null, sponsor_logo_url || null, sponsor_link_url || null,
+          sponsor_name || null, safeLogo, safeLink,
           req.params.id, req.user.org_id,
         ],
       );

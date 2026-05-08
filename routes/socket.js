@@ -91,6 +91,10 @@ module.exports = function attachSocket({
         socket.userOrgId = decoded.org_id;
         socket.userIsSystemAdmin = !!decoded.is_system_admin;
         socket.userOrgRoles = decoded.org_roles || [];
+        // Stash the token version so socketCanManageEvent can
+        // re-check it on every privileged action (catches role
+        // revocation / 2FA-bump on a long-lived websocket).
+        socket.userTokenVersion = decoded.tv != null ? Number(decoded.tv) : null;
       } catch {
         // Invalid token — treat as anonymous (spectator).
       }

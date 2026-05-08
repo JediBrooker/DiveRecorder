@@ -133,6 +133,37 @@ const bulkWriteLimiter = rateLimit({
   skip: skipWhenDisabled,
 });
 
+// Export-class endpoints (PDF program / results, results.csv,
+// archive listing, OG-card render). These are anonymous-readable
+// and individually expensive (PDFKit, sharp, multi-CTE aggregates),
+// so without a limiter a single anonymous client can saturate the
+// event loop with a few dozen RPS. Per-IP cap is intentionally
+// generous so a federation kiosk legitimately downloading every
+// program in the lobby still works.
+const exportLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many export requests, please try again shortly." },
+  skip: skipWhenDisabled,
+});
+
+// Search-class read endpoints (diver search, paginated diver
+// browse). Authenticated but every signed-in user can call them,
+// which means a freshly-registered spectator can enumerate the
+// federation roster at full speed without this. 60/min/IP is
+// well clear of legitimate typeahead use (debounced at ~180ms
+// per the SPA = ~5 RPS at most).
+const searchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 60,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Too many search requests, please slow down." },
+  skip: skipWhenDisabled,
+});
+
 // =============================================================
 // EMAIL
 // [SECTION: EMAIL]
@@ -476,7 +507,7 @@ app.use(require("./routes/coach")({
 // Cross-org diver search + browse + orgs/all live in routes/
 // diver-search.js — extracted to keep server.js manageable. See
 // AGENTS.md for the modularisation plan.
-app.use(require("./routes/diver-search")({ pool, verifyToken }));
+app.use(searchLimiter, require("./routes/diver-search")({ pool, verifyToken }));
 
 // =============================================================
 // USER & ROLE MANAGEMENT ROUTES
@@ -743,7 +774,7 @@ setInterval(() => {
 // /api/archive, /api/archive/clubs, /api/archive/:eventId/results
 // extracted into routes/archive.js.
 // =============================================================
-app.use(require("./routes/archive")({ pool, readPool }));
+app.use(exportLimiter, require("./routes/archive")({ pool, readPool }));
 
 // =============================================================
 // PDF + CSV EXPORT
@@ -753,7 +784,7 @@ app.use(require("./routes/archive")({ pool, readPool }));
 // the local csvCell / csvRow helpers and the FINA trim
 // annotation used by the score sheet.
 // =============================================================
-app.use(require("./routes/pdf")({ pool }));
+app.use(exportLimiter, require("./routes/pdf")({ pool }));
 
 // =============================================================
 // PUBLIC DIVER PROFILE
@@ -763,7 +794,7 @@ app.use(require("./routes/pdf")({ pool }));
 // SPA fall-through for browsers). Mounted BEFORE the SPA static
 // fallback so the crawler path can next() into it.
 // =============================================================
-app.use(require("./routes/public-profile")({ pool, readPool }));
+app.use(exportLimiter, require("./routes/public-profile")({ pool, readPool }));
 
 // =============================================================
 // SPA FALLBACK — must come after all API routes

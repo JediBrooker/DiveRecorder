@@ -463,9 +463,15 @@ CREATE TABLE public.scores (
 CREATE TABLE public.score_audit_log (
     id              uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     score_id        uuid,                                            -- nullable after delete
-    event_id        uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
-    competitor_id   uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-    judge_id        uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    -- All three of these were originally `NOT NULL ON DELETE CASCADE`,
+    -- which silently destroyed audit history when an event or user
+    -- was deleted. SET NULL keeps the audit trail past parent-row
+    -- removal (the row's score values + actor + IP + reason still
+    -- support forensics). See migration 035 for the corresponding
+    -- ALTER on existing deployments.
+    event_id        uuid REFERENCES public.events(id) ON DELETE SET NULL,
+    competitor_id   uuid REFERENCES public.users(id)  ON DELETE SET NULL,
+    judge_id        uuid REFERENCES public.users(id)  ON DELETE SET NULL,
     round_number    integer NOT NULL,
     action          score_audit_action NOT NULL,
     old_score       numeric(3,1),                                    -- null for insert
@@ -527,8 +533,10 @@ CREATE TABLE public.coach_diver_links (
 
 CREATE TABLE public.role_audit_log (
     id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id     uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-    org_id      uuid NOT NULL REFERENCES public.organisations(id) ON DELETE CASCADE,
+    -- SET NULL rather than CASCADE so the audit trail survives
+    -- user / org deletion. See migration 035.
+    user_id     uuid REFERENCES public.users(id)         ON DELETE SET NULL,
+    org_id      uuid REFERENCES public.organisations(id) ON DELETE SET NULL,
     role        org_role NOT NULL,
     action      role_audit_action NOT NULL,
     actor_id    uuid REFERENCES public.users(id) ON DELETE SET NULL,

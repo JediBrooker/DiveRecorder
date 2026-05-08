@@ -268,7 +268,13 @@ module.exports = function createAuditRouter({ pool, requireOrgAdmin }) {
 
     function csvCell(v) {
       if (v == null) return "";
-      const s = String(v).replace(/"/g, '""');
+      let s = String(v);
+      // Spreadsheet formula-injection guard. Cells starting with
+      // = + - @ \t \r are evaluated as formulas by Excel /
+      // Google Sheets. Prepend a single quote to force literal
+      // text. See routes/pdf.js for the matching helper.
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+      s = s.replace(/"/g, '""');
       return `"${s}"`;
     }
 

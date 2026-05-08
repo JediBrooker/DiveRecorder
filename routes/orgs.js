@@ -101,8 +101,15 @@ module.exports = function createOrgsRouter({
         .json({ error: "Cannot list divers in other organisations" });
     }
     try {
+      // Drop u.username from the projection — the synchro-partner
+      // picker (the sole legitimate consumer) uses id + full_name.
+      // Username is the credential identifier, so leaking it via a
+      // verifyToken-only endpoint would let any signed-in user
+      // (including a freshly-registered spectator) enumerate the
+      // org's username space and feed a credential-stuffing run
+      // against /api/auth/login.
       const r = await pool.query(
-        `SELECT u.id, u.full_name, u.username, cl.name AS club_name, cl.short_code AS club_code
+        `SELECT u.id, u.full_name, cl.name AS club_name, cl.short_code AS club_code
          FROM users u
          JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id AND r.role = 'diver'
          LEFT JOIN clubs cl ON cl.id = u.club_id
