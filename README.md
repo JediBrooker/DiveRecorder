@@ -330,6 +330,7 @@ Email triggers (best-effort, never block the response):
 - Role grants/revokes write to a `role_audit_log` table; the User Manager drawer surfaces the per-user history.
 - Generic `audit_log` table captures entity-lifecycle events outside the score/role domain (event create/delete/finalise, org status flips, club/team deletes, late-entry adds, withdraw/reinstate, pre-meet workflow resets, manager-attest sign-offs).
 - 30-day audit log retention via `purge_audit_logs(retention_days)` — runs on server boot, configurable.
+- **Audit log survives parent deletion.** Every audit FK is `ON DELETE SET NULL` (migration 035) — a deleted event, user, or org doesn't take its audit history with it, and `DELETE /api/events/:id` refuses outright once any score has been recorded (sysadmin can `?force=1` with the override recorded in audit metadata). Stops a corrupt admin from laundering a scoring dispute by deleting the row.
 - **Audit archive export** — `GET /api/audit/export.csv?kind=scores|roles|activity` streams the full history as CSV (no row cap) for legal disputes / compliance reviews. A daily snapshot job writes the past 24 h of all three audit tables to JSONL files in `AUDIT_SNAPSHOT_DIR` BEFORE the purge runs, so legal-retention archives outlive the 30-day DB window.
 - Schema version stamp logged on boot so an operator can confirm at-a-glance which version is deployed.
 
@@ -411,7 +412,7 @@ SMTP_PASS=...
 SMTP_FROM="Dive Recorder <noreply@your-domain.example.com>"
 ```
 
-Without `SMTP_HOST` set, every email helper silently no-ops — registrations and password changes work, just no email is dispatched. `APP_BASE_URL` is used to build the reset-password link.
+Without `SMTP_HOST` set, every email helper silently no-ops — registrations and password changes work, just no email is dispatched. `APP_BASE_URL` is used to build the reset-password link AND the referee sign-off code QR/deep-link; the server refuses to issue a sign-off code when it isn't set, so make sure the value is configured in production.
 
 ### 6. Sign in
 
