@@ -196,16 +196,28 @@ const GROUP_THRESHOLD = 12
 const groupedEvents = computed(() => {
   const list = sortedFilteredEvents.value
   if (list.length < GROUP_THRESHOLD) return null
-  const yrs = new Set()
   const groups = new Map()    // year -> [event]
   for (const e of list) {
     const y = e.created_at ? new Date(e.created_at).getFullYear() : '—'
-    yrs.add(y)
     if (!groups.has(y)) groups.set(y, [])
     groups.get(y).push(e)
   }
-  if (yrs.size < 2) return null
-  return [...groups.entries()].map(([year, items]) => ({ year, items }))
+  if (groups.size < 2) return null
+  // Sort the year sections themselves — Map insertion order
+  // can't be trusted because Live events pinned to the top of
+  // `sortedFilteredEvents` may belong to any year, so whichever
+  // year's live event appeared first would otherwise dictate
+  // section order. Newest first by default; flipped when the
+  // user picks "Oldest first". The "—" bucket (events with no
+  // created_at) sinks to the bottom.
+  const oldestFirst = sortBy.value === 'oldest'
+  return [...groups.entries()]
+    .sort(([a], [b]) => {
+      if (a === '—') return 1
+      if (b === '—') return -1
+      return oldestFirst ? Number(a) - Number(b) : Number(b) - Number(a)
+    })
+    .map(([year, items]) => ({ year, items }))
 })
 
 const activeFilterCount = computed(() => {
