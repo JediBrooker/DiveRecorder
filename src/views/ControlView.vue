@@ -1254,15 +1254,58 @@ const standingsPreview = ref([])
 // The public scoreboard is unaffected — this only hides the panel
 // inside the Control Room.
 const SHOW_STANDINGS_KEY = 'dr.controlRoom.showStandings'
+// Default to COLLAPSED — only the operators who explicitly want
+// the Top 5 + catch-up math always in view will have flipped
+// the localStorage flag. The catch-up math is also visible on
+// the audience-facing scoreboard, so the operator's view doesn't
+// HAVE to carry it; collapsed-by-default reduces the right
+// column's resting noise level.
 const showStandingsProjection = ref(
   (typeof localStorage !== 'undefined'
     ? localStorage.getItem(SHOW_STANDINGS_KEY)
-    : null) !== '0',
+    : null) === '1',
 )
 function toggleStandingsProjection() {
   showStandingsProjection.value = !showStandingsProjection.value
   try { localStorage.setItem(SHOW_STANDINGS_KEY, showStandingsProjection.value ? '1' : '0') }
   catch { /* private mode etc. — silent fail */ }
+}
+
+// Compressed-layout overflow menus — see the LAYOUT COMPRESSION
+// pass below for the rationale (offload secondary chrome from
+// the always-visible canvas). Each is a simple ref + a small
+// outside-click handler that closes when the user clicks
+// anywhere off the menu's wrapper.
+const headerMenuOpen  = ref(false)   // Hold / Broadcast / Dashboard
+const adjustMenuOpen  = ref(false)   // Failed Dive / Cap Score / Re-Dive
+const autoNextMenuOpen = ref(false)  // Auto-next: Manual / 5s / 10s / …
+const kbdHintsOpen    = ref(false)   // ? popover with all shortcuts
+function closeOverflowMenus() {
+  headerMenuOpen.value = false
+  adjustMenuOpen.value = false
+  autoNextMenuOpen.value = false
+  kbdHintsOpen.value = false
+}
+// Toggle the named menu and close all the others — only one
+// overflow popover open at a time keeps the canvas predictable.
+function toggleMenu(which) {
+  const map = {
+    header:   headerMenuOpen,
+    adjust:   adjustMenuOpen,
+    autonext: autoNextMenuOpen,
+    kbd:      kbdHintsOpen,
+  }
+  const target = map[which]
+  if (!target) return
+  const next = !target.value
+  closeOverflowMenus()
+  target.value = next
+}
+function onGlobalClick(e) {
+  // Close any open overflow menu when the click is outside any
+  // element with .dropdown-host. The menu's own toggle button
+  // does its own state flip; we just defer to that.
+  if (!e.target.closest?.('.dropdown-host')) closeOverflowMenus()
 }
 
 async function refreshStandingsPreview() {
@@ -2051,6 +2094,11 @@ const medals = ['🥇', '🥈', '🥉']
 onMounted(async () => {
   events.value = await auth.apiFetch('/api/events')
   window.addEventListener('keydown', onKeydown)
+  // Capture-phase mousedown so a click on the Adjust / kbd-? /
+  // header-⋯ trigger fires its own toggle BEFORE this listener
+  // sees the event and would otherwise close the menu it just
+  // opened. The trigger buttons stop propagation explicitly.
+  window.addEventListener('mousedown', onGlobalClick, true)
   // Cut 2 — listen for the server's response broadcast when the
   // referee taps Approve/Deny on their device. Lives on the same
   // event-room subscription the rest of the Control Room uses;
@@ -2060,6 +2108,7 @@ onMounted(async () => {
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('mousedown', onGlobalClick, true)
   cancelAutoAdvance()
   socket.off('referee_signoff_response', onRefereeSignoffResponse)
 })
@@ -2087,35 +2136,57 @@ onUnmounted(() => {
           <span>{{ connStatus ? 'Connected' : 'Connecting' }}</span>
         </span>
       </div>
-      <!-- Header context — just the meet name now. The round/
-           diver counters and the Auto-next picker moved into
-           the active-diver block so they're adjacent to the
-           thing they describe (the dive currently on board)
-           rather than buried in the page chrome. -->
+      <!-- Header context — meet name centred. Page-chrome
+           secondary actions (Hold / Broadcast / Dashboard) move
+           into the ⋯ overflow menu on the right so the resting
+           header reads: logo · event picker · connection · meet
+           · ⋯ · Finalise(when applicable). Hold gets a separate
+           visible status pill when active so the operator can
+           see at a glance the meet is paused without opening the
+           menu. -->
       <div class="ctrl-header-ctx">
         <span class="ctx-meet">{{ meetName }}</span>
       </div>
-      <div style="display:flex;align-items:center;gap:0.75rem">
-        <!-- Hold / Resume — broadcasts a paused state to judges
-             + spectator scoreboard. Cyan when running, amber
-             when held. -->
+      <div class="ctrl-header-right">
+        <!-- Hold-active glance pill: shows ONLY while held. Click
+             resumes immediately; the rest of the time Hold is
+             reachable via the ⋯ menu so the resting header isn't
+             cluttered with a button the operator clicks ~once
+             per meet. -->
         <button
-          v-if="currentEvent && currentEvent.status !== 'Completed'"
-          :class="['btn-hold', isHeld ? 'btn-hold-active' : '']"
-          @click="isHeld ? resumeMeet() : openHoldPrompt()"
-          title="Pause / resume the meet (H)"
-        >
-          {{ isHeld ? '▶ Resume' : '⏸ Hold' }}
-        </button>
-        <!-- Operator broadcast mode — back-of-house projector
-             view of just the active diver + judges + standings. -->
-        <RouterLink
-          v-if="currentEvent && !opsBroadcast"
-          to="/control?broadcast=1"
-          class="btn-back"
-          title="Open in operator broadcast mode (no controls)"
-        >📺 Broadcast</RouterLink>
-        <RouterLink to="/dashboard" class="btn-back">← Dashboard</RouterLink>
+          v-if="isHeld"
+          class="btn-hold btn-hold-active"
+          @click="resumeMeet"
+          title="Resume the meet (H)"
+        >▶ Resume</button>
+        <!-- Overflow menu — secondary chrome that the operator
+             touches infrequently. Clicking the ⋯ toggles a small
+             popover; the global mousedown listener closes it on
+             outside-click. Each item closes the menu after firing
+             so a re-click opens, click-once-action closes. -->
+        <div class="dropdown-host header-menu-host">
+          <button
+            class="btn-back btn-icon"
+            @click.stop="toggleMenu('header')"
+            :aria-expanded="headerMenuOpen"
+            title="More actions"
+          >⋯</button>
+          <div v-if="headerMenuOpen" class="dropdown-menu header-menu">
+            <button
+              v-if="currentEvent && currentEvent.status !== 'Completed' && !isHeld"
+              class="dropdown-item"
+              @click="openHoldPrompt(); headerMenuOpen = false"
+            >⏸ Hold meet</button>
+            <RouterLink
+              v-if="currentEvent && !opsBroadcast"
+              to="/control?broadcast=1"
+              class="dropdown-item"
+              @click="headerMenuOpen = false"
+            >📺 Broadcast mode</RouterLink>
+            <RouterLink to="/dashboard" class="dropdown-item"
+                        @click="headerMenuOpen = false">← Dashboard</RouterLink>
+          </div>
+        </div>
         <button
           v-if="finaliseBtnShow"
           class="btn-finalise"
@@ -2250,67 +2321,32 @@ onUnmounted(() => {
              same information without duplicating the same names
              three different ways across two columns. -->
         <div class="active-zone">
-          <div class="active-label-row">
-            <div class="active-label-left">
-              <span class="active-label">Currently on Board</span>
-              <!-- Round / diver counters — moved out of the header
-                   so they sit next to the active-diver label they
-                   actually describe. -->
-              <span v-if="activeInfo.round_number" class="ctx-badge">
-                ROUND {{ activeInfo.round_number }} / {{ currentEvent?.total_rounds || '?' }}
+          <!-- Compressed header strip — a single muted pre-line
+               carrying the round + diver counters, with the
+               shot-clock anchored to the right. Replaces the
+               three-row stack of "Currently on Board" label +
+               ctx pills + auto-next select + status pill +
+               shot-clock that used to live here. The status
+               pill folds into the diver name row below; the
+               auto-next picker moves to a split-button on Next
+               Diver where it's adjacent to the action it
+               governs. -->
+          <div v-if="currentActive || activeInfo.round_number" class="active-meta">
+            <span class="active-meta-text">
+              <span v-if="activeInfo.round_number">
+                Round <strong>{{ activeInfo.round_number }}</strong> / {{ currentEvent?.total_rounds || '?' }}
               </span>
-              <span v-if="roster.length" class="ctx-badge">
-                DIVER {{ currentIndex + 1 }} / {{ roster.length }}
+              <span v-if="roster.length" class="active-meta-sep">·</span>
+              <span v-if="roster.length">
+                Diver <strong>{{ currentIndex + 1 }}</strong> / {{ roster.length }}
               </span>
-            </div>
-            <div class="active-label-right">
-              <!-- Auto-advance — moved out of the header into the
-                   active-diver block so the operator's flow knobs
-                   live next to the action they govern. Manual =
-                   operator clicks Next; otherwise the timer fires
-                   nextDiver() after the chosen delay. Same setting
-                   governs the round-end "Announce standings"
-                   prompt. The .auto-advance-select class shares
-                   .event-select-sm visual styling but stays
-                   uniquely identifiable for tests. -->
-              <select
-                class="event-select-sm auto-advance-select"
-                v-model.number="autoAdvanceSeconds"
-                title="Auto-advance to the next diver after all scores are in. Same delay applies to the round-end announcement."
-              >
-                <option :value="0">Auto-next: Manual</option>
-                <option :value="5">Auto-next: 5s</option>
-                <option :value="10">Auto-next: 10s</option>
-                <option :value="15">Auto-next: 15s</option>
-                <option :value="20">Auto-next: 20s</option>
-                <option :value="25">Auto-next: 25s</option>
-                <option :value="30">Auto-next: 30s</option>
-              </select>
-              <!-- Active diver status — display only. Auto-
-                   derived: READY while the shot clock is
-                   ticking, DIVING when the clock has expired
-                   (WA's 30s rule means the diver must have
-                   begun by then), JUDGING the moment any
-                   judge submits a score for this round. The
-                   value flows out to the spectator scoreboard
-                   via set_active_diver whenever it changes. -->
-              <div
-                v-if="currentActive"
-                :class="['status-pill', `status-${activeStatus}`]"
-                title="Auto-updates as the dive progresses"
-              >
-                {{ activeStatus.toUpperCase() }}
-              </div>
-              <!-- Shot clock — 30-second WA rule. Auto-starts when
-                   a new diver is set; click face to pause/resume,
-                   ↻ to reset. -->
-              <div v-if="currentActive" :class="['shot-clock', shotClockClass]">
-                <button class="shot-clock-face" @click="pauseShotClock" title="Pause / resume">
-                  <span class="shot-clock-num">{{ shotClock }}</span>
-                  <span class="shot-clock-unit">s</span>
-                </button>
-                <button class="shot-clock-reset" @click="resetShotClock" title="Reset to 30s (T)">↻</button>
-              </div>
+            </span>
+            <div v-if="currentActive" :class="['shot-clock', shotClockClass]">
+              <button class="shot-clock-face" @click="pauseShotClock" title="Pause / resume">
+                <span class="shot-clock-num">{{ shotClock }}</span>
+                <span class="shot-clock-unit">s</span>
+              </button>
+              <button class="shot-clock-reset" @click="resetShotClock" title="Reset to 30s (T)">↻</button>
             </div>
           </div>
           <!-- Referee-signal banner — appears the moment any
@@ -2340,7 +2376,12 @@ onUnmounted(() => {
             <!-- Diver's start-order number ("1.") prefixes the
                  name so the operator sees their canonical
                  position at a glance — same number that shows on
-                 the roster queue and the completed-dives cards. -->
+                 the roster queue and the completed-dives cards.
+                 The status pill (READY / DIVING / JUDGING) sits
+                 inline at the end of the name row rather than in
+                 a separate top-bar widget — keeps every piece
+                 of "what's happening with this diver right now"
+                 on one line. -->
             <span v-if="competitorOrder(currentActive?.competitor_id) != null" class="active-order">{{ competitorOrder(currentActive.competitor_id) }}.</span>
             <template v-if="activeInfo.partner_name">
               {{ activeInfo.name }}<span v-if="activeInfo.country" class="active-country">{{ activeInfo.country }}</span>
@@ -2350,6 +2391,13 @@ onUnmounted(() => {
             <template v-else>
               {{ activeInfo.name }}<span v-if="activeInfo.country" class="active-country">{{ activeInfo.country }}</span>
             </template>
+            <span
+              v-if="currentActive"
+              :class="['status-pill', `status-${activeStatus}`, 'status-pill-inline']"
+              title="Auto-updates as the dive progresses"
+            >
+              {{ activeStatus.toUpperCase() }}
+            </span>
           </div>
           <div v-if="activeInfo.team_name" class="active-team">{{ activeInfo.team_name }}</div>
           <!-- Club affiliation. Hidden when team_name is set
@@ -2438,51 +2486,124 @@ onUnmounted(() => {
                column via margin-top: auto so the layout uses the
                full screen height regardless of how much active-
                diver content is above. The operator's eye learns
-               that the action buttons live at the bottom edge. -->
+               that the action buttons live at the bottom edge.
+               Compressed-layout pass: Prev / Next dominate; ref
+               actions (Failed / Cap / Re-Dive) collapse into a
+               single Adjust ▾ menu since they're occasional;
+               auto-next picker rides as a ▾ split-button on
+               Next Diver; keyboard hints retreat behind a ?
+               icon. Net effect: one primary button + two
+               trailing affordances, instead of three rows. -->
           <div class="active-bottom">
-            <div class="ref-actions">
-              <button class="ref-btn" style="background:var(--red-dim);color:var(--red);border-color:rgba(239,68,68,0.3)" @click="refAction('failed')">Failed Dive</button>
-              <button class="ref-btn" style="background:var(--amber-dim);color:var(--amber);border-color:rgba(245,158,11,0.3);line-height:1.2" @click="refAction('cap')">Cap Score<br><span style="font-size:9px">Max 2.0</span></button>
-              <button class="ref-btn" style="background:var(--cyan-dim);color:var(--cyan);border-color:rgba(6,182,212,0.3)" @click="refAction('redive')">Re-Dive</button>
-            </div>
-
             <div class="nav-btns">
               <button class="btn btn-ghost" @click="setActive(currentIndex - 1)" :disabled="currentIndex <= 0">← Prev</button>
-              <button
-                :class="['btn', nextBtnComplete ? 'btn-complete' : 'btn-primary', autoAdvanceCountdown > 0 ? 'btn-counting' : '']"
-                :disabled="nextBtnDisabled"
-                @click="nextDiver"
-              >
-                {{ nextBtnText }}
-                <span v-if="autoAdvanceCountdown > 0" class="auto-advance-pill">
-                  {{ autoAdvanceCountdown }}s
-                </span>
-              </button>
+              <!-- Adjust ▾ — Failed Dive / Cap Score / Re-Dive
+                   collapsed into a single dropdown. F/R keyboard
+                   shortcuts still work via onKeydown. -->
+              <div class="dropdown-host">
+                <button
+                  class="btn btn-ghost"
+                  :disabled="!currentActive"
+                  @click.stop="toggleMenu('adjust')"
+                  :aria-expanded="adjustMenuOpen"
+                  title="Failed dive, cap score, or re-dive"
+                >Adjust ▾</button>
+                <div v-if="adjustMenuOpen" class="dropdown-menu adjust-menu">
+                  <button class="dropdown-item dropdown-item-danger"
+                          @click="refAction('failed'); adjustMenuOpen = false">
+                    Failed Dive <span class="dropdown-item-hint"><kbd>F</kbd></span>
+                  </button>
+                  <button class="dropdown-item dropdown-item-amber"
+                          @click="refAction('cap'); adjustMenuOpen = false">
+                    Cap Score <span class="dropdown-item-aside">max 2.0</span>
+                  </button>
+                  <button class="dropdown-item dropdown-item-cyan"
+                          @click="refAction('redive'); adjustMenuOpen = false">
+                    Re-Dive <span class="dropdown-item-hint"><kbd>R</kbd></span>
+                  </button>
+                </div>
+              </div>
+              <!-- Next Diver as a split-button: the wide button
+                   advances the queue, the trailing ▾ opens a
+                   menu of Auto-next intervals (Manual / 5s / …).
+                   Co-locating the picker with the action it
+                   governs keeps the operator's eye in one place
+                   instead of jumping to a top-bar dropdown. -->
+              <div class="split-button dropdown-host">
+                <button
+                  :class="['btn', 'split-button-main',
+                    nextBtnComplete ? 'btn-complete' : 'btn-primary',
+                    autoAdvanceCountdown > 0 ? 'btn-counting' : '']"
+                  :disabled="nextBtnDisabled"
+                  @click="nextDiver"
+                >
+                  {{ nextBtnText }}
+                  <span v-if="autoAdvanceCountdown > 0" class="auto-advance-pill">
+                    {{ autoAdvanceCountdown }}s
+                  </span>
+                </button>
+                <button
+                  :class="['btn', 'split-button-aside',
+                    nextBtnComplete ? 'btn-complete' : 'btn-primary']"
+                  :disabled="nextBtnDisabled"
+                  @click.stop="toggleMenu('autonext')"
+                  :aria-expanded="autoNextMenuOpen"
+                  :title="`Auto-next: ${autoAdvanceSeconds === 0 ? 'Manual' : autoAdvanceSeconds + 's'}`"
+                >▾</button>
+                <div v-if="autoNextMenuOpen" class="dropdown-menu autonext-menu">
+                  <div class="dropdown-section">Auto-next after the panel completes</div>
+                  <button v-for="opt in [
+                            { v: 0,  label: 'Manual' },
+                            { v: 5,  label: '5 seconds' },
+                            { v: 10, label: '10 seconds' },
+                            { v: 15, label: '15 seconds' },
+                            { v: 20, label: '20 seconds' },
+                            { v: 25, label: '25 seconds' },
+                            { v: 30, label: '30 seconds' },
+                          ]"
+                          :key="opt.v"
+                          :class="['dropdown-item', autoAdvanceSeconds === opt.v ? 'dropdown-item-active' : '']"
+                          @click="autoAdvanceSeconds = opt.v; autoNextMenuOpen = false">
+                    <span>{{ opt.label }}</span>
+                    <span v-if="autoAdvanceSeconds === opt.v" class="dropdown-item-tick">✓</span>
+                  </button>
+                </div>
+              </div>
+              <!-- Keyboard-shortcut popover. Only operators who
+                   want a refresher tap the ?; the canvas isn't
+                   bombarded with chip text otherwise. The
+                   hotkeys themselves stay live regardless. -->
+              <div class="dropdown-host kbd-hints-host">
+                <button
+                  class="btn btn-ghost btn-icon"
+                  @click.stop="toggleMenu('kbd')"
+                  :aria-expanded="kbdHintsOpen"
+                  title="Keyboard shortcuts"
+                >?</button>
+                <div v-if="kbdHintsOpen" class="dropdown-menu kbd-menu">
+                  <div class="dropdown-section">Keyboard shortcuts</div>
+                  <div class="kbd-row"><kbd>←</kbd><span>Previous diver</span></div>
+                  <div class="kbd-row"><kbd>→</kbd><span class="kbd-row-or">/</span><kbd>Space</kbd><span>Next diver</span></div>
+                  <div class="kbd-row"><kbd>1</kbd>–<kbd>9</kbd><span>Jump to roster position</span></div>
+                  <div class="kbd-row"><kbd>T</kbd><span>Reset shot clock</span></div>
+                  <div class="kbd-row"><kbd>F</kbd><span>Failed dive</span></div>
+                  <div class="kbd-row"><kbd>R</kbd><span>Re-dive</span></div>
+                  <div class="kbd-row"><kbd>H</kbd><span>Hold / resume meet</span></div>
+                  <div class="kbd-row"><kbd>L</kbd><span>Open leaderboard</span></div>
+                </div>
+              </div>
             </div>
-            <!-- Cancel-the-countdown affordance. Sits next to the
-                 Next Diver button only while the auto-advance
-                 timer is running — clicking it stops the timer
-                 without advancing, returning the queue to manual
-                 control until the operator clicks Next. -->
+            <!-- Cancel-the-countdown affordance. Sits below the
+                 Next Diver row only while the auto-advance timer
+                 is running — clicking it stops the timer without
+                 advancing, returning the queue to manual control
+                 until the operator clicks Next. -->
             <button
               v-if="autoAdvanceCountdown > 0"
               class="btn btn-ghost auto-advance-cancel"
               @click="cancelAutoAdvance"
               title="Stop the auto-advance timer for this dive"
             >✕ Cancel auto-advance</button>
-
-            <!-- Discoverability hint for the keyboard shortcuts.
-                 The hotkeys are wired in onKeydown above. -->
-            <div class="kbd-hints">
-              <span><kbd>←</kbd> prev</span>
-              <span><kbd>→</kbd>/<kbd>Space</kbd> next</span>
-              <span><kbd>1</kbd>–<kbd>9</kbd> jump</span>
-              <span><kbd>T</kbd> reset clock</span>
-              <span><kbd>F</kbd> failed</span>
-              <span><kbd>R</kbd> redive</span>
-              <span><kbd>H</kbd> hold</span>
-              <span><kbd>L</kbd> leaderboard</span>
-            </div>
           </div>
         </div>
       </div>
@@ -3562,15 +3683,125 @@ onUnmounted(() => {
   padding-top: 0.6rem;
 }
 
-.ref-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.4rem; }
-.ref-btn {
-  font-family: var(--font-display); font-size: 10px; font-weight: 700;
-  letter-spacing: 0.1em; text-transform: uppercase;
-  padding: 0.5rem 0.4rem; border-radius: var(--radius-sm); border: 1px solid;
-  cursor: pointer; transition: all 0.15s; text-align: center; line-height: 1.3;
+/* (.ref-actions / .ref-btn removed — Failed Dive / Cap Score /
+    Re-Dive collapsed into the Adjust ▾ dropdown next to Prev.
+    F / R keyboard shortcuts still wired in onKeydown.) */
+
+/* Bottom action row — Prev · Adjust · Next(split) · ?. Next
+   takes the dominant width so it remains the primary visual
+   target. Adjust + ? are auto-width pills bookending the row. */
+.nav-btns {
+  display: flex; align-items: stretch; gap: 0.5rem;
+  width: 100%;
+}
+.nav-btns > * { display: flex; }
+.nav-btns .split-button { flex: 1; }
+.nav-btns > .btn,
+.nav-btns .dropdown-host > .btn { white-space: nowrap; }
+
+/* Split-button: wide main action + narrow ▾ aside that opens
+   the auto-next picker. The two halves share a colour family
+   (primary / complete) and lock visually via tightened border
+   radii so they read as one component. */
+.split-button {
+  display: flex; align-items: stretch; min-width: 0;
+}
+.split-button-main {
+  flex: 1; min-width: 0;
+  border-top-right-radius: 0; border-bottom-right-radius: 0;
+  border-right: 1px solid rgba(0, 0, 0, 0.18);
+}
+.split-button-aside {
+  flex: 0 0 auto; padding-left: 0.7rem; padding-right: 0.7rem;
+  border-top-left-radius: 0; border-bottom-left-radius: 0;
 }
 
-.nav-btns { display: grid; grid-template-columns: 1fr 2fr; gap: 0.75rem; }
+/* Generic overflow-menu styling for the four ⋯ / Adjust ▾ /
+   ▾ / ? popovers. The host is the relative-positioned wrapper;
+   the menu itself is absolutely positioned underneath. */
+.dropdown-host { position: relative; }
+.dropdown-menu {
+  position: absolute; z-index: 50; top: calc(100% + 0.4rem);
+  min-width: 200px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 0.3rem;
+  display: flex; flex-direction: column;
+  font-family: var(--font-display); font-size: 12px;
+}
+/* Different anchors per host — Adjust opens DOWN-and-LEFT from
+   its trigger (Prev side); the autonext-, kbd-, and header-
+   menus open DOWN-and-RIGHT (anchored to the right side of the
+   host). bottom: 100% on the kbd menu so it pops UP rather
+   than off the bottom of the viewport. */
+.header-menu      { right: 0; }
+.adjust-menu      { left: 0;  bottom: calc(100% + 0.4rem); top: auto; }
+.autonext-menu    { right: 0; bottom: calc(100% + 0.4rem); top: auto; }
+.kbd-menu         { right: 0; bottom: calc(100% + 0.4rem); top: auto; min-width: 240px; }
+.dropdown-section {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--text-3);
+  padding: 0.4rem 0.6rem 0.2rem;
+}
+.dropdown-item {
+  background: transparent; border: 0; cursor: pointer;
+  padding: 0.55rem 0.7rem; border-radius: 4px;
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  letter-spacing: 0.04em; color: var(--text-2);
+  text-align: left; text-decoration: none;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.6rem;
+  transition: background 0.12s, color 0.12s;
+}
+.dropdown-item:hover { background: var(--bg-3); color: var(--text); }
+.dropdown-item-active { background: var(--cyan-dim); color: var(--cyan); }
+.dropdown-item-tick { color: var(--cyan); font-weight: 700; }
+.dropdown-item-hint kbd {
+  font-family: var(--font-mono); font-size: 10px;
+  padding: 0.05rem 0.35rem;
+  background: var(--bg); color: var(--text-3);
+  border: 1px solid var(--border); border-radius: 3px;
+}
+.dropdown-item-aside {
+  font-size: 10px; color: var(--text-3);
+  font-family: var(--font-mono); letter-spacing: 0;
+}
+/* Coloured Adjust items — visually echo the original tri-button
+   row: red for Failed, amber for Cap, cyan for Re-Dive. The
+   colour appears on hover so the resting state stays uniform. */
+.dropdown-item-danger:hover { background: var(--red-dim); color: var(--red); }
+.dropdown-item-amber:hover  { background: var(--amber-dim); color: var(--amber); }
+.dropdown-item-cyan:hover   { background: var(--cyan-dim); color: var(--cyan); }
+/* ? popover keyboard-hint rows — full reference vs the prior
+   inline chip strip. Same content, just hidden until requested. */
+.kbd-row {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.3rem 0.7rem;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-2);
+}
+.kbd-row kbd {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  background: var(--bg-3); color: var(--text-2);
+  border: 1px solid var(--border); border-radius: 3px;
+  box-shadow: inset 0 -1px 0 var(--border-2);
+  flex-shrink: 0;
+}
+.kbd-row-or { color: var(--text-3); margin: 0 0.1rem; }
+.kbd-hints-host { margin-left: auto; }
+/* Round trigger button styling for the icon-only ⋯ / ? buttons. */
+.btn-icon {
+  font-size: 14px; font-weight: 700;
+  padding: 0.5rem 0.8rem; line-height: 1;
+}
+
+/* Header right-side cluster. */
+.ctrl-header-right {
+  display: flex; align-items: center; gap: 0.5rem;
+}
+.header-menu-host { display: flex; }
 
 /* Auto-advance countdown affordances. Pill on the Next button
    shows the countdown without changing the button's main label
@@ -3797,6 +4028,31 @@ onUnmounted(() => {
 /* =========================================================
    Shot clock — counts down from 30s when active diver is set
    ========================================================= */
+/* Compressed centre-top meta strip — single muted line carrying
+   the round + diver counters with the shot-clock anchored to
+   the right. Replaces the prior three-element label-row stack
+   (label + ctx pills + auto-next + status pill + clock) which
+   was the busiest area of the canvas. */
+.active-meta {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.75rem; margin-bottom: 0.6rem;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-3); letter-spacing: 0.04em;
+}
+.active-meta-text strong {
+  color: var(--cyan); font-weight: 700;
+}
+.active-meta-sep {
+  margin: 0 0.4rem; color: var(--border);
+}
+/* Status pill that now sits inline at the end of the diver
+   name row. Smaller than its old standalone form; relies on the
+   diver-name's own large type to anchor visually. */
+.status-pill-inline {
+  font-size: 9px; padding: 0.18rem 0.5rem;
+  vertical-align: middle; margin-left: 0.6rem;
+  position: relative; top: -0.18em;
+}
 .active-label-row {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 0.75rem; gap: 0.75rem;
@@ -4638,19 +4894,10 @@ onUnmounted(() => {
 }
 .ops-broadcast-exit:hover { opacity: 1; color: var(--cyan); border-color: var(--cyan); }
 
-.kbd-hints {
-  display: flex; gap: 1rem; flex-wrap: wrap;
-  margin-top: 0.75rem;
-  font-family: var(--font-mono); font-size: 10px;
-  color: var(--text-3);
-}
-.kbd-hints kbd {
-  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
-  padding: 0.1rem 0.35rem;
-  background: var(--bg-3); color: var(--text-2);
-  border: 1px solid var(--border); border-radius: 3px;
-  box-shadow: inset 0 -1px 0 var(--border-2);
-}
+/* (.kbd-hints / .kbd-hints kbd removed — the inline chip strip
+    that used to live below the Next Diver row is gone. The same
+    information is available from the ? popover next to Next
+    Diver via .kbd-row, which renders only on demand.) */
 
 
 /* ── Tablet & phone ─────────────────────────────────────────
