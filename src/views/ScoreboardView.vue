@@ -2151,6 +2151,20 @@ onMounted(async () => {
    most actual states are smaller; the chase-with-3-targets case
    pushes the block taller naturally without shifting things
    below it because Up Next sits in the normal flow. */
+/* Reserved min-height sized for the WORST natural case
+   (chase with 3 podium targets). Calculation at the desktop
+   end of the clamps:
+     head           → 14px font × 1.4 line + 8px margin = 28px
+     3 catchup rows → 16px font × 1.4 line + 4px×2 pad = 30px × 3 = 90px
+     padding inside → 8px × 2                          = 16px
+     —————————————————————————————————————————————————————
+     ~134px ≈ 8.5rem
+   Set min-height to 8.5rem so the most expensive state fits
+   without growing past the reservation. Smaller variants
+   (pre / lead / chase-with-1-target / unopposed) have
+   `align-items: center` on the inner content so they sit
+   nicely in the reserved box rather than top-aligning with a
+   void underneath. */
 .sb-projection {
   margin: 0.6rem auto 0.4rem;
   padding: 0.5rem 0.85rem;
@@ -2159,10 +2173,18 @@ onMounted(async () => {
   font-family: var(--font-mono);
   font-size: clamp(13px, 1.5vw, 16px);
   line-height: 1.4;
-  display: inline-block;
+  /* inline-flex preserves the parent's text-align:center
+     horizontal centring (display:flex would left-align as a
+     block). flex-direction column + justify-content center
+     vertically centres the inner content inside the reserved
+     min-height so smaller variants (pre / lead / unopposed)
+     don't top-align with empty space below them. */
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
   max-width: 100%;
   text-align: left;
-  min-height: clamp(4rem, 6.5vw, 6rem);
+  min-height: clamp(7rem, 10.5vw, 8.5rem);
   box-sizing: border-box;
 }
 .sb-projection strong { color: var(--text); font-weight: 700; }
