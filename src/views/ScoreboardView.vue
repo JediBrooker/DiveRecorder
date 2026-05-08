@@ -1166,11 +1166,16 @@ onMounted(async () => {
             <span v-if="centrePerformer.team_name" class="sb-team-line">{{ centrePerformer.team_name }}</span>
             <span v-if="centrePerformer.club_name && !centrePerformer.team_name" class="sb-club-line">{{ centrePerformer.club_name }}</span>
           </div>
+          <!-- Dive code · DD · description on a single row.
+               Was previously two rows (badges + a separate
+               .sb-desc beneath); collapsed to one to save a
+               row of vertical space and to keep the centre
+               column tighter. -->
           <div class="sb-badges" :style="{ opacity: centrePerformer ? (centrePerformer.kind === 'next' ? '0.7' : '1') : '0.2' }">
             <div class="sb-code">{{ centrePerformer?.diveCode || '—' }}</div>
             <div class="sb-dd">{{ centrePerformer?.dd ? `DD ${centrePerformer.dd}` : 'DD —' }}</div>
+            <div v-if="centrePerformer?.description" class="sb-desc">{{ diveDescription(centrePerformer) }}</div>
           </div>
-          <div v-if="centrePerformer?.description" class="sb-desc">{{ diveDescription(centrePerformer) }}</div>
 
           <!-- Live judges' scores for the active diver. Pills are
                styled with the same .j-score / .j-dropped classes
@@ -1178,14 +1183,16 @@ onMounted(async () => {
                vocabulary is consistent. Once the panel is full,
                the high + low pills shade out via .j-dropped and
                the Dive Total appears below.
-               STABLE LAYOUT: we render `number_of_judges` slots
-               ALWAYS — empty ones use `j-empty` styling (dim "—"
-               placeholder). Without this, scores arriving over
-               the socket would push the catch-up + Up Next blocks
-               below by ~70px the moment the first score lands.
-               The dive-total wrapper has a reserved min-height
-               for the same reason. -->
-          <div v-if="activeDiver" class="sb-live-judges">
+               STABLE LAYOUT: every block here renders for ANY
+               centrePerformer (active OR on-deck) so the layout
+               is identical between "On Deck — Diver Alpha" and
+               "Current Performer — Diver Alpha (mid-dive)". The
+               judge tiles are placeholder "—" pills until scores
+               arrive; the dive-total wrapper has a reserved
+               min-height; the rank line wraps in a slot div with
+               a min-height so its eventual appearance doesn't
+               push the catch-up + Up Next blocks below it down. -->
+          <div v-if="centrePerformer" class="sb-live-judges">
             <span v-for="(slot, i) in liveJudgeSlots" :key="i"
                   :class="['j-score',
                            slot.filled ? `j-${slot.category}` : 'j-empty',
@@ -1194,14 +1201,16 @@ onMounted(async () => {
               {{ slot.filled ? slot.value.toFixed(1) : '—' }}
             </span>
           </div>
-          <div v-if="activeDiver" class="sb-live-total-slot">
+          <div v-if="centrePerformer" class="sb-live-total-slot">
             <div v-show="liveDiveTotal != null" class="sb-live-total">
               <span class="sb-live-total-label">Dive Total</span>
               <span class="sb-live-total-value">{{ liveDiveTotal != null ? liveDiveTotal.toFixed(1) : '' }}</span>
             </div>
           </div>
-          <div v-if="activeDiver && activeDiverRank" class="sb-live-rank">
-            Currently <strong>{{ ordinal(activeDiverRank) }}</strong>
+          <div v-if="centrePerformer" class="sb-live-rank-slot">
+            <div v-show="activeDiver && activeDiverRank" class="sb-live-rank">
+              Currently <strong>{{ activeDiverRank ? ordinal(activeDiverRank) : '' }}</strong>
+            </div>
           </div>
           <!-- Catch-up projection — table per podium target with
                the average judge score the active diver needs over
@@ -2028,10 +2037,18 @@ onMounted(async () => {
    so the audience reads it as queued-not-diving without losing
    the visual prominence of the centre block. */
 .sb-name.sb-name-next { color: var(--text-2); }
-.sb-badges { display: flex; justify-content: center; gap: 1.5rem; margin-bottom: 1rem; }
+.sb-badges {
+  display: flex; justify-content: center; align-items: baseline;
+  gap: 1.25rem; margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
 .sb-code { font-family: var(--font-mono); font-size: clamp(24px,4vw,36px); color: var(--text); }
 .sb-dd { font-family: var(--font-display); font-size: clamp(18px,3vw,28px); font-weight: 700; color: var(--cyan); }
-.sb-desc { font-family: var(--font-mono); font-size: clamp(13px,1.8vw,18px); color: var(--text-3); margin-top: 1rem; }
+/* Description now sits inline alongside the code + DD as the
+   third item in the badges row (was a separate row beneath).
+   Lower font size + muted colour keeps it as supporting info
+   without competing with the code or DD pip. */
+.sb-desc { font-family: var(--font-mono); font-size: clamp(13px,1.8vw,18px); color: var(--text-3); }
 
 /* Live per-judge pills under the active diver. The .j-score
    classes (already styled globally for the Completed-Dives panel)
@@ -2092,11 +2109,20 @@ onMounted(async () => {
   font-weight: 900;
   color: var(--cyan);
 }
+/* Reserved-height wrapper for the "Currently Nth" line. The
+   inner div uses v-show so its eventual appearance (which lags
+   activeDiver by however long the standings query takes to
+   refresh) doesn't shift the catch-up + Up Next blocks below
+   it down. Same pattern as .sb-live-total-slot. */
+.sb-live-rank-slot {
+  margin-top: 0.5rem;
+  min-height: clamp(20px, 2.2vw, 26px);
+  display: flex; align-items: center; justify-content: center;
+}
 .sb-live-rank {
   font-family: var(--font-mono);
   font-size: clamp(13px, 1.8vw, 18px);
   color: var(--text-3);
-  margin-top: 0.5rem;
 }
 .sb-live-rank strong {
   color: var(--text);
@@ -2107,6 +2133,16 @@ onMounted(async () => {
    block and Up Next. Cyan-tinted block (gold when leading) with
    a confident font size + chunky border so it reads clearly
    from across a pool deck, not just the front row. */
+/* Reserved min-height absorbs the projection's natural variance
+   between kinds (pre / chase / lead / unopposed each have a
+   different number of rows) so the Up Next list below doesn't
+   shift when the projection updates. The chunkiest case — chase
+   with three podium rows + the head line — is ~6 lines × 1.45
+   line-height + 0.7rem×2 padding ≈ 11rem at the desktop end of
+   the clamp. We reserve a slightly smaller floor (8rem) since
+   most actual states are smaller; the chase-with-3-targets case
+   pushes the block taller naturally without shifting things
+   below it because Up Next sits in the normal flow. */
 .sb-projection {
   margin: 1rem auto 0.5rem;
   padding: 0.7rem 1rem;
@@ -2118,6 +2154,8 @@ onMounted(async () => {
   display: inline-block;
   max-width: 100%;
   text-align: left;
+  min-height: clamp(5.5rem, 9vw, 8rem);
+  box-sizing: border-box;
 }
 .sb-projection strong { color: var(--text); font-weight: 700; }
 .sb-projection-lead {
