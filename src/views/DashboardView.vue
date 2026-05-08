@@ -898,16 +898,18 @@ onMounted(async () => {
   white-space: normal; word-break: break-word;
 }
 
-/* Account-area buttons in the top-right of the header.
-   Wraps to its own row on narrow viewports so a long welcome
-   name doesn't push them off the edge. */
+/* Account-area buttons (and the diver-search input) in the
+   top-right of the header. Search + My Profile + Sign Out stay
+   on a single line within this block; the parent .header-inner
+   wraps the whole block below the welcome on narrow viewports
+   if needed. */
 .header-account {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
-  flex-wrap: wrap;
   flex-shrink: 0;
 }
-.header-account .btn { text-decoration: none; }
+.header-account .btn { text-decoration: none; white-space: nowrap; }
 
 /* Find Diver — typeahead lives in the top-right account row.
    Wrapper provides the relative-positioning anchor for the
@@ -916,8 +918,12 @@ onMounted(async () => {
    wraps to on narrow viewports. */
 .find-diver-wrapper {
   position: relative;
-  flex: 0 1 280px;
-  min-width: 200px;
+  /* Fixed-ish width: takes 240px when there's room, can shrink
+     down to 160px on narrow viewports before the parent
+     .header-inner wraps the whole .header-account block below
+     the welcome name. */
+  flex: 0 1 240px;
+  min-width: 160px;
 }
 .find-diver-input {
   width: 100%;
