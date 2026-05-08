@@ -461,12 +461,23 @@ test("meet-manager full E2E (random variant)", async ({
   // Modal closes once the credential path stamps signed_off_at;
   // the workflow button flips to green automatically.
 
-  // STATE 4 — Green start-event button. Click flips Upcoming → Live.
+  // STATE 4 — Green start-event button. Click opens the
+  // Pre-Flight Review modal (roster / panel / referee / warnings
+  // summary); clicking ▶ Go Live in the modal then flips
+  // Upcoming → Live. Two-step pattern so the operator gets a
+  // last-chance review before broadcasting to spectator
+  // scoreboards — see commit history for context.
   const wfGreenBtn = page.locator(".wf-btn.wf-btn-green");
   await expect(wfGreenBtn).toBeVisible({ timeout: 5000 });
   await expect(wfGreenBtn).toHaveText(/Start Event/i);
   await page.waitForTimeout(WORKFLOW_HOLD_MS);
   await wfGreenBtn.click();
+
+  // Pre-Flight Review modal — wait for it, then click ▶ Go Live.
+  const preflightGo = page.getByRole("button", { name: /Go Live/i });
+  await expect(preflightGo).toBeVisible({ timeout: 5000 });
+  await page.waitForTimeout(WORKFLOW_HOLD_MS);
+  await preflightGo.click();
 
   // Once Live, the workflow button hides and the small "● Live"
   // badge takes its place — assert that so we know the status

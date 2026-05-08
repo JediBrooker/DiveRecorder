@@ -39,6 +39,16 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['org_admin', 'meet_manager'] },
   },
   {
+    // First-run setup wizard — guides a brand-new org admin
+    // through creating a club, sharing the invite link, and
+    // opening Meet Manager. DashboardView auto-redirects here
+    // for fresh accounts; the wizard itself bounces back if
+    // already completed (localStorage stamp).
+    path: '/setup',
+    component: () => import('@/views/SetupWizardView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['org_admin'] },
+  },
+  {
     path: '/competitor',
     component: () => import('@/views/CompetitorView.vue'),
     meta: { requiresAuth: true, requiresRole: ['diver'] },

@@ -376,6 +376,32 @@ onMounted(async () => {
       events.value = await auth.apiFetch('/api/events')
     } catch { /* silent — the tile grid still works */ }
   }
+  // First-run check: a brand-new org admin with zero events
+  // and zero clubs lands on a dashboard that doesn't make
+  // obvious where to start. Redirect them to /setup unless
+  // they've already dismissed or completed the wizard.
+  if (auth.hasRole('org_admin')) {
+    let dismissed = false
+    let completed = false
+    try {
+      dismissed = localStorage.getItem('setup.wizardDismissed.v1') === '1'
+      completed = localStorage.getItem('setup.wizardCompleted.v1') === '1'
+    } catch { /* localStorage blocked — treat as not dismissed */ }
+    if (!dismissed && !completed && events.value.length === 0) {
+      // Best-effort club count. If the call fails (e.g., the
+      // user can't read clubs for some reason), fall back to
+      // the events-count signal alone.
+      let clubCount = 0
+      try {
+        const clubs = await auth.apiFetch('/api/clubs')
+        clubCount = (clubs || []).length
+      } catch { /* leave as 0 */ }
+      if (clubCount === 0) {
+        router.replace('/setup')
+        return
+      }
+    }
+  }
   // Pending-attention sources for org admins (role requests)
   // and sysadmins (org registrations awaiting approval). Both
   // endpoints already exist; this just surfaces the counts in
