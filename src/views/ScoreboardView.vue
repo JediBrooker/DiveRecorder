@@ -243,19 +243,20 @@ const upcoming = ref([])         // next ≤5 dives queued, populated for Live e
 // round of dives in view), Up Next stays at a tighter 3-row
 // preview because the audience really only needs to see "who's
 // next + on deck". Both have a toggle to expand to the full set.
+//
+// preview / rest split: the toggle button is rendered INSIDE
+// the v-for after the last preview entry so it stays at a
+// fixed visual position when the list expands — extra entries
+// drop down below the button instead of pushing it off-screen.
 const HISTORY_PREVIEW_COUNT  = 5
 const UP_NEXT_PREVIEW_COUNT  = 3
 const historyShowAll = ref(false)
 const upNextShowAll  = ref(false)
-const visibleHistory = computed(() =>
-  historyShowAll.value
-    ? historyItems.value
-    : historyItems.value.slice(0, HISTORY_PREVIEW_COUNT),
+const historyPreview = computed(() =>
+  historyItems.value.slice(0, HISTORY_PREVIEW_COUNT),
 )
-const visibleUpcoming = computed(() =>
-  upNextShowAll.value
-    ? upcomingDisplay.value
-    : upcomingDisplay.value.slice(0, UP_NEXT_PREVIEW_COUNT),
+const upcomingPreview = computed(() =>
+  upcomingDisplay.value.slice(0, UP_NEXT_PREVIEW_COUNT),
 )
 const leaderboardRounds = ref([])     // [{ round_number, rankings: [...] }]
 const standingsTab = ref('final')     // 'final' | 'by-round'
@@ -1051,7 +1052,17 @@ onMounted(async () => {
         <div class="col-head">Completed Dives</div>
         <div class="col-body">
           <p v-if="!historyItems.length" style="color:var(--text-3);font-size:12px;text-align:center;padding:2rem">No scores yet</p>
-          <div v-for="(h, idx) in visibleHistory" :key="idx" class="hist-card">
+          <!-- Preview cards (always visible) + toggle button +
+               rest cards (visible when expanded) — wrapped in a
+               single v-for over either the preview or the full
+               list, with the toggle injected after the
+               (HISTORY_PREVIEW_COUNT)th card. Keeps the toggle
+               anchored at a fixed visual position; clicking
+               drops the rest of the list down BELOW the
+               button. -->
+          <template v-for="(h, idx) in (historyShowAll ? historyItems : historyPreview)"
+                    :key="`${h.competitor_id}-${h.round_number}`">
+          <div class="hist-card">
             <div class="hist-round">Round {{ h.round_number }}{{ currentEvent?.total_rounds ? ` / ${currentEvent.total_rounds}` : '' }}</div>
             <!-- Shared identity block — same source of truth as
                  the Control Room. Lead + synchro partner stack
@@ -1099,12 +1110,13 @@ onMounted(async () => {
               </template>
             </div>
           </div>
-          <!-- Show-more toggle for the history column. Mirrors
-               the Control Room's same control. Spectators land
-               on a calmer 3-card preview; one click reveals the
-               full set. -->
+          <!-- Toggle button rendered INSIDE the v-for after the
+               last preview card. Stays at a fixed position when
+               clicked: expanding renders the rest of the list
+               BELOW the button, not above it. -->
           <button
-            v-if="historyItems.length > HISTORY_PREVIEW_COUNT"
+            v-if="idx === HISTORY_PREVIEW_COUNT - 1
+                  && historyItems.length > HISTORY_PREVIEW_COUNT"
             class="hist-toggle"
             @click="historyShowAll = !historyShowAll"
           >
@@ -1112,6 +1124,7 @@ onMounted(async () => {
                 ? `Show fewer ↑`
                 : `Show ${historyItems.length - HISTORY_PREVIEW_COUNT} more ↓` }}
           </button>
+          </template>
         </div>
       </div>
 
@@ -1266,7 +1279,14 @@ onMounted(async () => {
               Up Next · {{ upcomingDisplay.length }} remaining
             </div>
             <div class="up-next-scroll">
-              <div v-for="(u, i) in visibleUpcoming" :key="i" class="up-next-row">
+              <!-- Same anchored-toggle pattern as the history
+                   columns: render the v-for over preview-or-all,
+                   inject the toggle button INSIDE the loop after
+                   the last preview row so it stays at a fixed
+                   position when expanded. -->
+              <template v-for="(u, i) in (upNextShowAll ? upcomingDisplay : upcomingPreview)"
+                        :key="`${u.competitor_id || u.full_name}-${u.round_number}-${u.round_order || i}`">
+              <div class="up-next-row">
                 <span class="up-next-rd">R{{ u.round_number }}</span>
                 <span class="up-next-pos">{{ u.round_order }}</span>
                 <span class="up-next-name">
@@ -1292,20 +1312,18 @@ onMounted(async () => {
                   {{ diveDescription(u) }}
                 </span>
               </div>
+              <button
+                v-if="i === UP_NEXT_PREVIEW_COUNT - 1
+                      && upcomingDisplay.length > UP_NEXT_PREVIEW_COUNT"
+                class="up-next-toggle"
+                @click="upNextShowAll = !upNextShowAll"
+              >
+                {{ upNextShowAll
+                    ? `Show fewer ↑`
+                    : `Show ${upcomingDisplay.length - UP_NEXT_PREVIEW_COUNT} more ↓` }}
+              </button>
+              </template>
             </div>
-            <!-- Show-more toggle for Up Next. Only renders when
-                 the queue has more than UP_NEXT_PREVIEW_COUNT
-                 entries; click to expand to the full list,
-                 click again to collapse back to the preview. -->
-            <button
-              v-if="upcomingDisplay.length > UP_NEXT_PREVIEW_COUNT"
-              class="up-next-toggle"
-              @click="upNextShowAll = !upNextShowAll"
-            >
-              {{ upNextShowAll
-                  ? `Show fewer ↑`
-                  : `Show ${upcomingDisplay.length - UP_NEXT_PREVIEW_COUNT} more ↓` }}
-            </button>
           </div>
         </div>
       </div>

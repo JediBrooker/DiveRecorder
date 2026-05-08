@@ -1578,12 +1578,18 @@ const filteredHistory = computed(() => {
 // can't fall back on memory of "what just happened" the way
 // the operator can. Reset on filter change so a "View all"
 // expansion doesn't carry over to a freshly filtered view.
+// historyPreview / historyRest split: the toggle button sits
+// AFTER the preview cards, with the rest dropping down BELOW
+// the button when expanded. Without this split, clicking the
+// button would push it down off the user's eye line as the
+// list grew.
 const HISTORY_PREVIEW_COUNT = 3
 const historyShowAll = ref(false)
-const visibleHistory = computed(() =>
-  historyShowAll.value
-    ? filteredHistory.value
-    : filteredHistory.value.slice(0, HISTORY_PREVIEW_COUNT),
+const historyPreview = computed(() =>
+  filteredHistory.value.slice(0, HISTORY_PREVIEW_COUNT),
+)
+const historyRest = computed(() =>
+  filteredHistory.value.slice(HISTORY_PREVIEW_COUNT),
 )
 watch([historyDiverFilter, historyRoundFilter], () => {
   historyShowAll.value = false
@@ -2262,9 +2268,17 @@ onUnmounted(() => {
           </select>
         </div>
         <div class="panel-body">
+          <!-- Preview cards (always visible) + toggle button +
+               rest cards (visible when expanded) — wrapped in
+               a single v-for over either the preview or the
+               full list, with the toggle injected after the
+               (HISTORY_PREVIEW_COUNT)th card. This keeps the
+               toggle anchored at a fixed visual position so a
+               click expands the list DOWN-WARD rather than
+               pushing the button off the operator's eye-line. -->
+          <template v-for="(card, idx) in (historyShowAll ? filteredHistory : historyPreview)"
+                    :key="card.score_ids?.[0] || `${card.competitor_id}-${card.round}`">
           <div
-            v-for="(card, idx) in visibleHistory"
-            :key="idx"
             :class="['hist-card', card.score_ids?.length ? 'hist-card-correctable' : '']"
             :title="card.score_ids?.length ? 'Click to amend a score' : ''"
             @click="card.score_ids?.length && openCorrection(card)"
@@ -2328,21 +2342,23 @@ onUnmounted(() => {
               </template>
             </div>
           </div>
-          <!-- Show-more toggle — only renders when the filtered
-               list has more than HISTORY_PREVIEW_COUNT cards.
-               Default state is collapsed; clicking expands the
-               full list, clicking again returns to the 3-card
-               preview. Filter changes reset to collapsed via the
-               watch above. -->
+          <!-- Toggle button injected INSIDE the v-for, after the
+               last preview card. Stays visually anchored when
+               clicked: expanding renders the rest of the list
+               BELOW the button rather than shoving the button
+               down. Only renders when there are extra cards to
+               reveal. Filter changes collapse via the watch. -->
           <button
-            v-if="filteredHistory.length > HISTORY_PREVIEW_COUNT"
+            v-if="idx === HISTORY_PREVIEW_COUNT - 1
+                  && filteredHistory.length > HISTORY_PREVIEW_COUNT"
             class="hist-toggle"
-            @click="historyShowAll = !historyShowAll"
+            @click.stop="historyShowAll = !historyShowAll"
           >
             {{ historyShowAll
                 ? `Show fewer ↑`
                 : `Show ${filteredHistory.length - HISTORY_PREVIEW_COUNT} more ↓` }}
           </button>
+          </template>
         </div>
       </div>
 
