@@ -188,8 +188,23 @@ const id = computed(() => diverIdentity(props.row))
   color: var(--cyan); margin-right: 0.25em;
   font-weight: 400;
 }
-.di-link { color: inherit; text-decoration: none; }
-.di-link:hover { text-decoration: underline; text-decoration-color: var(--cyan); }
+/* Match the SPA-wide .diver-link treatment used by the
+   ScoreboardView's centre column, Standings, Up Next, etc.:
+   default colour at rest, on hover the text turns cyan AND
+   gets a cyan dashed underline. Previously this class diverged
+   (default text colour + plain underline-on-hover) which made
+   the same diver name read differently on hover depending on
+   which surface it appeared on. */
+.di-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dashed transparent;
+  transition: color 0.12s, border-color 0.12s;
+}
+.di-link:hover {
+  color: var(--cyan);
+  border-bottom-color: var(--cyan);
+}
 /* Team / club secondary line — only shown for non-synchro rows
    (synchro uses partner-name for the second line instead). One
    step down in weight + colour because affiliation is metadata,

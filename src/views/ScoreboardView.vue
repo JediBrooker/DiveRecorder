@@ -2019,6 +2019,14 @@ onMounted(async () => {
   justify-content: flex-start; padding: 2rem; text-align: center;
   background: var(--bg-2); overflow-y: auto;
 }
+/* Centre column — condensed pass. Each block's vertical
+   spend got tightened so the whole "Current Performer" block
+   reads ~20% shorter. The big diver name is still the visual
+   anchor, just with less white space above and below it; the
+   judges row, dive-total slot, rank line, and catch-up block
+   all sit closer together. Up Next slides up correspondingly,
+   which means more of the audience-facing scoreboard is
+   visible without scrolling on a typical 1080p projector. */
 .sb-round-pill {
   display: inline-block;
   font-family: var(--font-display);
@@ -2028,18 +2036,18 @@ onMounted(async () => {
   background: var(--cyan-dim);
   border: 1px solid rgba(6, 182, 212, 0.4);
   border-radius: 999px;
-  padding: 0.3rem 0.9rem;
-  margin-bottom: 1.25rem;
+  padding: 0.25rem 0.85rem;
+  margin-bottom: 0.7rem;
 }
-.sb-label { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.4em; text-transform: uppercase; color: var(--cyan); margin-bottom: 1rem; }
-.sb-name { font-family: var(--font-display); font-size: clamp(36px,6vw,72px); font-weight: 900; font-style: italic; color: var(--text); line-height: 1; margin-bottom: 1.5rem; }
+.sb-label { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.4em; text-transform: uppercase; color: var(--cyan); margin-bottom: 0.6rem; }
+.sb-name { font-family: var(--font-display); font-size: clamp(32px,5vw,60px); font-weight: 900; font-style: italic; color: var(--text); line-height: 1; margin-bottom: 0.7rem; }
 /* Mid-meet "On Deck — Up Next" placeholder. Slightly desaturated
    so the audience reads it as queued-not-diving without losing
    the visual prominence of the centre block. */
 .sb-name.sb-name-next { color: var(--text-2); }
 .sb-badges {
   display: flex; justify-content: center; align-items: baseline;
-  gap: 1.25rem; margin-bottom: 1rem;
+  gap: 1.25rem; margin-bottom: 0.6rem;
   flex-wrap: wrap;
 }
 .sb-code { font-family: var(--font-mono); font-size: clamp(24px,4vw,36px); color: var(--text); }
@@ -2059,14 +2067,14 @@ onMounted(async () => {
   display: flex;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 1.25rem;
+  gap: 0.45rem;
+  margin-top: 0.6rem;
 }
 .sb-live-judges .j-score {
   font-family: var(--font-display);
-  font-size: clamp(18px, 2.5vw, 26px);
+  font-size: clamp(16px, 2.2vw, 22px);
   font-weight: 700;
-  padding: 0.4rem 0.75rem;
+  padding: 0.3rem 0.65rem;
   border-radius: var(--radius);
   min-width: 3ch;
 }
@@ -2087,13 +2095,13 @@ onMounted(async () => {
    appears. Inner div uses v-show so it's measurable but
    invisible until the value lands. */
 .sb-live-total-slot {
-  margin-top: 1rem;
-  min-height: clamp(32px, 5vw, 52px);
+  margin-top: 0.5rem;
+  min-height: clamp(26px, 3.6vw, 38px);
   display: flex; align-items: center; justify-content: center;
 }
 .sb-live-total {
   display: flex; align-items: baseline; justify-content: center;
-  gap: 0.6rem;
+  gap: 0.55rem;
 }
 .sb-live-total-label {
   font-family: var(--font-display);
@@ -2105,7 +2113,7 @@ onMounted(async () => {
 }
 .sb-live-total-value {
   font-family: var(--font-display);
-  font-size: clamp(28px, 4.5vw, 44px);
+  font-size: clamp(24px, 3.6vw, 36px);
   font-weight: 900;
   color: var(--cyan);
 }
@@ -2115,13 +2123,13 @@ onMounted(async () => {
    refresh) doesn't shift the catch-up + Up Next blocks below
    it down. Same pattern as .sb-live-total-slot. */
 .sb-live-rank-slot {
-  margin-top: 0.5rem;
-  min-height: clamp(20px, 2.2vw, 26px);
+  margin-top: 0.25rem;
+  min-height: clamp(16px, 1.6vw, 22px);
   display: flex; align-items: center; justify-content: center;
 }
 .sb-live-rank {
   font-family: var(--font-mono);
-  font-size: clamp(13px, 1.8vw, 18px);
+  font-size: clamp(12px, 1.4vw, 16px);
   color: var(--text-3);
 }
 .sb-live-rank strong {
@@ -2144,17 +2152,17 @@ onMounted(async () => {
    pushes the block taller naturally without shifting things
    below it because Up Next sits in the normal flow. */
 .sb-projection {
-  margin: 1rem auto 0.5rem;
-  padding: 0.7rem 1rem;
+  margin: 0.6rem auto 0.4rem;
+  padding: 0.5rem 0.85rem;
   border-radius: var(--radius-sm);
   border-left-width: 4px;
   font-family: var(--font-mono);
-  font-size: clamp(14px, 1.7vw, 18px);
-  line-height: 1.45;
+  font-size: clamp(13px, 1.5vw, 16px);
+  line-height: 1.4;
   display: inline-block;
   max-width: 100%;
   text-align: left;
-  min-height: clamp(5.5rem, 9vw, 8rem);
+  min-height: clamp(4rem, 6.5vw, 6rem);
   box-sizing: border-box;
 }
 .sb-projection strong { color: var(--text); font-weight: 700; }
@@ -2218,7 +2226,7 @@ onMounted(async () => {
    having to parse a dense list. Width-capped so it doesn't
    stretch full-screen on big monitors. */
 .up-next {
-  margin-top: 2rem;
+  margin-top: 1rem;
   background: var(--bg-3); border: 1px solid var(--border);
   border-radius: var(--radius);
   text-align: left;
@@ -2228,7 +2236,7 @@ onMounted(async () => {
 .up-next-label {
   font-family: var(--font-display); font-size: 10px; font-weight: 700;
   letter-spacing: 0.3em; text-transform: uppercase; color: var(--text-3);
-  padding: 0.7rem 1rem;
+  padding: 0.55rem 0.9rem;
   border-bottom: 1px solid var(--border);
 }
 /* The scroll container. Caps height at roughly 10 rows so a
@@ -2325,7 +2333,7 @@ onMounted(async () => {
   .up-next-dd, .up-next-code { grid-column: auto; }
   .up-next-desc { font-size: 10.5px; }
 }
-.sb-country-line { font-family: var(--font-mono); font-size: clamp(14px,2vw,20px); font-weight: 700; letter-spacing: 0.15em; color: var(--text-3); margin-bottom: 1.5rem; }
+.sb-country-line { font-family: var(--font-mono); font-size: clamp(13px,1.7vw,17px); font-weight: 700; letter-spacing: 0.15em; color: var(--text-3); margin-bottom: 0.8rem; }
 
 #no-event-view { display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 700px; }
 .picker-label { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: var(--text-3); margin-bottom: 2rem; }
