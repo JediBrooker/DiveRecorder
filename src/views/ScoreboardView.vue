@@ -2375,16 +2375,23 @@ onMounted(async () => {
 /* Diver-name links — clickable diver names everywhere they
    appear, jumping to /profile/<id>. Inherits the surrounding
    font / size / colour so the underline-on-hover is the only
-   visual cue at rest. */
+   visual cue at rest.
+   Implementation note: text-decoration (with -style: dashed +
+   transparent -color at rest, cyan on hover) instead of
+   border-bottom. The Up Next list's row uses overflow:hidden
+   for ellipsis, which clipped the inline element's border-
+   bottom but leaves text-decoration intact — same visual cue
+   on every surface this class appears. */
 .diver-link {
   color: inherit;
-  text-decoration: none;
-  border-bottom: 1px dashed transparent;
-  transition: color 0.12s, border-color 0.12s;
+  text-decoration: underline dashed transparent;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: color 0.12s, text-decoration-color 0.12s;
 }
 .diver-link:hover {
   color: var(--cyan);
-  border-bottom-color: var(--cyan);
+  text-decoration-color: var(--cyan);
 }
 .hist-total { font-family: var(--font-mono); font-size: 16px; font-weight: 500; color: var(--cyan); flex-shrink: 0; margin-left: 0.5rem; }
 .hist-dive-line { display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 0.4rem; min-width: 0; }

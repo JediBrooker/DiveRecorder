@@ -188,22 +188,22 @@ const id = computed(() => diverIdentity(props.row))
   color: var(--cyan); margin-right: 0.25em;
   font-weight: 400;
 }
-/* Match the SPA-wide .diver-link treatment used by the
-   ScoreboardView's centre column, Standings, Up Next, etc.:
-   default colour at rest, on hover the text turns cyan AND
-   gets a cyan dashed underline. Previously this class diverged
-   (default text colour + plain underline-on-hover) which made
-   the same diver name read differently on hover depending on
-   which surface it appeared on. */
+/* Match the SPA-wide .diver-link treatment: default colour at
+   rest, on hover the text turns cyan AND gets a cyan dashed
+   underline. Uses text-decoration (rather than border-bottom)
+   so the underline survives parent overflow:hidden — the
+   border-bottom approach was clipped inside the Up Next list
+   on the scoreboard. */
 .di-link {
   color: inherit;
-  text-decoration: none;
-  border-bottom: 1px dashed transparent;
-  transition: color 0.12s, border-color 0.12s;
+  text-decoration: underline dashed transparent;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: color 0.12s, text-decoration-color 0.12s;
 }
 .di-link:hover {
   color: var(--cyan);
-  border-bottom-color: var(--cyan);
+  text-decoration-color: var(--cyan);
 }
 /* Team / club secondary line — only shown for non-synchro rows
    (synchro uses partner-name for the second line instead). One
