@@ -39,20 +39,24 @@ function fmtCloses(iso) {
 const actionCards = computed(() => {
   if (!showActionCards.value) return []
   const cards = []
-  // Live events — single-tap return to the Control Room.
+  // Live events — single-tap return to the Control Room. Title
+  // already carries "is LIVE" so meta stays empty in the
+  // compact row layout (saves vertical space when an org is
+  // running multiple meets simultaneously).
   for (const ev of events.value.filter(e => e.status === 'Live')) {
     cards.push({
       id: 'live-' + ev.id,
       kind: 'live',
       icon: '🔴',
       title: `${ev.name} is LIVE`,
-      meta: 'Drop back into the Control Room — scoring is in progress.',
+      meta: null,
       to: `/control?event=${ev.id}`,
     })
   }
-  // Upcoming events sorted by closest deadline first. Cap at 3
-  // so the actionable section doesn't grow longer than the
-  // main tile grid below it.
+  // Upcoming events sorted by closest deadline first. No fixed
+  // slice — the preview-cap below limits visible rows and the
+  // Show-more toggle expands when an operator wants the full
+  // list.
   const upcoming = events.value
     .filter(e => e.status === 'Upcoming')
     .sort((a, b) => {
@@ -60,7 +64,6 @@ const actionCards = computed(() => {
       const bd = b.entries_close_at ? +new Date(b.entries_close_at) : Infinity
       return ad - bd
     })
-    .slice(0, 3)
   for (const ev of upcoming) {
     cards.push({
       id: 'upcoming-' + ev.id,
@@ -72,6 +75,41 @@ const actionCards = computed(() => {
     })
   }
   return cards
+})
+
+// Collapsible "what needs your attention" — when an org is
+// running multiple meets, the full-card layout drowned the
+// dashboard. New layout is single-line rows, capped at 5 by
+// default with a "Show N more" toggle, and the whole section
+// can be folded behind its header. State sticks via
+// localStorage so an operator who hides it stays hidden across
+// sessions.
+const ATTENTION_KEY     = 'dashboard.attentionOpen.v1'
+const ATTENTION_PREVIEW = 5
+const attentionOpen     = ref(true)
+const attentionShowAll  = ref(false)
+try {
+  if (typeof localStorage !== 'undefined'
+      && localStorage.getItem(ATTENTION_KEY) === 'false') {
+    attentionOpen.value = false
+  }
+} catch { /* localStorage may be blocked; default open */ }
+function toggleAttention() {
+  attentionOpen.value = !attentionOpen.value
+  // Reset show-all whenever the section closes so reopening
+  // starts at the friendly preview length again.
+  if (!attentionOpen.value) attentionShowAll.value = false
+  try { localStorage.setItem(ATTENTION_KEY, String(attentionOpen.value)) } catch {}
+}
+const liveCount = computed(() =>
+  actionCards.value.filter(c => c.kind === 'live').length,
+)
+const upcomingCount = computed(() =>
+  actionCards.value.filter(c => c.kind === 'upcoming').length,
+)
+const visibleAttentionCards = computed(() => {
+  if (attentionShowAll.value) return actionCards.value
+  return actionCards.value.slice(0, ATTENTION_PREVIEW)
 })
 
 // =========================================================
@@ -368,23 +406,54 @@ onMounted(async () => {
        rather than "here are all the screens you can open".
        Scoped to org_admin / meet_manager because they're the
        roles whose attention is split across multiple events;
-       judges see their own assigned-events list higher up. -->
+       judges see their own assigned-events list higher up.
+
+       Compact layout: each card is a single-line row, the
+       header collapses the section entirely, and a 5-row cap
+       with a Show-more toggle keeps the section quiet when an
+       org is running many concurrent meets. -->
   <div v-if="actionCards.length" class="action-cards">
-    <div class="action-cards-label">What needs your attention</div>
-    <RouterLink
-      v-for="(card, idx) in actionCards"
-      :key="card.id"
-      :to="card.to"
-      :class="['action-card', `action-card-${card.kind}`]"
-      :style="{ animationDelay: `${idx * 40}ms` }"
+    <button
+      type="button"
+      class="action-cards-header"
+      :aria-expanded="attentionOpen"
+      :title="attentionOpen ? 'Click to collapse' : 'Click to expand'"
+      @click="toggleAttention"
     >
-      <div class="action-card-icon">{{ card.icon }}</div>
-      <div class="action-card-body">
-        <div class="action-card-title">{{ card.title }}</div>
-        <div class="action-card-meta">{{ card.meta }}</div>
-      </div>
-      <div class="action-card-arrow">→</div>
-    </RouterLink>
+      <span class="action-cards-label">What needs your attention</span>
+      <span class="action-cards-summary">
+        <span v-if="liveCount" class="acs-live">{{ liveCount }} LIVE</span>
+        <span v-if="liveCount && upcomingCount" class="acs-sep">·</span>
+        <span v-if="upcomingCount" class="acs-upcoming">{{ upcomingCount }} UPCOMING</span>
+      </span>
+      <span class="action-cards-toggle" :class="{ open: attentionOpen }" aria-hidden="true">▾</span>
+    </button>
+
+    <div v-if="attentionOpen" class="action-cards-list">
+      <RouterLink
+        v-for="(card, idx) in visibleAttentionCards"
+        :key="card.id"
+        :to="card.to"
+        :class="['action-card', `action-card-${card.kind}`]"
+        :style="{ animationDelay: `${Math.min(idx, 6) * 25}ms` }"
+      >
+        <span class="action-card-icon">{{ card.icon }}</span>
+        <span class="action-card-title">{{ card.title }}</span>
+        <span v-if="card.meta" class="action-card-meta">{{ card.meta }}</span>
+        <span class="action-card-arrow" aria-hidden="true">→</span>
+      </RouterLink>
+
+      <button
+        v-if="actionCards.length > ATTENTION_PREVIEW"
+        type="button"
+        class="action-cards-more"
+        @click="attentionShowAll = !attentionShowAll"
+      >
+        {{ attentionShowAll
+            ? 'Show fewer'
+            : `Show ${actionCards.length - ATTENTION_PREVIEW} more` }}
+      </button>
+    </div>
   </div>
 
   <div class="main-grid">
@@ -449,71 +518,125 @@ onMounted(async () => {
   word-break: break-word;
 }
 
-/* "What needs your attention" action cards — high-priority
-   operator tasks above the tile grid. Live events get a red
-   tint + subtle pulse so they're impossible to miss; Upcoming
-   events use the standard cyan accent. Click goes straight
-   to the Control Room with the event preselected. */
+/* "What needs your attention" — compact, collapsible operator
+   to-do strip above the tile grid. The previous design used
+   tall stacked cards which drowned the dashboard the moment an
+   org was running 3+ concurrent meets; the layout below is
+   single-line rows with a fold-away header and a preview cap. */
 .action-cards {
-  margin-top: 2rem;
-  display: flex; flex-direction: column;
-  gap: 0.75rem;
+  /* Same content envelope as the find-diver bar and main tile
+     grid so the section lines up with everything else and
+     doesn't bleed past the page max-width. */
+  max-width: 1400px;
+  margin: 1.25rem auto 0;
+  padding: 0 2rem;
 }
+
+/* Header is a button — click anywhere on the strip to fold the
+   section away. Live / Upcoming counts stay visible even when
+   collapsed so the operator always knows what's pending. */
+.action-cards-header {
+  display: flex; align-items: center; gap: 0.85rem;
+  width: 100%;
+  background: transparent; border: none;
+  padding: 0.4rem 0;
+  margin-bottom: 0.5rem;
+  font: inherit; color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.action-cards-header:hover .action-cards-label { color: var(--text-2); }
 .action-cards-label {
   font-family: var(--font-display); font-size: 11px; font-weight: 700;
   letter-spacing: 0.22em; text-transform: uppercase;
   color: var(--text-3);
-  margin-bottom: 0.25rem;
+  transition: color 0.15s;
 }
+.action-cards-summary {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-3);
+}
+.acs-live     { color: var(--red);  font-weight: 700; letter-spacing: 0.05em; }
+.acs-upcoming { color: var(--cyan); font-weight: 700; letter-spacing: 0.05em; }
+.acs-sep      { color: var(--text-3); }
+.action-cards-toggle {
+  margin-left: auto;
+  font-family: var(--font-display); font-size: 12px;
+  color: var(--text-3);
+  transition: transform 0.2s;
+}
+.action-cards-toggle.open { transform: rotate(180deg); }
+
+.action-cards-list {
+  display: flex; flex-direction: column;
+  gap: 0.4rem;
+}
+
+/* Compact one-line row — icon · title · meta · arrow. About
+   half the height of the previous two-line card, so 8 events
+   take ~280px instead of ~700px. */
 .action-card {
-  display: flex; align-items: center; gap: 1rem;
-  padding: 1.1rem 1.25rem;
+  display: flex; align-items: center; gap: 0.75rem;
+  padding: 0.55rem 0.95rem;
   background: var(--bg-3);
   border: 1px solid var(--border);
   border-left-width: 4px;
   border-radius: var(--radius);
   text-decoration: none;
   transition: transform 0.15s, border-color 0.15s, background 0.15s;
-  animation: fadeUp 0.3s ease both;
+  animation: fadeUp 0.25s ease both;
+  /* Allow internal flex children to shrink past their content
+     width so a long meet name + meta string can ellipsize
+     instead of pushing the row wider than its container. */
+  min-width: 0;
 }
 .action-card:hover {
-  transform: translateY(-1px);
+  transform: translateX(2px);
   border-color: var(--border-2);
   background: rgba(6, 182, 212, 0.04);
 }
 .action-card-live {
   border-left-color: var(--red);
-  background: rgba(239, 68, 68, 0.05);
-  animation: fadeUp 0.3s ease both, pulse-live 2.6s ease-in-out infinite 0.4s;
+  background: rgba(239, 68, 68, 0.04);
 }
 .action-card-live:hover {
-  background: rgba(239, 68, 68, 0.10);
+  background: rgba(239, 68, 68, 0.09);
   border-color: rgba(239, 68, 68, 0.4);
 }
 .action-card-upcoming { border-left-color: var(--cyan); }
 .action-card-upcoming:hover { border-color: rgba(6, 182, 212, 0.4); }
 .action-card-icon {
-  font-size: 24px; line-height: 1;
+  font-size: 14px; line-height: 1;
   flex-shrink: 0;
 }
-.action-card-body {
-  flex: 1; min-width: 0;
-  display: flex; flex-direction: column; gap: 0.2rem;
-}
 .action-card-title {
-  font-family: var(--font-display); font-size: 16px; font-weight: 800;
+  font-family: var(--font-display); font-size: 14px; font-weight: 800;
   font-style: italic; letter-spacing: 0.02em;
   color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  /* Title gets to grow but is allowed to shrink; meta gets a
+     bigger flex-shrink so when the row is tight, the meta
+     ellipsizes first (deadline strings are forgiving — losing
+     the diver/meet name is not). */
+  flex: 1 1 auto; min-width: 0;
 }
 .action-card-meta {
-  font-family: var(--font-mono); font-size: 12px;
+  font-family: var(--font-mono); font-size: 11px;
   color: var(--text-3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex: 0 1 auto; min-width: 0;
+}
+.action-card-meta::before {
+  content: '·';
+  margin-right: 0.5rem;
+  color: var(--text-3);
 }
 .action-card-arrow {
-  font-family: var(--font-display); font-size: 22px;
+  font-family: var(--font-display); font-size: 16px;
   color: var(--text-3);
+  margin-left: auto;
+  padding-left: 0.5rem;
   transition: transform 0.15s, color 0.15s;
   flex-shrink: 0;
 }
@@ -522,9 +645,25 @@ onMounted(async () => {
   color: var(--cyan);
 }
 .action-card-live:hover .action-card-arrow { color: var(--red); }
-@keyframes pulse-live {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
-  50%      { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.12); }
+
+/* Show-more / Show-fewer toggle when the list exceeds the
+   preview cap. Dashed border so it reads as ancillary not
+   primary affordance. */
+.action-cards-more {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--text-3);
+  font-family: var(--font-mono); font-size: 11px;
+  letter-spacing: 0.05em;
+  padding: 0.45rem 0.5rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-top: 0.15rem;
+}
+.action-cards-more:hover {
+  color: var(--cyan);
+  border-color: var(--cyan);
 }
 
 .main-grid {
