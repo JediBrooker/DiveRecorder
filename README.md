@@ -229,6 +229,8 @@ The project intentionally avoids a build-time framework like Nuxt or Next — th
 - **Consequence-spelling confirm modals** replace native `confirm()` across every destructive surface (delete event / club / team, finalise, randomise, advance to next stage, …). Each modal lists the actual side effects ("results emails go out to N competitors", "historical scores stay intact") so the operator knows what they're committing to.
 - **Toast feedback on every async action** — `Roster imported: 12 divers added`, `Score correction saved`, `Late entry added — Avery Ueno scheduled in Round 1`. Replaces the old silent-success / `alert()`-on-failure pattern; success / info / warn / error variants share one bottom-centre snackbar.
 - **Score persistence + audit logging** on every submission (judge id, IP, user agent). Per-judge socket rate limit (60 submissions/min) blocks abuse.
+- **Live state survives server restarts** — `activeDivers` (current performer per event) and `meetHolds` (per-event hold reason) are persisted to an `event_live_state` table on every mutation. A `pm2 reload`, deploy, or process crash mid-meet rehydrates the in-memory cache from the DB on boot, so spectator scoreboards stay populated and the operator doesn't have to re-pick the active diver.
+- **Graceful shutdown** — SIGTERM / SIGINT trigger a 25-second drain: `server.close()` stops accepting new HTTP, `io.close()` drains sockets, `pool.end()` flushes pg connections in flight, then exit 0. Matches pm2's default 30 s grace and Kubernetes' SIGTERM contract.
 - **Connection-lost banners** on Judge + Scoreboard views so a flaky pool-deck wifi is visible immediately.
 
 ### World Aquatics scoring
@@ -324,8 +326,11 @@ Email triggers (best-effort, never block the response):
 - **Clubs** (`/clubs`): list, create, rename, delete with member counts.
 - **Teams** (`/teams`): list, create, rename, delete (non-destructive), inline member drawer, see which events each team is enrolled in.
 - **Score Audit Log** (`/events/:id/audit`): per-event timeline of every score insert/update/delete with actor, IP, user agent.
+- **Federation-wide Audit Log** (`/audit`): cross-event view with three tabs (Recent activity, Score corrections, Role changes) and per-tab filters (action, date range, reason text search). Sysadmin gets an "Org scope" filter to scope across federations.
 - Role grants/revokes write to a `role_audit_log` table; the User Manager drawer surfaces the per-user history.
+- Generic `audit_log` table captures entity-lifecycle events outside the score/role domain (event create/delete/finalise, org status flips, club/team deletes, late-entry adds, withdraw/reinstate, pre-meet workflow resets, manager-attest sign-offs).
 - 30-day audit log retention via `purge_audit_logs(retention_days)` — runs on server boot, configurable.
+- **Audit archive export** — `GET /api/audit/export.csv?kind=scores|roles|activity` streams the full history as CSV (no row cap) for legal disputes / compliance reviews. A daily snapshot job writes the past 24 h of all three audit tables to JSONL files in `AUDIT_SNAPSHOT_DIR` BEFORE the purge runs, so legal-retention archives outlive the 30-day DB window.
 - Schema version stamp logged on boot so an operator can confirm at-a-glance which version is deployed.
 
 ### Operator surfaces
@@ -339,6 +344,10 @@ Email triggers (best-effort, never block the response):
 - **Operator keyboard shortcuts** in Control Room — ←/→/Space to advance, 1–9 to jump to roster position, T to reset shot clock, F failed, R redive, H hold, L leaderboard. Status pill (READY → DIVING → JUDGING) auto-cycles off the shot clock + judge submissions, so no manual key for it. A **?** popover next to the Next Diver button surfaces the full reference for new operators.
 - **Disabled-button tooltips** explain the gate — every disabled control says WHY it's disabled (e.g. *"Waiting for 2 more judge scores"* on Next Diver, *"Pick a referee from the list above first"* on Generate Code).
 - **Up Next preview** in the live scoreboard centre column.
+- **Notifications inbox** at `/inbox` — every push notification + in-app banner sent to the signed-in user, persisted for the retention window so a missed phone push isn't lost. Filter chips (Unread / All / by category), optimistic mark-read, and a "Mark all read" shortcut. Linked from the dashboard's top-right account row.
+- **Mobile-friendly dashboard** — tablet-and-down breakpoints stack the account buttons, scroll the tab strip horizontally, and switch the pulse strip to a swipeable single line. Phone breakpoint shrinks the welcome name and hides the activity ticker so the chips don't fight for width.
+- **Lazy-loaded role panels** — DashboardView's per-role panels (Org Admin / Meet Manager / Diver / Coach / Judge / Referee / Other) are split into ~1–4 kB async chunks so a diver-only account doesn't download the org-admin attention-card markup. The dashboard chunk dropped from ~80 kB to ~24 kB.
+- **`/api/dashboard` bundle endpoint** — replaces 5–6 fan-out API calls on dashboard mount with a single round trip that composes the role-scoped slices server-side. At 50 concurrent operators, that's 250 fewer round trips per refresh.
 
 ### PWA / offline
 
