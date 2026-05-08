@@ -5,6 +5,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
 import { diveDescription } from '@/composables/useDiveLabel'
 import { showUndo } from '@/composables/useUndo'
+import { showSuccess, showError, showInfo } from '@/composables/useNotify'
+import { confirmAction } from '@/composables/useConfirm'
 import DiverIdentity from '@/components/DiverIdentity.vue'
 import {
   annotatedScores,
@@ -889,13 +891,95 @@ async function managerAttestSignoff() {
   }
 }
 
+// Pre-flight review modal — shown when the operator clicks the
+// green "Start Event" workflow button. The four-step pre-meet
+// stepper has already verified the procedural prerequisites
+// (check-in, randomise, sign-off); this modal is the last-
+// chance visual review of WHAT'S ABOUT TO GO LIVE — roster
+// size, judge panel, referee status, plus a warnings list for
+// anything that looks misconfigured (synchro on a 5-judge
+// panel, divers with incomplete dive lists, etc.). Mirrors a
+// pilot's pre-flight checklist before take-off.
+const preFlightOpen = ref(false)
+const preFlightSummary = computed(() => {
+  const ev = currentEvent.value
+  if (!ev) return null
+  const totalRounds = parseInt(ev.total_rounds) || 0
+  // Derive checked-in divers from the roster. Each row is one
+  // diver-round, so group by competitor_id and count rounds.
+  const byDiver = new Map()
+  for (const row of roster.value) {
+    if (row.withdrawn_at) continue
+    const id = row.competitor_id || row.diver_id || row.dive_list_id
+    if (!byDiver.has(id)) {
+      byDiver.set(id, {
+        id,
+        name: row.full_name || row.diver_name || 'Diver',
+        rows: 0,
+        missingDive: 0,
+      })
+    }
+    const e = byDiver.get(id)
+    e.rows++
+    if (!row.dive_code) e.missingDive++
+  }
+  const divers = [...byDiver.values()]
+  const incompleteDivers = divers.filter(d =>
+    d.rows < totalRounds || d.missingDive > 0,
+  )
+  // Warnings: anything that isn't an outright blocker but
+  // deserves a second look before going Live.
+  const warnings = []
+  const judgeCount = parseInt(ev.number_of_judges) || 0
+  if (ev.event_type === 'synchro_pair' && judgeCount < 9) {
+    warnings.push(
+      `Synchro panel size is ${judgeCount}; the World Aquatics rule expects 9 or 11 to fill the Exec A / Exec B / Sync sub-panels.`,
+    )
+  }
+  if (incompleteDivers.length) {
+    const n = incompleteDivers.length
+    warnings.push(
+      `${n} diver${n === 1 ? ' has' : 's have'} an incomplete dive list (missing rounds or dive codes).`,
+    )
+  }
+  if (!ev.dive_order_signed_off_at) {
+    warnings.push('Referee sign-off is missing.')
+  }
+  if (judgePanel.value.length < judgeCount) {
+    warnings.push(
+      `Only ${judgePanel.value.length} of ${judgeCount} judge slots are filled.`,
+    )
+  }
+  return {
+    eventName: ev.name,
+    eventType: ev.event_type === 'synchro_pair' ? 'Synchro Pair'
+             : ev.event_type === 'team'         ? 'Team'
+             : 'Individual',
+    height: ev.height,
+    rounds: totalRounds,
+    judgeCount,
+    ageGroup: ev.age_group,
+    diverCount: divers.length,
+    incompleteDivers: incompleteDivers.slice(0, 5), // cap so the modal stays compact
+    incompleteOverflow: Math.max(0, incompleteDivers.length - 5),
+    judges: judgePanel.value.slice(0, 11),          // already capped at 11 in practice
+    refereeSignedOff: !!ev.dive_order_signed_off_at,
+    warnings,
+  }
+})
+
 async function startEvent() {
   if (!currentEvent.value) return
-  if (!confirm(
-    `Start "${currentEvent.value.name}"?\n\n`
-    + `The event will flip to Live and the dive order will be locked. `
-    + `Spectator scoreboards will start broadcasting immediately.`
-  )) return
+  // Open the pre-flight review instead of the bare native
+  // confirm. The modal's "Go Live" button calls
+  // commitStartEvent() once the operator has reviewed.
+  preFlightOpen.value = true
+}
+
+async function commitStartEvent() {
+  if (!currentEvent.value) return
+  preFlightOpen.value = false
+  const evName = currentEvent.value.name
   orderBusy.value = true
   try {
     await auth.apiFetch(`/api/events/${currentEvent.value.id}/status`, {
@@ -903,8 +987,9 @@ async function startEvent() {
       body: JSON.stringify({ status: 'Live' }),
     })
     patchCurrentEvent({ status: 'Live' })
+    showSuccess(`"${evName}" is Live — scoreboards broadcasting.`)
   } catch (err) {
-    alert('Failed to start: ' + err.message)
+    showError(`Failed to start "${evName}": ${err.message}`)
   } finally {
     orderBusy.value = false
   }
@@ -2371,6 +2456,94 @@ onUnmounted(() => {
     <div v-if="isHeld" class="hold-banner">
       <span class="hold-pulse">⏸ MEET ON HOLD</span>
       <span v-if="holdReason" class="hold-reason">{{ holdReason }}</span>
+    </div>
+
+    <!-- Pre-flight review modal — final visual check before
+         flipping the event Live. The four-step pre-meet stepper
+         already verified the procedural prerequisites; this
+         modal summarises the actual state (roster, panel,
+         referee) plus any warnings worth a second look. -->
+    <div v-if="preFlightOpen && preFlightSummary" class="lb-backdrop preflight-backdrop"
+         @mousedown.self="preFlightOpen = false">
+      <div class="preflight-modal" role="dialog" aria-modal="true" aria-labelledby="preflight-title">
+        <div class="preflight-head">
+          <div id="preflight-title" class="preflight-title">Pre-Flight Review</div>
+          <div class="preflight-subtitle">{{ preFlightSummary.eventName }}</div>
+        </div>
+
+        <div class="preflight-grid">
+          <div class="preflight-section">
+            <div class="preflight-label">Event</div>
+            <div class="preflight-row">
+              <span class="preflight-pill">{{ preFlightSummary.eventType }}</span>
+              <span v-if="preFlightSummary.height" class="preflight-pill">
+                {{ preFlightSummary.height }}
+              </span>
+              <span v-if="preFlightSummary.ageGroup" class="preflight-pill">{{ preFlightSummary.ageGroup }}</span>
+              <span class="preflight-pill">{{ preFlightSummary.rounds }} rounds</span>
+            </div>
+          </div>
+
+          <div class="preflight-section">
+            <div class="preflight-label">Roster</div>
+            <div class="preflight-row preflight-strong">
+              <span :class="['preflight-tick', preFlightSummary.diverCount ? 'ok' : 'warn']">
+                {{ preFlightSummary.diverCount ? '✓' : '⚠' }}
+              </span>
+              {{ preFlightSummary.diverCount }} diver{{ preFlightSummary.diverCount === 1 ? '' : 's' }} checked in
+            </div>
+            <ul v-if="preFlightSummary.incompleteDivers.length" class="preflight-detail-list">
+              <li v-for="d in preFlightSummary.incompleteDivers" :key="d.id">
+                {{ d.name }} — {{ d.rows }} / {{ preFlightSummary.rounds }} rounds<span v-if="d.missingDive">, {{ d.missingDive }} dive code{{ d.missingDive === 1 ? '' : 's' }} missing</span>
+              </li>
+              <li v-if="preFlightSummary.incompleteOverflow" class="preflight-overflow">
+                + {{ preFlightSummary.incompleteOverflow }} more
+              </li>
+            </ul>
+          </div>
+
+          <div class="preflight-section">
+            <div class="preflight-label">Panel</div>
+            <div class="preflight-row preflight-strong">
+              <span :class="['preflight-tick', preFlightSummary.judges.length === preFlightSummary.judgeCount ? 'ok' : 'warn']">
+                {{ preFlightSummary.judges.length === preFlightSummary.judgeCount ? '✓' : '⚠' }}
+              </span>
+              {{ preFlightSummary.judges.length }} of {{ preFlightSummary.judgeCount }} judges seated
+            </div>
+            <div v-if="preFlightSummary.judges.length" class="preflight-judges">
+              <span v-for="(j, i) in preFlightSummary.judges" :key="j.id || j.user_id || i" class="preflight-judge-pill">
+                J{{ i + 1 }} {{ (j.full_name || j.name || 'Judge').split(' ').slice(-1)[0] }}
+              </span>
+            </div>
+          </div>
+
+          <div class="preflight-section">
+            <div class="preflight-label">Referee</div>
+            <div class="preflight-row preflight-strong">
+              <span :class="['preflight-tick', preFlightSummary.refereeSignedOff ? 'ok' : 'warn']">
+                {{ preFlightSummary.refereeSignedOff ? '✓' : '⚠' }}
+              </span>
+              {{ preFlightSummary.refereeSignedOff ? 'Signed off' : 'Not signed off' }}
+            </div>
+          </div>
+        </div>
+
+        <div v-if="preFlightSummary.warnings.length" class="preflight-warnings">
+          <div class="preflight-warnings-head">⚠ Worth a second look</div>
+          <ul>
+            <li v-for="(w, i) in preFlightSummary.warnings" :key="i">{{ w }}</li>
+          </ul>
+        </div>
+
+        <div class="preflight-actions">
+          <button type="button" class="btn btn-ghost preflight-cancel" @click="preFlightOpen = false">
+            Not yet
+          </button>
+          <button type="button" class="btn btn-primary preflight-go" @click="commitStartEvent" :disabled="orderBusy">
+            {{ orderBusy ? '▶ …' : '▶ Go Live' }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Leaderboard modal -->
@@ -4318,6 +4491,158 @@ onUnmounted(() => {
 .btn-finalise:hover { background: var(--amber); color: var(--bg); }
 
 .lb-backdrop { position: fixed; inset: 0; background: rgba(3,7,18,0.95); backdrop-filter: blur(12px); z-index: 300; }
+
+/* =========================================================
+   Pre-flight review modal — last-chance summary before the
+   event flips Live. Roster / panel / referee / warnings.
+   ========================================================= */
+.preflight-backdrop { background: rgba(3, 7, 18, 0.85); }
+.preflight-modal {
+  position: fixed; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 301;
+  width: calc(100% - 3rem); max-width: 560px; max-height: 90vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-top: 4px solid var(--green);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  animation: fadeUp 0.25s ease;
+  padding: 1.6rem 1.75rem 1.4rem;
+}
+.preflight-head { margin-bottom: 1.1rem; }
+.preflight-title {
+  font-family: var(--font-display);
+  font-size: 12px; font-weight: 700;
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--green);
+  margin-bottom: 0.35rem;
+}
+.preflight-subtitle {
+  font-family: var(--font-display);
+  font-size: 22px; font-weight: 800; font-style: italic;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.preflight-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.1rem 1.25rem;
+}
+@media (max-width: 520px) {
+  .preflight-grid { grid-template-columns: 1fr; }
+}
+.preflight-section { min-width: 0; }
+.preflight-label {
+  font-family: var(--font-display);
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 0.45rem;
+}
+.preflight-row {
+  display: flex; align-items: center; gap: 0.45rem;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.4;
+}
+.preflight-strong {
+  font-family: var(--font-display);
+  font-size: 14px; font-weight: 700; font-style: italic;
+  color: var(--text);
+}
+.preflight-tick {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  font-size: 11px; font-weight: 800;
+}
+.preflight-tick.ok { background: var(--green-dim); color: var(--green); }
+.preflight-tick.warn { background: var(--amber-dim); color: var(--amber); }
+
+.preflight-pill {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  padding: 0.18rem 0.5rem;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-2);
+}
+
+.preflight-detail-list {
+  margin: 0.45rem 0 0;
+  padding-left: 1rem;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.55;
+}
+.preflight-detail-list li { margin-bottom: 0.1rem; }
+.preflight-overflow { color: var(--text-3); font-style: italic; }
+
+.preflight-judges {
+  display: flex; flex-wrap: wrap; gap: 0.3rem;
+  margin-top: 0.45rem;
+}
+.preflight-judge-pill {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 0.1rem 0.45rem;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-3);
+}
+
+.preflight-warnings {
+  margin-top: 1.1rem;
+  padding: 0.7rem 0.9rem;
+  background: rgba(245, 158, 11, 0.07);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-sm);
+}
+.preflight-warnings-head {
+  font-family: var(--font-display);
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--amber);
+  margin-bottom: 0.4rem;
+}
+.preflight-warnings ul {
+  margin: 0; padding-left: 1.1rem;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.55;
+}
+
+.preflight-actions {
+  display: flex; justify-content: flex-end; gap: 0.55rem;
+  margin-top: 1.4rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+.preflight-go {
+  background: var(--green);
+  color: var(--bg);
+  border: 1px solid var(--green);
+  font-weight: 800; font-style: italic; letter-spacing: 0.06em;
+  padding: 0.55rem 1.4rem;
+}
+.preflight-go:hover:not(:disabled) { filter: brightness(1.08); }
+.preflight-go:disabled { opacity: 0.6; cursor: not-allowed; }
+.preflight-cancel {
+  font-family: var(--font-display);
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase;
+}
 /* Modal renders as a sibling of the backdrop in the DOM, so it
    needs its own fixed positioning + a higher z-index. The previous
    rule had no position/z-index, which buried the modal behind the
