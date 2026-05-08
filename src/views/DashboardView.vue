@@ -483,52 +483,54 @@ onMounted(async () => {
 <template>
   <div class="dashboard">
     <div class="header-inner">
-      <div>
+      <div class="header-welcome">
         <div class="welcome-label">Dive Recorder</div>
         <div class="welcome-name">{{ welcomeName }}</div>
         <div class="role-line">{{ roleLine }}</div>
       </div>
-      <!-- Account-area buttons. My Profile is the standard
-           top-right link users reach for when they're hunting
-           for "their stuff" — keeps it discoverable even when
-           the active tab is something else. -->
+      <!-- Top-right account area: diver search + My Profile +
+           Sign Out. Search lives here because users hunt for
+           people the same way they hunt for their own profile —
+           top-right "account / find someone" pattern. The
+           dropdown is anchored to the input wrapper, so it
+           drops below the input regardless of how the header
+           wraps on narrow viewports. -->
       <div class="header-account">
+        <div class="find-diver-wrapper">
+          <input
+            class="input find-diver-input"
+            type="text"
+            v-model="diverSearch"
+            @input="onDiverSearchInput"
+            @focus="diverDropdown = true"
+            @blur="onDiverSearchBlur"
+            placeholder="Search divers…"
+            autocomplete="off"
+            aria-label="Search divers"
+          >
+          <div v-if="diverDropdown && (diverResults.length || diverSearching || diverSearch.trim().length >= 2)"
+               class="find-diver-dropdown">
+            <div v-if="diverSearching" class="find-diver-empty">Searching…</div>
+            <div v-else-if="!diverResults.length" class="find-diver-empty">
+              No divers match that.
+            </div>
+            <button
+              v-for="r in diverResults"
+              :key="r.id"
+              type="button"
+              class="find-diver-row"
+              @mousedown.prevent="openDiverProfile(r.id)"
+            >
+              <span class="find-diver-name">{{ r.full_name }}</span>
+              <span v-if="r.country_code" class="find-diver-country">{{ r.country_code }}</span>
+              <span v-if="r.club_name" class="find-diver-club">
+                {{ r.club_name }}<span v-if="r.club_code" class="find-diver-club-code">{{ r.club_code }}</span>
+              </span>
+            </button>
+          </div>
+        </div>
         <RouterLink to="/profile" class="btn btn-ghost">My Profile</RouterLink>
         <button class="btn btn-ghost" @click="logout">Sign Out</button>
-      </div>
-    </div>
-
-    <!-- Find Diver typeahead — preserved from old layout. -->
-    <div class="find-diver">
-      <input
-        class="input find-diver-input"
-        type="text"
-        v-model="diverSearch"
-        @input="onDiverSearchInput"
-        @focus="diverDropdown = true"
-        @blur="onDiverSearchBlur"
-        placeholder="Find a diver — type a name to view their profile"
-        autocomplete="off"
-      >
-      <div v-if="diverDropdown && (diverResults.length || diverSearching || diverSearch.trim().length >= 2)"
-           class="find-diver-dropdown">
-        <div v-if="diverSearching" class="find-diver-empty">Searching…</div>
-        <div v-else-if="!diverResults.length" class="find-diver-empty">
-          No divers match that.
-        </div>
-        <button
-          v-for="r in diverResults"
-          :key="r.id"
-          type="button"
-          class="find-diver-row"
-          @mousedown.prevent="openDiverProfile(r.id)"
-        >
-          <span class="find-diver-name">{{ r.full_name }}</span>
-          <span v-if="r.country_code" class="find-diver-country">{{ r.country_code }}</span>
-          <span v-if="r.club_name" class="find-diver-club">
-            {{ r.club_name }}<span v-if="r.club_code" class="find-diver-club-code">{{ r.club_code }}</span>
-          </span>
-        </button>
       </div>
     </div>
 
@@ -875,6 +877,13 @@ onMounted(async () => {
   border-bottom: 1px solid var(--border);
   min-width: 0;
 }
+.header-welcome {
+  /* Allow the welcome block to shrink so the account area on
+     the right has room for the search box without forcing the
+     whole header wider than the viewport. */
+  min-width: 0;
+  flex: 1 1 auto;
+}
 .welcome-label { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: var(--cyan); margin-bottom: 0.5rem; }
 .welcome-name  {
   font-family: var(--font-display); font-weight: 900; font-style: italic;
@@ -900,16 +909,32 @@ onMounted(async () => {
 }
 .header-account .btn { text-decoration: none; }
 
-/* Find Diver bar */
-.find-diver {
+/* Find Diver — typeahead lives in the top-right account row.
+   Wrapper provides the relative-positioning anchor for the
+   absolutely-positioned dropdown so the suggestion list drops
+   immediately below the input regardless of where the header
+   wraps to on narrow viewports. */
+.find-diver-wrapper {
   position: relative;
-  padding: 1.25rem 2rem 0;
-  max-width: 1400px; margin: 0 auto;
+  flex: 0 1 280px;
+  min-width: 200px;
 }
-.find-diver-input { width: 100%; font-size: 14px; padding: 0.75rem 1rem; }
+.find-diver-input {
+  width: 100%;
+  font-size: 13px;
+  padding: 0.55rem 0.85rem;
+}
 .find-diver-dropdown {
-  position: absolute; top: calc(100% - 0.25rem);
-  left: 2rem; right: 2rem; z-index: 50;
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  /* Anchor to the input's right edge and grow leftward — keeps
+     the dropdown on-screen even though the input is squeezed
+     into the right side of the header. The dropdown is wider
+     than the input so club/country chips fit comfortably. */
+  right: 0; left: auto;
+  min-width: 320px;
+  max-width: min(420px, 90vw);
+  z-index: 50;
   background: var(--surface); border: 1px solid var(--border-2);
   border-radius: var(--radius);
   box-shadow: 0 16px 36px rgba(0,0,0,0.45);
