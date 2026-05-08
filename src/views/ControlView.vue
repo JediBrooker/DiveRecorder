@@ -266,6 +266,83 @@ function closeCorrection() {
   correctTarget.value = null
 }
 
+// Live preview for the correction modal — recomputes the trim
+// sum + dive points the moment the operator types a new score
+// so they see the impact before clicking Save.
+//
+// The trim follows the same rule the live scoring uses
+// (trimCount(numJudges)), and synchro pairs multiply by the WA
+// 0.6 factor. Returns null when the input is invalid so the
+// preview block hides cleanly until a usable score is in.
+const correctPreview = computed(() => {
+  const card = correctTarget.value
+  if (!card || !Array.isArray(card.scores) || !card.scores.length) return null
+  const newVal = parseFloat(correctNewScore.value)
+  if (Number.isNaN(newVal) || newVal < 0 || newVal > 10 || ((newVal * 2) % 1) !== 0) {
+    return null
+  }
+  const idx = correctJudgeIdx.value
+  const oldScores = card.scores.map(s => parseFloat(s))
+  if (idx < 0 || idx >= oldScores.length) return null
+  const newScores = oldScores.slice()
+  newScores[idx] = newVal
+
+  const ev = currentEvent.value
+  const numJudges = parseInt(ev?.number_of_judges) || oldScores.length
+  const k = trimCount(numJudges)
+  const factor = ev?.event_type === 'synchro_pair' ? 0.6 : 1
+  const dd = parseFloat(card.dd) || 0
+
+  function trimSum(scores) {
+    const sorted = [...scores].sort((a, b) => a - b)
+    const kept = k > 0 && sorted.length > k * 2
+      ? sorted.slice(k, sorted.length - k)
+      : sorted
+    return kept.reduce((a, b) => a + b, 0)
+  }
+
+  const oldTrim   = trimSum(oldScores)
+  const newTrim   = trimSum(newScores)
+  const oldPoints = oldTrim * dd * factor
+  const newPoints = newTrim * dd * factor
+  const delta     = newPoints - oldPoints
+
+  // Flag when the edit changes which judge gets dropped — e.g.,
+  // pulling a 9.0 down to 5.0 means a different score is now
+  // trimmed at the top end. Useful so the operator understands
+  // why the trim sum moved more than they'd expect.
+  const dropChanged = (() => {
+    if (k <= 0) return false
+    const oldSorted = [...oldScores].map((s, i) => ({ s, i }))
+      .sort((a, b) => a.s - b.s || a.i - b.i)
+    const newSorted = [...newScores].map((s, i) => ({ s, i }))
+      .sort((a, b) => a.s - b.s || a.i - b.i)
+    const oldDropped = new Set([
+      ...oldSorted.slice(0, k).map(r => r.i),
+      ...oldSorted.slice(-k).map(r => r.i),
+    ])
+    const newDropped = new Set([
+      ...newSorted.slice(0, k).map(r => r.i),
+      ...newSorted.slice(-k).map(r => r.i),
+    ])
+    if (oldDropped.size !== newDropped.size) return true
+    for (const i of oldDropped) if (!newDropped.has(i)) return true
+    return false
+  })()
+
+  return {
+    judgeIdx: idx,
+    oldScore: oldScores[idx],
+    newScore: newVal,
+    oldTrim, newTrim,
+    oldPoints, newPoints,
+    delta,
+    dropChanged,
+    dd,
+    unchanged: oldScores[idx] === newVal,
+  }
+})
+
 async function submitCorrection() {
   correctErr.value = ''
   const newVal = parseFloat(correctNewScore.value)
@@ -3487,6 +3564,44 @@ onUnmounted(() => {
                v-model="correctNewScore"
                @keyup.enter="submitCorrection">
       </div>
+      <!-- Live preview of the correction's impact. Recomputes
+           on every keystroke so the operator sees how the edit
+           moves the trim sum + dive points BEFORE clicking
+           Save. -->
+      <div v-if="correctPreview" class="correct-preview"
+           :class="{ 'correct-preview-noop': correctPreview.unchanged }">
+        <div class="correct-preview-row">
+          <span class="correct-preview-label">Judge {{ correctPreview.judgeIdx + 1 }}</span>
+          <span class="correct-preview-old">{{ correctPreview.oldScore.toFixed(1) }}</span>
+          <span class="correct-preview-arrow">→</span>
+          <span class="correct-preview-new">{{ correctPreview.newScore.toFixed(1) }}</span>
+        </div>
+        <div class="correct-preview-row">
+          <span class="correct-preview-label">Trim sum</span>
+          <span class="correct-preview-old">{{ correctPreview.oldTrim.toFixed(1) }}</span>
+          <span class="correct-preview-arrow">→</span>
+          <span class="correct-preview-new">{{ correctPreview.newTrim.toFixed(1) }}</span>
+        </div>
+        <div class="correct-preview-row preview-points">
+          <span class="correct-preview-label">Dive points <span class="correct-preview-dd">× DD {{ correctPreview.dd.toFixed(1) }}</span></span>
+          <span class="correct-preview-old">{{ correctPreview.oldPoints.toFixed(2) }}</span>
+          <span class="correct-preview-arrow">→</span>
+          <span class="correct-preview-new">{{ correctPreview.newPoints.toFixed(2) }}</span>
+          <span v-if="!correctPreview.unchanged"
+                :class="['correct-preview-delta',
+                         correctPreview.delta > 0 ? 'pos'
+                       : correctPreview.delta < 0 ? 'neg' : '']">
+            {{ correctPreview.delta > 0 ? '+' : '' }}{{ correctPreview.delta.toFixed(2) }}
+          </span>
+        </div>
+        <div v-if="correctPreview.dropChanged" class="correct-preview-note">
+          ↻ The trim selection changes — a different judge's score is now dropped.
+        </div>
+        <div v-if="correctPreview.unchanged" class="correct-preview-note">
+          No change — score matches the existing value.
+        </div>
+      </div>
+
       <div class="field">
         <label class="label">Reason (logged in audit trail)</label>
         <input class="input" type="text" v-model="correctReason"
@@ -4785,6 +4900,78 @@ onUnmounted(() => {
    ========================================================= */
 .hold-modal { max-width: 480px; }
 .correct-modal { max-width: 520px; }
+
+/* Score-correction live preview — refreshes on every keystroke
+   so the operator can see the impact of the edit (trim-sum
+   shift, dive-points delta) before clicking Save. */
+.correct-preview {
+  margin-top: 0.85rem;
+  padding: 0.85rem 1rem;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--cyan);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+}
+.correct-preview-noop {
+  border-left-color: var(--text-3);
+  opacity: 0.75;
+}
+.correct-preview-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto auto;
+  align-items: baseline;
+  gap: 0.55rem;
+  padding: 0.25rem 0;
+}
+.correct-preview-row.preview-points {
+  font-family: var(--font-display);
+  font-size: 13px; font-weight: 700;
+  color: var(--text);
+  border-top: 1px dashed var(--border);
+  margin-top: 0.3rem;
+  padding-top: 0.5rem;
+}
+.correct-preview-label {
+  color: var(--text-3);
+  font-family: var(--font-display);
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.correct-preview-dd {
+  color: var(--text-3);
+  font-weight: 500; letter-spacing: 0.04em;
+  text-transform: none;
+  font-size: 10px;
+  margin-left: 0.3rem;
+}
+.correct-preview-old { color: var(--text-3); }
+.correct-preview-arrow { color: var(--text-3); }
+.correct-preview-new { color: var(--text); font-weight: 700; }
+.correct-preview-delta {
+  display: inline-block;
+  min-width: 56px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 0.1rem 0.45rem;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-3);
+  letter-spacing: 0.02em;
+}
+.correct-preview-delta.pos { color: var(--green); background: var(--green-dim); }
+.correct-preview-delta.neg { color: var(--red);   background: var(--red-dim); }
+.correct-preview-note {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--border);
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.45;
+}
 
 /* Make completed-dive cards visually clickable when correctable. */
 .hist-card-correctable { cursor: pointer; transition: border-color 0.15s; }
