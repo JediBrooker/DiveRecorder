@@ -2774,27 +2774,26 @@ onUnmounted(() => {
            — three terms for the same concept fragmented the
            operator's mental model. -->
       <div class="ctrl-panel">
-        <!-- Dive Order panel head — restructured into a vertical
-             stack: section title at the top, then count, then
-             stepper, then the workflow + utility buttons. The
-             previous side-by-side layout (label LEFT / everything
-             ELSE right) was forcing "Dive Order" to wrap to two
-             lines on narrow column widths because the right-side
-             flex group (4-pip stepper + chunky workflow button)
-             overflowed the available space. -->
-        <div class="panel-head dive-order-head">
-          <div class="dive-order-title">Dive Order</div>
-          <div class="dive-order-meta">
-            <span class="roster-count">{{ roster.length ? currentIndex + 1 : 0 }}/{{ roster.length }}</span>
-            <!-- Once the event flips out of 'Upcoming' the start
-                 order is locked. Show a small badge so the operator
-                 understands why the reorder controls are dimmed. -->
-            <span v-if="currentEvent && !canReorderQueue"
-                  class="queue-lock-badge"
-                  :title="`Start order locked — event is ${currentEvent.status}. Withdraw a diver instead if they need to be skipped.`">
-              🔒 Order locked
-            </span>
-          </div>
+        <!-- Pre-Meet panel — houses the four-step pre-meet
+             workflow stepper + the colour-cycling action button
+             that drives it (Check In Divers → Randomise → Sign
+             Off → Start). The "Dive Order" / "1/48" count chip
+             that used to live here was duplicate signal — the
+             collapsible Dive Order panel near the bottom of this
+             column is the canonical roster view, and the centre
+             column already shows "Diver N / Total" in its meta
+             strip. The 🔒 Order-locked badge (which only appears
+             after the event flips Live and reordering is no
+             longer allowed) was moved to the Dive Order accordion
+             header below, where the operator would actually try
+             to reorder a row.
+
+             Class is `pre-meet-head` (not `dive-order-head`)
+             because the lower accordion already owns
+             `.dive-order-head`; the duplicate name was shadowing
+             its layout rules. -->
+        <div class="panel-head pre-meet-head">
+          <div class="pre-meet-title">Pre-Meet</div>
           <!-- Pre-meet workflow stepper — shows all four steps
                with the current one highlighted and completed
                ones ticked. Renders ABOVE the action button so
@@ -2836,7 +2835,7 @@ onUnmounted(() => {
                The standalone "Check-in" ghost button is gone —
                clicking the red state-1 button opens the same
                modal. -->
-          <div class="dive-order-actions">
+          <div class="pre-meet-actions">
             <template v-if="currentEvent && roster.length && orderWorkflowState && orderWorkflowState !== 'live'">
               <button v-if="orderWorkflowState === 'check-in'"
                       class="btn btn-sm wf-btn wf-btn-red"
@@ -3082,6 +3081,19 @@ onUnmounted(() => {
             <span class="dive-order-caret">{{ diveOrderOpen ? '▾' : '▸' }}</span>
             <span class="dive-order-title">Dive Order</span>
             <span class="dive-order-count">{{ roster.length }}</span>
+            <!-- Once the event flips out of 'Upcoming' the start
+                 order is locked. Lives on this accordion header
+                 (rather than the Pre-Meet panel above) because
+                 this is where the operator interacts with the
+                 order itself — drag-reorder, jump-to-row — so the
+                 chip explains why those affordances are dimmed
+                 right next to them. -->
+            <span v-if="currentEvent && !canReorderQueue"
+                  class="queue-lock-badge dive-order-lock-badge"
+                  :title="`Start order locked — event is ${currentEvent.status}. Withdraw a diver instead if they need to be skipped.`"
+                  @click.stop>
+              🔒 Order locked
+            </span>
           </button>
           <div v-if="diveOrderOpen" class="dive-order-body">
             <!-- Search + jump-to-round chips -->
@@ -3735,26 +3747,24 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
-/* Dive Order panel head — vertical stack variant. The section
-   title sits at the top; the count, stepper, and action buttons
-   centre-align below it. The previous side-by-side flex layout
-   (label LEFT / contents RIGHT) was making "Dive Order" wrap to
-   two lines and cramping the stepper because it had to share
-   the row with a 4-pip stepper + workflow button. */
-.dive-order-head {
+/* Pre-Meet panel head — vertical stack variant. The section
+   title sits at the top; the stepper and action buttons centre-
+   align below it. The previous side-by-side flex layout (label
+   LEFT / contents RIGHT) was making the title wrap to two lines
+   and cramping the stepper because it had to share the row with
+   a 4-pip stepper + workflow button.
+
+   Class is `pre-meet-head` (not `dive-order-head`) because the
+   collapsible Dive Order accordion further down the column
+   already owns the `.dive-order-head` selector; reusing the
+   name here was shadowing its row-flex layout rules. */
+.pre-meet-head {
   display: flex; flex-direction: column;
   align-items: center;
   gap: 0.55rem;
   text-align: center;
 }
-.dive-order-meta {
-  display: inline-flex; align-items: center; justify-content: center;
-  gap: 0.5rem; flex-wrap: wrap;
-  /* Roster count's normal-case font breaks out of the panel-head
-     letter-spacing/uppercase context — the .roster-count rule
-     already has its own font, so no override needed here. */
-}
-.dive-order-actions {
+.pre-meet-actions {
   display: flex; align-items: center; justify-content: center;
   gap: 0.5rem; flex-wrap: wrap;
 }
@@ -3762,7 +3772,7 @@ onUnmounted(() => {
    Inside the centred stack the parent's row gap already handles
    spacing — neutralise the extra margin so the rhythm stays
    consistent. */
-.dive-order-head .wf-stepper { margin-bottom: 0; }
+.pre-meet-head .wf-stepper { margin-bottom: 0; }
 .panel-body {
   padding: 1rem;
 }
@@ -4234,7 +4244,6 @@ onUnmounted(() => {
 
 .conn-badge { display: flex; align-items: center; gap: 0.4rem; font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; }
 .event-select-sm { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.4rem 0.75rem; font-family: var(--font-mono); font-size: 13px; color: var(--text); outline: none; cursor: pointer; }
-.roster-count { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
 
 .btn-back { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; padding: 0.5rem 1.1rem; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-2); text-decoration: none; transition: all 0.15s; }
 .btn-back:hover { background: var(--bg-3); }
@@ -5003,6 +5012,16 @@ onUnmounted(() => {
   color: var(--text-3); font-size: 10px;
 }
 .dive-order-title { flex: 1; }
+/* Lock badge variant when nested in this header — the base
+   .queue-lock-badge styles still carry the colour + chip look;
+   this rule just keeps the chip from picking up the parent
+   header's letter-spacing / uppercase / display-font, since the
+   badge already has its own typography. */
+.dive-order-lock-badge {
+  font-family: var(--font-mono);
+  letter-spacing: 0.05em;
+  text-transform: none;
+}
 .dive-order-count {
   font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
   letter-spacing: 0;
