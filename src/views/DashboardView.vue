@@ -206,6 +206,40 @@ const pulseChips = computed(() => {
     })
   }
 
+  // 🌐 International invitations — visible only when the user's
+  // own org is a guest on someone else's event (i.e. the event's
+  // host org is different from the caller's own org). Powered by
+  // the relaxed /api/events query — events where the caller's
+  // org is on event_participating_orgs come through with
+  // e.org_id != auth.user.org_id. Coverage: org_admin (so they
+  // can prep their roster) + diver (so they can self-enter).
+  if (auth.user?.org_id && auth.hasAnyRole(['org_admin', 'meet_manager', 'diver'])) {
+    const guestEvents = events.value.filter(e =>
+      e.org_id && e.org_id !== auth.user.org_id && e.status !== 'Completed'
+    )
+    if (guestEvents.length) {
+      chips.push({
+        id:           'intl-invites',
+        kind:         'intl',
+        glyph:        '🌐',
+        number:       guestEvents.length,
+        label:        'INVITED',
+        layout:       'count-first',
+        targetTab:    auth.hasRole('org_admin') ? 'org_admin' : 'diver',
+        popoverTitle: guestEvents.length === 1
+          ? '1 international invitation'
+          : `${guestEvents.length} international invitations`,
+        items: guestEvents.slice(0, 8).map((e) => ({
+          id:    'intl-' + e.id,
+          title: e.name,
+          meta:  `${e.org_name || 'Host federation'}${e.country_code ? ` · ${e.country_code}` : ''}`,
+          to:    e.status === 'Live' ? `/scoreboard/${e.id}` : `/manager?event=${e.id}`,
+          urgency: null,
+        })),
+      })
+    }
+  }
+
   // Pending governance work — org admin chip. Items older than
   // 7 days get an `overdue` marker.
   if (pendingCount.value && auth.hasRole('org_admin')) {

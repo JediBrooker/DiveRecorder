@@ -556,6 +556,10 @@ app.use(require("./routes/events")({
   activeDivers,
   meetHolds,
   persistClearAll,
+  // Push helper used by the international-invite flow to notify
+  // an invited federation's admins. Optional — if push isn't
+  // wired the events router falls back to a silent insert.
+  push,
 }));
 
 // =============================================================

@@ -12,6 +12,7 @@ const route = useRoute()
 
 const meet = ref(null)
 const events = ref([])
+const participatingOrgs = ref([])
 const loading = ref(false)
 const error = ref('')
 
@@ -26,6 +27,7 @@ async function load(id) {
     if (!r.ok) throw new Error(body?.error || `Server returned ${r.status}`)
     meet.value = body.meet
     events.value = Array.isArray(body.events) ? body.events : []
+    participatingOrgs.value = Array.isArray(body.participating_orgs) ? body.participating_orgs : []
   } catch (err) {
     error.value = err.message || 'Failed to load meet'
   } finally {
@@ -103,6 +105,26 @@ onMounted(() => { if (route.params.id) load(route.params.id) })
             <span class="status-num">{{ completedCount }}</span>
             <span class="status-lbl">Completed</span>
           </div>
+        </div>
+
+        <!-- 🌐 International strip — surfaces every other federation
+             that has divers competing in any event of this meet.
+             Only renders when there's at least one. The host's own
+             country is shown elsewhere (.hero-ctry); this is the
+             VISITING countries. -->
+        <div v-if="participatingOrgs.length" class="participating-strip">
+          <span class="participating-pulse">🌐 International</span>
+          <span class="participating-sub">
+            Hosted by {{ meet.org_name
+              }}<template v-if="meet.country_code"> ({{ meet.country_code }})</template>
+            · Visiting:
+          </span>
+          <span class="participating-list">
+            <span v-for="o in participatingOrgs" :key="o.org_id" class="participating-chip"
+                  :title="o.org_name">
+              {{ o.country_code || o.org_name }}
+            </span>
+          </span>
         </div>
 
         <!-- Sponsor strip — optional headline sponsor for the meet. -->
@@ -248,6 +270,40 @@ onMounted(() => { if (route.params.id) load(route.params.id) })
 .status-lbl {
   font-family: var(--font-display); font-size: 10px; font-weight: 700;
   letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3);
+}
+
+/* International strip — visiting countries badge above the
+   sponsor block on the public meet page. Only renders when at
+   least one foreign federation is participating. */
+.participating-strip {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin-top: 1.25rem;
+  padding: 0.55rem 0.85rem;
+  background: rgba(34,211,238,0.08);
+  border: 1px solid rgba(34,211,238,0.35);
+  border-radius: var(--radius);
+}
+.participating-pulse {
+  font-family: var(--font-display); font-size: 10px; font-weight: 900;
+  letter-spacing: 0.2em; text-transform: uppercase;
+  color: #67e8f9;
+  flex-shrink: 0;
+}
+.participating-sub {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.participating-list { display: inline-flex; gap: 0.4rem; flex-wrap: wrap; }
+.participating-chip {
+  font-family: var(--font-display); font-size: 11px; font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--text);
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
 }
 
 .sponsor-strip {

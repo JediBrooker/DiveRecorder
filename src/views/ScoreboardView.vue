@@ -389,6 +389,36 @@ const divesByDiver = computed(() => {
     })
 })
 
+// Country medal table — counts gold/silver/bronze per country
+// from the archive standings. Only renders when at least two
+// distinct countries appear in the result, which is the
+// indicator that this was an international meet (ties the
+// audience-facing surface to the same threshold the host org's
+// event_participating_orgs entry implies). Sort by gold desc,
+// silver desc, bronze desc, then total desc as tiebreaker —
+// matches how WA + Olympics rank countries.
+const countryMedalTable = computed(() => {
+  if (!archiveResults.value) return null
+  const standings = archiveResults.value.standings || []
+  if (!standings.length) return null
+  const byCountry = new Map()
+  for (const s of standings) {
+    const code = s.country_code || '—'
+    if (!byCountry.has(code)) {
+      byCountry.set(code, { code, gold: 0, silver: 0, bronze: 0, total_pts: 0 });
+    }
+    const row = byCountry.get(code)
+    if (s.rank === 1) row.gold   += 1
+    if (s.rank === 2) row.silver += 1
+    if (s.rank === 3) row.bronze += 1
+    row.total_pts += parseFloat(s.total) || 0
+  }
+  if (byCountry.size < 2) return null
+  return [...byCountry.values()].sort((a, b) =>
+    b.gold - a.gold || b.silver - a.silver || b.bronze - a.bronze || b.total_pts - a.total_pts
+  )
+})
+
 const eventStats = computed(() => {
   if (!archiveResults.value) return null
   const dives = archiveResults.value.dives || []
@@ -1678,6 +1708,38 @@ onMounted(async () => {
           </div>
         </div>
 
+        <!-- Country medal table — only when 2+ distinct countries
+             appeared on the standings (i.e. the meet was actually
+             international). Shows gold/silver/bronze count per
+             country, sorted Olympic-style. -->
+        <div v-if="countryMedalTable" class="recap-card medal-card">
+          <div class="col-head">
+            <span>Country Medal Table</span>
+          </div>
+          <div class="col-body">
+            <div class="medal-grid">
+              <div class="medal-head-row">
+                <div class="medal-rank">#</div>
+                <div class="medal-country">Country</div>
+                <div class="medal-cell medal-gold-head">🥇</div>
+                <div class="medal-cell medal-silver-head">🥈</div>
+                <div class="medal-cell medal-bronze-head">🥉</div>
+              </div>
+              <div
+                v-for="(row, i) in countryMedalTable"
+                :key="row.code"
+                class="medal-row"
+              >
+                <div class="medal-rank">{{ i + 1 }}</div>
+                <div class="medal-country">{{ row.code }}</div>
+                <div class="medal-cell">{{ row.gold }}</div>
+                <div class="medal-cell">{{ row.silver }}</div>
+                <div class="medal-cell">{{ row.bronze }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Leaderboard card: every diver in rank order with their
              per-dive breakdown (judges' scores, dive code, position,
              DD, dive total). Final tab is the per-diver view; the
@@ -2946,6 +3008,49 @@ onMounted(async () => {
   overflow: visible;
   flex: 0 0 auto;
 }
+
+/* Country medal table — Olympic-style ranking by golds/silvers/
+   bronzes. Only shown for international events; collapses to a
+   tight grid that scans top-to-bottom like a leaderboard. */
+.recap-card.medal-card { margin-bottom: 1rem; }
+.medal-grid {
+  display: flex; flex-direction: column;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.medal-head-row, .medal-row {
+  display: grid;
+  grid-template-columns: 28px 1fr 44px 44px 44px;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.medal-row:last-child { border-bottom: none; }
+.medal-head-row {
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-3);
+  background: var(--bg-3);
+}
+.medal-rank {
+  font-family: var(--font-display); font-weight: 800; color: var(--text-3);
+  text-align: center;
+}
+.medal-row:nth-child(2) .medal-rank { color: #fbbf24; }   /* gold */
+.medal-row:nth-child(3) .medal-rank { color: #cbd5e1; }   /* silver */
+.medal-row:nth-child(4) .medal-rank { color: #c2826b; }   /* bronze */
+.medal-country {
+  font-family: var(--font-display); font-weight: 800; font-style: italic;
+  color: var(--text); letter-spacing: 0.04em;
+}
+.medal-cell {
+  text-align: center; color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.medal-row .medal-cell:nth-child(3) { color: #fbbf24; font-weight: 700; }
+.medal-row .medal-cell:nth-child(4) { color: #cbd5e1; }
+.medal-row .medal-cell:nth-child(5) { color: #c2826b; }
 
 /* Podium spotlight: gold in middle + slightly elevated, silver left, bronze right */
 .podium {

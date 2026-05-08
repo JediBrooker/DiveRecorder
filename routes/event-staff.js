@@ -111,13 +111,34 @@ module.exports = function createEventStaffRouter({
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      // Every judge must belong to the event's org. One foreign judge
-      // means we reject the whole assignment — easier to surface the
-      // error than to silently drop part of the panel.
+      // Cache the participating-orgs list once so we don't fan
+      // out one query per judge. Empty result = domestic event.
+      const partOrgs = await client.query(
+        "SELECT org_id FROM event_participating_orgs WHERE event_id = $1",
+        [req.params.id],
+      );
+      const allowedOrgs = new Set([
+        req.event.org_id,
+        ...partOrgs.rows.map(r => r.org_id),
+      ]);
+      // Each judge must belong to either the host org OR a
+      // participating federation. Real international panels are
+      // typically 2 judges per country — without this relaxation
+      // a host couldn't seat a legitimate WA-format panel.
       for (const jid of judgeIds) {
-        if (!(await isInSameOrg(client, req.event.org_id, jid, "users"))) {
+        const u = await client.query(
+          "SELECT org_id FROM users WHERE id = $1",
+          [jid],
+        );
+        if (!u.rows.length) {
           await client.query("ROLLBACK");
-          return res.status(400).json({ error: "All judges must belong to the event's organisation" });
+          return res.status(400).json({ error: "Judge not found" });
+        }
+        if (!allowedOrgs.has(u.rows[0].org_id)) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "Each judge must be from the host org or a participating federation. Add the judge's federation via Federations… first.",
+          });
         }
       }
       await client.query("DELETE FROM event_judges WHERE event_id = $1", [
@@ -152,6 +173,36 @@ module.exports = function createEventStaffRouter({
       res.json({ judge_number: r.rows[0].judge_number });
     } catch (err) {
       res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Event-scoped judge picker — host org's judges plus every
+  // participating federation's judges. The standard /api/judges
+  // endpoint stays org-scoped (used by the legacy AssignJudgesView
+  // before international meets existed); this one is the
+  // event-aware replacement that the assignment UI consults when
+  // an international meet is being staffed.
+  router.get("/api/events/:id/eligible-judges", requireEventManager(), async (req, res) => {
+    try {
+      const r = await pool.query(
+        `SELECT u.id, u.full_name,
+                u.org_id, o.name AS org_name, o.country_code
+           FROM users u
+           JOIN user_org_roles uor
+             ON uor.user_id = u.id AND uor.org_id = u.org_id AND uor.role = 'judge'
+           JOIN organisations o ON o.id = u.org_id
+          WHERE u.org_id IN (
+                  SELECT org_id FROM events WHERE id = $1
+                  UNION
+                  SELECT org_id FROM event_participating_orgs WHERE event_id = $1
+                )
+          ORDER BY o.name ASC, u.full_name ASC`,
+        [req.params.id],
+      );
+      res.json(r.rows);
+    } catch (err) {
+      console.error("[Eligible Judges Error]", err.message);
+      res.status(500).json([]);
     }
   });
 

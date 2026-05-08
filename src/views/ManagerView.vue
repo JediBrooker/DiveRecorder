@@ -712,6 +712,36 @@ async function addPartOrg() {
   }
 }
 
+// Visiting org self-withdraws from a foreign-hosted event. Used
+// in the per-event overflow menu when the event's host org is
+// not the caller's own. Different from removePartOrg above
+// (which the HOST uses to evict a federation) — this is the
+// guest's exit door.
+async function selfWithdrawFromEvent(ev) {
+  if (!await confirmAction({
+    title: `Withdraw your federation from "${ev.name}"?`,
+    body: 'Existing dive list entries from your divers stay intact — only NEW entries are blocked. The host federation will be notified.',
+    consequences: [
+      'Your divers already entered keep their entries',
+      `${ev.org_name || 'The host'} sees a notification that you withdrew`,
+      'You can re-join only if the host invites you again',
+    ],
+    confirmLabel: 'Withdraw',
+    confirmKind: 'danger',
+  })) return
+  try {
+    await auth.apiFetch(`/api/events/${ev.id}/participating-orgs/${auth.user.org_id}`, {
+      method: 'DELETE',
+    })
+    showSuccess(`Withdrew from ${ev.name}`)
+    // Refresh the events list so the withdrawn event no longer
+    // shows up in the manager.
+    await loadEvents()
+  } catch (err) {
+    showError(err.message)
+  }
+}
+
 async function removePartOrg(org) {
   if (!await confirmAction({
     title: `Remove ${org.org_name} from this event?`,
@@ -1305,28 +1335,50 @@ onUnmounted(() => {
                       title="More actions"
                       @click.stop="toggleOverflow(ev.id)">⋯</button>
               <div v-if="overflowOpenEventId === ev.id" class="event-overflow-menu">
-                <button class="dropdown-item"
-                        @click="openEdit(ev); overflowOpenEventId = null">
-                  Edit event
-                </button>
-                <RouterLink :to="`/events/${ev.id}/audit`"
-                            class="dropdown-item"
-                            @click="overflowOpenEventId = null">
-                  Audit log
-                </RouterLink>
-                <button class="dropdown-item"
-                        @click="openRosterImport(ev); overflowOpenEventId = null">
-                  Import roster…
-                </button>
-                <button class="dropdown-item"
-                        @click="openPartOrgsModal(ev); overflowOpenEventId = null"
-                        title="Invite other federations' divers to enter this event">
-                  Federations…
-                </button>
-                <button class="dropdown-item dropdown-item-danger"
-                        @click="deleteEvent(ev.id); overflowOpenEventId = null">
-                  Delete event
-                </button>
+                <!-- Host-side actions (event belongs to caller's
+                     org or sysadmin). Visiting orgs see only the
+                     "Withdraw participation" item since they
+                     can't edit, delete, or import roster on a
+                     foreign-hosted event. -->
+                <template v-if="auth.user?.is_system_admin || ev.org_id === auth.user?.org_id">
+                  <button class="dropdown-item"
+                          @click="openEdit(ev); overflowOpenEventId = null">
+                    Edit event
+                  </button>
+                  <RouterLink :to="`/events/${ev.id}/audit`"
+                              class="dropdown-item"
+                              @click="overflowOpenEventId = null">
+                    Audit log
+                  </RouterLink>
+                  <button class="dropdown-item"
+                          @click="openRosterImport(ev); overflowOpenEventId = null">
+                    Import roster…
+                  </button>
+                  <button class="dropdown-item"
+                          @click="openPartOrgsModal(ev); overflowOpenEventId = null"
+                          title="Invite other federations' divers to enter this event">
+                    Federations…
+                  </button>
+                  <button class="dropdown-item dropdown-item-danger"
+                          @click="deleteEvent(ev.id); overflowOpenEventId = null">
+                    Delete event
+                  </button>
+                </template>
+                <template v-else>
+                  <!-- Visiting federation overflow — single
+                       destructive action: withdraw our
+                       participation. The event belongs to a
+                       different host so we can't edit or delete
+                       it. -->
+                  <div class="dropdown-item-static">
+                    Hosted by {{ ev.org_name || 'another federation' }}
+                  </div>
+                  <button class="dropdown-item dropdown-item-danger"
+                          @click="selfWithdrawFromEvent(ev); overflowOpenEventId = null"
+                          title="Stop your divers entering this event. Existing entries stay intact.">
+                    Withdraw participation
+                  </button>
+                </template>
               </div>
             </div>
           </div>
@@ -1722,6 +1774,16 @@ onUnmounted(() => {
 }
 .event-overflow-menu .dropdown-item-danger:hover {
   background: rgba(239, 68, 68, 0.12); color: var(--red);
+}
+/* Static label inside the overflow menu — used for the "Hosted by
+   X" hint a visiting federation sees. Not interactive. */
+.event-overflow-menu .dropdown-item-static {
+  padding: 0.55rem 0.7rem;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.25rem;
 }
 .events-list{display:flex;flex-direction:column;gap:0.75rem;}
 .empty{

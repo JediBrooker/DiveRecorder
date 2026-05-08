@@ -105,7 +105,26 @@ module.exports = function createMeetsRouter({
            e.created_at ASC`,
         [req.params.id],
       );
-      res.json({ meet: meetRes.rows[0], events: eventsRes.rows });
+      // Union of every other federation invited onto any event
+      // in this meet — drives the "🌐 Participating: AUS NZL FIJ"
+      // strip on the public landing page so spectators see at a
+      // glance which countries are competing. Empty array when
+      // every event in the meet is domestic-only.
+      const partOrgsRes = await pool.query(
+        `SELECT DISTINCT o.id AS org_id, o.name AS org_name,
+                         o.country_code, o.slug AS org_slug
+           FROM event_participating_orgs epo
+           JOIN events e        ON e.id = epo.event_id
+           JOIN organisations o ON o.id = epo.org_id
+          WHERE e.meet_id = $1
+          ORDER BY o.country_code NULLS LAST, o.name`,
+        [req.params.id],
+      );
+      res.json({
+        meet: meetRes.rows[0],
+        events: eventsRes.rows,
+        participating_orgs: partOrgsRes.rows,
+      });
     } catch (err) {
       console.error("[Meet Detail Error]", err.message);
       res.status(500).json({ error: "Internal server error" });

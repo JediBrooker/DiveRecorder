@@ -126,6 +126,7 @@ function categoryLabel(cat) {
     role_request:           'Role request',
     event_started:          'Event',
     event_results_posted:   'Results',
+    international_invite:   'Invitation',
     generic:                'Notice',
   }
   return map[cat] || cat
@@ -321,6 +322,7 @@ onMounted(load)
 }
 .inbox-row-bar[data-cat="signoff_request"]      { background: var(--amber); }
 .inbox-row-bar[data-cat="role_decision"]        { background: var(--green); }
+.inbox-row-bar[data-cat="international_invite"] { background: #67e8f9; }
 .inbox-row-bar[data-cat="role_request"]         { background: #a78bfa; }
 .inbox-row-bar[data-cat="event_started"]        { background: var(--red); }
 .inbox-row-bar[data-cat="event_results_posted"] { background: var(--green); }

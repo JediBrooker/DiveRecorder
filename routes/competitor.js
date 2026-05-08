@@ -136,17 +136,26 @@ module.exports = function createCompetitorRouter({
               error: "A different partner is required for synchronised events",
             });
           }
+          // Partner eligibility — for international events the
+          // partner can come from any federation that's been
+          // opted onto the event (host or participating org).
+          // For domestic events this collapses to "same org as
+          // the entrant" which matches the prior behaviour.
           const p = await client.query(
             `SELECT u.id FROM users u
              JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id AND r.role = 'diver'
-             WHERE u.id = $1 AND u.org_id = $2`,
-            [partner_id, req.user.org_id],
+             WHERE u.id = $1 AND u.org_id IN (
+                     SELECT org_id FROM events WHERE id = $2
+                     UNION
+                     SELECT org_id FROM event_participating_orgs WHERE event_id = $2
+                   )`,
+            [partner_id, event_id],
           );
           if (!p.rows.length) {
             await client.query("ROLLBACK");
-            return res
-              .status(400)
-              .json({ error: "Partner must be a diver in your organisation" });
+            return res.status(400).json({
+              error: "Partner must be a diver in a federation that's eligible to enter this event",
+            });
           }
           resolvedPartnerId = partner_id;
         }

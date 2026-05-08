@@ -120,6 +120,12 @@ CREATE TABLE public.organisations (
     id           uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name         varchar(255) NOT NULL,
     country_code char(3),                        -- ISO 3166-1 alpha-3 e.g. 'AUS'
+    -- IOC continent code. Set by sysadmin per federation; NULL =
+    -- not yet classified, in which case continental records skip
+    -- this org's divers. See migration 037.
+    continent    varchar(20)
+        CHECK (continent IS NULL OR continent IN
+          ('africa','americas','asia','europe','oceania')),
     slug         varchar(100) UNIQUE NOT NULL,
     status       org_status DEFAULT 'pending' NOT NULL,
     created_at   timestamptz DEFAULT now()
@@ -710,6 +716,36 @@ CREATE TABLE public.records_federation_history (
     superseded_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Continental records — best per (continent, height, dive_code,
+-- position). Mirrors records_federation's shape with `continent`
+-- replacing org_id. Only divers whose home federation has a
+-- non-null `continent` set ever land here. See migration 037.
+CREATE TABLE public.records_continental (
+    id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    continent   varchar(20) NOT NULL,
+    holder_id   uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    height      board_height NOT NULL,
+    dive_code   varchar(10) NOT NULL,
+    position    dive_position NOT NULL,
+    score       numeric(8,2) NOT NULL,
+    event_id    uuid REFERENCES public.events(id) ON DELETE SET NULL,
+    set_at      timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (continent, height, dive_code, position)
+);
+
+CREATE TABLE public.records_continental_history (
+    id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    continent     varchar(20) NOT NULL,
+    holder_id     uuid,
+    height        board_height NOT NULL,
+    dive_code     varchar(10) NOT NULL,
+    position      dive_position NOT NULL,
+    score         numeric(8,2) NOT NULL,
+    event_id      uuid,
+    set_at        timestamptz NOT NULL,
+    superseded_at timestamptz NOT NULL DEFAULT now()
+);
+
 
 -- =============================================================
 -- WORLD AQUATICS DIVE POINTS — INDIVIDUAL
@@ -929,6 +965,8 @@ CREATE INDEX idx_records_club_club                 ON public.records_club (club_
 CREATE INDEX idx_records_club_holder               ON public.records_club (holder_id);
 CREATE INDEX idx_records_federation_org            ON public.records_federation (org_id);
 CREATE INDEX idx_records_federation_holder         ON public.records_federation (holder_id);
+CREATE INDEX idx_records_continental_lookup        ON public.records_continental (continent, height, dive_code, position);
+CREATE INDEX idx_organisations_continent           ON public.organisations (continent);
 CREATE INDEX idx_records_personal_history_user     ON public.records_personal_history (user_id);
 CREATE INDEX idx_records_club_history_club         ON public.records_club_history (club_id);
 CREATE INDEX idx_records_federation_history_org    ON public.records_federation_history (org_id);

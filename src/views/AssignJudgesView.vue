@@ -41,7 +41,17 @@ async function onEventChange() {
   panel.value = Array(panelSize.value).fill(null)
 
   try {
-    const assigned = await auth.apiFetch(`/api/events/${selectedEventId.value}/judges`)
+    // Use the event-scoped picker so participating federations'
+    // judges show up too. Falls back to the org-scoped /api/judges
+    // (which the page initialised from) if the event endpoint
+    // 4xxs — keeps domestic-only flows working unchanged.
+    const [assigned, eligible] = await Promise.all([
+      auth.apiFetch(`/api/events/${selectedEventId.value}/judges`),
+      auth.apiFetch(`/api/events/${selectedEventId.value}/eligible-judges`).catch(() => null),
+    ])
+    if (Array.isArray(eligible) && eligible.length) {
+      allJudges.value = eligible
+    }
     assigned.forEach(a => {
       const judge = allJudges.value.find(j => j.id === a.judge_id)
       if (judge && a.judge_number >= 1 && a.judge_number <= panelSize.value) {
@@ -163,8 +173,20 @@ onMounted(async () => {
                 @click="!inPanelIds.has(j.id) && assignJudge(j)"
               >
                 <div>
-                  <div class="judge-item-name">{{ j.full_name }}</div>
-                  <div class="judge-item-user">@{{ j.username }}</div>
+                  <div class="judge-item-name">
+                    {{ j.full_name }}
+                    <!-- Country chip when the judge belongs to a
+                         participating federation other than the
+                         host. Spectators / operators see at a
+                         glance which judges are international.
+                         The chip is always rendered when the
+                         judge has a country_code so a host's own
+                         panel still gets the visual marker. -->
+                    <span v-if="j.country_code" class="judge-item-country">
+                      {{ j.country_code }}
+                    </span>
+                  </div>
+                  <div v-if="j.org_name" class="judge-item-user">{{ j.org_name }}</div>
                 </div>
                 <span v-if="inPanelIds.has(j.id)" style="margin-left:auto;font-family:var(--font-display);font-size:10px;font-weight:700;letter-spacing:0.1em;color:var(--cyan)">
                   J{{ judgeSlotNum(j.id) + 1 }} ✓
@@ -270,7 +292,16 @@ onMounted(async () => {
 }
 .judge-item:hover { border-color: var(--border-2); }
 .judge-item.in-panel { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
-.judge-item-name { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--text); }
+.judge-item-name {
+  font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--text);
+  display: inline-flex; align-items: center; gap: 0.5rem;
+}
+.judge-item-country {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.04em; color: var(--text-3);
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: 3px; padding: 0.1rem 0.35rem;
+}
 .judge-item-user { font-size: 11px; color: var(--text-3); }
 .add-icon { margin-left: auto; color: var(--cyan); flex-shrink: 0; opacity: 0.6; }
 .judge-item:hover .add-icon { opacity: 1; }

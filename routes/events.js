@@ -36,6 +36,11 @@ module.exports = function createEventsRouter({
   // also drops the matching event_live_state row so the
   // table doesn't accumulate dead state.
   persistClearAll,
+  // Optional. Used by the international-invite flow to notify
+  // every org_admin of a newly-invited federation. Falls back
+  // to a silent skip if the push engine isn't wired (the
+  // notification row will simply not be created).
+  push,
 }) {
   if (!pool || !JWT_SECRET) {
     throw new Error("createEventsRouter requires { pool, JWT_SECRET, … }");
@@ -583,10 +588,11 @@ module.exports = function createEventsRouter({
           error: `${target.rows[0].name} is ${target.rows[0].status}; only active orgs can participate`,
         });
       }
-      await pool.query(
+      const inserted = await pool.query(
         `INSERT INTO event_participating_orgs (event_id, org_id, added_by)
          VALUES ($1, $2, $3)
-         ON CONFLICT (event_id, org_id) DO NOTHING`,
+         ON CONFLICT (event_id, org_id) DO NOTHING
+         RETURNING event_id`,
         [req.params.id, org_id, req.user.id],
       );
       // Audit row so the host federation has a clean record of
@@ -604,6 +610,39 @@ module.exports = function createEventsRouter({
       } catch (auditErr) {
         console.error("[Participating Org Audit Skipped]", auditErr.message);
       }
+      // Fire an in-app notification to every org_admin of the
+      // newly-invited federation. They land in /inbox and on
+      // the dashboard pulse strip's incoming-feed; if web push
+      // is wired they also buzz the admin's phone. ON CONFLICT
+      // returning empty = the row already existed (re-add of an
+      // already-invited org); skip the notification spam.
+      if (inserted.rows.length && push && typeof push.sendNotification === "function") {
+        try {
+          const admins = await pool.query(
+            `SELECT u.id
+               FROM users u
+               JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id
+              WHERE u.org_id = $1 AND r.role = 'org_admin'`,
+            [org_id],
+          );
+          const adminIds = admins.rows.map(r => r.id);
+          if (adminIds.length) {
+            const hostOrg = await pool.query(
+              "SELECT name FROM organisations WHERE id = $1",
+              [ev.rows[0].org_id],
+            );
+            await push.sendNotification(adminIds, {
+              category:  "international_invite",
+              title:     `${hostOrg.rows[0]?.name || "A host federation"} invited you to "${ev.rows[0].name}"`,
+              body:      "Your divers can now self-enter this event. Open Meet Manager to see who's competing.",
+              data:      { event_id: ev.rows[0].id, host_org_id: ev.rows[0].org_id },
+              action_url: `/manager?event=${ev.rows[0].id}`,
+            });
+          }
+        } catch (notifErr) {
+          console.error("[Invite Notification Skipped]", notifErr.message);
+        }
+      }
       res.status(201).json({ ok: true });
     } catch (err) {
       console.error("[Add Participating Org Error]", err.message);
@@ -611,7 +650,13 @@ module.exports = function createEventsRouter({
     }
   });
 
-  // Remove — host org_admin only.
+  // Remove — host org_admin removes ANY federation, OR a visiting
+  // federation's own org_admin self-withdraws their participation.
+  // The visiting-side path lets a country pull out without
+  // pinging the host (e.g. funding cut, travel ban, schedule
+  // clash) — existing roster entries stay intact (the diver
+  // gates only block NEW entries) so no in-flight competition
+  // is destabilised.
   router.delete("/api/events/:id/participating-orgs/:org_id", requireOrgAdmin, async (req, res) => {
     try {
       const ev = await pool.query(
@@ -619,8 +664,13 @@ module.exports = function createEventsRouter({
         [req.params.id],
       );
       if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
-      if (!req.user.is_system_admin && ev.rows[0].org_id !== req.user.org_id) {
-        return res.status(403).json({ error: "You don't host this event" });
+      const isSysAdmin = !!req.user.is_system_admin;
+      const isHostAdmin = ev.rows[0].org_id === req.user.org_id;
+      const isSelfWithdraw = req.params.org_id === req.user.org_id;
+      if (!isSysAdmin && !isHostAdmin && !isSelfWithdraw) {
+        return res.status(403).json({
+          error: "Only the host federation can remove other federations, and only the visiting federation can withdraw itself",
+        });
       }
       const r = await pool.query(
         "DELETE FROM event_participating_orgs WHERE event_id = $1 AND org_id = $2 RETURNING org_id",
@@ -630,15 +680,53 @@ module.exports = function createEventsRouter({
       try {
         await recordAudit(pool, {
           ...auditFromReq(req),
+          // Audit row lands on the host org's books — that's where
+          // the event lives and where compliance reads for it.
+          // The metadata captures whether this was host-removal
+          // or self-withdrawal so the trail reads correctly.
           org_id:      ev.rows[0].org_id,
           entity_type: "event",
           entity_id:   ev.rows[0].id,
           entity_name: ev.rows[0].name,
           action:      "event.participating_org.removed",
-          metadata: { participating_org_id: req.params.org_id },
+          metadata: {
+            participating_org_id: req.params.org_id,
+            removed_by_self: isSelfWithdraw && !isHostAdmin,
+          },
         });
       } catch (auditErr) {
         console.error("[Participating Org Audit Skipped]", auditErr.message);
+      }
+      // Notify the host's org admins when a federation
+      // self-withdraws — they need to know their roster expectation
+      // changed. (Host-driven removal doesn't need this — the host
+      // initiated it.)
+      if (isSelfWithdraw && !isHostAdmin && push && typeof push.sendNotification === "function") {
+        try {
+          const hostAdmins = await pool.query(
+            `SELECT u.id
+               FROM users u
+               JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id
+              WHERE u.org_id = $1 AND r.role = 'org_admin'`,
+            [ev.rows[0].org_id],
+          );
+          const adminIds = hostAdmins.rows.map(r => r.id);
+          if (adminIds.length) {
+            const leavingOrg = await pool.query(
+              "SELECT name FROM organisations WHERE id = $1",
+              [req.params.org_id],
+            );
+            await push.sendNotification(adminIds, {
+              category:  "international_invite",
+              title:     `${leavingOrg.rows[0]?.name || "A federation"} withdrew from "${ev.rows[0].name}"`,
+              body:      "Their divers will no longer be able to enter new dive lists. Existing entries stay intact.",
+              data:      { event_id: ev.rows[0].id, withdrawing_org_id: req.params.org_id },
+              action_url: `/manager?event=${ev.rows[0].id}`,
+            });
+          }
+        } catch (notifErr) {
+          console.error("[Withdraw Notification Skipped]", notifErr.message);
+        }
       }
       res.json({ ok: true });
     } catch (err) {
