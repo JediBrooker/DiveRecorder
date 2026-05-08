@@ -1,9 +1,42 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
 import { diveDescription } from '@/composables/useDiveLabel'
+
+// Pool deck ergonomics — judging often happens on a phone left
+// face-up on a table for an entire round. Two helpers:
+//
+//   1. Screen wake lock so the OS doesn't dim the display
+//      mid-dive. Falls back silently on browsers that don't
+//      expose the API (older Safari, in-app webviews).
+//   2. Haptic feedback on score submit + signal so the judge
+//      gets a confirmation pulse without having to glance back
+//      at the screen. `navigator.vibrate` is a no-op on
+//      desktop / iOS Safari.
+//
+// Wake lock is released on unmount + reacquired on visibility
+// change (the OS drops it when the tab backgrounds; reacquiring
+// on focus avoids the re-tap dance).
+const wakeLock = ref(null)
+async function acquireWakeLock() {
+  if (!('wakeLock' in navigator)) return
+  try {
+    wakeLock.value = await navigator.wakeLock.request('screen')
+    wakeLock.value.addEventListener('release', () => { wakeLock.value = null })
+  } catch { /* permission denied or unsupported */ }
+}
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible' && !wakeLock.value) acquireWakeLock()
+}
+function buzz(pattern) {
+  // Pattern can be a single number (ms) or an array of on/off
+  // timings. We default to a short single pulse.
+  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+    try { navigator.vibrate(pattern || 30) } catch { /* ignore */ }
+  }
+}
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -118,6 +151,14 @@ onMounted(() => {
   // singleton across views). Subscribe on mount as well so the
   // room join doesn't depend on a reconnect.
   if (socket.connected) joinEventRoom()
+  acquireWakeLock()
+  document.addEventListener('visibilitychange', onVisibilityChange)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', onVisibilityChange)
+  try { wakeLock.value?.release?.() } catch { /* ignore */ }
+  wakeLock.value = null
 })
 socket.on('disconnect', () => { connStatus.value = false })
 
@@ -229,6 +270,9 @@ function submitScore() {
   }
   if (socket.connected) {
     socket.emit('submit_score', payload)
+    // Two short pulses confirms the score landed without the
+    // judge needing to look back at the locked submit button.
+    buzz([20, 60, 30])
     // If the judge had flagged the referee before submitting,
     // the submission IS the rectification — auto-clear the
     // signal so the Control Room's auto-advance can resume.
@@ -258,6 +302,10 @@ function submitScore() {
 function toggleRefereeSignal() {
   if (!activeDiver.value) return
   signaled.value = !signaled.value
+  // Long buzz when raising a signal (deliberate gesture); short
+  // when clearing. Helps a judge confirm the toggle direction
+  // without staring at the button.
+  buzz(signaled.value ? 90 : 30)
   socket.emit('judge_signal', {
     event_id:      activeDiver.value.event_id,
     competitor_id: activeDiver.value.competitor_id,
@@ -828,4 +876,38 @@ const submitLabel = computed(() => {
 .submit-btn:active:not(:disabled) { transform: scale(0.98); }
 .submit-btn:disabled,
 .submit-btn.locked { background: var(--surface); color: var(--text-3); border: 1px solid var(--border); cursor: not-allowed; }
+
+/* =========================================================
+   Phone-deck ergonomics. Judges work poolside on phones held
+   one-handed; bump the keypad keys, signal, and submit to
+   meet the WCAG 2.5.5 44×44 minimum and give them more room
+   so a wet thumb doesn't mash two keys at once. The header
+   compresses so the keypad stays above the fold on a 5-inch
+   screen.
+   ========================================================= */
+@media (max-width: 600px) {
+  .judge-header { padding: 0.6rem 0.85rem; }
+  .header-top { margin-bottom: 0.4rem; }
+  .keypad {
+    /* Stretch to use the available width, full-bleed gutter
+       so each key is as wide as possible without spilling. */
+    grid-template-rows: repeat(4, minmax(64px, 12vh));
+    max-width: none;
+    padding: 0.75rem 0.6rem;
+    gap: 0.55rem;
+  }
+  .key { font-size: 22px; }
+  .key-half { font-size: 17px; }
+  .signal-footer { max-width: none; padding: 0 0.6rem; }
+  .signal-btn { padding: 0.95rem 0.75rem; font-size: 14px; }
+  .submit-footer { padding: 0.6rem 0.6rem 0.85rem; }
+  .submit-btn { padding: 1.3rem 1rem; font-size: 18px; }
+}
+
+/* Small-phone safety net — even the 320px-wide screens that
+   still show up on field tablets and old iPhones. */
+@media (max-width: 360px) {
+  .keypad { grid-template-rows: repeat(4, 60px); gap: 0.4rem; }
+  .key { font-size: 19px; }
+}
 </style>

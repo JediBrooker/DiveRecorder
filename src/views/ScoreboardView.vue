@@ -6,6 +6,8 @@ import { annotatedScores, groupedSynchroScoresForDisplay, trimCount } from '@/co
 import { diveDescription } from '@/composables/useDiveLabel'
 import { cachedFetch } from '@/lib/idbCache'
 import DiverIdentity from '@/components/DiverIdentity.vue'
+import ScoreHistoryButton from '@/components/ScoreHistoryButton.vue'
+import JargonTip from '@/components/JargonTip.vue'
 
 const route  = useRoute()
 const router = useRouter()
@@ -1557,7 +1559,7 @@ onMounted(async () => {
                   <div class="dive-row dive-head-row">
                     <div class="dr-round">Rd</div>
                     <div class="dr-code">Dive</div>
-                    <div class="dr-dd">DD</div>
+                    <div class="dr-dd"><JargonTip term="DD" /></div>
                     <div class="dr-judges">Judge Scores</div>
                     <div class="dr-total">Total</div>
                   </div>
@@ -1598,7 +1600,20 @@ onMounted(async () => {
                         </span>
                       </template>
                     </div>
-                    <div class="dr-total">{{ parseFloat(d.total_dive_score).toFixed(1) }}</div>
+                    <div class="dr-total">
+                      {{ parseFloat(d.total_dive_score).toFixed(1) }}
+                      <!-- Officials-only inline audit history.
+                           Spectators don't see the button at all
+                           (the component self-gates). One click
+                           opens a popover with every score
+                           submission/edit for this dive. -->
+                      <ScoreHistoryButton
+                        v-if="currentEventId && d.competitor_id"
+                        :event-id="currentEventId"
+                        :competitor-id="d.competitor_id || block.id"
+                        :round-number="d.round_number"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

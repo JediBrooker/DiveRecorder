@@ -1,0 +1,165 @@
+<script setup>
+/* Pre-meet readiness checklist — a compact "are we ready?" panel
+ * for an event in Setup status. Each row is one prerequisite for
+ * Start Event; clicking a not-done row scrolls/jumps to the
+ * surface that fixes it.
+ *
+ * Items are derived from props rather than computed inline so
+ * the parent (typically ControlView or ManagerView) can
+ * translate its existing event/dive-list state into the small
+ * subset this component needs. Keeps this component dumb and
+ * easily reusable.
+ *
+ * Each item:
+ *   { key, label, done, hint?, onFix? }
+ *
+ * - key:   stable id (also used for storage)
+ * - label: short imperative ("Roster locked")
+ * - done:  boolean — checks the box, dims the row
+ * - hint:  optional text shown when not done
+ * - onFix: optional click handler to jump into the fix surface
+ */
+import { computed } from 'vue'
+
+const props = defineProps({
+  items:    { type: Array, required: true },
+  /* When all items are done the checklist collapses into a
+     single "Ready to start" line. Set to false to keep all rows
+     visible regardless. */
+  collapseWhenDone: { type: Boolean, default: true },
+})
+
+const total      = computed(() => props.items.length)
+const doneCount  = computed(() => props.items.filter(i => i.done).length)
+const allDone    = computed(() => total.value > 0 && doneCount.value === total.value)
+const remaining  = computed(() => total.value - doneCount.value)
+</script>
+
+<template>
+  <section
+    class="readiness"
+    :class="{ 'readiness-collapsed': allDone && collapseWhenDone, 'readiness-ready': allDone }"
+  >
+    <header class="readiness-header">
+      <span class="readiness-title">
+        <span class="readiness-emoji" aria-hidden="true">{{ allDone ? '✅' : '🚦' }}</span>
+        <span v-if="allDone">Ready to start</span>
+        <span v-else>Pre-meet checks · <strong>{{ doneCount }}</strong>/{{ total }}</span>
+      </span>
+      <span class="readiness-meter" v-if="!allDone">
+        <span
+          class="readiness-meter-fill"
+          :style="{ width: total ? `${(doneCount / total) * 100}%` : '0%' }"
+        />
+      </span>
+    </header>
+
+    <ul v-if="!(allDone && collapseWhenDone)" class="readiness-list">
+      <li
+        v-for="item in items"
+        :key="item.key"
+        :class="['readiness-row', { 'is-done': item.done, 'is-actionable': !item.done && item.onFix }]"
+        @click="!item.done && item.onFix && item.onFix()"
+        @keydown.enter="!item.done && item.onFix && item.onFix()"
+        :tabindex="!item.done && item.onFix ? 0 : -1"
+        role="button"
+      >
+        <span class="readiness-check" aria-hidden="true">{{ item.done ? '☑' : '☐' }}</span>
+        <span class="readiness-label">{{ item.label }}</span>
+        <span v-if="!item.done && item.hint" class="readiness-hint">{{ item.hint }}</span>
+        <span v-if="!item.done && item.onFix" class="readiness-fix">Fix →</span>
+      </li>
+    </ul>
+
+    <p v-if="allDone && !collapseWhenDone" class="readiness-ready-note">
+      All prerequisites met. Start Event when you're ready.
+    </p>
+  </section>
+</template>
+
+<style scoped>
+.readiness {
+  background: var(--surface, #0f172a);
+  border: 1px solid var(--border, #1e293b);
+  border-left: 4px solid #f59e0b;
+  border-radius: var(--radius, 6px);
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+  transition: border-color 0.2s, padding 0.2s;
+}
+.readiness-ready { border-left-color: var(--green, #10b981); }
+.readiness-collapsed { padding: 0.55rem 1rem; }
+
+.readiness-header {
+  display: flex; align-items: center; gap: 0.85rem;
+  font-family: var(--font-display, sans-serif);
+  font-size: 12px; font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-2, #cbd5e1);
+}
+.readiness-title { display: inline-flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+.readiness-title strong { color: var(--text, #f8fafc); font-size: 13px; }
+.readiness-emoji { font-size: 14px; }
+
+.readiness-meter {
+  flex: 1 1 auto;
+  height: 4px;
+  background: var(--bg-3, #1e293b);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.readiness-meter-fill {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, #f59e0b, var(--green, #10b981));
+  transition: width 0.3s;
+}
+
+.readiness-list {
+  list-style: none; padding: 0; margin: 0.85rem 0 0.1rem 0;
+  display: flex; flex-direction: column; gap: 0.35rem;
+}
+
+.readiness-row {
+  display: flex; align-items: center; gap: 0.7rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: var(--radius, 6px);
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  color: var(--text-2, #cbd5e1);
+  transition: background 0.1s, color 0.1s;
+}
+.readiness-row.is-actionable { cursor: pointer; }
+.readiness-row.is-actionable:hover,
+.readiness-row.is-actionable:focus-visible {
+  background: var(--bg-3, #1e293b);
+  color: var(--text, #f8fafc);
+  outline: none;
+}
+.readiness-row.is-done {
+  color: var(--text-3, #94a3b8);
+  text-decoration: line-through;
+  text-decoration-color: var(--text-3, #94a3b8);
+}
+.readiness-check { font-size: 15px; flex-shrink: 0; width: 18px; text-align: center; }
+.readiness-row.is-done .readiness-check { color: var(--green, #10b981); }
+.readiness-label { flex: 0 0 auto; font-weight: 600; }
+.readiness-hint  {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 11px; color: var(--text-3, #94a3b8);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.readiness-fix {
+  flex-shrink: 0;
+  font-family: var(--font-display, sans-serif);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  color: var(--cyan, #06b6d4);
+  text-transform: uppercase;
+}
+
+.readiness-ready-note {
+  margin: 0.5rem 0 0 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--green, #10b981);
+}
+</style>

@@ -8,6 +8,7 @@ import { showUndo } from '@/composables/useUndo'
 import { showSuccess, showError, showInfo } from '@/composables/useNotify'
 import { confirmAction } from '@/composables/useConfirm'
 import DiverIdentity from '@/components/DiverIdentity.vue'
+import StatusPill from '@/components/StatusPill.vue'
 import {
   annotatedScores,
   annotatedSynchroScores,
@@ -2510,6 +2511,12 @@ onUnmounted(() => {
            menu. -->
       <div class="ctrl-header-ctx">
         <span class="ctx-meet">{{ meetName }}</span>
+        <!-- Event status pill — same colour vocabulary as the
+             dashboard pulse strip so an operator never has to
+             ask "what stage is this in?". Hidden until an event
+             is selected; the picker on the left is the prompt
+             when none is. -->
+        <StatusPill v-if="currentEvent?.status" :status="currentEvent.status" size="sm" />
       </div>
       <div class="ctrl-header-right">
         <!-- Hold-active glance pill: shows ONLY while held. Click

@@ -15,6 +15,15 @@ import UndoBar from '@/components/UndoBar.vue'
 // consequences. Any view calls confirmAction() from
 // @/composables/useConfirm; this renders the dialog.
 import ConfirmModal from '@/components/ConfirmModal.vue'
+// Cmd-K command palette. Single global instance; opens on
+// ⌘K / Ctrl-K from anywhere, or via window.__openCommandPalette()
+// for header buttons that want a click-to-open affordance.
+import CommandPalette from '@/components/CommandPalette.vue'
+// First-login per-role tour. The setup wizard onboards fresh
+// org admins; this fills the gap for the more common arrival
+// path — a coach/judge/diver handed an invite. Auto-starts on
+// the first dashboard mount per role; replay via Cmd-K.
+import RoleTour from '@/components/RoleTour.vue'
 </script>
 
 <template>
@@ -22,4 +31,6 @@ import ConfirmModal from '@/components/ConfirmModal.vue'
   <NotificationCenter />
   <UndoBar />
   <ConfirmModal />
+  <CommandPalette />
+  <RoleTour />
 </template>

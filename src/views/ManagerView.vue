@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { confirmAction } from '@/composables/useConfirm'
 import { showSuccess, showError } from '@/composables/useNotify'
+import StatusPill from '@/components/StatusPill.vue'
 
 const auth = useAuthStore()
 
@@ -1106,7 +1107,10 @@ onUnmounted(() => {
         </div>
         <div v-for="ev in filteredManagerEvents" :key="ev.id" class="event-item">
           <div style="flex:1;min-width:0">
-            <div class="event-name">{{ ev.name }}</div>
+            <div class="event-name">
+              <StatusPill :status="ev.status" size="sm" />
+              <span>{{ ev.name }}</span>
+            </div>
             <div class="event-meta">
               <!-- Org badge — visible to sysadmin so they know
                    which federation each event belongs to. -->
@@ -1138,8 +1142,6 @@ onUnmounted(() => {
                   {{ new Date(ev.entries_close_at) <= new Date() ? 'entries closed' : 'entries close ' + new Date(ev.entries_close_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}
                 </span>
               </template>
-              <span>·</span>
-              <span :style="{ color: statusColor(ev.status) }">{{ ev.status }}</span>
             </div>
           </div>
           <!-- Actions — restructured into:
@@ -1427,7 +1429,7 @@ onUnmounted(() => {
 .form-stack{display:flex;flex-direction:column;gap:1rem;}
 .event-item{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.25rem;background:var(--bg-3);border:1px solid var(--border);border-radius:var(--radius);transition:border-color 0.2s;animation:fadeUp 0.25s ease;}
 .event-item:hover{border-color:var(--border-2);}
-.event-name{font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--text);}
+.event-name{font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;}
 .event-meta{font-size:11px;color:var(--text-3);margin-top:0.25rem;display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;}
 .org-badge {
   font-family: var(--font-display); font-size: 9px; font-weight: 700;

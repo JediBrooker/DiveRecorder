@@ -24,6 +24,7 @@ import { ref, computed, onMounted } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { showError, showSuccess } from '@/composables/useNotify'
+import EmptyState from '@/components/EmptyState.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -193,10 +194,26 @@ onMounted(load)
     </div>
 
     <div v-if="loading && !rows.length" class="empty">Loading…</div>
+    <EmptyState
+      v-else-if="!filtered.length && !rows.length"
+      icon="📭"
+      title="Quiet across the board"
+      body="Notifications land here when role requests, score corrections,
+            referee calls, or finalised events come through. Subscribe to
+            push from your dashboard to also catch them on your phone."
+      action-label="Open dashboard"
+      action-to="/dashboard"
+    />
+    <EmptyState
+      v-else-if="!filtered.length && !showRead && !unreadCount"
+      icon="✓"
+      title="All caught up"
+      body="Nothing unread. Toggle the All filter above to revisit
+            anything you've already acknowledged."
+      variant="inline"
+    />
     <div v-else-if="!filtered.length" class="empty">
-      <span v-if="!rows.length">Quiet across the board — no notifications yet.</span>
-      <span v-else-if="!showRead && !unreadCount">All caught up — nothing unread.</span>
-      <span v-else>No notifications match the current filters.</span>
+      No notifications match the current filters.
     </div>
 
     <ul v-else class="inbox-list">
