@@ -2170,6 +2170,719 @@ module.exports = function createEventsRouter({
     },
   );
 
+  // Helper: load an H2H event's pair winners from the event id.
+  // Used by seed-semi + the merged-rankings endpoint. Returns
+  // the same pair shape as the public /h2h-results endpoint, but
+  // without the HTTP layer.
+  async function loadH2hPairResults(client, h2hEventId) {
+    const r = await client.query(
+      `WITH per_dive AS (
+         SELECT s.competitor_id, s.round_number,
+                calc_event_dive_points(
+                  array_agg(ej.judge_number ORDER BY ej.judge_number),
+                  array_agg(s.score ORDER BY ej.judge_number),
+                  e.number_of_judges, MAX(d.dd), e.event_type,
+                  BOOL_OR(cdl.partner_id IS NOT NULL)
+                ) AS dive_points
+         FROM scores s
+         JOIN events e ON e.id = s.event_id
+         LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+         LEFT JOIN competitor_dive_lists cdl
+           ON cdl.event_id = s.event_id
+          AND cdl.competitor_id = s.competitor_id
+          AND cdl.round_number = s.round_number
+         LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+         WHERE s.event_id = $1
+         GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+       ),
+       competitor AS (
+         SELECT pd.competitor_id, SUM(pd.dive_points) AS total
+         FROM per_dive pd
+         GROUP BY pd.competitor_id
+       )
+       SELECT cdl.competitor_id, cdl.group_number,
+              MIN(cdl.display_order) AS display_order,
+              u.full_name, o.country_code,
+              COALESCE(c.total, 0) AS total
+         FROM competitor_dive_lists cdl
+         JOIN users u ON u.id = cdl.competitor_id
+         JOIN organisations o ON o.id = u.org_id
+         LEFT JOIN competitor c ON c.competitor_id = cdl.competitor_id
+        WHERE cdl.event_id = $1
+          AND cdl.is_reserve = FALSE
+          AND cdl.withdrawn_at IS NULL
+        GROUP BY cdl.competitor_id, cdl.group_number, u.full_name, o.country_code, c.total`,
+      [h2hEventId],
+    );
+    const byGroup = { 1: [], 2: [] };
+    for (const row of r.rows) {
+      if (row.group_number == null) continue;
+      byGroup[row.group_number] = byGroup[row.group_number] || [];
+      byGroup[row.group_number].push(row);
+    }
+    for (const g of [1, 2]) {
+      byGroup[g].sort((a, b) =>
+        (a.display_order ?? Infinity) - (b.display_order ?? Infinity));
+    }
+    const pairs = [];
+    const G1_PAIR_INDEXES = [0, 3, 4];
+    const G2_PAIR_INDEXES = [1, 2, 5];
+    for (const g of [1, 2]) {
+      const indexes = g === 1 ? G1_PAIR_INDEXES : G2_PAIR_INDEXES;
+      for (let p = 0; p < 3; p++) {
+        const a = byGroup[g][p * 2];
+        const b = byGroup[g][p * 2 + 1];
+        if (!a || !b) continue;
+        const totalA = Number(a.total);
+        const totalB = Number(b.total);
+        const tied = totalA === totalB;
+        const winnerId = tied
+          ? null
+          : (totalA > totalB ? a.competitor_id : b.competitor_id);
+        pairs.push({
+          pair_index:      indexes[p],
+          group_number:    g,
+          competitor_a:    { id: a.competitor_id, full_name: a.full_name, total: totalA },
+          competitor_b:    { id: b.competitor_id, full_name: b.full_name, total: totalB },
+          winner_id:       winnerId,
+          tied,
+        });
+      }
+    }
+    pairs.sort((a, b) => a.pair_index - b.pair_index);
+    return pairs;
+  }
+
+  // POST /api/events/:id/seed-semi
+  // :id is the SF event (event_format=super_final_semi). Pulls
+  // the 6 H2H winners, sets score_carry_from = h2h.id so the
+  // standings sum H2H + SF totals (Appendix 3 §3.1), seeds
+  // each diver's parent dive_ids 4..5 (W) or 4..6 (M) into
+  // SF round_numbers 1..2 / 1..3 (Appendix 3 §2.2.1).
+  //
+  // Body: { lock_minutes: 30 } (default).
+  router.post(
+    "/api/events/:id/seed-semi",
+    requireEventManager(),
+    async (req, res) => {
+      const lockMin = Number.isFinite(parseInt(req.body?.lock_minutes))
+        ? Math.max(0, Math.min(parseInt(req.body.lock_minutes), 24 * 60))
+        : 30;
+
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+
+        const evRes = await client.query(
+          `SELECT id, event_format, status, parent_event_id, gender, name, total_rounds
+             FROM events WHERE id = $1`,
+          [req.params.id],
+        );
+        if (!evRes.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ error: "Event not found" });
+        }
+        const ev = evRes.rows[0];
+        if (ev.event_format !== "super_final_semi") {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: "Event is not a Super Final SF stage" });
+        }
+        if (ev.status !== "Upcoming") {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "SF must be Upcoming to seed (re-seeding only valid pre-Live)",
+          });
+        }
+        if (!ev.parent_event_id) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "SF must have parent_event_id pointing at the H2H event",
+          });
+        }
+        if (ev.gender === "Mixed") {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "Super Final isn't supported for Mixed individual events (Appendix 3 §1 — split by gender)",
+          });
+        }
+        // Total rounds for SF: 2 dives for women, 3 for men
+        // (Appendix 3 §2.2 — "Men: 3 additional dives, Women: 2
+        // additional dives"). The event row holds the SF count
+        // (2 or 3); we validate it matches the gender.
+        const expectedSfRounds = ev.gender === "Male" ? 3 : 2;
+        if (Number(ev.total_rounds) !== expectedSfRounds) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: `SF total_rounds must be ${expectedSfRounds} for ${ev.gender} (Appendix 3 §2.2)`,
+          });
+        }
+
+        const h2hRes = await client.query(
+          `SELECT id, status, parent_event_id FROM events WHERE id = $1`,
+          [ev.parent_event_id],
+        );
+        if (!h2hRes.rows.length || h2hRes.rows[0].status !== "Completed") {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "H2H stage must be Completed before seeding SF",
+          });
+        }
+        const h2h = h2hRes.rows[0];
+
+        const pairs = await loadH2hPairResults(client, h2h.id);
+        if (pairs.length !== 6) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: `H2H must have exactly 6 pairs (got ${pairs.length})`,
+          });
+        }
+        if (pairs.some((p) => p.tied)) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "Resolve dive-offs first — some H2H pairs are still tied",
+          });
+        }
+
+        // The 6 winners regroup: G1 = winners from H2H G1 (3
+        // divers); G2 = winners from H2H G2 (3 divers). Each
+        // winner's group carries forward.
+        const winners = [];
+        for (const p of pairs) {
+          const w = p.winner_id === p.competitor_a.id ? p.competitor_a : p.competitor_b;
+          winners.push({
+            competitor_id: w.id,
+            full_name:     w.full_name,
+            group_number:  p.group_number,
+            h2h_total:     w.total,
+          });
+        }
+
+        // Reverse-rank within group: the LOWEST scorer in each
+        // group dives first (Appendix 3 §2.2 — "starting order
+        // is reversed from H2H results within the same group").
+        // Group 1 winners get display_order 1..3; Group 2 get
+        // 4..6. Lowest H2H score within group → 1 / 4
+        // (dives first), highest → 3 / 6.
+        const orderByCompetitor = new Map();
+        for (const g of [1, 2]) {
+          const inGroup = winners
+            .filter((w) => w.group_number === g)
+            .sort((a, b) => a.h2h_total - b.h2h_total); // ascending
+          const base = g === 1 ? 1 : 4;
+          inGroup.forEach((w, i) => orderByCompetitor.set(w.competitor_id, base + i));
+        }
+
+        // Pull each winner's parent (Stop-1) submission so we
+        // can copy dives 4..5 (W) or 4..6 (M). The "parent" of
+        // the SF in the dive-list sense is the H2H's parent —
+        // the actual Stop-1 final/qualifier where the divers
+        // submitted their full lists. h2h.parent_event_id is
+        // that event.
+        if (!h2h.parent_event_id) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "H2H stage is missing parent_event_id (the Stop-1 qualifier)",
+          });
+        }
+        // Map: competitor_id → { round_number → dive_id } from
+        // the original Stop-1 submission. Rounds 4..5/6 are the
+        // SF's dives.
+        const stop1ListsRes = await client.query(
+          `SELECT competitor_id, round_number, dive_id
+             FROM competitor_dive_lists
+            WHERE event_id = $1
+              AND withdrawn_at IS NULL
+              AND is_reserve = FALSE
+              AND competitor_id = ANY($2::uuid[])`,
+          [h2h.parent_event_id, winners.map((w) => w.competitor_id)],
+        );
+        const stop1ByCompetitor = new Map();
+        for (const r of stop1ListsRes.rows) {
+          if (!stop1ByCompetitor.has(r.competitor_id)) {
+            stop1ByCompetitor.set(r.competitor_id, new Map());
+          }
+          stop1ByCompetitor.get(r.competitor_id).set(Number(r.round_number), r.dive_id);
+        }
+
+        // Wipe + reseed.
+        await client.query(
+          "DELETE FROM competitor_dive_lists WHERE event_id = $1",
+          [ev.id],
+        );
+
+        // Seed SF rows. Each diver gets total_rounds rows;
+        // round_number r in the SF event uses the Stop-1
+        // submission's round (3 + r) — i.e. SF round 1 → Stop-1
+        // round 4, SF round 2 → Stop-1 round 5, SF round 3
+        // (men only) → Stop-1 round 6.
+        for (const w of winners) {
+          const stop1Map = stop1ByCompetitor.get(w.competitor_id) || new Map();
+          for (let r = 1; r <= expectedSfRounds; r++) {
+            const stop1Round = 3 + r; // SF r=1 → parent r=4, etc.
+            await client.query(
+              `INSERT INTO competitor_dive_lists
+                (event_id, competitor_id, dive_id, round_number,
+                 display_order, group_number, is_reserve)
+               VALUES ($1, $2, $3, $4, $5, $6, FALSE)`,
+              [
+                ev.id,
+                w.competitor_id,
+                stop1Map.get(stop1Round) || null,
+                r,
+                orderByCompetitor.get(w.competitor_id),
+                w.group_number,
+              ],
+            );
+          }
+        }
+
+        // Set score_carry_from so standings include H2H
+        // (Appendix 3 §3.1 — "H2H scores carry forward to SF").
+        await client.query(
+          "UPDATE events SET score_carry_from = $2 WHERE id = $1",
+          [ev.id, h2h.id],
+        );
+
+        // Lock window — same WA Article 6.7.3 default as
+        // /advance, but this stage runs immediately after H2H so
+        // the operator may want a tighter window. Default 30.
+        let lockAtIso = null;
+        if (lockMin > 0) {
+          const lockRes = await client.query(
+            `UPDATE events
+                SET dive_list_locks_at = NOW() + ($2::int || ' minutes')::interval
+              WHERE id = $1
+              RETURNING dive_list_locks_at`,
+            [ev.id, lockMin],
+          );
+          lockAtIso = lockRes.rows[0]?.dive_list_locks_at?.toISOString() || null;
+        } else {
+          await client.query(
+            "UPDATE events SET dive_list_locks_at = NULL WHERE id = $1",
+            [ev.id],
+          );
+        }
+
+        await recordAudit(client, {
+          ...auditFromReq(req),
+          org_id:      req.user.org_id,
+          entity_type: "event",
+          entity_id:   ev.id,
+          entity_name: ev.name,
+          action:      "event.semi_seeded",
+          metadata: {
+            h2h_event_id:    h2h.id,
+            stop1_event_id:  h2h.parent_event_id,
+            score_carry_from: h2h.id,
+            sf_rounds:       expectedSfRounds,
+            gender:          ev.gender,
+            lock_minutes:    lockMin,
+            dive_list_locks_at: lockAtIso,
+            winners: winners.map((w) => ({
+              competitor_id: w.competitor_id,
+              group_number:  w.group_number,
+              h2h_total:     w.h2h_total,
+            })),
+          },
+        });
+
+        await client.query("COMMIT");
+
+        // Push notifications to the 6 advanced divers.
+        if (push && typeof push.sendNotification === "function") {
+          try {
+            const ids = winners.map((w) => w.competitor_id);
+            const lockHint = lockAtIso
+              ? ` Locks at ${new Date(lockAtIso).toLocaleString()}.`
+              : "";
+            await push.sendNotification(ids, {
+              category:  "sf_seeded",
+              title:     `You've advanced to "${ev.name}" Semi Final`,
+              body:      `Your remaining ${expectedSfRounds} dives carry forward from your Stop-1 submission.${lockHint}`,
+              data:      { event_id: ev.id, h2h_event_id: h2h.id, lock_at: lockAtIso },
+              action_url: `/competitor?event=${ev.id}`,
+            });
+          } catch (notifErr) {
+            console.error("[SF Seed Notification Skipped]", notifErr.message);
+          }
+        }
+
+        const byGroup = { 1: [], 2: [] };
+        for (const w of winners) {
+          byGroup[w.group_number].push({
+            competitor_id: w.competitor_id,
+            full_name:     w.full_name,
+            display_order: orderByCompetitor.get(w.competitor_id),
+            h2h_total:     w.h2h_total,
+          });
+        }
+
+        res.json({
+          seeded:             6,
+          score_carry_from:   h2h.id,
+          sf_rounds:          expectedSfRounds,
+          gender:             ev.gender,
+          by_group:           byGroup,
+          dive_list_locks_at: lockAtIso,
+        });
+      } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("[Seed SF Error]", err.message);
+        res.status(500).json({ error: "Internal server error" });
+      } finally {
+        client.release();
+      }
+    },
+  );
+
+  // Helper: cumulative SF results = SF totals + H2H carry-over.
+  // Used by seed-final + the merged-rankings endpoint. Returns
+  // an array of rows ordered by within-group rank, ascending.
+  async function loadSfCumulative(client, sfEventId) {
+    const evRes = await client.query(
+      `SELECT id, score_carry_from FROM events WHERE id = $1`,
+      [sfEventId],
+    );
+    if (!evRes.rows.length) return [];
+    const carry = evRes.rows[0].score_carry_from;
+    // Pull SF totals + carry totals separately, then sum in JS
+    // (cleaner than juggling a single CTE that has to cope with
+    // a NULL carry_from and 7-table joins twice).
+    const sfTotalsRes = await client.query(
+      `WITH per_dive AS (
+         SELECT s.competitor_id,
+                calc_event_dive_points(
+                  array_agg(ej.judge_number ORDER BY ej.judge_number),
+                  array_agg(s.score ORDER BY ej.judge_number),
+                  e.number_of_judges, MAX(d.dd), e.event_type,
+                  BOOL_OR(cdl.partner_id IS NOT NULL)
+                ) AS dive_points
+         FROM scores s
+         JOIN events e ON e.id = s.event_id
+         LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+         LEFT JOIN competitor_dive_lists cdl
+           ON cdl.event_id = s.event_id
+          AND cdl.competitor_id = s.competitor_id
+          AND cdl.round_number = s.round_number
+         LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+         WHERE s.event_id = $1
+         GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+       )
+       SELECT cdl.competitor_id, cdl.group_number,
+              MIN(cdl.display_order) AS display_order,
+              u.full_name, o.country_code,
+              COALESCE(SUM(pd.dive_points), 0) AS sf_total
+         FROM competitor_dive_lists cdl
+         JOIN users u ON u.id = cdl.competitor_id
+         JOIN organisations o ON o.id = u.org_id
+         LEFT JOIN per_dive pd ON pd.competitor_id = cdl.competitor_id
+        WHERE cdl.event_id = $1
+          AND cdl.withdrawn_at IS NULL
+          AND cdl.is_reserve = FALSE
+        GROUP BY cdl.competitor_id, cdl.group_number, u.full_name, o.country_code`,
+      [sfEventId],
+    );
+    let carryByCompetitor = new Map();
+    if (carry) {
+      const carryRes = await client.query(
+        `WITH per_dive AS (
+           SELECT s.competitor_id,
+                  calc_event_dive_points(
+                    array_agg(ej.judge_number ORDER BY ej.judge_number),
+                    array_agg(s.score ORDER BY ej.judge_number),
+                    e.number_of_judges, MAX(d.dd), e.event_type,
+                    BOOL_OR(cdl.partner_id IS NOT NULL)
+                  ) AS dive_points
+           FROM scores s
+           JOIN events e ON e.id = s.event_id
+           LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+           LEFT JOIN competitor_dive_lists cdl
+             ON cdl.event_id = s.event_id
+            AND cdl.competitor_id = s.competitor_id
+            AND cdl.round_number = s.round_number
+           LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+           WHERE s.event_id = $1
+           GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+         )
+         SELECT competitor_id, COALESCE(SUM(dive_points), 0) AS carry_total
+           FROM per_dive
+          GROUP BY competitor_id`,
+        [carry],
+      );
+      for (const r of carryRes.rows) {
+        carryByCompetitor.set(r.competitor_id, Number(r.carry_total));
+      }
+    }
+    const rows = sfTotalsRes.rows.map((r) => ({
+      competitor_id: r.competitor_id,
+      group_number:  r.group_number,
+      full_name:     r.full_name,
+      country_code:  r.country_code,
+      display_order: r.display_order,
+      sf_total:      Number(r.sf_total),
+      carry_total:   carryByCompetitor.get(r.competitor_id) || 0,
+    }));
+    for (const r of rows) {
+      r.cumulative_total = r.sf_total + r.carry_total;
+    }
+    return rows;
+  }
+
+  // POST /api/events/:id/seed-final
+  // :id is the F event (event_format=super_final_final). Top-2
+  // per SF group on cumulative score (H2H+SF) → 4 finalists.
+  // F resets scores (Appendix 3 §3.2 — score_carry_from=NULL).
+  // F.total_rounds = 5 (W) / 6 (M); roster seeds full Stop-1
+  // submission rounds 1..5/6.
+  //
+  // Body: { lock_minutes: 15 } (Appendix 3 §4.1 — 15-min break
+  // between SF and F, change-of-dives must be made AFTER SF and
+  // at LATEST 5 minutes before F → effective lock at NOW() +
+  // (lock_minutes - 5)).
+  router.post(
+    "/api/events/:id/seed-final",
+    requireEventManager(),
+    async (req, res) => {
+      const rawLockMin = Number.isFinite(parseInt(req.body?.lock_minutes))
+        ? Math.max(5, Math.min(parseInt(req.body.lock_minutes), 24 * 60))
+        : 15;
+      // Effective lock: 5-min buffer before F starts (Appendix 3 §4.1).
+      const lockMin = Math.max(0, rawLockMin - 5);
+
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+
+        const evRes = await client.query(
+          `SELECT id, event_format, status, parent_event_id, gender, name, total_rounds
+             FROM events WHERE id = $1`,
+          [req.params.id],
+        );
+        if (!evRes.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ error: "Event not found" });
+        }
+        const ev = evRes.rows[0];
+        if (ev.event_format !== "super_final_final") {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: "Event is not a Super Final F stage" });
+        }
+        if (ev.status !== "Upcoming") {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: "F must be Upcoming to seed" });
+        }
+        if (!ev.parent_event_id) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "F must have parent_event_id pointing at the SF event",
+          });
+        }
+        const expectedFRounds = ev.gender === "Male" ? 6 : 5;
+        if (Number(ev.total_rounds) !== expectedFRounds) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: `F total_rounds must be ${expectedFRounds} for ${ev.gender} (Appendix 3 §2.3 — full dive list)`,
+          });
+        }
+
+        const sfRes = await client.query(
+          `SELECT id, status, parent_event_id FROM events WHERE id = $1`,
+          [ev.parent_event_id],
+        );
+        if (!sfRes.rows.length || sfRes.rows[0].status !== "Completed") {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "SF stage must be Completed before seeding F",
+          });
+        }
+        const sf = sfRes.rows[0];
+
+        // The Stop-1 dive list lives at h2h.parent_event_id; the
+        // SF.parent_event_id points at H2H, so we walk H2H to
+        // find the Stop-1 event id.
+        const h2hRes = await client.query(
+          "SELECT id, parent_event_id FROM events WHERE id = $1",
+          [sf.parent_event_id],
+        );
+        const stop1EventId = h2hRes.rows[0]?.parent_event_id;
+        if (!stop1EventId) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "Could not resolve Stop-1 event from SF chain (SF → H2H → Stop-1)",
+          });
+        }
+
+        const sfRows = await loadSfCumulative(client, sf.id);
+        if (sfRows.length === 0) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "SF stage has no scored divers — cannot seed F",
+          });
+        }
+        // Top 2 per group on cumulative_total. Tie-break: higher
+        // cumulative; if those tied, dive_off is the resolution
+        // (Appendix 3 §6) — but the SQL here uses cumulative DESC
+        // and trusts the operator to have run a dive-off if
+        // needed.
+        const finalists = [];
+        for (const g of [1, 2]) {
+          const inGroup = sfRows
+            .filter((r) => r.group_number === g)
+            .sort((a, b) => b.cumulative_total - a.cumulative_total);
+          finalists.push(...inGroup.slice(0, 2));
+        }
+        if (finalists.length !== 4) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: `Expected 4 finalists (top-2 per group); got ${finalists.length}`,
+          });
+        }
+
+        // Pull each finalist's full Stop-1 dive list (rounds
+        // 1..5/6) so we can seed it verbatim into the F event.
+        const stop1ListsRes = await client.query(
+          `SELECT competitor_id, round_number, dive_id
+             FROM competitor_dive_lists
+            WHERE event_id = $1
+              AND withdrawn_at IS NULL
+              AND is_reserve = FALSE
+              AND competitor_id = ANY($2::uuid[])`,
+          [stop1EventId, finalists.map((f) => f.competitor_id)],
+        );
+        const stop1ByCompetitor = new Map();
+        for (const r of stop1ListsRes.rows) {
+          if (!stop1ByCompetitor.has(r.competitor_id)) {
+            stop1ByCompetitor.set(r.competitor_id, new Map());
+          }
+          stop1ByCompetitor.get(r.competitor_id).set(Number(r.round_number), r.dive_id);
+        }
+
+        // Reverse rank: highest cumulative dives last (display_order=4).
+        // Order finalists by cumulative_total ascending and assign 1..4.
+        const ordered = [...finalists].sort((a, b) => a.cumulative_total - b.cumulative_total);
+        const orderByCompetitor = new Map();
+        ordered.forEach((f, i) => orderByCompetitor.set(f.competitor_id, i + 1));
+
+        await client.query(
+          "DELETE FROM competitor_dive_lists WHERE event_id = $1",
+          [ev.id],
+        );
+
+        for (const f of finalists) {
+          const stop1Map = stop1ByCompetitor.get(f.competitor_id) || new Map();
+          for (let r = 1; r <= expectedFRounds; r++) {
+            await client.query(
+              `INSERT INTO competitor_dive_lists
+                (event_id, competitor_id, dive_id, round_number,
+                 display_order, group_number, is_reserve)
+               VALUES ($1, $2, $3, $4, $5, NULL, FALSE)`,
+              [
+                ev.id,
+                f.competitor_id,
+                stop1Map.get(r) || null,
+                r,
+                orderByCompetitor.get(f.competitor_id),
+              ],
+            );
+          }
+        }
+
+        // F resets scores (Appendix 3 §3.2). Make sure
+        // score_carry_from is NULL.
+        await client.query(
+          "UPDATE events SET score_carry_from = NULL WHERE id = $1",
+          [ev.id],
+        );
+
+        // Lock window — Appendix 3 §4.1: 15-min break between
+        // SF and F, change-of-dives must be made up to "5
+        // minutes before the Final" → effective lock = NOW() +
+        // (lock_minutes - 5).
+        let lockAtIso = null;
+        if (lockMin > 0) {
+          const lockRes = await client.query(
+            `UPDATE events
+                SET dive_list_locks_at = NOW() + ($2::int || ' minutes')::interval
+              WHERE id = $1
+              RETURNING dive_list_locks_at`,
+            [ev.id, lockMin],
+          );
+          lockAtIso = lockRes.rows[0]?.dive_list_locks_at?.toISOString() || null;
+        } else {
+          await client.query(
+            "UPDATE events SET dive_list_locks_at = NULL WHERE id = $1",
+            [ev.id],
+          );
+        }
+
+        await recordAudit(client, {
+          ...auditFromReq(req),
+          org_id:      req.user.org_id,
+          entity_type: "event",
+          entity_id:   ev.id,
+          entity_name: ev.name,
+          action:      "event.final_seeded",
+          metadata: {
+            sf_event_id:        sf.id,
+            stop1_event_id:     stop1EventId,
+            f_rounds:           expectedFRounds,
+            gender:             ev.gender,
+            lock_minutes_input: rawLockMin,
+            lock_minutes_eff:   lockMin,
+            dive_list_locks_at: lockAtIso,
+            finalists: finalists.map((f) => ({
+              competitor_id:    f.competitor_id,
+              cumulative_total: f.cumulative_total,
+              group_number:     f.group_number,
+            })),
+          },
+        });
+
+        await client.query("COMMIT");
+
+        if (push && typeof push.sendNotification === "function") {
+          try {
+            const ids = finalists.map((f) => f.competitor_id);
+            const lockHint = lockAtIso
+              ? ` Dive list locks at ${new Date(lockAtIso).toLocaleString()} (5 min before the Final).`
+              : "";
+            await push.sendNotification(ids, {
+              category:  "f_seeded",
+              title:     `You've advanced to "${ev.name}" Final`,
+              body:      `Scores reset — full ${expectedFRounds}-dive list. Highest cumulative dives last.${lockHint}`,
+              data:      { event_id: ev.id, sf_event_id: sf.id, lock_at: lockAtIso },
+              action_url: `/competitor?event=${ev.id}`,
+            });
+          } catch (notifErr) {
+            console.error("[F Seed Notification Skipped]", notifErr.message);
+          }
+        }
+
+        res.json({
+          seeded:             4,
+          f_rounds:           expectedFRounds,
+          gender:             ev.gender,
+          finalists: finalists.map((f) => ({
+            competitor_id:    f.competitor_id,
+            full_name:        f.full_name,
+            country_code:     f.country_code,
+            cumulative_total: f.cumulative_total,
+            display_order:    orderByCompetitor.get(f.competitor_id),
+            group_number:     f.group_number,
+          })),
+          dive_list_locks_at: lockAtIso,
+          score_carry_from:   null,
+        });
+      } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("[Seed F Error]", err.message);
+        res.status(500).json({ error: "Internal server error" });
+      } finally {
+        client.release();
+      }
+    },
+  );
+
   // -------------------------------------------------------------
   // GET /api/events/:id/reserves — list reserves on an event with
   // their dive-list preview (round + dive_code/dd) so the Control
