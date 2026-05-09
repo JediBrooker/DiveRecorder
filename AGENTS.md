@@ -55,6 +55,22 @@ in the PDF** before citing:
 | 10     | Refereeing and judging dives |
 | 11     | Synchronisation judging |
 
+**Diving World Cup Super Final** has its own additional regulations
+in `docs/2026.03.05-…-Super-Final…pdf` Appendix 3:
+
+| Section | Topic |
+|---|---|
+| §1.1   | Top-12 qualification + max 2 per Federation |
+| §1.2   | Three-stage chain: H2H → SF → F (3 / 2-3 / 5-6 dives) |
+| §2.1   | H2H pairing (12v1, 11v2, …) + group split (G1/G2) + dive sequence within a group |
+| §2.2   | SF — 6 winners regroup; reverse-rank within group; carry forward H2H |
+| §2.3   | F — top-2 per SF group; scores reset; reverse-rank from SF |
+| §3     | Score carry rules (H2H→SF carries; F resets) |
+| §4.1   | F change-of-dives window — 15 min between SF and F, latest 5 min before F |
+| §5.1   | Pre-Super-Final reserve replacement (synchro pool) |
+| §6     | Dive-offs — single-dive tie-break at end of H2H or SF |
+| §7     | Final 1-12 ranking layout: 1-4 from F; 5-6 from H2H+SF; 7-12 from H2H |
+
 If you're not sure whether a feature touches WA rules, err toward reading
 the PDF section. Better to spend a minute confirming a citation than to
 ship code (or docs) that misrepresents the rule.
