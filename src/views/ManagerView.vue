@@ -14,6 +14,7 @@ const meets = ref([])
 const formErr = ref('')
 const editErr = ref('')
 const showCreateModal = ref(false)     // New Event form lives in a modal
+const showCreateMeetModal = ref(false) // New Meet form (was inline)
 const showEditModal = ref(false)
 
 // Create form
@@ -842,6 +843,7 @@ async function createMeet() {
       }),
     })
     meetForm.value = { name: '', venue: '', start_date: '', end_date: '' }
+    showCreateMeetModal.value = false
     await loadMeets()
   } catch (err) {
     meetFormErr.value = err.message
@@ -1350,10 +1352,14 @@ onUnmounted(() => {
   </div>
 
   <div class="main">
-    <!-- New Event modal trigger — the form itself is in a modal
-         below to give the operator real screen real-estate for
-         the dive-slot list. -->
+    <!-- Top toolbar — "+ New Meet" left, "+ New Event" right.
+         Both forms live in modals below so the inline page can
+         use the full width for the events list. -->
     <div class="manager-toolbar">
+      <button type="button" class="btn btn-secondary"
+              @click="showCreateMeetModal = true">
+        + New Meet
+      </button>
       <button type="button" class="btn btn-primary"
               @click="showCreateModal = true">
         + New Event
@@ -1844,15 +1850,14 @@ onUnmounted(() => {
     </div>
     <!-- /modal-create-event -->
 
-    <!-- Meet management — separate inline card. Operators rarely
-         need to look at meets while creating an event, so it lives
-         here as its own pane rather than inside the event-creation
-         modal. -->
+    <!-- Meets list — only the existing meets render inline. The
+         "create new meet" form moved into the New Meet modal,
+         triggered from the toolbar at the top. -->
     <div class="card">
       <h2 style="font-size:20px;font-style:italic;margin:0 0 0.75rem">Meets</h2>
       <div class="meet-list">
         <div v-if="!meets.length" class="hint">
-          No meets yet. Create one below to bundle multiple events.
+          No meets yet. Click <strong>+ New Meet</strong> at the top to bundle events into a meet.
         </div>
         <div v-for="m in meets" :key="m.id" class="meet-row">
           <div class="meet-row-id">
@@ -1865,31 +1870,6 @@ onUnmounted(() => {
           <button class="btn btn-ghost btn-sm" @click="deleteMeet(m)">Delete</button>
         </div>
       </div>
-
-      <form @submit.prevent="createMeet" class="form-stack" style="margin-top:1rem">
-        <div class="field">
-          <label class="label">New Meet Name</label>
-          <input class="input" v-model="meetForm.name" placeholder="e.g. 2026 National Open" required>
-        </div>
-        <div class="field">
-          <label class="label">Venue (optional)</label>
-          <input class="input" v-model="meetForm.venue" placeholder="e.g. Sydney Olympic Aquatic Centre">
-        </div>
-        <div class="field" style="display:flex;gap:0.5rem">
-          <div style="flex:1">
-            <label class="label">Start Date</label>
-            <input class="input" type="date" v-model="meetForm.start_date">
-          </div>
-          <div style="flex:1">
-            <label class="label">End Date</label>
-            <input class="input" type="date" v-model="meetForm.end_date">
-          </div>
-        </div>
-        <div v-if="meetFormErr" class="msg msg-error">{{ meetFormErr }}</div>
-        <button type="submit" class="btn btn-primary btn-sm" style="align-self:flex-start">
-          Create Meet
-        </button>
-      </form>
     </div>
 
     <!-- Events list -->
@@ -2428,6 +2408,46 @@ onUnmounted(() => {
     </div>
   </div>
 
+  <!-- New Meet modal — moved out of the inline page so the
+       Meet Manager toolbar can offer "+ New Meet" alongside
+       "+ New Event" without crowding the main column. -->
+  <div v-if="showCreateMeetModal" class="modal-backdrop"
+       @click.self="showCreateMeetModal = false">
+    <div class="modal modal-create-meet" @click.stop style="max-width:480px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
+        <h2 style="font-size:20px;font-style:italic">New Meet</h2>
+        <button class="btn btn-ghost btn-sm" @click="showCreateMeetModal = false">Cancel ✕</button>
+      </div>
+      <p class="hint" style="margin-bottom:1rem">
+        A meet bundles one or more events under a single name —
+        useful for multi-day championships. Leave standalone for
+        one-off events.
+      </p>
+      <form @submit.prevent="createMeet" class="form-stack">
+        <div class="field">
+          <label class="label">Meet Name</label>
+          <input class="input" v-model="meetForm.name" placeholder="e.g. 2026 National Open" required>
+        </div>
+        <div class="field">
+          <label class="label">Venue (optional)</label>
+          <input class="input" v-model="meetForm.venue" placeholder="e.g. Sydney Olympic Aquatic Centre">
+        </div>
+        <div class="field" style="display:flex;gap:0.5rem">
+          <div style="flex:1">
+            <label class="label">Start Date</label>
+            <input class="input" type="date" v-model="meetForm.start_date">
+          </div>
+          <div style="flex:1">
+            <label class="label">End Date</label>
+            <input class="input" type="date" v-model="meetForm.end_date">
+          </div>
+        </div>
+        <div v-if="meetFormErr" class="msg msg-error">{{ meetFormErr }}</div>
+        <button type="submit" class="btn btn-primary">Create Meet</button>
+      </form>
+    </div>
+  </div>
+
   <!-- Team enrolment modal -->
   <div v-if="teamsModalOpen" class="modal-backdrop" @click="closeTeamsModal"></div>
   <div v-if="teamsModalOpen" class="modal teams-modal" @click.stop>
@@ -2596,7 +2616,13 @@ onUnmounted(() => {
    list stacked vertically. */
 .main { max-width:1100px;margin:0 auto;padding:2rem;display:grid;grid-template-columns:1fr;gap:2rem;align-items:start; }
 
-.manager-toolbar { display:flex; justify-content:flex-end; gap:0.5rem; }
+.manager-toolbar {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:0.5rem;
+  flex-wrap:wrap;
+}
 
 .modal-create-event { max-width:720px; max-height:calc(100vh - 4rem); overflow-y:auto; }
 .modal-create-dive  { max-width:480px; }
