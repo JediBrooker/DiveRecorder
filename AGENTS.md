@@ -240,48 +240,35 @@ finds it on the first pass.
 test suite **on the local Mac** before it gets pushed. Don't rely
 on the GitHub Actions round-trip — push-then-watch-CI is a 15-minute
 loop that hides bugs behind merge commits and is twice as slow as
-running locally even with this machine's slow boot.
+running locally.
+
+Project lives at `~/Code/DiveRecorder` (local disk, not Google
+Drive — an earlier copy on Drive caused 2-5 min Node module-load
+hangs). Cold boot is ~1 second; full local-CI cycle is ~3 min.
 
 The local equivalent of `.github/workflows/ci.yml`:
 
 ```bash
-# 1. Lint + build (fast, no DB)
+# 1. Lint + build (fast, no DB) — sub-second.
 npm run lint
 npm run build
 
 # 2. Integration tests (requires Postgres at $DB_DATABASE,
 #    default diverecorder_test). Boots server.js in-process.
-npm test
+DB_DATABASE=diverecorder_test \
+  JWT_SECRET=local-test-secret-do-not-use-in-prod-aaaaa \
+  npm test
 
 # 3. End-to-end (Playwright + Chromium). Boots its own server
-#    via webServer config; the boot wait is the slow step on
-#    this machine, see note below.
-npx playwright test
+#    on :3097 via webServer config; reuses if one's already
+#    running. RATE_LIMIT_DISABLED=true is REQUIRED — the e2e
+#    suite hits auth from 127.0.0.1 enough times to trip the
+#    20/15min default limiter and 429 every login. The
+#    playwright.config.js webServer.env already sets it for the
+#    auto-spawned server, but if you pre-boot, set it yourself.
+PORT=3097 RATE_LIMIT_DISABLED=true APP_BASE_URL=http://127.0.0.1:3097 \
+  node server.js &
+DB_DATABASE=diverecorder_test E2E_HIGHLIGHT=0 npx playwright test
 ```
 
 A change is "ready to push" only after all three are green.
-
-### Local boot-hang gotcha
-
-The project lives on a Google Drive Cloud Storage path
-(`~/Library/CloudStorage/GoogleDrive-…/DiveRecorderV4`).
-Node module resolution does many small reads per file and fights
-the Drive sync layer + Spotlight indexing — `node server.js`
-takes 2-5 minutes to accept connections instead of <1 second.
-
-What this means for the local CI workflow:
-
-- `npm test` boots the server in-process; the slow first
-  `require('./server.js')` is the bottleneck. Set `DB_DATABASE`,
-  let it run, give it ~3 minutes before declaring a hang.
-- `npx playwright test` runs `webServer.command` (`npm run build &&
-  PORT=3097 node server.js`) and waits up to `webServer.timeout`
-  for `/api/health`. The default 60_000ms in `playwright.config.js`
-  isn't enough on this machine; bump it to 300_000ms locally if you
-  need to run the e2e suite.
-- Pre-booting the server in another terminal + relying on
-  `reuseExistingServer: true` is the fastest path: pay the boot
-  hang once, then iterate on tests freely.
-
-If a fresh local copy outside Google Drive becomes available,
-delete this section.
