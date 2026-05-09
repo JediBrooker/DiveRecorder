@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { confirmAction } from '@/composables/useConfirm'
 import { showSuccess, showError } from '@/composables/useNotify'
 import StatusPill from '@/components/StatusPill.vue'
+import { filterStandardTemplates } from '@/lib/standard-templates'
 
 const auth = useAuthStore()
 
@@ -34,9 +35,6 @@ function addRoundDive(slot) {
 }
 function removeRoundDive(idx) {
   createRoundDives.value.splice(idx, 1)
-}
-function bulkAddRounds(n) {
-  for (let i = 0; i < n; i++) addRoundDive()
 }
 // Derived total rounds. Existing template/code referencing
 // `createRounds` keeps working without churn.
@@ -212,7 +210,68 @@ const showMixedHeightHelp = ref(false)
 // Migration 013 additions: age group, scheduled start, event
 // format (final / preliminary), prelim/final link, advance count,
 // per-round DD limits.
-const createAgeGroup     = ref('')
+//
+// Age group is structured: a category dropdown +
+// sub-selection. Composes into the flat `events.age_group`
+// VARCHAR(40) on submit so historical data + reports keep
+// working unchanged.
+//
+//   createAgeCategory  — top-level: '' | 'age' | 'junior' | 'open' | 'other'
+//   createAgeAge       — when category='age': '11_under' | '12_13' | '14_15' | '16_18' | 'masters'
+//   createAgeMasters   — when category='age' + age='masters': free text "30-34" / "M40+" etc.
+//   createAgeJunior    — when category='junior': 'A' | 'B' | 'C' | 'D' | 'E'
+//   createAgeOther     — when category='other': free text
+//
+// Empty category = un-bracketed (the historical default).
+const createAgeCategory = ref('')
+const createAgeAge      = ref('')
+const createAgeMasters  = ref('')
+const createAgeJunior   = ref('')
+const createAgeOther    = ref('')
+const createAgeGroup    = computed(() => composeAgeGroup({
+  category: createAgeCategory.value,
+  age:      createAgeAge.value,
+  masters:  createAgeMasters.value,
+  junior:   createAgeJunior.value,
+  other:    createAgeOther.value,
+}))
+function composeAgeGroup(parts) {
+  if (parts.category === 'age') {
+    if (parts.age === '11_under') return '11 and under'
+    if (parts.age === '12_13')    return '12/13'
+    if (parts.age === '14_15')    return '14/15'
+    if (parts.age === '16_18')    return '16-18'
+    if (parts.age === 'masters') {
+      const m = (parts.masters || '').trim()
+      return m ? `Masters ${m}` : 'Masters'
+    }
+    return ''
+  }
+  if (parts.category === 'junior') {
+    return parts.junior ? `Junior Group ${parts.junior}` : ''
+  }
+  if (parts.category === 'open')  return 'Open'
+  if (parts.category === 'other') return (parts.other || '').trim()
+  return ''
+}
+// Reverse-decompose a stored age_group string back into the
+// dropdown selection so the Edit modal can hydrate. Best-effort
+// — anything unrecognised falls into 'other' with the original
+// text preserved.
+function decomposeAgeGroup(value) {
+  const v = (value || '').trim()
+  if (!v) return { category: '', age: '', masters: '', junior: '', other: '' }
+  if (v === '11 and under') return { category: 'age', age: '11_under', masters: '', junior: '', other: '' }
+  if (v === '12/13')        return { category: 'age', age: '12_13',    masters: '', junior: '', other: '' }
+  if (v === '14/15')        return { category: 'age', age: '14_15',    masters: '', junior: '', other: '' }
+  if (v === '16-18')        return { category: 'age', age: '16_18',    masters: '', junior: '', other: '' }
+  if (v === 'Open')         return { category: 'open', age: '', masters: '', junior: '', other: '' }
+  const masters = v.match(/^Masters\b\s*(.*)$/i)
+  if (masters) return { category: 'age', age: 'masters', masters: masters[1] || '', junior: '', other: '' }
+  const junior = v.match(/^Junior Group\s+([A-E])$/i)
+  if (junior) return { category: 'junior', age: '', masters: '', junior: junior[1].toUpperCase(), other: '' }
+  return { category: 'other', age: '', masters: '', junior: '', other: v }
+}
 const createScheduledAt  = ref('')      // datetime-local string, '' = unscheduled
 const createEntriesCloseAt = ref('')    // datetime-local string, '' = no deadline
 const createFormat       = ref('final') // 'final' | 'preliminary'
@@ -300,7 +359,17 @@ function applyEventTemplate(t) {
     }))
   }
   if (c.event_type)        createType.value = c.event_type
-  if (c.age_group !== undefined)        createAgeGroup.value = c.age_group || ''
+  if (c.age_group !== undefined) {
+    // age_group is now a computed; decompose the stored string
+    // back into its sub-refs so the structured dropdown picks
+    // the right option.
+    const parts = decomposeAgeGroup(c.age_group)
+    createAgeCategory.value = parts.category
+    createAgeAge.value      = parts.age
+    createAgeMasters.value  = parts.masters
+    createAgeJunior.value   = parts.junior
+    createAgeOther.value    = parts.other
+  }
   if (c.event_format)      createFormat.value = c.event_format
   if (c.advance_count)     createAdvanceCount.value = c.advance_count
   if (c.dd_limit_rounds !== undefined)  createDdLimitRounds.value = c.dd_limit_rounds || 0
@@ -318,6 +387,37 @@ function applyEventTemplate(t) {
   } else {
     createRoundSections.value = []
   }
+  // Hydrate prescribed round dives if the template specifies any.
+  // Most standard templates leave them blank — operator pins per
+  // event. Length seeds free slots if total_rounds is set so the
+  // editor reflects the round count.
+  if (Array.isArray(c.round_dives) && c.round_dives.length) {
+    createRoundDives.value = c.round_dives.map((slot) => ({
+      dive_id: slot.dive_id || null,
+      height:  slot.height ?? null,
+      _label:  '',
+      _meta:   null,
+    }))
+  } else if (c.total_rounds) {
+    createRoundDives.value = Array.from({ length: c.total_rounds }, () => ({
+      dive_id: null, height: null, _label: '', _meta: null,
+    }))
+  }
+}
+
+// Standard / "WA-aligned" templates surfaced in the modal. Filtered
+// live by the operator's current Gender + Age Group so the strip
+// only shows applicable rule shapes.
+const suggestedStandardTemplates = computed(() =>
+  filterStandardTemplates({
+    gender: createGender.value,
+    age_group: createAgeGroup.value,
+  }),
+)
+function applyStandardTemplate(t) {
+  // Reuse the same path as user-saved templates so the form
+  // receives a consistent shape regardless of source.
+  applyEventTemplate({ name: t.name, config: t.config })
 }
 
 async function saveAsEventTemplate() {
@@ -549,6 +649,19 @@ const editType = ref('individual')
 const editEntriesCloseAt = ref('')   // datetime-local string, '' = no deadline
 const editEnforceSignoff = ref(false)
 const editMixedHeight    = ref(false)
+// Structured age group — same shape as the Create form.
+const editAgeCategory = ref('')
+const editAgeAge      = ref('')
+const editAgeMasters  = ref('')
+const editAgeJunior   = ref('')
+const editAgeOther    = ref('')
+const editAgeGroup    = computed(() => composeAgeGroup({
+  category: editAgeCategory.value,
+  age:      editAgeAge.value,
+  masters:  editAgeMasters.value,
+  junior:   editAgeJunior.value,
+  other:    editAgeOther.value,
+}))
 // Migration 039: prescribed round dives mirrored into the Edit
 // modal. Same shape as createRoundDives — each entry is
 // { dive_id|null, height|null, _label, _meta }.
@@ -592,9 +705,6 @@ function addEditRoundDive(slot) {
 }
 function removeEditRoundDive(idx) {
   editRoundDives.value.splice(idx, 1)
-}
-function bulkAddEditRounds(n) {
-  for (let i = 0; i < n; i++) addEditRoundDive()
 }
 
 // Team enrolment modal — open when "Teams" clicked on a team-event row
@@ -840,7 +950,11 @@ async function createEvent() {
     createRoundDives.value = []
     createType.value = 'individual'
     createMeetId.value = ''
-    createAgeGroup.value = ''
+    createAgeCategory.value = ''
+    createAgeAge.value      = ''
+    createAgeMasters.value  = ''
+    createAgeJunior.value   = ''
+    createAgeOther.value    = ''
     createScheduledAt.value = ''
     createEntriesCloseAt.value = ''
     createFormat.value = 'final'
@@ -867,6 +981,13 @@ async function openEdit(ev) {
   editType.value = ev.event_type || 'individual'
   editEnforceSignoff.value = !!ev.enforce_referee_signoff
   editMixedHeight.value    = !!ev.is_mixed_height
+  // Decompose stored age_group into the structured dropdown.
+  const ageParts = decomposeAgeGroup(ev.age_group)
+  editAgeCategory.value = ageParts.category
+  editAgeAge.value      = ageParts.age
+  editAgeMasters.value  = ageParts.masters
+  editAgeJunior.value   = ageParts.junior
+  editAgeOther.value    = ageParts.other
   // entries_close_at comes back as an ISO string from the server.
   // <input type="datetime-local"> wants 'YYYY-MM-DDTHH:mm' in local
   // time, no zone, no seconds — so format it for display.
@@ -945,6 +1066,7 @@ async function saveEdit() {
         number_of_judges: parseInt(editJudges.value),
         total_rounds: editRoundDives.value.length || null,
         event_type: editType.value,
+        age_group: editAgeGroup.value || null,
         // Send '' as null so the server clears the deadline; an
         // ISO string sets it. Server treats undefined (absent key)
         // as "leave untouched" — but we always send the field
@@ -1292,6 +1414,29 @@ onUnmounted(() => {
         <div v-if="templateErr" class="msg msg-error" style="margin-top:0.5rem">{{ templateErr }}</div>
       </div>
 
+      <!-- World Aquatics / federation-standard templates. Filtered
+           live by the operator's current Gender + Age Group so the
+           strip narrows to applicable rule shapes. Distinct from
+           the user-saved templates above (those are per-org). -->
+      <div v-if="suggestedStandardTemplates.length" class="event-templates std-templates">
+        <div class="std-templates-head">
+          <span>Suggested templates</span>
+          <span class="std-templates-sub">
+            {{ createGender }}{{ createAgeGroup ? ' · ' + createAgeGroup : '' }} — {{ suggestedStandardTemplates.length }} match{{ suggestedStandardTemplates.length === 1 ? '' : 'es' }}
+          </span>
+        </div>
+        <div class="event-templates-list">
+          <button v-for="t in suggestedStandardTemplates" :key="t.name"
+                  type="button"
+                  class="event-template-apply std-template"
+                  :title="t.description"
+                  @click="applyStandardTemplate(t)">
+            <span class="event-template-name">{{ t.name }}</span>
+            <span class="event-template-config">{{ t.description }}</span>
+          </button>
+        </div>
+      </div>
+
       <form @submit.prevent="createEvent" class="form-stack">
         <div class="field">
           <label class="label">Event Name</label>
@@ -1316,6 +1461,61 @@ onUnmounted(() => {
             <option value="Mixed">Mixed</option>
           </select>
         </div>
+
+        <!-- Age Group / Division. Structured dropdown — categories
+             are Age Group (numeric ranges + Masters), FINA Junior
+             Group (E–A), Open, or Other (free text). The
+             composed string lands in events.age_group on submit. -->
+        <div class="field age-group-field">
+          <label class="label">Age Group / Division</label>
+          <select class="select age-category" v-model="createAgeCategory"
+                  @change="createAgeAge=''; createAgeMasters=''; createAgeJunior=''; createAgeOther=''">
+            <option value="">— Un-bracketed —</option>
+            <optgroup label="Age Group">
+              <option value="age">Age Group (11 and under … Masters)</option>
+            </optgroup>
+            <optgroup label="Junior (FINA Group)">
+              <option value="junior">Junior Group (A–E)</option>
+            </optgroup>
+            <option value="open">Open</option>
+            <option value="other">Other (custom)</option>
+          </select>
+
+          <!-- Sub-selectors -->
+          <select v-if="createAgeCategory === 'age'" class="select" v-model="createAgeAge"
+                  style="margin-top:0.5rem">
+            <option value="">— Pick age group —</option>
+            <option value="11_under">11 and under</option>
+            <option value="12_13">12/13</option>
+            <option value="14_15">14/15</option>
+            <option value="16_18">16-18</option>
+            <option value="masters">Masters (specify range)</option>
+          </select>
+          <input v-if="createAgeCategory === 'age' && createAgeAge === 'masters'"
+                 class="input" v-model="createAgeMasters"
+                 placeholder='e.g. "30-34", "M40+", "70+"'
+                 style="margin-top:0.5rem">
+
+          <select v-if="createAgeCategory === 'junior'" class="select" v-model="createAgeJunior"
+                  style="margin-top:0.5rem">
+            <option value="">— Pick junior group —</option>
+            <option value="E">Group E</option>
+            <option value="D">Group D</option>
+            <option value="C">Group C</option>
+            <option value="B">Group B</option>
+            <option value="A">Group A</option>
+          </select>
+
+          <input v-if="createAgeCategory === 'other'" class="input"
+                 v-model="createAgeOther"
+                 placeholder='e.g. "Para Class S1", "Ex-Pat Open"'
+                 style="margin-top:0.5rem">
+
+          <p class="hint" v-if="createAgeGroup" style="margin-top:0.4rem">
+            Stored as <strong>{{ createAgeGroup }}</strong>.
+          </p>
+        </div>
+
         <div class="field">
           <label class="label">Board / Platform Height</label>
           <select class="select" v-model="createHeight"
@@ -1436,13 +1636,74 @@ onUnmounted(() => {
             <button type="button" class="btn btn-primary btn-sm" @click="addRoundDive()">
               + Add Dive
             </button>
-            <span class="rd-bulk">
-              <span class="hint" style="margin:0">or quick add</span>
-              <button type="button" class="btn btn-ghost btn-sm" @click="bulkAddRounds(5)">+ 5 rounds</button>
-              <button type="button" class="btn btn-ghost btn-sm" @click="bulkAddRounds(6)">+ 6 rounds</button>
-              <button type="button" class="btn btn-ghost btn-sm" @click="bulkAddRounds(8)">+ 8 rounds</button>
-            </span>
           </div>
+        </div>
+
+        <!-- Round structure (migration 038). Sections of rounds
+             with their own DD-sum cap and min-distinct-groups
+             rule. Lives directly under the Round dives editor so
+             the operator's flow is: pick the rounds, then group
+             them. -->
+        <div class="field rr-editor">
+          <label class="label" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
+            <span>Round structure (optional)</span>
+            <span v-if="createRoundSections.length" class="rr-total"
+                  :class="{ 'rr-total-mismatch': sectionsRoundsTotal !== parseInt(createRounds) }">
+              {{ sectionsRoundsTotal }} / {{ createRounds }} rounds
+            </span>
+          </label>
+          <p class="hint" v-if="!createRoundSections.length" style="margin-bottom:0.5rem">
+            For events that need per-section dive rules — e.g.
+            "4 dives @ 7.6 from 4 different groups, then 4 dives
+            unlimited from 4 groups". Add a section below;
+            otherwise the flat DD Limit further down applies.
+          </p>
+
+          <div v-for="(s, i) in createRoundSections" :key="i" class="rr-section">
+            <div class="rr-section-row">
+              <input class="input rr-label" type="text" v-model="s.label" placeholder="Section name (e.g. Voluntary)">
+              <button type="button" class="btn btn-ghost btn-sm rr-remove"
+                      @click="removeRoundSection(i)" title="Remove section">✕</button>
+            </div>
+            <div class="rr-section-row">
+              <label class="rr-cell">
+                <span class="rr-cell-label">Rounds</span>
+                <input class="input" type="number" min="1" max="12" v-model="s.rounds">
+              </label>
+              <label class="rr-cell">
+                <span class="rr-cell-label">DD limit (sum)</span>
+                <input class="input" type="number" min="0" max="50" step="0.1"
+                       v-model="s.dd_limit"
+                       placeholder="Unlimited">
+              </label>
+              <label class="rr-cell">
+                <span class="rr-cell-label">Min different groups</span>
+                <input class="input" type="number" min="1" max="6"
+                       v-model="s.min_distinct_groups"
+                       placeholder="—">
+              </label>
+            </div>
+            <p class="hint" style="margin-top:0.4rem; margin-bottom:0">
+              <span v-if="s.min_distinct_groups">
+                {{ s.rounds || '?' }} dive{{ parseInt(s.rounds) === 1 ? '' : 's' }} drawn from at least
+                <strong>{{ s.min_distinct_groups }}</strong> different group{{ parseInt(s.min_distinct_groups) === 1 ? '' : 's' }}
+                (forward / back / reverse / inward / twist / armstand).
+              </span>
+              <span v-else style="opacity:0.65">
+                Leave "Min different groups" blank for no group constraint.
+              </span>
+            </p>
+          </div>
+
+          <div class="rr-actions">
+            <button type="button" class="btn btn-ghost btn-sm" @click="addRoundSection()">
+              + Add section
+            </button>
+          </div>
+          <p class="hint hint-warn"
+             v-if="createRoundSections.length && sectionsRoundsTotal !== parseInt(createRounds)">
+            Section round counts ({{ sectionsRoundsTotal }}) don't match total_rounds ({{ createRounds }}). Adjust the rounds-per-section above or change Total Rounds.
+          </p>
         </div>
 
         <!-- Optional meet bundle. Defaults to standalone; pick a
@@ -1457,15 +1718,6 @@ onUnmounted(() => {
           <p class="hint">
             Bundle this event into a multi-event meet. Manage meets below.
           </p>
-        </div>
-
-        <!-- Age group / division. Free text so any federation's
-             naming works ("U14", "Open", "Masters 30-34", "Para
-             Class 1"). Empty for un-bracketed events. -->
-        <div class="field">
-          <label class="label">Age Group / Division (optional)</label>
-          <input class="input" v-model="createAgeGroup"
-                 placeholder="e.g. U14, Open, Masters 30-34, Para">
         </div>
 
         <!-- Scheduled start. Powers the meet schedule view,
@@ -1562,75 +1814,6 @@ onUnmounted(() => {
           </div>
           <p class="hint" v-if="parseInt(createDdLimitRounds) > 0 && createDdLimitValue">
             First {{ createDdLimitRounds }} round{{ parseInt(createDdLimitRounds) === 1 ? '' : 's' }} capped to DD ≤ {{ createDdLimitValue }}.
-          </p>
-        </div>
-
-        <!-- Round structure (migration 038) — for events whose
-             dive list breaks into sections with their own DD-sum
-             cap and group-distinctness rule. Mirrors real bulletins
-             like "4 dives @ 7.6 + 4 dives unlimited" (each section
-             from different groups). When at least one section is
-             defined, the flat "DD Limit" field above hides and this
-             takes over. -->
-        <div class="field rr-editor">
-          <label class="label" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
-            <span>Round structure (optional)</span>
-            <span v-if="createRoundSections.length" class="rr-total"
-                  :class="{ 'rr-total-mismatch': sectionsRoundsTotal !== parseInt(createRounds) }">
-              {{ sectionsRoundsTotal }} / {{ createRounds }} rounds
-            </span>
-          </label>
-          <p class="hint" v-if="!createRoundSections.length" style="margin-bottom:0.5rem">
-            For events that need per-section dive rules — e.g.
-            "4 dives @ 7.6 from 4 different groups, then 4 dives
-            unlimited from 4 groups". Add a section below;
-            otherwise the flat DD Limit above applies.
-          </p>
-
-          <div v-for="(s, i) in createRoundSections" :key="i" class="rr-section">
-            <div class="rr-section-row">
-              <input class="input rr-label" type="text" v-model="s.label" placeholder="Section name (e.g. Voluntary)">
-              <button type="button" class="btn btn-ghost btn-sm rr-remove"
-                      @click="removeRoundSection(i)" title="Remove section">✕</button>
-            </div>
-            <div class="rr-section-row">
-              <label class="rr-cell">
-                <span class="rr-cell-label">Rounds</span>
-                <input class="input" type="number" min="1" max="12" v-model="s.rounds">
-              </label>
-              <label class="rr-cell">
-                <span class="rr-cell-label">DD limit (sum)</span>
-                <input class="input" type="number" min="0" max="50" step="0.1"
-                       v-model="s.dd_limit"
-                       placeholder="Unlimited">
-              </label>
-              <label class="rr-cell">
-                <span class="rr-cell-label">Min different groups</span>
-                <input class="input" type="number" min="1" max="6"
-                       v-model="s.min_distinct_groups"
-                       placeholder="—">
-              </label>
-            </div>
-            <p class="hint" style="margin-top:0.4rem; margin-bottom:0">
-              <span v-if="s.min_distinct_groups">
-                {{ s.rounds || '?' }} dive{{ parseInt(s.rounds) === 1 ? '' : 's' }} drawn from at least
-                <strong>{{ s.min_distinct_groups }}</strong> different group{{ parseInt(s.min_distinct_groups) === 1 ? '' : 's' }}
-                (forward / back / reverse / inward / twist / armstand).
-              </span>
-              <span v-else style="opacity:0.65">
-                Leave "Min different groups" blank for no group constraint.
-              </span>
-            </p>
-          </div>
-
-          <div class="rr-actions">
-            <button type="button" class="btn btn-ghost btn-sm" @click="addRoundSection()">
-              + Add section
-            </button>
-          </div>
-          <p class="hint hint-warn"
-             v-if="createRoundSections.length && sectionsRoundsTotal !== parseInt(createRounds)">
-            Section round counts ({{ sectionsRoundsTotal }}) don't match total_rounds ({{ createRounds }}). Adjust the rounds-per-section above or change Total Rounds.
           </p>
         </div>
 
@@ -1974,6 +2157,58 @@ onUnmounted(() => {
             <option value="Mixed">Mixed</option>
           </select>
         </div>
+
+        <!-- Structured Age Group / Division — mirrors the Create
+             modal so an operator can change it post-event. -->
+        <div class="field">
+          <label class="label">Age Group / Division</label>
+          <select class="select" v-model="editAgeCategory"
+                  @change="editAgeAge=''; editAgeMasters=''; editAgeJunior=''; editAgeOther=''">
+            <option value="">— Un-bracketed —</option>
+            <optgroup label="Age Group">
+              <option value="age">Age Group (11 and under … Masters)</option>
+            </optgroup>
+            <optgroup label="Junior (FINA Group)">
+              <option value="junior">Junior Group (A–E)</option>
+            </optgroup>
+            <option value="open">Open</option>
+            <option value="other">Other (custom)</option>
+          </select>
+
+          <select v-if="editAgeCategory === 'age'" class="select" v-model="editAgeAge"
+                  style="margin-top:0.5rem">
+            <option value="">— Pick age group —</option>
+            <option value="11_under">11 and under</option>
+            <option value="12_13">12/13</option>
+            <option value="14_15">14/15</option>
+            <option value="16_18">16-18</option>
+            <option value="masters">Masters (specify range)</option>
+          </select>
+          <input v-if="editAgeCategory === 'age' && editAgeAge === 'masters'"
+                 class="input" v-model="editAgeMasters"
+                 placeholder='e.g. "30-34", "M40+", "70+"'
+                 style="margin-top:0.5rem">
+
+          <select v-if="editAgeCategory === 'junior'" class="select" v-model="editAgeJunior"
+                  style="margin-top:0.5rem">
+            <option value="">— Pick junior group —</option>
+            <option value="E">Group E</option>
+            <option value="D">Group D</option>
+            <option value="C">Group C</option>
+            <option value="B">Group B</option>
+            <option value="A">Group A</option>
+          </select>
+
+          <input v-if="editAgeCategory === 'other'" class="input"
+                 v-model="editAgeOther"
+                 placeholder='e.g. "Para Class S1", "Ex-Pat Open"'
+                 style="margin-top:0.5rem">
+
+          <p class="hint" v-if="editAgeGroup" style="margin-top:0.4rem">
+            Stored as <strong>{{ editAgeGroup }}</strong>.
+          </p>
+        </div>
+
         <div class="field">
           <label class="label">Board / Platform Height</label>
           <select class="select" v-model="editHeight" :disabled="editMixedHeight">
@@ -2083,12 +2318,6 @@ onUnmounted(() => {
             <button type="button" class="btn btn-primary btn-sm" @click="addEditRoundDive()">
               + Add Dive
             </button>
-            <span class="rd-bulk">
-              <span class="hint" style="margin:0">or quick add</span>
-              <button type="button" class="btn btn-ghost btn-sm" @click="bulkAddEditRounds(5)">+ 5 rounds</button>
-              <button type="button" class="btn btn-ghost btn-sm" @click="bulkAddEditRounds(6)">+ 6 rounds</button>
-              <button type="button" class="btn btn-ghost btn-sm" @click="bulkAddEditRounds(8)">+ 8 rounds</button>
-            </span>
           </div>
         </div>
 
@@ -2515,6 +2744,34 @@ onUnmounted(() => {
   display: flex; gap: 0.5rem; margin-top: 0.5rem;
 }
 .event-template-save .input { flex: 1; font-size: 12px; padding: 0.4rem 0.6rem; }
+
+/* Suggested templates strip — distinct visual treatment so the
+   operator can tell at a glance which row is a federation
+   standard vs. their own saved template. */
+.std-templates {
+  border-color: var(--cyan-dim);
+  background: rgba(0, 224, 255, 0.04);
+}
+.std-templates-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-family: var(--font-display); font-size: 12px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--cyan);
+  margin-bottom: 0.5rem;
+}
+.std-templates-sub {
+  font-family: var(--font-mono); font-size: 11px; font-weight: normal;
+  letter-spacing: 0; text-transform: none; color: var(--text-3);
+}
+.std-template {
+  display: flex; flex-direction: column; gap: 0.15rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); cursor: pointer;
+  text-align: left; font: inherit;
+  width: 100%;
+}
+.std-template:hover { border-color: var(--cyan); background: rgba(0, 224, 255, 0.06); }
 
 /* Advance-to-final action — green to suggest "promote".
    Visible only on preliminary rows whose final exists. */

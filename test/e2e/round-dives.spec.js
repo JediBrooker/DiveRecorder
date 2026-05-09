@@ -169,9 +169,57 @@ test("round-dives: New Event modal has + Add Dive flow (no rounds dropdown)", as
   // Round-count badge updates live.
   await expect(page.locator(".rd-total")).toContainText("3 rounds");
 
-  // The quick-add button stamps several rounds in one go.
-  await page.locator(".rd-bulk").getByRole("button", { name: /\+ 5 rounds/i }).click();
-  await expect(page.locator(".rd-row")).toHaveCount(8);
+  // Quick-add buttons are gone — operator goes one row at a time.
+  await expect(page.getByRole("button", { name: /\+ 5 rounds/i })).toHaveCount(0);
+
+  await setup.deleteOrg(orgId);
+});
+
+// Suggested templates strip surfaces World Aquatics-aligned
+// templates filtered by the operator's selected gender + age
+// group. Pick a Junior Group A entry and the form auto-populates.
+test("round-dives: suggested templates filter by gender + age group and apply on click", async ({
+  request, page,
+}) => {
+  test.setTimeout(45_000);
+
+  const { orgId, adminToken, username } = await setup.createOrgAndAdmin(request);
+  void adminToken;
+
+  await setup.installClickHighlight(page);
+  await page.goto("/login");
+  await page.locator('input[autocomplete="username"]').fill(username);
+  await page.locator('input[autocomplete="current-password"]').fill(setup.TEST_PASSWORD);
+  await page.getByRole("button", { name: /Sign In/i }).click();
+  await page.waitForURL(/\/dashboard/, { timeout: 10_000 });
+
+  await page.goto("/manager");
+  await expect(page.getByRole("heading", { name: /Meet Manager/i }))
+    .toBeVisible({ timeout: 10_000 });
+  await page.getByRole("button", { name: /\+ New Event/i }).click();
+  await expect(page.locator(".modal-create-event")).toBeVisible();
+
+  // Default form: Female + un-bracketed → strip surfaces Female
+  // templates with no age_group requirement (none today, so the
+  // strip is empty until the operator picks an age group).
+  const strip = page.locator(".std-templates");
+
+  // Pick "Open" from the structured age-group dropdown.
+  const ageDropdown = page.locator(".modal-create-event select.age-category");
+  await ageDropdown.selectOption("open");
+  // Hint underneath confirms the composed string.
+  await expect(page.locator(".modal-create-event").getByText("Stored as")).toBeVisible();
+
+  // Strip now shows Female-Open templates (3 individual + 2 synchro = 5).
+  await expect(strip).toBeVisible();
+  await expect(strip.locator(".std-template").first()).toContainText(/Senior Open/);
+
+  // Pick the "Women's 3m Springboard — Senior Open" entry.
+  await strip.getByRole("button", { name: /Women's 3m Springboard — Senior Open/ }).click();
+  // The form populates: 5 round-dive rows (one per round).
+  await expect(page.locator(".rd-row")).toHaveCount(5);
+  // The round-structure section editor populated too.
+  await expect(page.locator(".modal-create-event .rr-section")).toHaveCount(1);
 
   await setup.deleteOrg(orgId);
 });
