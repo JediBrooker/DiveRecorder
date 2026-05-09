@@ -105,6 +105,8 @@ A **role-aware home** with a tabbed layout. The header carries the user's name +
 
 The operator's event-configuration surface. Left column is the New Event form (event type, gender, board height, panel size, rounds, optional age group + per-round DD caps). Right column is **status-aware**: each event row's primary action reflects what to do next — `Open Control Room →` for Upcoming, `🔴 LIVE — Open` (subtle pulse) for Live, `View Results` for Completed. Edit / Audit Log / Import Roster / Delete demote into a `⋯` overflow menu so the primary affordance dominates. A **search box + status filter chips** (`Upcoming / Live / Completed`, with per-chip counts) above the list keeps a season's worth of meets scannable. Save a fully-built event configuration as a template once, apply to a new event with one click. Events that bundle into a meet share a public landing page and a printable PDF program.
 
+For age-grouped meets that follow real-world bulletin formats — Diving NSW's "4 dives @ 7.6 + 4 unlimited" style — the form has a **Round structure editor**: define one or more sections, each with its own round count, optional DD-sum cap, and optional "different groups" requirement. A one-click **Quick: 4 @ 7.6 + 4 unlimited** preset populates the canonical youth pattern instantly. The rules ride on `events.round_rules` (JSONB) and feed the diver portal's live validator + the server's submit-list gate (see migration 038).
+
 ![Meet Manager](./docs/screenshots/meet-manager.png)
 
 #### Control Room
@@ -138,6 +140,8 @@ The single-purpose, phone-friendly screen scoring panel members use during a mee
 #### Diver Portal — Submit Dive List
 
 Where divers build their list for an upcoming event. Step 1 picks the event (autocomplete-driven); Step 2 is per-round dive pickers with autocomplete on the dive code (filtered to the event's board height + per-round DD cap), the running Total DD chip, and a single **Finalise & Submit List** button. Saved lists become templates with one click for re-use across meets at the same height.
+
+When the event has **round rules** configured (e.g. Diving NSW–style "4 dives @ 7.6 + 4 unlimited"), the portal shows a per-section strip above the dive picker — running DD total against the section cap and a "n of m groups picked" counter — plus a violations panel beneath the rows that lists which rules are still failing (DD over the limit, repeated group, missing rounds). The **Finalise & Submit** button stays disabled until the list is legal, and the server re-validates on submit so a malformed list can never land in the DB.
 
 ![Diver Portal](./docs/screenshots/competitor.png)
 
@@ -836,6 +840,8 @@ org in cleanup so parallel runs don't collide.
 | `scoreboard-ui.spec.js` | UI-driven simulation of a 3-diver × 3-round meet. Login → `/scoreboard/<id>` → live judge tiles fill with each socket event → standings re-sort → Completed flip → recap renders |
 | `meet-manager.spec.js` | Full meet-manager pipeline. Login → `/control` → pick event → walk the 4-state pre-meet workflow button (red Check In → orange Randomise → yellow Sign-Off → green Start) → judges score over 3 rounds × N divers as the admin clicks "Next Diver →" between dives → Finalise → recap. Yellow Sign-Off step opens the modal and exercises the **credential** path: a referee user (created in setup) types their username + password on the manager's screen and the server stamps `signed_off_by = referee.id`. Random `event_type` per run (individual / synchro_pair / team); synchro defaults to **11 judges** so the bigger panel layout (Exec A 1–3, Exec B 4–6, Sync 7–11) is the path under CI |
 | `judge.spec.js` | Judge persona. Log in → dashboard surfaces "Your Assigned Events" → click → `/judge?event=<id>` → tap numbers + Submit on the keypad as the admin walks through 3 rounds × 3 divers. Includes two **referee-signal** scenarios: round 2 the test judge taps Signal-Referee then submits to clear; round 3 a side-channel judge socket emits `judge_signal` and the test judge's panel renders the alert + the matching tile gets the red ring. Synchro runs default to **11 judges**; the role label that surfaces under the test judge's number is `EXEC A` (1–3), `EXEC B` (4–6) or `SYNCHRONISATION` (7–11) and is asserted against the random `J_NUMBER` |
+| `meet-day.spec.js` | Diver meet-day phone view. 3-round walkthrough at `/me/meet/:eventId` with per-round assertions on next-dive code/DD, queue countdown / "YOU'RE UP" banner, current standing, and the medal-target rows. Pre-event variant verifies the empty state |
+| `round-rules.spec.js` | Round-rules feature (migration 038). Operator POSTs an event with the Diving NSW–style "4 @ 7.6 + 4 unlimited" sections; the diver's submit-list endpoint rejects DD-cap violations and same-group repeats with `400 + violations[]`, accepts a clean list with `200`. Shape-validation case rejects misshapen `round_rules` up-front. Headed walkthrough opens the Manager event form and clicks the **Quick: 4 @ 7.6 + 4 unlimited** preset to populate the Voluntary + Optional section editor |
 
 ### Running
 

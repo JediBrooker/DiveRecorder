@@ -301,6 +301,14 @@ CREATE TABLE public.events (
     total_rounds     integer DEFAULT 6 NOT NULL,
     dd_limit_rounds  integer DEFAULT 0,
     dd_limit_value   numeric(3,1),
+    -- Structured round-by-round dive-list rules. NULL = use
+    -- the legacy (dd_limit_rounds, dd_limit_value) flat
+    -- constraint. Populated: an array of sections, each with
+    -- {label, rounds, dd_limit (SUM), require_different_groups}.
+    -- See migration 038 for the full shape.
+    round_rules      jsonb
+        CHECK (round_rules IS NULL
+               OR jsonb_typeof(round_rules->'sections') = 'array'),
     event_type       event_type DEFAULT 'individual' NOT NULL,
     -- World Aquatics three-stage chain:
     --   'preliminary' (all entrants) →

@@ -137,7 +137,21 @@ module.exports = function createEventsRouter({
       //   is_mixed_height         — multi-board event; the picker
       //                             widens to the full directory.
       enforce_referee_signoff, is_mixed_height,
+      // Migration 038: structured round-by-round dive-list rules.
+      // Optional — when null the legacy (dd_limit_rounds,
+      // dd_limit_value) flat constraint applies. See
+      // lib/round-rules.js for the shape + validator.
+      round_rules,
     } = req.body || {};
+
+    // Validate round_rules shape if supplied.
+    if (round_rules != null) {
+      const rrCheck = require("../lib/round-rules")
+        .validateRoundRules(round_rules, total_rounds);
+      if (!rrCheck.valid) {
+        return res.status(400).json({ error: rrCheck.error });
+      }
+    }
 
     // Synchronised pairs require 9 or 11 judges (the only panel
     // sizes World Aquatics defines exec/sync judge groups for).
@@ -209,8 +223,9 @@ module.exports = function createEventsRouter({
             event_type, event_format, parent_event_id, advance_count,
             dd_limit_rounds, dd_limit_value, scheduled_at, entries_close_at,
             org_id, meet_id,
-            enforce_referee_signoff, is_mixed_height)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+            enforce_referee_signoff, is_mixed_height,
+            round_rules)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
          RETURNING *`,
         [
           name,
@@ -235,6 +250,7 @@ module.exports = function createEventsRouter({
           meet_id || null,
           !!enforce_referee_signoff,
           !!is_mixed_height,
+          round_rules ? JSON.stringify(round_rules) : null,
         ],
       );
       const event = evRes.rows[0];
@@ -291,6 +307,11 @@ module.exports = function createEventsRouter({
       entries_close_at,
       // Migration 031 — see POST handler for the rationale.
       enforce_referee_signoff, is_mixed_height,
+      // Migration 038 — structured round rules. Tri-state:
+      //   undefined → leave untouched
+      //   null      → clear, fall back to legacy dd_limit_*
+      //   {sections}→ set
+      round_rules,
     } = req.body || {};
     if (event_type === "synchro_pair" && ![9, 11].includes(number_of_judges)) {
       return res.status(400).json({
@@ -301,6 +322,13 @@ module.exports = function createEventsRouter({
       return res
         .status(400)
         .json({ error: "event_format must be 'preliminary', 'semifinal' or 'final'" });
+    }
+    if (round_rules != null) {
+      const rrCheck = require("../lib/round-rules")
+        .validateRoundRules(round_rules, total_rounds);
+      if (!rrCheck.valid) {
+        return res.status(400).json({ error: rrCheck.error });
+      }
     }
     try {
       // entries_close_at uses tri-state semantics. Pass a boolean
@@ -331,7 +359,8 @@ module.exports = function createEventsRouter({
            scheduled_at     = $13,
            entries_close_at = CASE WHEN $14::boolean THEN entries_close_at ELSE $15::timestamptz END,
            enforce_referee_signoff = CASE WHEN $19::boolean THEN enforce_referee_signoff ELSE $20::boolean END,
-           is_mixed_height         = CASE WHEN $21::boolean THEN is_mixed_height         ELSE $22::boolean END
+           is_mixed_height         = CASE WHEN $21::boolean THEN is_mixed_height         ELSE $22::boolean END,
+           round_rules             = CASE WHEN $23::boolean THEN round_rules ELSE $24::jsonb END
          WHERE id=$16 AND ($17::boolean OR org_id=$18) RETURNING *`,
         [
           name || null,
@@ -356,6 +385,12 @@ module.exports = function createEventsRouter({
           req.user.org_id,
           enforceUntouched, !!enforce_referee_signoff,
           mixedUntouched,   !!is_mixed_height,
+          // Tri-state: undefined → leave alone, null → clear,
+          // {sections} → JSON-stringify and set.
+          round_rules === undefined,
+          round_rules === undefined || round_rules === null
+            ? null
+            : JSON.stringify(round_rules),
         ],
       );
       if (!r.rows.length)

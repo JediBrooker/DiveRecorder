@@ -42,6 +42,44 @@ const createAdvanceCount = ref(12)      // FINA standard
 const createDdLimitRounds = ref(0)      // 0 = no limit
 const createDdLimitValue  = ref('')     // '' = no limit; numeric otherwise
 
+// Round structure (migration 038). Empty array = legacy
+// behaviour (use the dd_limit_* pair above). Populated = a list
+// of sections, each with its own DD cap + group rules. Mirrors
+// real-world youth bulletins — e.g. "4 dives @ 7.6 + 4 dives
+// unlimited" → two sections with rounds=4 each, dd_limit=7.6
+// and null respectively, both require_different_groups=true.
+const createRoundSections = ref([])
+function addRoundSection(preset) {
+  const next = preset || {
+    label: createRoundSections.value.length === 0 ? 'Voluntary' : 'Optional',
+    rounds: 4,
+    dd_limit: '',                     // '' = unlimited
+    require_different_groups: true,
+  }
+  createRoundSections.value.push(next)
+}
+function removeRoundSection(idx) {
+  createRoundSections.value.splice(idx, 1)
+}
+const sectionsRoundsTotal = computed(() =>
+  createRoundSections.value.reduce((sum, s) => sum + (parseInt(s.rounds) || 0), 0),
+)
+function buildRoundRulesPayload() {
+  // Empty array → null (legacy mode); non-empty → JSON object
+  // shaped per migration 038 / lib/round-rules.js.
+  if (!createRoundSections.value.length) return null
+  return {
+    sections: createRoundSections.value.map(s => ({
+      label: s.label || null,
+      rounds: parseInt(s.rounds) || 0,
+      dd_limit: s.dd_limit === '' || s.dd_limit == null
+        ? null
+        : Number(parseFloat(s.dd_limit).toFixed(1)),
+      require_different_groups: !!s.require_different_groups,
+    })),
+  }
+}
+
 // Event templates — saved form configurations the manager can
 // apply to a fresh event with one click.
 const eventTemplates = ref([])
@@ -73,6 +111,19 @@ function applyEventTemplate(t) {
   if (c.advance_count)     createAdvanceCount.value = c.advance_count
   if (c.dd_limit_rounds !== undefined)  createDdLimitRounds.value = c.dd_limit_rounds || 0
   if (c.dd_limit_value !== undefined)   createDdLimitValue.value = c.dd_limit_value ?? ''
+  // Round structure (migration 038). When the template carries
+  // round_rules, hydrate the editor; otherwise clear so the
+  // form falls back to the legacy DD-limit pair.
+  if (c.round_rules && Array.isArray(c.round_rules.sections)) {
+    createRoundSections.value = c.round_rules.sections.map(s => ({
+      label: s.label || '',
+      rounds: s.rounds,
+      dd_limit: s.dd_limit == null ? '' : String(s.dd_limit),
+      require_different_groups: !!s.require_different_groups,
+    }))
+  } else {
+    createRoundSections.value = []
+  }
 }
 
 async function saveAsEventTemplate() {
@@ -101,6 +152,7 @@ async function saveAsEventTemplate() {
       dd_limit_value: createDdLimitValue.value
         ? parseFloat(createDdLimitValue.value)
         : null,
+      round_rules: buildRoundRulesPayload(),
     }
     const saved = await auth.apiFetch('/api/event-templates', {
       method: 'POST',
@@ -521,6 +573,7 @@ async function createEvent() {
         dd_limit_value: createDdLimitValue.value
           ? parseFloat(createDdLimitValue.value)
           : null,
+        round_rules: buildRoundRulesPayload(),
         enforce_referee_signoff: createEnforceSignoff.value,
         is_mixed_height:         createMixedHeight.value,
       }),
@@ -540,6 +593,7 @@ async function createEvent() {
     createAdvanceCount.value = 12
     createDdLimitRounds.value = 0
     createDdLimitValue.value = ''
+    createRoundSections.value = []
     createEnforceSignoff.value = false
     createMixedHeight.value = false
     await Promise.all([loadEvents(), loadMeets()])
@@ -1077,8 +1131,11 @@ onUnmounted(() => {
 
         <!-- Per-round DD limit. Common in junior events: rounds
              1–N capped to a max DD; later rounds open. Both
-             columns nullable; UI clears them in tandem. -->
-        <div class="field">
+             columns nullable; UI clears them in tandem.
+             Hidden once the operator switches to the structured
+             "Round structure" editor below — that supersedes
+             this flat constraint. -->
+        <div class="field" v-if="!createRoundSections.length">
           <label class="label">DD Limit (optional)</label>
           <div style="display:flex;gap:0.5rem">
             <input class="input" type="number" min="0" max="12" step="1"
@@ -1090,6 +1147,70 @@ onUnmounted(() => {
           </div>
           <p class="hint" v-if="parseInt(createDdLimitRounds) > 0 && createDdLimitValue">
             First {{ createDdLimitRounds }} round{{ parseInt(createDdLimitRounds) === 1 ? '' : 's' }} capped to DD ≤ {{ createDdLimitValue }}.
+          </p>
+        </div>
+
+        <!-- Round structure (migration 038) — for events whose
+             dive list breaks into sections with their own DD-sum
+             cap and group-distinctness rule. Mirrors real bulletins
+             like "4 dives @ 7.6 + 4 dives unlimited" (each section
+             from different groups). When at least one section is
+             defined, the flat "DD Limit" field above hides and this
+             takes over. -->
+        <div class="field rr-editor">
+          <label class="label" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
+            <span>Round structure (optional)</span>
+            <span v-if="createRoundSections.length" class="rr-total"
+                  :class="{ 'rr-total-mismatch': sectionsRoundsTotal !== parseInt(createRounds) }">
+              {{ sectionsRoundsTotal }} / {{ createRounds }} rounds
+            </span>
+          </label>
+          <p class="hint" v-if="!createRoundSections.length" style="margin-bottom:0.5rem">
+            For events that need per-section dive rules — e.g.
+            "4 dives @ 7.6 + 4 dives unlimited", each from a
+            different group. Add a section below; otherwise the
+            flat DD Limit above applies.
+          </p>
+
+          <div v-for="(s, i) in createRoundSections" :key="i" class="rr-section">
+            <div class="rr-section-row">
+              <input class="input rr-label" type="text" v-model="s.label" placeholder="Section name (e.g. Voluntary)">
+              <button type="button" class="btn btn-ghost btn-sm rr-remove"
+                      @click="removeRoundSection(i)" title="Remove section">✕</button>
+            </div>
+            <div class="rr-section-row">
+              <label class="rr-cell">
+                <span class="rr-cell-label">Rounds</span>
+                <input class="input" type="number" min="1" max="12" v-model="s.rounds">
+              </label>
+              <label class="rr-cell">
+                <span class="rr-cell-label">DD limit (sum)</span>
+                <input class="input" type="number" min="0" max="50" step="0.1"
+                       v-model="s.dd_limit"
+                       placeholder="Unlimited">
+              </label>
+            </div>
+            <label class="checkbox-row" style="margin-top:0.4rem">
+              <input type="checkbox" v-model="s.require_different_groups">
+              <span>Require dives from different groups within this section</span>
+            </label>
+          </div>
+
+          <div class="rr-actions">
+            <button type="button" class="btn btn-ghost btn-sm" @click="addRoundSection()">
+              + Add section
+            </button>
+            <button v-if="!createRoundSections.length" type="button" class="btn btn-ghost btn-sm"
+                    @click="addRoundSection({ label: 'Voluntary', rounds: 4, dd_limit: '7.6', require_different_groups: true });
+                            addRoundSection({ label: 'Optional',  rounds: 4, dd_limit: '',    require_different_groups: true });
+                            createRounds = 8"
+                    title="Pre-fill the typical youth bulletin shape">
+              Quick: 4 @ 7.6 + 4 unlimited
+            </button>
+          </div>
+          <p class="hint hint-warn"
+             v-if="createRoundSections.length && sectionsRoundsTotal !== parseInt(createRounds)">
+            Section round counts ({{ sectionsRoundsTotal }}) don't match total_rounds ({{ createRounds }}). Adjust the rounds-per-section above or change Total Rounds.
           </p>
         </div>
 
@@ -1900,6 +2021,42 @@ onUnmounted(() => {
   background: var(--bg-3); border-left: 3px solid var(--cyan); border-radius: 3px;
 }
 .hint-line { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-top: 0.5rem; }
+.hint-warn  {
+  border-left-color: var(--amber);
+  background: rgba(245,158,11,0.08);
+  color: var(--amber);
+}
+
+/* Round-rules editor (migration 038). Each section is a small
+   panel inside the event-create form: label + rounds + DD-sum
+   cap + groups checkbox + remove button. */
+.rr-editor { margin-top: 0.5rem; }
+.rr-total {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-3); letter-spacing: 0.04em;
+}
+.rr-total-mismatch { color: var(--amber); }
+.rr-section {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.65rem;
+  margin-bottom: 0.5rem;
+  display: flex; flex-direction: column; gap: 0.35rem;
+}
+.rr-section-row {
+  display: flex; gap: 0.5rem; align-items: flex-end;
+}
+.rr-section-row .input { font-size: 12px; padding: 0.45rem 0.6rem; }
+.rr-label { flex: 1 1 auto; }
+.rr-cell { flex: 1 1 0; display: flex; flex-direction: column; gap: 0.2rem; }
+.rr-cell-label {
+  font-family: var(--font-display); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-3);
+}
+.rr-remove { color: var(--text-3); flex-shrink: 0; }
+.rr-remove:hover { color: var(--red); }
+.rr-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
 .meet-list { display: flex; flex-direction: column; gap: 0.5rem; }
 .meet-row {

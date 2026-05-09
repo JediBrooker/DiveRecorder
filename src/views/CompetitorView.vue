@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { diveDescription } from '@/composables/useDiveLabel'
 import { confirmAction } from '@/composables/useConfirm'
 import { showSuccess, showError } from '@/composables/useNotify'
+import { validateDiveList } from '@/lib/round-rules'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -277,6 +278,61 @@ const totalDD = computed(() =>
   selectedDives.value.reduce((sum, d) => sum + (d ? parseFloat(d.dd) : 0), 0).toFixed(1)
 )
 
+// Live round-rules validation. When the event carries a
+// round_rules JSON (migration 038), build the dive-list shape
+// the server-side validator expects and run the SAME validator
+// in the browser so the diver sees per-section violations
+// before they hit submit. Server still re-checks on submit so
+// the client can't lie its way past the limit.
+const roundRulesValidation = computed(() => {
+  const rules = currentEvent.value?.round_rules
+  if (!rules || !Array.isArray(rules.sections)) return null
+  const dives = []
+  selectedDives.value.forEach((d, idx) => {
+    if (d) {
+      dives.push({
+        round_number: idx + 1,
+        dive_code:    d.dive_code,
+        dd:           parseFloat(d.dd),
+      })
+    }
+  })
+  return validateDiveList(rules, dives)
+})
+
+// Per-section running totals — used by the section header row
+// in the dive-list builder so the diver sees "3.4 / 7.6 used"
+// in the section as they pick dives.
+const roundRulesSections = computed(() => {
+  const rules = currentEvent.value?.round_rules
+  if (!rules || !Array.isArray(rules.sections)) return null
+  let cursor = 0
+  return rules.sections.map((s) => {
+    const start = cursor
+    const end   = cursor + s.rounds
+    cursor = end
+    let ddUsed = 0
+    const groupsUsed = new Set()
+    for (let r = start; r < end; r++) {
+      const d = selectedDives.value[r]
+      if (!d) continue
+      const dd = parseFloat(d.dd)
+      if (Number.isFinite(dd)) ddUsed += dd
+      if (s.require_different_groups && d.dive_code) {
+        groupsUsed.add(d.dive_code[0])
+      }
+    }
+    return {
+      ...s,
+      start_round: start + 1,
+      end_round:   end,
+      dd_used:     Number(ddUsed.toFixed(2)),
+      dd_remaining: s.dd_limit != null ? Number((s.dd_limit - ddUsed).toFixed(2)) : null,
+      groups_used: [...groupsUsed],
+    }
+  })
+})
+
 const searchResults = computed(() => {
   const term = searchInput.value.toLowerCase().trim()
   return diveDirectory.value.filter(d => {
@@ -542,6 +598,30 @@ watch(currentEvent, async (ev) => {
             </div>
           </div>
         </div>
+        <!-- Round-rules summary strip — only when the event
+             carries a structured round_rules object (migration
+             038). Shows each section's running totals so the
+             diver knows where they stand against the per-section
+             DD cap + group-distinctness rule before they finalise. -->
+        <div v-if="roundRulesSections" class="rr-summary">
+          <div v-for="(s, i) in roundRulesSections" :key="i"
+               :class="['rr-summary-row', s.dd_limit != null && s.dd_used > s.dd_limit + 0.001 ? 'rr-over' : '']">
+            <div class="rr-summary-head">
+              <span class="rr-summary-label">{{ s.label || `Section ${i + 1}` }}</span>
+              <span class="rr-summary-rounds">R{{ s.start_round }}–{{ s.end_round }}</span>
+            </div>
+            <div class="rr-summary-meta">
+              <span v-if="s.dd_limit != null">
+                DD {{ s.dd_used.toFixed(1) }} / {{ s.dd_limit.toFixed(1) }}
+              </span>
+              <span v-else>DD {{ s.dd_used.toFixed(1) }} (no cap)</span>
+              <span v-if="s.require_different_groups">
+                · {{ s.groups_used.length }} of {{ s.rounds }} groups picked
+              </span>
+            </div>
+          </div>
+        </div>
+
         <div style="display:flex;flex-direction:column;gap:0.5rem">
           <div
             v-for="(dive, idx) in selectedDives"
@@ -561,15 +641,33 @@ watch(currentEvent, async (ev) => {
             <svg v-else width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:var(--text-3)"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
           </div>
         </div>
+
+        <!-- Round-rules violation panel. The same validator the
+             server runs is mirrored client-side, so the diver
+             sees per-section DD-sum + group-repeat violations
+             the moment they pick the offending dive — the
+             submit button locks until cleared. -->
+        <div v-if="roundRulesValidation && !roundRulesValidation.valid && selectedDives.some(d => d)"
+             class="rr-violations">
+          <div class="rr-violations-head">⚠ Round rules not met</div>
+          <ul>
+            <li v-for="msg in roundRulesValidation.errors" :key="msg">{{ msg }}</li>
+          </ul>
+        </div>
+
         <div v-if="submitErr" class="msg msg-error" style="margin-top:1rem">{{ submitErr }}</div>
         <button class="btn btn-primary-lg" style="margin-top:1.5rem"
                 @click="submitList"
-                :disabled="loading || !isCurrentEventOpen"
+                :disabled="loading || !isCurrentEventOpen
+                           || (roundRulesValidation && !roundRulesValidation.valid)"
                 :title="!isCurrentEventOpen
                   ? notAcceptingReason(currentEvent)
-                  : 'Submit your dive list for this event'">
+                  : (roundRulesValidation && !roundRulesValidation.valid)
+                    ? 'Resolve round-rule violations above before submitting'
+                    : 'Submit your dive list for this event'">
           {{ loading ? 'Submitting...'
              : !isCurrentEventOpen ? 'Entries closed'
+             : (roundRulesValidation && !roundRulesValidation.valid) ? 'Round rules not met'
              : 'Finalise & Submit List' }}
         </button>
       </div>
@@ -628,6 +726,55 @@ watch(currentEvent, async (ev) => {
 <style scoped>
 .page-header{display:flex;align-items:center;justify-content:space-between;padding:1.5rem 2rem;border-bottom:1px solid var(--border);max-width:900px;margin:0 auto;}
 .main{max-width:900px;margin:0 auto;padding:2rem;display:flex;flex-direction:column;gap:1.5rem;}
+
+/* Round-rules summary strip — one row per section, showing
+   running DD totals + group-pick progress against the cap. */
+.rr-summary { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.5rem; }
+.rr-summary-row {
+  display: flex; flex-direction: column; gap: 0.15rem;
+  padding: 0.55rem 0.75rem;
+  background: var(--bg-3);
+  border-left: 3px solid var(--cyan);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-2);
+}
+.rr-summary-row.rr-over {
+  border-left-color: var(--red);
+  background: rgba(239,68,68,0.08);
+  color: var(--red);
+}
+.rr-summary-head {
+  display: flex; justify-content: space-between; align-items: center;
+  font-family: var(--font-display);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.rr-summary-label { color: var(--text); }
+.rr-summary-rounds { color: var(--text-3); }
+.rr-summary-meta { font-size: 11px; }
+
+/* Round-rules violations panel below the dive list — same red
+   palette as msg-error so it reads as a hard-block. */
+.rr-violations {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(239,68,68,0.08);
+  border: 1px solid rgba(239,68,68,0.4);
+  border-radius: var(--radius);
+}
+.rr-violations-head {
+  font-family: var(--font-display);
+  font-size: 12px; font-weight: 700; letter-spacing: 0.1em;
+  color: var(--red);
+  margin-bottom: 0.4rem;
+}
+.rr-violations ul {
+  list-style: disc; margin: 0; padding-left: 1.25rem;
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--text); line-height: 1.5;
+}
 
 .dive-row{
   display:flex;align-items:center;gap:1rem;padding:1rem 1.25rem;

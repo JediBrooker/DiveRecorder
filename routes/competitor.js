@@ -108,21 +108,50 @@ module.exports = function createCompetitorRouter({
         // dive_ids that don't exist (or exist for a different
         // height), polluting standings + history. The directory
         // check is one round-trip — cheap relative to the per-row
-        // INSERTs below.
+        // INSERTs below. Also pulls dive_code + dd so the round-
+        // rules validator can compute group + DD-sum below.
         const ids = dives.map(d => d.dive_id);
         const heightVal = evRow.height ? parseFloat(evRow.height) : null;
         const validIds = await client.query(
-          `SELECT id FROM dive_directory
+          `SELECT id, dive_code, dd FROM dive_directory
            WHERE id = ANY($1::uuid[])
              AND ($2::numeric IS NULL OR height = $2)`,
           [ids, heightVal],
         );
-        const okIds = new Set(validIds.rows.map(r => r.id));
+        const okMap = new Map(validIds.rows.map(r => [r.id, r]));
         for (const d of dives) {
-          if (!okIds.has(d.dive_id)) {
+          if (!okMap.has(d.dive_id)) {
             await client.query("ROLLBACK");
             return res.status(400).json({
               error: `dive_id ${d.dive_id} is not in the dive directory at this event's height`,
+            });
+          }
+        }
+
+        // Round-rules validation (migration 038). When the event
+        // carries a round_rules JSON, hand it + the joined dive
+        // metadata (code + DD) to the validator so per-section
+        // DD-sum + group-distinctness violations are returned as
+        // structured error messages. NULL round_rules → skip;
+        // legacy (dd_limit_rounds, dd_limit_value) is handled by
+        // the existing per-dive checks elsewhere.
+        if (evRow.round_rules) {
+          const { validateDiveList } = require("../lib/round-rules");
+          const enriched = dives.map(d => {
+            const dir = okMap.get(d.dive_id);
+            return {
+              round_number: d.round_number,
+              dive_id:      d.dive_id,
+              dive_code:    dir?.dive_code,
+              dd:           dir?.dd,
+            };
+          });
+          const check = validateDiveList(evRow.round_rules, enriched);
+          if (!check.valid) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({
+              error: "Dive list violates the event's round rules",
+              violations: check.errors,
             });
           }
         }
