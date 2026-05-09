@@ -113,7 +113,7 @@ module.exports = function createCompetitorRouter({
         const ids = dives.map(d => d.dive_id);
         const heightVal = evRow.height ? parseFloat(evRow.height) : null;
         const validIds = await client.query(
-          `SELECT id, dive_code, dd FROM dive_directory
+          `SELECT id, dive_code, dd, height FROM dive_directory
            WHERE id = ANY($1::uuid[])
              AND ($2::numeric IS NULL OR height = $2)`,
           [ids, heightVal],
@@ -124,6 +124,51 @@ module.exports = function createCompetitorRouter({
             await client.query("ROLLBACK");
             return res.status(400).json({
               error: `dive_id ${d.dive_id} is not in the dive directory at this event's height`,
+            });
+          }
+        }
+
+        // Prescribed round dives (migration 039). When the meet
+        // manager has pinned a specific dive to a round, the diver's
+        // pick at that round must be exactly that dive_id. When the
+        // slot is free but the operator pinned a height (mixed-
+        // board events with a prescribed board per round), the
+        // diver's free pick must be at that height. Server-side
+        // enforcement; the client also pre-fills + locks prescribed
+        // slots, but a hostile / out-of-date client could bypass.
+        const prescribed = await client.query(
+          `SELECT round_number, dive_id, height
+             FROM event_round_dives
+            WHERE event_id = $1`,
+          [event_id],
+        );
+        if (prescribed.rows.length) {
+          const byRound = new Map();
+          for (const slot of prescribed.rows) byRound.set(slot.round_number, slot);
+          const violations = [];
+          for (const d of dives) {
+            const slot = byRound.get(d.round_number);
+            if (!slot) continue;
+            if (slot.dive_id && slot.dive_id !== d.dive_id) {
+              violations.push(
+                `Round ${d.round_number} is operator-prescribed; submit the assigned dive only`,
+              );
+              continue;
+            }
+            if (!slot.dive_id && slot.height != null) {
+              const dir = okMap.get(d.dive_id);
+              if (dir && Number(dir.height) !== Number(slot.height)) {
+                violations.push(
+                  `Round ${d.round_number} requires a ${slot.height}m board dive`,
+                );
+              }
+            }
+          }
+          if (violations.length) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({
+              error: "Dive list violates the event's prescribed dives",
+              violations,
             });
           }
         }

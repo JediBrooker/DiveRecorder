@@ -251,6 +251,11 @@ test("round-rules: section editor exposes the min-distinct-groups field", async 
   await expect(page.getByRole("heading", { name: /Meet Manager/i }))
     .toBeVisible({ timeout: 10_000 });
 
+  // Migration 039: the New Event form lives in a modal now.
+  // Open it.
+  await page.getByRole("button", { name: /\+ New Event/i }).click();
+  await expect(page.locator(".modal-create-event")).toBeVisible();
+
   // The Quick preset is gone — make sure it doesn't sneak back in.
   await expect(page.getByRole("button", { name: /Quick: 4 @ 7\.6/ })).toHaveCount(0);
 

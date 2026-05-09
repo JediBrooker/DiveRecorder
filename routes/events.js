@@ -21,6 +21,52 @@ const express = require("express");
 const jwt = require("jsonwebtoken");
 const { recordAudit, auditFromReq } = require("../lib/audit");
 
+// Migration 039: shape-check operator-prescribed round_dives. We
+// only validate structure here (round numbering 1..N contiguous,
+// dive_id is a string-or-null, height is numeric-or-null); FK
+// validity is enforced by Postgres on INSERT.
+function validateRoundDivesShape(round_dives) {
+  if (round_dives == null) return { valid: true };
+  if (!Array.isArray(round_dives)) {
+    return { valid: false, error: "round_dives must be an array" };
+  }
+  if (round_dives.length > 12) {
+    return { valid: false, error: "round_dives can have at most 12 rounds" };
+  }
+  const seen = new Set();
+  for (let i = 0; i < round_dives.length; i++) {
+    const slot = round_dives[i];
+    if (!slot || typeof slot !== "object") {
+      return { valid: false, error: `round_dives[${i}]: not an object` };
+    }
+    const rn = Number(slot.round_number);
+    if (!Number.isInteger(rn) || rn < 1) {
+      return { valid: false, error: `round_dives[${i}]: round_number must be a positive integer` };
+    }
+    if (seen.has(rn)) {
+      return { valid: false, error: `round_dives[${i}]: duplicate round_number ${rn}` };
+    }
+    seen.add(rn);
+    if (slot.dive_id != null && typeof slot.dive_id !== "string") {
+      return { valid: false, error: `round_dives[${i}]: dive_id must be a uuid string or null` };
+    }
+    if (slot.height != null && slot.height !== "") {
+      const h = Number(slot.height);
+      if (!Number.isFinite(h) || h < 0 || h > 20) {
+        return { valid: false, error: `round_dives[${i}]: height must be between 0 and 20 metres` };
+      }
+    }
+  }
+  // Round numbers must be contiguous 1..N (no gaps, since the
+  // section/round-rules walker assumes this).
+  for (let r = 1; r <= round_dives.length; r++) {
+    if (!seen.has(r)) {
+      return { valid: false, error: `round_dives missing round_number ${r}` };
+    }
+  }
+  return { valid: true };
+}
+
 module.exports = function createEventsRouter({
   pool,
   JWT_SECRET,
@@ -142,12 +188,29 @@ module.exports = function createEventsRouter({
       // dd_limit_value) flat constraint applies. See
       // lib/round-rules.js for the shape + validator.
       round_rules,
+      // Migration 039: operator-prescribed round dives. Array of
+      // { round_number, dive_id|null, height|null }. Length, when
+      // present, becomes the canonical total_rounds and overrides
+      // any total_rounds field in the body.
+      round_dives,
     } = req.body || {};
 
-    // Validate round_rules shape if supplied.
+    // Validate round_dives shape + derive effective total_rounds.
+    const rdCheck = validateRoundDivesShape(round_dives);
+    if (!rdCheck.valid) {
+      return res.status(400).json({ error: rdCheck.error });
+    }
+    const effectiveTotalRounds =
+      Array.isArray(round_dives) && round_dives.length
+        ? round_dives.length
+        : (total_rounds || 6);
+
+    // Validate round_rules shape if supplied — use the EFFECTIVE
+    // total so the section-sum check sees the actual round count
+    // when round_dives drove it.
     if (round_rules != null) {
       const rrCheck = require("../lib/round-rules")
-        .validateRoundRules(round_rules, total_rounds);
+        .validateRoundRules(round_rules, effectiveTotalRounds);
       if (!rrCheck.valid) {
         return res.status(400).json({ error: rrCheck.error });
       }
@@ -232,7 +295,7 @@ module.exports = function createEventsRouter({
           gender,
           age_group || null,
           number_of_judges || 5,
-          total_rounds || 6,
+          effectiveTotalRounds,
           // For mixed-board events the column is informational
           // only — store NULL so any "filter dives by height"
           // logic that didn't get the is_mixed_height memo just
@@ -254,6 +317,23 @@ module.exports = function createEventsRouter({
         ],
       );
       const event = evRes.rows[0];
+      // Persist any operator-prescribed round dives (migration 039).
+      if (Array.isArray(round_dives) && round_dives.length) {
+        for (const slot of round_dives) {
+          await client.query(
+            `INSERT INTO event_round_dives (event_id, round_number, dive_id, height)
+             VALUES ($1, $2, $3, $4)`,
+            [
+              event.id,
+              slot.round_number,
+              slot.dive_id || null,
+              slot.height == null || slot.height === ""
+                ? null
+                : Number(slot.height),
+            ],
+          );
+        }
+      }
       // Creator becomes the first event manager automatically.
       await client.query(
         "INSERT INTO event_managers (event_id, user_id, added_by) VALUES ($1,$2,$2)",
@@ -312,6 +392,11 @@ module.exports = function createEventsRouter({
       //   null      → clear, fall back to legacy dd_limit_*
       //   {sections}→ set
       round_rules,
+      // Migration 039 — operator-prescribed round dives. Tri-state:
+      //   undefined → leave untouched
+      //   []        → clear all prescribed dives for this event
+      //   [...slots]→ replace the existing rows
+      round_dives,
     } = req.body || {};
     if (event_type === "synchro_pair" && ![9, 11].includes(number_of_judges)) {
       return res.status(400).json({
@@ -323,14 +408,26 @@ module.exports = function createEventsRouter({
         .status(400)
         .json({ error: "event_format must be 'preliminary', 'semifinal' or 'final'" });
     }
+    // Validate round_dives shape if supplied. When round_dives is
+    // a non-empty array, it becomes the canonical total_rounds.
+    const rdShape = validateRoundDivesShape(round_dives);
+    if (!rdShape.valid) {
+      return res.status(400).json({ error: rdShape.error });
+    }
+    const effectiveTotalRoundsForRules =
+      Array.isArray(round_dives) && round_dives.length
+        ? round_dives.length
+        : total_rounds;
     if (round_rules != null) {
       const rrCheck = require("../lib/round-rules")
-        .validateRoundRules(round_rules, total_rounds);
+        .validateRoundRules(round_rules, effectiveTotalRoundsForRules);
       if (!rrCheck.valid) {
         return res.status(400).json({ error: rrCheck.error });
       }
     }
+    const client = await pool.connect();
     try {
+      await client.query("BEGIN");
       // entries_close_at uses tri-state semantics. Pass a boolean
       // sentinel + the actual value so the SQL can express both
       // "leave untouched" and "set to NULL" in one statement.
@@ -342,7 +439,14 @@ module.exports = function createEventsRouter({
       // flag back to its default.
       const enforceUntouched = enforce_referee_signoff === undefined;
       const mixedUntouched   = is_mixed_height          === undefined;
-      const r = await pool.query(
+      // total_rounds: when round_dives is a non-empty array its
+      // length wins; an empty array (`[]` = clear) reverts to the
+      // body's total_rounds (or untouched if neither is set).
+      const totalRoundsForUpdate =
+        Array.isArray(round_dives) && round_dives.length
+          ? round_dives.length
+          : (total_rounds || null);
+      const r = await client.query(
         `UPDATE events SET
            name             = COALESCE($1, name),
            gender           = COALESCE($2, gender),
@@ -366,7 +470,7 @@ module.exports = function createEventsRouter({
           name || null,
           gender || null,
           number_of_judges || null,
-          total_rounds || null,
+          totalRoundsForUpdate,
           // Mixed-board: clobber height to NULL even if the
           // caller sent a value, so the column doesn't lie.
           is_mixed_height ? null : (height || null),
@@ -393,12 +497,43 @@ module.exports = function createEventsRouter({
             : JSON.stringify(round_rules),
         ],
       );
-      if (!r.rows.length)
+      if (!r.rows.length) {
+        await client.query("ROLLBACK");
         return res.status(404).json({ error: "Event not found" });
+      }
+
+      // Replace prescribed round_dives if the caller sent the key.
+      // undefined → leave alone; [] → clear; non-empty → replace.
+      if (round_dives !== undefined) {
+        await client.query(
+          "DELETE FROM event_round_dives WHERE event_id = $1",
+          [req.params.id],
+        );
+        if (Array.isArray(round_dives) && round_dives.length) {
+          for (const slot of round_dives) {
+            await client.query(
+              `INSERT INTO event_round_dives (event_id, round_number, dive_id, height)
+               VALUES ($1, $2, $3, $4)`,
+              [
+                req.params.id,
+                slot.round_number,
+                slot.dive_id || null,
+                slot.height == null || slot.height === ""
+                  ? null
+                  : Number(slot.height),
+              ],
+            );
+          }
+        }
+      }
+      await client.query("COMMIT");
       res.json(r.rows[0]);
     } catch (err) {
+      await client.query("ROLLBACK");
       console.error("[Update Event Error]", err.message);
       res.status(500).json({ error: "Internal server error" });
+    } finally {
+      client.release();
     }
   });
 
@@ -562,6 +697,60 @@ module.exports = function createEventsRouter({
   // The host org is NEVER inserted here — events.org_id is the
   // source of truth for the host. See migration 036.
   // -------------------------------------------------------------
+
+  // -------------------------------------------------------------
+  // GET /api/events/:id/round-dives — operator-prescribed round
+  // dives for a single event (migration 039). Returned as an
+  // ordered array enriched with the dive's directory fields so
+  // the diver portal can render the locked rows without a second
+  // round-trip. Empty array when no rows exist.
+  //
+  // Public for Live/Completed events; authed scope for Upcoming
+  // (mirrors the GET /api/events visibility contract — operators
+  // shouldn't have their pre-meet bulletin leaked).
+  // -------------------------------------------------------------
+  router.get("/api/events/:id/round-dives", async (req, res) => {
+    try {
+      const authHeader = req.headers["authorization"];
+      const token = authHeader && authHeader.split(" ")[1];
+      let callerOrgId = null;
+      let callerIsSys = false;
+      if (token) {
+        try {
+          const decoded = require("jsonwebtoken").verify(token, JWT_SECRET);
+          callerOrgId = decoded.org_id;
+          callerIsSys = !!decoded.is_system_admin;
+        } catch { /* anonymous */ }
+      }
+      const ev = await pool.query(
+        "SELECT org_id, status FROM events WHERE id = $1",
+        [req.params.id],
+      );
+      if (!ev.rows.length) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const evRow = ev.rows[0];
+      const isAuthScope =
+        callerIsSys || (callerOrgId && callerOrgId === evRow.org_id);
+      if (!isAuthScope && !["Live", "Completed"].includes(evRow.status)) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const rows = await pool.query(
+        `SELECT erd.round_number, erd.dive_id, erd.height,
+                d.dive_code, d.position, d.dd, d.description,
+                d.height AS dive_height
+           FROM event_round_dives erd
+           LEFT JOIN dive_directory d ON d.id = erd.dive_id
+          WHERE erd.event_id = $1
+          ORDER BY erd.round_number ASC`,
+        [req.params.id],
+      );
+      res.json(rows.rows);
+    } catch (err) {
+      console.error("[Round Dives Error]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
 
   // Public read — the meet's public landing page wants to render
   // "participating: AUS / NZL / FIJ" badges, so this endpoint is

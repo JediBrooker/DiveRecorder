@@ -15,6 +15,15 @@ const diveDirectory = ref([])
 const selectedEventId = ref('')
 const currentEvent = ref(null)
 const selectedDives = ref([]) // array of null | dive object
+// Migration 039: operator-prescribed round dives. Array indexed
+// by round_number-1. Each entry is either:
+//   null               — diver picks freely for this round
+//   { dive_id, height, slot_height } — slot is constrained.
+//                                      slot_height pins the
+//                                      diver's free pick to a
+//                                      specific board (mixed-
+//                                      board events only).
+const prescribedDives = ref([])
 const showModal = ref(false)
 const activeSlot = ref(-1)
 const searchInput = ref('')
@@ -343,10 +352,11 @@ const searchResults = computed(() => {
   }).slice(0, 15)
 })
 
-function onEventChange() {
+async function onEventChange() {
   partnerId.value = ''
   partnerSearch.value = ''
   partnerOpen.value = false
+  prescribedDives.value = []
   if (!selectedEventId.value) {
     currentEvent.value = null
     selectedDives.value = []
@@ -355,12 +365,69 @@ function onEventChange() {
   currentEvent.value = events.value.find(e => e.id == selectedEventId.value) || null
   if (!currentEvent.value) return
   selectedDives.value = Array(currentEvent.value.total_rounds || 6).fill(null)
+
+  // Pull operator-prescribed round dives (migration 039). Pre-fill
+  // any pinned dive into selectedDives + remember the slot is
+  // locked so openModal() refuses to re-open it.
+  try {
+    const rows = await auth.apiFetch(`/api/events/${currentEvent.value.id}/round-dives`)
+    if (Array.isArray(rows) && rows.length) {
+      // Resize selectedDives to match the prescribed-row count
+      // (the operator may have added/removed slots since last
+      // load — server enforces total_rounds = rows.length so we
+      // align here too).
+      selectedDives.value = Array(rows.length).fill(null)
+      const slots = Array(rows.length).fill(null)
+      for (const row of rows) {
+        const idx = row.round_number - 1
+        slots[idx] = {
+          dive_id: row.dive_id || null,
+          slot_height: row.height ?? null,
+        }
+        if (row.dive_id) {
+          // Pre-fill the locked dive into selectedDives so the
+          // diver sees it without an extra fetch.
+          selectedDives.value[idx] = {
+            id:          row.dive_id,
+            dive_code:   row.dive_code,
+            position:    row.position,
+            dd:          row.dd,
+            description: row.description,
+            height:      Number(row.dive_height ?? row.height ?? 0),
+          }
+        }
+      }
+      prescribedDives.value = slots
+    }
+  } catch {
+    // Silent — fall back to the flat selectedDives. Worst case:
+    // the diver picks a dive that the server's submit-list gate
+    // rejects, with the same prescribed-violation message they'd
+    // see anyway.
+  }
+}
+
+// True when round (1-indexed) has an operator-pinned dive_id —
+// the slot is locked, the picker can't open, and the row paints
+// with a lock indicator.
+function isPrescribedRound(roundIdx0) {
+  const slot = prescribedDives.value[roundIdx0]
+  return !!(slot && slot.dive_id)
 }
 
 function openModal(idx) {
+  // Locked rows refuse to open the picker — the dive is operator-
+  // prescribed and the diver isn't allowed to swap it.
+  if (isPrescribedRound(idx)) return
   activeSlot.value = idx
   searchInput.value = ''
-  if (activeEventHeight.value !== null) {
+  // Slot-height pin (mixed-board events): the operator can pin
+  // a specific board for a free slot. Honour that filter so the
+  // picker only shows valid dives.
+  const slot = prescribedDives.value[idx]
+  if (slot && slot.slot_height != null) {
+    activeHeightFilter.value = Number(slot.slot_height)
+  } else if (activeEventHeight.value !== null) {
     activeHeightFilter.value = activeEventHeight.value
   } else {
     activeHeightFilter.value = null
@@ -626,16 +693,24 @@ watch(currentEvent, async (ev) => {
           <div
             v-for="(dive, idx) in selectedDives"
             :key="idx"
-            :class="['dive-row', dive ? 'filled' : '']"
+            :class="['dive-row', dive ? 'filled' : '', isPrescribedRound(idx) ? 'locked' : '']"
             @click="openModal(idx)"
           >
             <div :class="['row-num', dive ? 'filled-num' : '']">{{ idx + 1 }}</div>
             <div class="row-info" v-if="dive">
-              <div class="row-code">{{ dive.dive_code }}<span class="result-pos">{{ dive.position }}</span></div>
+              <div class="row-code">
+                {{ dive.dive_code }}<span class="result-pos">{{ dive.position }}</span>
+                <span v-if="isPrescribedRound(idx)" class="row-lock-tag" title="Operator-prescribed dive — can't be changed">🔒 prescribed</span>
+              </div>
               <div class="row-desc">{{ diveDescription(dive) }}</div>
             </div>
             <div class="row-info" v-else>
-              <div class="row-placeholder">Tap to select dive...</div>
+              <div class="row-placeholder">
+                <template v-if="prescribedDives[idx]?.slot_height != null">
+                  Tap to select a {{ prescribedDives[idx].slot_height }}m dive…
+                </template>
+                <template v-else>Tap to select dive…</template>
+              </div>
             </div>
             <div v-if="dive" class="row-dd">DD {{ dive.dd }}</div>
             <svg v-else width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:var(--text-3)"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
@@ -783,6 +858,19 @@ watch(currentEvent, async (ev) => {
 }
 .dive-row:hover{border-color:var(--border-2);}
 .dive-row.filled{border-color:var(--cyan);background:var(--cyan-dim);}
+.dive-row.locked{
+  cursor:not-allowed;
+  border-style:dashed;
+  background:rgba(0, 224, 255, 0.04);
+}
+.dive-row.locked:hover{border-color:var(--border);}
+.row-lock-tag{
+  margin-left:0.5rem;
+  font-family:var(--font-mono);font-size:10px;font-weight:normal;
+  letter-spacing:0.06em; text-transform:uppercase;
+  color:var(--cyan); background:rgba(0,224,255,0.12);
+  padding:0.1rem 0.45rem; border-radius:999px; vertical-align:middle;
+}
 .row-num{
   font-family:var(--font-display);font-size:13px;font-weight:700;
   color:var(--text-3);width:28px;flex-shrink:0;text-align:center;

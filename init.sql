@@ -379,6 +379,26 @@ CREATE TABLE public.event_judges (
     PRIMARY KEY (event_id, judge_id)
 );
 
+-- Operator-prescribed round dives (migration 039). One row per
+-- (event, round_number). dive_id NULL means "diver picks for this
+-- round"; non-null means "diver MUST submit this dive". The
+-- existence of any row for an event makes the row count the
+-- source of truth for total_rounds; events without rows fall back
+-- to the legacy total_rounds column.
+CREATE TABLE public.event_round_dives (
+    event_id     uuid    NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    round_number integer NOT NULL CHECK (round_number >= 1),
+    dive_id      uuid    REFERENCES public.dive_directory(id) ON DELETE SET NULL,
+    -- Optional board-height override for the slot. Only meaningful
+    -- when the event is_mixed_height AND dive_id IS NULL — it
+    -- constrains the diver's free pick to this board.
+    height       numeric(3,1),
+    PRIMARY KEY (event_id, round_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_round_dives_event
+  ON public.event_round_dives(event_id);
+
 
 -- =============================================================
 -- TEAMS — for event_type = 'team' events.

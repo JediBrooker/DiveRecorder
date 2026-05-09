@@ -262,6 +262,33 @@ h1, h2, h3, h4 {
 .input:focus { border-color: var(--cyan); }
 .input::placeholder { color: var(--text-3); }
 
+/* Number-input spinner arrows. Browser defaults render almost
+   black-on-black in our dark theme — recolour the chrome so the
+   up/down arrows are actually visible (hover / focus brighten
+   them so the affordance is obvious).
+
+   WebKit: stack the buttons vertically and tint via filter so
+     we don't have to redraw the SVG glyph.
+   Firefox: doesn't expose the glyph at all; we leave the native
+     style and rely on the brighter appearance from `accent-color`. */
+.input[type="number"] {
+  accent-color: var(--cyan);
+}
+.input[type="number"]::-webkit-inner-spin-button,
+.input[type="number"]::-webkit-outer-spin-button {
+  opacity: 1;
+  /* Force the rendering to honour our dark background — Chromium
+     paints the spinner glyph in `currentColor` only on the dark
+     UA stylesheet path, so giving it a colour the box can
+     contrast with reveals the arrows. */
+  filter: invert(0.85) brightness(1.1);
+  cursor: pointer;
+}
+.input[type="number"]:hover::-webkit-inner-spin-button,
+.input[type="number"]:focus::-webkit-inner-spin-button {
+  filter: invert(1) brightness(1.4);
+}
+
 .select {
   font-family: var(--font-mono);
   font-size: 14px;
