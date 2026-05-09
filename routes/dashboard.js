@@ -21,6 +21,15 @@
 //       recent_activity:  [...],   // org_admin only
 //       judge_events:     [...],   // judge role only
 //       coach:            { ... }, // coach role only — minimal slice
+//       diver_event_ids:  [...],   // diver role only — event_ids the
+//                                  // caller has a competitor_dive_lists
+//                                  // entry for. Lets the diver-tab
+//                                  // "Meet day · Live now" card filter
+//                                  // out events the diver isn't actually
+//                                  // entered in (matches the gate on
+//                                  // /api/events/:id/me-meet-day so a
+//                                  // surfaced card never dead-ends in
+//                                  // a 403).
 //     }
 //
 // Each slice is fetched only when the caller's roles authorise
@@ -191,6 +200,22 @@ module.exports = function createDashboardRouter({ pool, verifyToken }) {
          LIMIT 25`,
         [user.id],
       ).then((r) => r.rows).catch(() => []);
+    }
+
+    // ---- Diver entered-event ids (diver role only) ----
+    // Mirrors the gate on /api/events/:id/me-meet-day exactly:
+    // an entry in competitor_dive_lists whose withdrawn_at is
+    // null counts as "this diver is in this event". We only
+    // need the ids — the SPA already has the full event row
+    // from `events` and intersects.
+    if (has("diver")) {
+      tasks.diver_event_ids = pool.query(
+        `SELECT DISTINCT event_id
+           FROM competitor_dive_lists
+          WHERE competitor_id = $1
+            AND withdrawn_at IS NULL`,
+        [user.id],
+      ).then((r) => r.rows.map((row) => row.event_id)).catch(() => []);
     }
 
     // ---- Coach slice (coach role only) ----

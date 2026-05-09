@@ -127,3 +127,73 @@ test("fresh org admin is redirected to /setup wizard", async ({
   await page.getByRole("button", { name: /Skip setup/i }).click();
   await page.waitForURL(/\/dashboard$/, { timeout: 5_000 });
 });
+
+// =============================================================
+// 4. /api/dashboard — diver_event_ids slice gates the diver-tab
+//    "Meet day · Live now" card so it never surfaces an event the
+//    diver isn't actually entered in. Regression: pre-fix, the
+//    Live event in the diver's federation surfaced on the diver
+//    tab and clicking it dead-ended at /me/meet/:id with a 403
+//    "You're not entered in this event".
+// =============================================================
+test("dashboard bundle: diver_event_ids gates the diver-tab live-meet card", async ({
+  request,
+}) => {
+  test.setTimeout(30_000);
+
+  const { orgId, adminToken } = await setup.createOrgAndAdmin(request);
+
+  // A Live event in the org that the diver is NOT entered in.
+  const event = await setup.createEvent(request, {
+    adminToken,
+    name: "E2E Diver Bundle Live (not entered)",
+    height: "3m",
+    number_of_judges: 5,
+    total_rounds: 3,
+  });
+  await setup.setEventStatus(request, {
+    adminToken, eventId: event.id, status: "Live",
+  });
+
+  // Diver with the diver role but no competitor_dive_lists row
+  // for the Live event above.
+  const diver = await setup.insertUser({
+    orgId, role: "diver", fullName: "Bundle Test Diver",
+  });
+  const diverLogin = await setup.loginAs(request, diver.username);
+
+  const res = await request.get("/api/dashboard", {
+    headers: { Authorization: `Bearer ${diverLogin.token}` },
+  });
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+
+  // The slice must be present (caller has the diver role).
+  expect(Array.isArray(body.diver_event_ids)).toBe(true);
+  // And it must NOT contain the Live event the diver isn't in,
+  // so the SPA's diverLiveMeet computed filters it out.
+  expect(body.diver_event_ids).not.toContain(event.id);
+
+  // Now enter the diver via insertDiveList — slice should pick
+  // it up on the next bundle fetch.
+  const f = await setup.pickDiveId({ height: 3.0, dive_code: "101", position: "B" });
+  const b = await setup.pickDiveId({ height: 3.0, dive_code: "201", position: "B" });
+  const r = await setup.pickDiveId({ height: 3.0, dive_code: "301", position: "B" });
+  await setup.insertDiveList({
+    eventId: event.id,
+    competitorId: diver.userId,
+    dives: [
+      { round_number: 1, dive_id: f },
+      { round_number: 2, dive_id: b },
+      { round_number: 3, dive_id: r },
+    ],
+  });
+
+  const res2 = await request.get("/api/dashboard", {
+    headers: { Authorization: `Bearer ${diverLogin.token}` },
+  });
+  const body2 = await res2.json();
+  expect(body2.diver_event_ids).toContain(event.id);
+
+  await setup.deleteOrg(orgId);
+});

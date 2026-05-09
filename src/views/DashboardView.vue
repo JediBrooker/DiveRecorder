@@ -97,6 +97,11 @@ const pendingOrgs        = ref([])     // /api/orgs filtered to pending (sysadmi
 const recentActivity     = ref([])     // /api/audit/recent
 const judgeEvents        = ref([])     // /api/judge/my-events
 const coachData          = ref(null)   // /api/coach/dashboard
+const diverEventIds      = ref(null)   // event ids the caller has an entry in
+                                       // (null = unknown / not loaded yet,
+                                       // [] = loaded + zero entries). Lets
+                                       // the diver-tab cards skip events
+                                       // /me-meet-day will 403 on.
 const tabsLoaded         = ref(new Set())  // tab ids whose data is loaded
 
 // Pulse derived from currently-loaded data. Each entry is
@@ -516,6 +521,9 @@ async function loadDashboardBundle() {
   if (bundle.coach && Array.isArray(bundle.coach.divers)) {
     coachData.value = bundle.coach
   }
+  if (Array.isArray(bundle.diver_event_ids)) {
+    diverEventIds.value = bundle.diver_event_ids
+  }
   // Mark tabsLoaded so per-tab loaders don't refetch what we
   // already have. Recent-activity is the only org-admin slice
   // that has a separate tabsLoaded key.
@@ -697,12 +705,27 @@ const operatorEvents = computed(() => {
 })
 
 // Diver next-meet heuristic — closest upcoming event by entries
-// close. v1 doesn't filter to events the diver is actually
-// entered in (we'd need a per-diver-event-list endpoint); the
-// generic upcoming list is good enough.
+// Filtered to events the diver actually has a competitor_dive_lists
+// row for, sourced from the dashboard bundle's `diver_event_ids`
+// slice. Same gate as /api/events/:id/me-meet-day, so a card
+// surfaced here always opens cleanly. While the bundle is in
+// flight (diverEventIds === null) we fall back to the legacy
+// "any event in the org" pool so the card doesn't blink during
+// the first frame.
+const diverEnteredSet = computed(() => {
+  if (!Array.isArray(diverEventIds.value)) return null
+  return new Set(diverEventIds.value)
+})
+function diverIsEntered(eventId) {
+  const set = diverEnteredSet.value
+  if (set === null) return true   // bundle not back yet — don't hide
+  return set.has(eventId)
+}
+
 const diverNextMeet = computed(() => {
   const upcoming = events.value
     .filter((e) => e.status === 'Upcoming')
+    .filter((e) => diverIsEntered(e.id))
     .sort((a, b) => {
       const ad = a.entries_close_at ? +new Date(a.entries_close_at) : Infinity
       const bd = b.entries_close_at ? +new Date(b.entries_close_at) : Infinity
@@ -711,17 +734,15 @@ const diverNextMeet = computed(() => {
   return upcoming[0] || null
 })
 
-// Live event the diver is currently competing in (or just
-// "happening now in their federation"). Surfaces the meet-day
-// CTA at the top of the diver panel when relevant. Null when
-// nothing is live — the panel falls back to the next-upcoming
-// card. We don't filter by "diver is entered" client-side
-// because the events list isn't joined with competitor_dive_lists;
-// /api/events/:id/me-meet-day will 403 if the diver isn't
-// entered, and the panel handles that path.
+// Live event the diver is currently competing in. Surfaces the
+// meet-day CTA at the top of the diver panel when relevant.
+// Filtered to events the diver actually has an entry in (same
+// gate as /api/events/:id/me-meet-day) so clicking the card
+// never dead-ends at "You're not entered in this event".
 const diverLiveMeet = computed(() => {
   const live = events.value
     .filter((e) => e.status === 'Live')
+    .filter((e) => diverIsEntered(e.id))
     .sort((a, b) => (b.created_at ? +new Date(b.created_at) : 0)
                   - (a.created_at ? +new Date(a.created_at) : 0))
   return live[0] || null
