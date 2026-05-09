@@ -1,20 +1,23 @@
 -- 041_dive_list_lock.sql
 --
--- Post-advance dive-list lock — World Aquatics Rule 2.1.3
--- (dive-list submission window): divers can change their list
--- up to 30 minutes before the next stage begins. Past that
--- window, the inherited list locks. Rule 2.1.6 governs the
--- advancement itself (next-ranked diver fills the slot when a
--- qualifier withdraws).
+-- Post-advance dive-list lock — World Aquatics Article 6.7.3
+-- (change-of-dives submission window): a change-of-dives form
+-- must be submitted "no later than thirty (30) minutes after
+-- the end of the previous stage of the event". Past that
+-- window, the inherited list locks and the diver must perform
+-- the dives indicated in their original Statement of Dives.
+-- Article 4.1.12 governs the advancement itself (next-ranked
+-- diver fills the slot when a qualifier withdraws).
 --
 -- New columns:
 --
 --   events.dive_list_locks_at  — when the dive-list editor
 --     closes for THIS event. Set automatically by
---     POST /api/events/:id/advance to
---     (child.scheduled_at - lock_minutes) when a scheduled
---     start exists, falling back to (NOW() + lock_minutes)
---     otherwise. Default lock_minutes = 30. NULL = no auto-lock.
+--     POST /api/events/:id/advance to NOW() + lock_minutes
+--     (default 30, configurable per advance, 0 = no auto-lock).
+--     Because the advance endpoint runs after the parent stage
+--     is Completed, NOW() ≈ "end of the previous stage" per
+--     Article 6.7.3.
 --
 --   competitor_dive_lists.confirmed_at — when the diver
 --     explicitly confirmed (or re-submitted) their list for

@@ -9,6 +9,58 @@ of truth** — fix this file as part of the same commit.
 
 ---
 
+## ⚠️ World Aquatics rules — required reading before diving-rules work
+
+The official **World Aquatics Competition Regulations** (in force as of
+February 2026) are committed at:
+
+> [`docs/2026-02-18_World-Aquatics_CR-Final.pdf`](./docs/2026-02-18_World-Aquatics_CR-Final.pdf)
+
+**Diving rules live in PART FOUR (page 123 onwards).** Before designing,
+implementing, fixing, or auditing anything that touches:
+
+- Competition format (preliminary / semi-final / final)
+- Stage progression / advancement / reserves
+- Dive lists / Statement of Dives / change-of-dives windows
+- Start order, dive order, withdrawal handling
+- Judging, scoring rules, panel sizes, trim algorithm
+- Synchro pairs, team events, age-group eligibility
+- Degree of Difficulty, dive-code designations, position codes
+- Anything cited as a "WA Rule" or "Article" in code or UI
+
+…**read the PDF first**. Don't rely on memory and don't paraphrase rule
+numbers — quote the specific Article number after verifying it in the
+document. The Article numbering in PART FOUR is `4.x.x`, `6.x.x` etc., NOT
+`Rule 2.1.x` (which belongs to general competitions / swimming and does
+not govern diving). Past sessions have shipped wrong citations by guessing;
+that mistake is permanently called out here so it doesn't happen again.
+
+Quick PDF read: `pdftotext docs/2026-02-18_World-Aquatics_CR-Final.pdf - | awk '/^PART FOUR: DIVING RULES$/,/^PART FIVE/' | less`
+gets you the diving section as plain text on stdout. Add `grep -n` for
+specific search terms.
+
+Pin the most-referenced articles here as a hint, but **always re-confirm
+in the PDF** before citing:
+
+| Article | Topic |
+|---|---|
+| 4.1.8 | Semi-final start order — reverse of preliminary ranking |
+| 4.1.10 | Subsequent stages — reverse-rank from the previous stage |
+| 4.1.12 | Advancement when a qualifier withdraws |
+| 4.1.13 | Points reset at the start of each subsequent stage |
+| 6.6.x  | Statement of Dives — initial submission deadlines (24h / 3h) |
+| 6.7.3  | Change-of-dives — 30 min after end of previous stage |
+| 6.10   | Synchro/team substitution window |
+| 7      | Technical officials |
+| 10     | Refereeing and judging dives |
+| 11     | Synchronisation judging |
+
+If you're not sure whether a feature touches WA rules, err toward reading
+the PDF section. Better to spend a minute confirming a citation than to
+ship code (or docs) that misrepresents the rule.
+
+---
+
 ## Where things live
 
 | Folder | What's there |

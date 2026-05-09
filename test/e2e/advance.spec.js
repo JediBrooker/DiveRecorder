@@ -146,8 +146,9 @@ test("advance: preview + status gates + promote", async ({ request }) => {
   await setup.deleteOrg(orgId);
 });
 
-// Migration 041: post-advance dive-list lock (WA Rule 2.1.3 (dive-list submission window))
-// + confirm-list endpoint. Verifies:
+// Migration 041: post-advance dive-list lock (WA Article 6.7.3
+// — change-of-dives submission window) + confirm-list endpoint.
+// Verifies:
 //   * the advance endpoint stamps dive_list_locks_at on the
 //     child event (and respects lock_minutes from the body)
 //   * loadEventForEntries treats a past lock as a 409 with the
@@ -286,8 +287,8 @@ test("advance: dive-list lock + confirm-list endpoint", async ({ request }) => {
   await setup.deleteOrg(orgId);
 });
 
-// Reserve replacement in a final — World Aquatics Rule 2.1.3
-// (reverse-rank start order) + Rule 2.1.6 (advancement). The
+// Reserve replacement in a final — World Aquatics Article 4.1.8
+// (reverse-rank start order) + Article 4.1.12 (advancement). The
 // reserve has the worst qualifying rank in the new field, so
 // they always dive FIRST (display_order=1). Every primary
 // qualified worse than the replaced diver — i.e., currently
@@ -304,7 +305,7 @@ test("advance: dive-list lock + confirm-list endpoint", async ({ request }) => {
 //   * The diver at DO=3 stays at DO=3.
 //   * Replaced primary withdrawn with cleared DO.
 
-test("advance: reserve replacing a final primary takes DO=1 + shifts others up (Rule 2.1.3)", async ({
+test("advance: reserve replacing a final primary takes DO=1 + shifts others up (Article 4.1.8)", async ({
   request,
 }) => {
   test.setTimeout(45_000);
@@ -348,7 +349,7 @@ test("advance: reserve replacing a final primary takes DO=1 + shifts others up (
   );
   expect(promoteRes.status()).toBe(200);
   const promoteBody = await promoteRes.json();
-  // Reserve dives first per Rule 2.1.3.
+  // Reserve dives first per Article 4.1.8.
   expect(promoteBody.display_order).toBe(1);
   expect(promoteBody.replaced_name).toBe("Semi Rank 2");
 
@@ -399,11 +400,12 @@ test("advance: reserve replacing a final primary takes DO=1 + shifts others up (
   await setup.deleteOrg(orgId);
 });
 
-// Reserve replacement in a SEMI-FINAL — semis don't follow
-// the reverse-rank rule, so the legacy inherit-the-withdrawn-
-// diver's-slot path applies. Reserve takes the withdrawn
-// primary's display_order verbatim; no shift.
-test("advance: reserve replacing a semi-final primary inherits the slot (no shift)", async ({
+// Reserve replacement in a SEMI-FINAL — per WA Article 4.1.8
+// the semi uses reverse-rank start order based on the
+// preliminary ranking, so the SAME algorithm as a final
+// applies: reserve gets DO=1, divers below the replaced
+// primary shift +1.
+test("advance: reserve replacing a semi-final primary applies the same reverse-rank shift as a final", async ({
   request,
 }) => {
   test.setTimeout(45_000);
@@ -435,8 +437,10 @@ test("advance: reserve replacing a semi-final primary inherits the slot (no shif
     [event.id, a.userId, fwd, b.userId, c.userId, reserve.userId],
   );
 
-  // Replace middle primary (DO=2). Semi inherits-slot path
-  // means the reserve gets DO=2 directly; the others stay put.
+  // Replace middle primary (DO=2, qualified middle of field).
+  // WA reverse-rank: reserve takes DO=1 (worst qualifier dives
+  // first), the diver formerly at DO=1 shifts to DO=2, and
+  // DO=3 stays put.
   const promoteRes = await request.post(
     `/api/events/${event.id}/reserves/${reserve.userId}/promote`,
     {
@@ -445,7 +449,7 @@ test("advance: reserve replacing a semi-final primary inherits the slot (no shif
     },
   );
   expect(promoteRes.status()).toBe(200);
-  expect((await promoteRes.json()).display_order).toBe(2);
+  expect((await promoteRes.json()).display_order).toBe(1);
 
   const verify = await setup.pool.query(
     `SELECT competitor_id, display_order
@@ -456,9 +460,9 @@ test("advance: reserve replacing a semi-final primary inherits the slot (no shif
   const orderByName = Object.fromEntries(
     verify.rows.map(r => [r.competitor_id, Number(r.display_order)]),
   );
-  expect(orderByName[a.userId]).toBe(1);   // unchanged
-  expect(orderByName[reserve.userId]).toBe(2);
-  expect(orderByName[c.userId]).toBe(3);   // unchanged
+  expect(orderByName[reserve.userId]).toBe(1);  // worst qualifier dives first
+  expect(orderByName[a.userId]).toBe(2);        // shifted +1
+  expect(orderByName[c.userId]).toBe(3);        // unchanged (qualified above replaced diver)
 
   await setup.deleteOrg(orgId);
 });

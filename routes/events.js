@@ -1233,7 +1233,7 @@ module.exports = function createEventsRouter({
         top_n,
         reserves = 0,
         dive_order, // 'inherit' | 'reverse' | 'random'
-        // World Aquatics Rule 2.1.3 (start order / dive-list submission window): divers must submit the
+        // World Aquatics Article 4.1.8 (start order / dive-list submission window): divers must submit the
         // next stage's list within 30 min of the prior stage's
         // results being announced. Configurable per-advance,
         // 0 = no auto-lock (operator wants no time pressure).
@@ -1386,44 +1386,25 @@ module.exports = function createEventsRouter({
         }
 
         // Stamp the dive-list lock on the child event. World
-        // Aquatics Rule 2.1.3 (and the related dive-sheet
-        // submission window): divers can submit / change their
-        // list for a stage up to LOCK_MINUTES (default 30)
-        // before that stage begins. Prefer
-        // (child.scheduled_at - lock_minutes) when scheduled_at
-        // is set; fall back to NOW() + lock_minutes only if
-        // there's no scheduled time (rough events). Operator
-        // can disable with lock_minutes = 0.
+        // Aquatics Article 6.7.3: a change-of-dives form must
+        // be submitted "no later than thirty (30) minutes after
+        // the end of the previous stage of the event". The
+        // advance endpoint runs after the parent is Completed
+        // (we already gate on this above), so NOW() is
+        // approximately when the previous stage ended →
+        // dive_list_locks_at = NOW() + lock_minutes accurately
+        // reflects the WA window. Operator can disable with
+        // lock_minutes = 0.
         let lockAtIso = null;
         if (lockMin > 0) {
-          const childWithSchedule = await client.query(
-            "SELECT scheduled_at FROM events WHERE id = $1",
-            [child.id],
+          const lockRes = await client.query(
+            `UPDATE events
+                SET dive_list_locks_at = NOW() + ($2::int || ' minutes')::interval
+              WHERE id = $1
+              RETURNING dive_list_locks_at`,
+            [child.id, lockMin],
           );
-          const scheduledAt = childWithSchedule.rows[0]?.scheduled_at;
-          if (scheduledAt) {
-            const lockRes = await client.query(
-              `UPDATE events
-                  SET dive_list_locks_at =
-                      scheduled_at - ($2::int || ' minutes')::interval
-                WHERE id = $1
-                RETURNING dive_list_locks_at`,
-              [child.id, lockMin],
-            );
-            lockAtIso = lockRes.rows[0]?.dive_list_locks_at?.toISOString() || null;
-          } else {
-            // No scheduled_at on the child — fall back to a
-            // relative window from NOW(). Less accurate but
-            // safer than no lock at all.
-            const lockRes = await client.query(
-              `UPDATE events
-                  SET dive_list_locks_at = NOW() + ($2::int || ' minutes')::interval
-                WHERE id = $1
-                RETURNING dive_list_locks_at`,
-              [child.id, lockMin],
-            );
-            lockAtIso = lockRes.rows[0]?.dive_list_locks_at?.toISOString() || null;
-          }
+          lockAtIso = lockRes.rows[0]?.dive_list_locks_at?.toISOString() || null;
         } else {
           // Explicit 0 means "no auto-lock" — clear any stale
           // value left from a prior advance.
@@ -1540,7 +1521,7 @@ module.exports = function createEventsRouter({
 
         // Also surface withdrawn primaries so the Control Room
         // can offer a "Replace [withdrawn diver] →" picker on
-        // each reserve. Per WA Rule 2.1.3 the reserve inherits the
+        // each reserve. Per WA Article 4.1.8 the reserve inherits the
         // withdrawn diver's start order.
         const w = await pool.query(
           `SELECT DISTINCT ON (cdl.competitor_id)
@@ -1601,22 +1582,23 @@ module.exports = function createEventsRouter({
   //   replaces_competitor_id — when set, the operator is using
   //                            this reserve to replace a primary
   //                            who has withdrawn or is unable to
-  //                            compete. Behaviour depends on
-  //                            event_format:
-  //
-  //     FINAL — World Aquatics Rule 2.1.3 (reverse-rank start
-  //       order). The reserve has the WORST qualifying rank in
-  //       the new field, so they take display_order=1 (dive
-  //       first). Every primary with display_order strictly
-  //       LESS than the replaced diver's (i.e., qualified worse
-  //       than the replaced diver) shifts +1 to make room. The
-  //       replaced primary gets withdrawn_at stamped + cleared
-  //       display_order. Highest-ranked diver still dives last.
-  //
-  //     SEMI / OTHER — the reserve simply inherits the
-  //       withdrawn diver's display_order so the inherited
-  //       start order from the prelim is preserved (semi-finals
-  //       don't follow the reverse-rank rule).
+  //                            compete. Per WA Diving Articles
+  //                            4.1.8 (semi) + 4.1.10 (subsequent
+  //                            stages) + 4.1.12 (advancement),
+  //                            BOTH semi-final and final use
+  //                            reverse-rank start order. The
+  //                            reserve has the WORST qualifying
+  //                            rank in the new field, so they
+  //                            take display_order=1 (dive
+  //                            first). Every primary with
+  //                            display_order strictly LESS than
+  //                            the replaced diver's (i.e.,
+  //                            qualified worse than the replaced
+  //                            diver) shifts +1 to make room.
+  //                            The replaced primary gets
+  //                            withdrawn_at stamped + cleared
+  //                            display_order. Highest-ranked
+  //                            diver still dives last.
   router.post(
     "/api/events/:id/reserves/:competitorId/promote",
     requireEventManager(),
@@ -1637,16 +1619,8 @@ module.exports = function createEventsRouter({
           await client.query("ROLLBACK");
           return res.status(404).json({ error: "Reserve not found" });
         }
-        // Pull the event's format so we can branch the
-        // replacement algorithm (final vs. semi).
-        const fmtRes = await client.query(
-          "SELECT event_format FROM events WHERE id = $1",
-          [eventId],
-        );
-        const eventFormat = fmtRes.rows[0]?.event_format;
-
-        // Replacement path branches on event_format. See block
-        // header comment for citations.
+        // Replacement path — see block header comment for the
+        // WA Article 4.1.8 / 4.1.10 / 4.1.12 derivation.
         let targetOrder = null;
         let replacedName = null;
         if (replaces_competitor_id) {
@@ -1678,31 +1652,21 @@ module.exports = function createEventsRouter({
               WHERE event_id = $1 AND competitor_id = $2`,
             [eventId, replaces_competitor_id],
           );
-
-          if (eventFormat === 'final') {
-            // World Aquatics Rule 2.1.3 — reverse-rank start
-            // order. Reserve has worst qualifying rank in the
-            // new field → DO=1. Every primary qualified worse
-            // than the replaced diver (i.e., currently has
-            // display_order < replacedOrder, since lower DO =
-            // worse qualifier in reverse-rank terms) shifts +1
-            // to make room.
-            await client.query(
-              `UPDATE competitor_dive_lists
-                  SET display_order = display_order + 1
-                WHERE event_id = $1
-                  AND is_reserve = FALSE
-                  AND withdrawn_at IS NULL
-                  AND display_order IS NOT NULL
-                  AND display_order < $2`,
-              [eventId, replacedOrder],
-            );
-            targetOrder = 1;
-          } else {
-            // Semi-final / other — preserve the withdrawn
-            // diver's start position.
-            targetOrder = replacedOrder;
-          }
+          // WA reverse-rank shift: reserve takes DO=1, every
+          // primary qualified worse than the replaced diver
+          // (display_order < replacedOrder under reverse-rank)
+          // shifts +1 to make room.
+          await client.query(
+            `UPDATE competitor_dive_lists
+                SET display_order = display_order + 1
+              WHERE event_id = $1
+                AND is_reserve = FALSE
+                AND withdrawn_at IS NULL
+                AND display_order IS NOT NULL
+                AND display_order < $2`,
+            [eventId, replacedOrder],
+          );
+          targetOrder = 1;
         } else {
           // No-replace path — slot at the back of the active
           // queue (e.g. filling an empty slot pre-Live).

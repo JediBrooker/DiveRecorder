@@ -629,7 +629,7 @@ watch(currentEvent, async (ev) => {
         Entries close {{ new Date(currentEvent.entries_close_at).toLocaleString() }}.
       </p>
 
-      <!-- Reserve banner (migration 040, WA Rule 2.1.3 / 2.1.6). Shown
+      <!-- Reserve banner (migration 040, WA Article 4.1.8 / 4.1.10 / 4.1.12). Shown
            when the diver advanced as a reserve rather than a
            primary. Reserves don't compete unless the meet
            manager promotes them, but they stay editable so
@@ -643,24 +643,24 @@ watch(currentEvent, async (ev) => {
         </div>
         <p class="reserve-banner-body">
           You don't compete unless the meet manager promotes you (e.g. a primary
-          withdraws — <strong>Rule 2.1.6</strong>). If promoted into a final,
+          withdraws — <strong>Article 4.1.12</strong>). If promoted into a final,
           you'll dive <strong>first</strong> in the start order — per
-          <strong>Rule 2.1.3</strong> the lowest-ranked qualifier in the field
+          <strong>Article 4.1.8</strong> the lowest-ranked qualifier in the field
           dives first, and as a reserve you're that diver. You can change your
           dive sheet up to 30 minutes before the event begins, so keep your
           list current and you're ready the moment you're promoted.
         </p>
       </div>
 
-      <!-- Post-advance lock banner (migration 041, WA Rule 2.1.3 /
-           7.5). Shown when the meet manager has stamped a
-           dive_list_locks_at on this event — typically a final
-           or semi-final right after the prior stage was
-           advanced. Diver carries forward the inherited list by
-           default; clicking Confirm explicitly stamps
-           confirmed_at so the operator can audit who actively
-           responded. Editing rounds via the picker below also
-           counts as confirmation. -->
+      <!-- Post-advance lock banner (migration 041, WA
+           Article 6.7.3). Shown when the meet manager has
+           stamped a dive_list_locks_at on this event —
+           typically a final or semi-final right after the
+           prior stage was advanced. Diver carries forward the
+           inherited list by default; clicking Confirm
+           explicitly stamps confirmed_at so the operator can
+           audit who actively responded. Editing rounds via the
+           picker below also counts as confirmation. -->
       <div v-if="currentEvent && currentEvent.dive_list_locks_at"
            :class="['advance-banner', diveListLockExpired ? 'locked' : '']">
         <div class="advance-banner-head">

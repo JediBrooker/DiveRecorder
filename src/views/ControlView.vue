@@ -1604,7 +1604,7 @@ async function refreshStandingsPreview() {
 // projection logic.
 const standingsTop5 = computed(() => standingsPreview.value.slice(0, 5))
 
-// Reserves panel state (migration 040 + Rule 2.1.3 / 2.1.6 reserve
+// Reserves panel state (migration 040 + Article 4.1.8 / 4.1.10 / 4.1.12 reserve
 // replacement). Loaded from /api/events/:id/reserves on event
 // change + after each promote. Operator picks a withdrawn or
 // active primary to replace from the per-row dropdown — the
@@ -3425,7 +3425,7 @@ onUnmounted(() => {
 
         <!-- Reserves panel — surfaces when the meet manager
              advanced from a prelim/semi with reserves. Per
-             World Aquatics Rule 2.1.3 / 2.1.6, a reserve replacing
+             World Aquatics Article 4.1.8 / 4.1.10 / 4.1.12, a reserve replacing
              a withdrawing primary INHERITS that primary's
              start position so the dive order is preserved.
              The "Replace…" picker (only shown when there's

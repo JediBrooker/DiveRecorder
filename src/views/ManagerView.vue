@@ -514,7 +514,13 @@ async function openAdvanceModal(ev) {
   // start order forward minus non-progressors) and 'reverse' for
   // final targets (top diver dives last — the showcase ordering).
   const downstream = events.value.find(o => o.parent_event_id === ev.id)
-  advanceDiveOrder.value = downstream?.event_format === 'final' ? 'reverse' : 'inherit'
+  // World Aquatics Article 4.1.8 (semi) + 4.1.10 (subsequent
+  // stages): both semi-final and final use REVERSE-RANK start
+  // order based on the previous stage's results. Default the
+  // dive_order picker to 'reverse' regardless of stage; the
+  // operator can still override to 'inherit' or 'random' for
+  // non-WA-sanctioned events.
+  advanceDiveOrder.value = 'reverse'
   advanceModalOpen.value = true
   advanceLoading.value   = true
   try {
@@ -2547,11 +2553,11 @@ onUnmounted(() => {
           <span class="label">Dive order in {{ advanceChild.format === 'final' ? 'the final' : 'the next stage' }}</span>
           <label class="advance-radio">
             <input type="radio" value="inherit" v-model="advanceDiveOrder">
-            <span><strong>Inherit</strong> — carry the parent's dive order forward, drop non-progressors. <em>Default for semi-finals.</em></span>
+            <span><strong>Inherit</strong> — carry the parent's dive order forward, drop non-progressors. <em>Override for non-WA-sanctioned events.</em></span>
           </label>
           <label class="advance-radio">
             <input type="radio" value="reverse" v-model="advanceDiveOrder">
-            <span><strong>Reverse</strong> — top diver dives last. <em>Default for finals.</em></span>
+            <span><strong>Reverse</strong> — top diver dives last. <em>WA default (Article 4.1.8 / 4.1.10) for both semi-finals and finals.</em></span>
           </label>
           <label class="advance-radio">
             <input type="radio" value="random" v-model="advanceDiveOrder">
