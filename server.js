@@ -712,6 +712,26 @@ app.use(require("./routes/diver-profile")({
 }));
 
 // =============================================================
+// JUDGE ANALYSIS
+// [SECTION: ROUTES — JUDGE ANALYTICS]
+// /api/judges/:id/profile, /api/judges/:id/analytics, and
+// /api/users/me/judge-dashboard. The analytics endpoint computes
+// per-judge metrics referenced against the World Aquatics-trim
+// kept mean for each dive (PART FOUR Article 13 trim rules) — the
+// same "kept set" the dive-points formula uses, so a judge's
+// deviation from it is the same signal an WA judges' assessor
+// would compute by hand. See routes/judge-analytics.js for the
+// permission model (judge sees own; org admins / managers /
+// referees see same-org judges; sysadmin sees all).
+// =============================================================
+app.use(require("./routes/judge-analytics")({
+  pool,
+  readPool,
+  verifyToken,
+  parseDateRange,
+}));
+
+// =============================================================
 // RECORDS
 // [SECTION: RECORDS]
 // Moved into lib/records.js (Phase 2 of the server.js split).

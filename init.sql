@@ -193,6 +193,13 @@ CREATE TABLE public.users (
     -- IDs (see frontend WIDGET_CATALOG). Defaults to the four
     -- core widgets so a fresh diver has something to look at.
     dashboard_widgets jsonb DEFAULT '["score_trend","personal_bests","recent_form","placings"]'::jsonb,
+    -- Judge-customisable analytics dashboard (Migration 042). Array
+    -- of widget IDs (see frontend JUDGE_WIDGET_CATALOG). Lives in
+    -- its own column so users who hold both 'diver' and 'judge'
+    -- roles keep two independent layouts. Default catalogue picks
+    -- the four most universally useful widgets so a fresh judge
+    -- sees something meaningful on first visit.
+    judge_dashboard_widgets jsonb DEFAULT '["bias_summary","deviation_distribution","height_breakdown","recent_meets"]'::jsonb,
     created_at      timestamptz DEFAULT now()
 );
 
@@ -1122,7 +1129,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 31);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 42);
 
 
 -- =============================================================

@@ -373,6 +373,8 @@ const submitLabel = computed(() => {
             <span class="status-dot" :class="{ connected: socket.isConnected.value }"></span>
             <span>{{ judgeLabel }}</span>
           </div>
+          <RouterLink to="/judge-profile" class="btn-back-judge"
+                      title="See how your scoring tracks against the panel-kept mean">📊 Analysis</RouterLink>
           <RouterLink to="/dashboard" class="btn-back-judge">← Dashboard</RouterLink>
         </div>
       </div>

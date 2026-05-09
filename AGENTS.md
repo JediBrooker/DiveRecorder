@@ -190,6 +190,7 @@ above it.
 | Wipe per-user IndexedDB cache | `idbClear()` | `src/lib/idbCache.js` |
 | Trim & tag judges' scores (World Aquatics rules) | `annotateJudgeRows(judges, n, eventType)` | `src/composables/useScoreTrim.js` |
 | Bucket a score into a World Aquatics category | `scoreCategory(s)` | `src/composables/useScoreCategories.js` |
+| Judge analytics — one row per (judge, dive) with kept-mean + drop flags | `JUDGE_PER_DIVE` CTE | `db/queries.js` |
 
 If you write the third copy of any of these, **stop and consolidate** into
 a helper. The repo has bled time on duplicated patterns.
@@ -254,7 +255,8 @@ A non-exhaustive checklist:
 | The JWT payload shape | Every `req.user.X` reference in `server.js` (grep), `src/stores/auth.js`'s `user` computed |
 | A `/api/...` response shape | `src/types.js`, every consumer view (grep for the URL) |
 | A SQL function | `init.sql`, all migrations that touch it, `test/calc.test.js` if there's a closed-form test |
-| `KNOWN_WIDGETS` | `WIDGET_CATALOG` in `src/views/DiverProfileView.vue` |
+| `KNOWN_WIDGETS` (diver) | `WIDGET_CATALOG` in `src/views/DiverProfileView.vue` |
+| `KNOWN_WIDGETS` in `routes/judge-analytics.js` | `JUDGE_WIDGET_CATALOG` in `src/views/JudgeProfileView.vue` |
 | A socket event | `socketRequireRole` gate, every consumer (`socket.on('eventName')` grep) |
 | Anything in `src/composables/` | The handful of consumers, since composables aren't auto-typed |
 

@@ -69,6 +69,17 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['judge'] },
   },
   {
+    // Judge Analysis — self-service "how am I tracking" dashboard
+    // for the judge persona. /judge-profile (no id) means the
+    // viewer's own analysis. /judge-profile/:id is the same view
+    // for org admins / referees / managers reviewing a judge in
+    // their org. The API enforces "same org + privileged role"
+    // for non-self viewers.
+    path: '/judge-profile/:id?',
+    component: () => import('@/views/JudgeProfileView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     // Unified live + archive surface — the old /archive route
     // was retired once this view absorbed both browse-completed-
     // meets and live-broadcast modes.
