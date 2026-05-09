@@ -67,7 +67,7 @@ onMounted(() => { if (route.params.id) load(route.params.id) })
          :href="`/api/meets/${meet.id}/program.pdf`"
          target="_blank" rel="noopener"
          class="btn btn-ghost btn-sm"
-         title="Download a printable schedule of every event in this meet">
+         v-tip="'Download a printable schedule of every event in this meet'">
         📄 Program PDF
       </a>
     </div>
@@ -119,7 +119,7 @@ onMounted(() => { if (route.params.id) load(route.params.id) })
           </span>
           <span class="participating-list">
             <span v-for="o in participatingOrgs" :key="o.org_id" class="participating-chip"
-                  :title="o.org_name">
+                  v-tip="o.org_name">
               {{ o.country_code || o.org_name }}
             </span>
           </span>

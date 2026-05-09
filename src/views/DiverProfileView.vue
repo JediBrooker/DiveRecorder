@@ -626,7 +626,7 @@ watch(targetId, load)
         <button v-if="profile && isSelf" class="btn btn-ghost btn-sm" @click="customizing = true">
           ⚙ Customize
         </button>
-        <button v-if="profile" class="btn btn-ghost btn-sm" @click="exportPDF" title="Open print dialog — choose 'Save as PDF' to export.">
+        <button v-if="profile" class="btn btn-ghost btn-sm" @click="exportPDF" v-tip="'Open print dialog — choose \'Save as PDF\' to export.'">
           📄 Export PDF
         </button>
         <button v-if="profile && isSelf" class="btn btn-ghost btn-sm" @click="openClubEditor">
@@ -818,7 +818,7 @@ watch(targetId, load)
                         v-for="j in annotateJudges(d.judges, d.number_of_judges, d.event_type)"
                         :key="j.judge_number"
                         :class="['j-chip', scoreClass(j.score), { 'j-dropped': j.dropped }]"
-                        :title="`Judge ${j.judge_number}` + (j.dropped ? ' (dropped)' : '')"
+                        v-tip="`Judge ${j.judge_number}` + (j.dropped ? ' (dropped)' : '')"
                       >
                         {{ Number(j.score).toFixed(1) }}
                       </span>
@@ -918,7 +918,7 @@ watch(targetId, load)
             <div v-for="b in qualityBuckets" :key="b.id"
                  :class="['quality-seg', `quality-${b.id}`]"
                  :style="{ width: (b.count / analytics.quality_mix.total * 100) + '%' }"
-                 :title="`${b.label}: ${b.count} (${(b.count / analytics.quality_mix.total * 100).toFixed(1)}%)`"></div>
+                 v-tip="`${b.label}: ${b.count} (${(b.count / analytics.quality_mix.total * 100).toFixed(1)}%)`"></div>
           </div>
           <div class="quality-legend">
             <div v-for="b in qualityBuckets" :key="b.id" class="quality-legend-row">
@@ -1181,7 +1181,7 @@ watch(targetId, load)
           @dragleave="onDragLeave(idx)"
           @drop="onDrop(idx, $event)"
         >
-          <span class="drag-handle" :title="isSelf ? 'Drag to re-order' : ''">⋮⋮</span>
+          <span class="drag-handle" v-tip="isSelf ? 'Drag to re-order' : ''">⋮⋮</span>
           <input type="checkbox"
                  :checked="isEnabled(w.id)"
                  :disabled="customizeSaving || !isSelf"

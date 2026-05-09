@@ -374,7 +374,7 @@ const submitLabel = computed(() => {
             <span>{{ judgeLabel }}</span>
           </div>
           <RouterLink to="/judge-profile" class="btn-back-judge"
-                      title="See how your scoring tracks against the panel-kept mean">📊 Analysis</RouterLink>
+                      v-tip="'See how your scoring tracks against the panel-kept mean'">📊 Analysis</RouterLink>
           <RouterLink to="/dashboard" class="btn-back-judge">← Dashboard</RouterLink>
         </div>
       </div>
@@ -460,7 +460,7 @@ const submitLabel = computed(() => {
         :class="['signal-btn', signaled ? 'signal-btn-on' : '']"
         :disabled="!activeDiver || isHeld"
         @click="toggleRefereeSignal"
-        :title="signaled ? 'Tap to clear the signal' : 'Flag the referee — e.g. did not see the dive, request a review'"
+        v-tip="signaled ? 'Tap to clear the signal' : 'Flag the referee — e.g. did not see the dive, request a review'"
       >
         <span class="signal-dot"></span>
         {{ signaled ? '✓ Signal sent — tap to cancel' : '🚩 Signal Referee' }}

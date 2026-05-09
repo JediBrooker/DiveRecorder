@@ -1108,7 +1108,7 @@ function attachSocketHandlers() {
           v-if="tickerActivity"
           to="/audit"
           class="pulse-ticker"
-          :title="`${tickerActivity.kind === 'score' ? 'Score' : tickerActivity.kind === 'role' ? 'Role change' : 'Activity'} — click to open Audit Log`"
+          v-tip="`${tickerActivity.kind === 'score' ? 'Score' : tickerActivity.kind === 'role' ? 'Role change' : 'Activity'} — click to open Audit Log`"
           @mouseenter="pauseTicker"
           @mouseleave="resumeTicker"
         >

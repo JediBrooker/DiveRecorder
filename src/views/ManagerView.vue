@@ -1457,7 +1457,7 @@ onUnmounted(() => {
               </span>
             </button>
             <button type="button" class="btn btn-ghost btn-sm event-template-del"
-                    @click="deleteEventTemplate(t)" title="Delete template">✕</button>
+                    @click="deleteEventTemplate(t)" v-tip="'Delete template'">✕</button>
           </div>
         </div>
 
@@ -1497,7 +1497,7 @@ onUnmounted(() => {
           <button v-for="t in suggestedStandardTemplates" :key="t.name"
                   type="button"
                   class="std-template"
-                  :title="t.description"
+                  v-tip="t.description"
                   @click="applyStandardTemplate(t)">
             <span class="event-template-name">{{ t.name }}</span>
             <span class="event-template-config">{{ t.description }}</span>
@@ -1588,7 +1588,7 @@ onUnmounted(() => {
             Mixed-board event
             <button type="button" class="help-pill"
                     @click.prevent="showMixedHeightHelp = !showMixedHeightHelp"
-                    title="What is this?">?</button>
+                    v-tip="'What is this?'">?</button>
           </label>
           <div v-if="showMixedHeightHelp" class="help-popover">
             Use this for events that span more than one board — e.g. an
@@ -1682,9 +1682,9 @@ onUnmounted(() => {
             <button type="button" class="btn btn-ghost btn-sm rd-row-clear"
                     v-if="slot.dive_id"
                     @click="clearDiveForRow(idx, 'create')"
-                    title="Unpin this dive (slot becomes free)">↺</button>
+                    v-tip="'Unpin this dive (slot becomes free)'">↺</button>
             <button type="button" class="btn btn-ghost btn-sm rd-row-remove"
-                    @click="removeRoundDive(idx)" title="Remove this round">✕</button>
+                    @click="removeRoundDive(idx)" v-tip="'Remove this round'">✕</button>
           </div>
 
           <div class="rd-actions">
@@ -1718,7 +1718,7 @@ onUnmounted(() => {
             <div class="rr-section-row">
               <input class="input rr-label" type="text" v-model="s.label" placeholder="Section name (e.g. Voluntary)">
               <button type="button" class="btn btn-ghost btn-sm rr-remove"
-                      @click="removeRoundSection(i)" title="Remove section">✕</button>
+                      @click="removeRoundSection(i)" v-tip="'Remove section'">✕</button>
             </div>
             <div class="rr-section-row">
               <label class="rr-cell">
@@ -1878,7 +1878,7 @@ onUnmounted(() => {
             Enforce referee sign-off
             <button type="button" class="help-pill"
                     @click.prevent="showSignoffHelp = !showSignoffHelp"
-                    title="What is this?">?</button>
+                    v-tip="'What is this?'">?</button>
           </label>
           <div v-if="showSignoffHelp" class="help-popover">
             <strong>What this does</strong>
@@ -1972,7 +1972,7 @@ onUnmounted(() => {
             type="button"
             :class="['status-chip', { active: eventStatusFilter === chip.value }]"
             @click="eventStatusFilter = chip.value"
-            :title="`Show ${chip.label.toLowerCase()} events`"
+            v-tip="`Show ${chip.label.toLowerCase()} events`"
           >
             {{ chip.label }}
             <span class="status-chip-count">{{ statusChipCount(chip.value) }}</span>
@@ -2025,7 +2025,7 @@ onUnmounted(() => {
                 type="button"
                 class="event-type-pill intl-pill"
                 @click.stop="openPartOrgsModal(ev)"
-                :title="`${ev.participating_orgs_count} federation${ev.participating_orgs_count === 1 ? '' : 's'} invited — click to manage`"
+                v-tip="`${ev.participating_orgs_count} federation${ev.participating_orgs_count === 1 ? '' : 's'} invited — click to manage`"
               >🌐 International ({{ ev.participating_orgs_count }})</button>
               <!-- Format badges — distinguish prelim/semi/final
                    at a glance so an operator linking events can
@@ -2045,7 +2045,7 @@ onUnmounted(() => {
               </template>
               <template v-if="ev.entries_close_at">
                 <span>·</span>
-                <span :title="`Entries close at ${new Date(ev.entries_close_at).toLocaleString()}`"
+                <span v-tip="`Entries close at ${new Date(ev.entries_close_at).toLocaleString()}`"
                       :style="{ color: new Date(ev.entries_close_at) <= new Date() ? 'var(--text-3)' : 'var(--cyan)' }">
                   {{ new Date(ev.entries_close_at) <= new Date() ? 'entries closed' : 'entries close ' + new Date(ev.entries_close_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }}
                 </span>
@@ -2073,7 +2073,7 @@ onUnmounted(() => {
                           && ev.status === 'Completed'"
                     class="btn btn-primary btn-sm advance-btn"
                     @click="openAdvanceModal(ev)"
-                    title="Open the modal to choose top N + reserves + dive order, preview the ranking, and seed the next stage">
+                    v-tip="'Open the modal to choose top N + reserves + dive order, preview the ranking, and seed the next stage'">
               Advance to next stage →
             </button>
             <!-- Status-aware primary action. Each path deep-
@@ -2082,19 +2082,19 @@ onUnmounted(() => {
             <RouterLink v-if="ev.status === 'Upcoming'"
                         :to="`/control?event=${ev.id}`"
                         class="btn btn-primary btn-sm"
-                        title="Open the Control Room with this event preselected — drive check-in, randomise, sign-off, and start the meet">
+                        v-tip="'Open the Control Room with this event preselected — drive check-in, randomise, sign-off, and start the meet'">
               Open Control Room →
             </RouterLink>
             <RouterLink v-else-if="ev.status === 'Live'"
                         :to="`/control?event=${ev.id}`"
                         class="btn btn-live btn-sm"
-                        title="Live — drop back into the Control Room">
+                        v-tip="'Live — drop back into the Control Room'">
               🔴 LIVE — Open
             </RouterLink>
             <RouterLink v-else
                         :to="`/scoreboard/${ev.id}`"
                         class="btn btn-ghost btn-sm"
-                        title="View the recap — podium, full standings, dive-by-dive">
+                        v-tip="'View the recap — podium, full standings, dive-by-dive'">
               View Results
             </RouterLink>
             <!-- ⋯ overflow — secondary maintenance actions the
@@ -2105,7 +2105,7 @@ onUnmounted(() => {
             <div class="dropdown-host">
               <button class="btn btn-ghost btn-sm btn-icon"
                       :aria-expanded="overflowOpenEventId === ev.id"
-                      title="More actions"
+                      v-tip="'More actions'"
                       @click.stop="toggleOverflow(ev.id)">⋯</button>
               <div v-if="overflowOpenEventId === ev.id" class="event-overflow-menu">
                 <!-- Host-side actions (event belongs to caller's
@@ -2129,7 +2129,7 @@ onUnmounted(() => {
                   </button>
                   <button class="dropdown-item"
                           @click="openPartOrgsModal(ev); overflowOpenEventId = null"
-                          title="Invite other federations' divers to enter this event">
+                          v-tip="'Invite other federations\' divers to enter this event'">
                     Federations…
                   </button>
                   <button class="dropdown-item dropdown-item-danger"
@@ -2148,7 +2148,7 @@ onUnmounted(() => {
                   </div>
                   <button class="dropdown-item dropdown-item-danger"
                           @click="selfWithdrawFromEvent(ev); overflowOpenEventId = null"
-                          title="Stop your divers entering this event. Existing entries stay intact.">
+                          v-tip="'Stop your divers entering this event. Existing entries stay intact.'">
                     Withdraw participation
                   </button>
                 </template>
@@ -2327,9 +2327,9 @@ onUnmounted(() => {
             <button type="button" class="btn btn-ghost btn-sm rd-row-clear"
                     v-if="slot.dive_id"
                     @click="clearDiveForRow(idx, 'edit')"
-                    title="Unpin (slot becomes free)">↺</button>
+                    v-tip="'Unpin (slot becomes free)'">↺</button>
             <button type="button" class="btn btn-ghost btn-sm rd-row-remove"
-                    @click="removeEditRoundDive(idx)" title="Remove this round">✕</button>
+                    @click="removeEditRoundDive(idx)" v-tip="'Remove this round'">✕</button>
           </div>
 
           <div class="rd-actions">
@@ -2359,7 +2359,7 @@ onUnmounted(() => {
             <div class="rr-section-row">
               <input class="input rr-label" type="text" v-model="s.label" placeholder="Section name (e.g. Voluntary)">
               <button type="button" class="btn btn-ghost btn-sm rr-remove"
-                      @click="removeEditRoundSection(i)" title="Remove section">✕</button>
+                      @click="removeEditRoundSection(i)" v-tip="'Remove section'">✕</button>
             </div>
             <div class="rr-section-row">
               <label class="rr-cell">
@@ -2720,7 +2720,7 @@ onUnmounted(() => {
              :value="rosterTemplateHeader(rosterModalEvent)"
              readonly
              style="font-size:11px"
-             title="Click to select; copy as the first row of your CSV">
+             v-tip="'Click to select; copy as the first row of your CSV'">
     </div>
 
     <div class="field">

@@ -243,8 +243,8 @@ const eventNotLive = computed(() => {
           <div class="md-rank-block">
             <div class="md-rank">
               {{ ordinal(data.standing.rank) }}
-              <span v-if="movement === 'up'"   class="md-mv mv-up"   title="Up vs last">↑</span>
-              <span v-if="movement === 'down'" class="md-mv mv-down" title="Down vs last">↓</span>
+              <span v-if="movement === 'up'"   class="md-mv mv-up"   v-tip="'Up vs last'">↑</span>
+              <span v-if="movement === 'down'" class="md-mv mv-down" v-tip="'Down vs last'">↓</span>
             </div>
             <div class="md-rank-sub">place</div>
           </div>

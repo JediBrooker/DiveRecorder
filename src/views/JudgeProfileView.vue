@@ -790,7 +790,7 @@ watch(() => route.params.id, () => { load() })
             @dragleave="onDragLeave(idx)"
             @drop="onDrop(idx, $event)"
           >
-            <span class="drag-handle" :title="isSelf ? 'Drag to re-order' : ''">⋮⋮</span>
+            <span class="drag-handle" v-tip="isSelf ? 'Drag to re-order' : ''">⋮⋮</span>
             <input type="checkbox"
                    :checked="isEnabled(w.id)"
                    :disabled="customizeSaving || !isSelf"

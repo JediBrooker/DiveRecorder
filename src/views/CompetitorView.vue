@@ -753,7 +753,7 @@ watch(currentEvent, async (ev) => {
                 type="button"
                 class="partner-clear"
                 @mousedown.prevent="clearPartner"
-                title="Clear">✕</button>
+                v-tip="'Clear'">✕</button>
         <ul v-if="partnerOpen && partnerMatches.length" class="partner-dropdown">
           <li v-for="(d, i) in partnerMatches" :key="d.id"
               :class="['partner-row', i === partnerActive ? 'partner-row-active' : '', d.id === partnerId ? 'partner-row-selected' : '']"
@@ -801,7 +801,7 @@ watch(currentEvent, async (ev) => {
             </div>
             <div class="template-actions">
               <button class="btn btn-ghost btn-sm" @click="applyTemplate(t)">Load</button>
-              <button class="btn btn-ghost btn-sm" @click="deleteTemplate(t)" title="Delete template">✕</button>
+              <button class="btn btn-ghost btn-sm" @click="deleteTemplate(t)" v-tip="'Delete template'">✕</button>
             </div>
           </div>
         </div>
@@ -871,7 +871,7 @@ watch(currentEvent, async (ev) => {
             <div class="row-info" v-if="dive">
               <div class="row-code">
                 {{ dive.dive_code }}<span class="result-pos">{{ dive.position }}</span>
-                <span v-if="isPrescribedRound(idx)" class="row-lock-tag" title="Operator-prescribed dive — can't be changed">🔒 prescribed</span>
+                <span v-if="isPrescribedRound(idx)" class="row-lock-tag" v-tip="'Operator-prescribed dive — can\'t be changed'">🔒 prescribed</span>
               </div>
               <div class="row-desc">{{ diveDescription(dive) }}</div>
             </div>
@@ -906,7 +906,7 @@ watch(currentEvent, async (ev) => {
                 @click="submitList"
                 :disabled="loading || !isCurrentEventOpen
                            || (roundRulesValidation && !roundRulesValidation.valid)"
-                :title="!isCurrentEventOpen
+                v-tip="!isCurrentEventOpen
                   ? notAcceptingReason(currentEvent)
                   : (roundRulesValidation && !roundRulesValidation.valid)
                     ? 'Resolve round-rule violations above before submitting'

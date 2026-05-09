@@ -191,6 +191,7 @@ above it.
 | Trim & tag judges' scores (World Aquatics rules) | `annotateJudgeRows(judges, n, eventType)` | `src/composables/useScoreTrim.js` |
 | Bucket a score into a World Aquatics category | `scoreCategory(s)` | `src/composables/useScoreCategories.js` |
 | Judge analytics — one row per (judge, dive) with kept-mean + drop flags | `JUDGE_PER_DIVE` CTE | `db/queries.js` |
+| Instant tooltip (no native `title` lag) | `v-tip="…"` directive | `src/directives/tip.js` + `src/styles/app.css` |
 
 If you write the third copy of any of these, **stop and consolidate** into
 a helper. The repo has bled time on duplicated patterns.
@@ -313,6 +314,87 @@ grant prevents from happening twice.
 If something feels off and you can't find it in this file, that's the
 signal to **read the code and then update this file** so the next agent
 finds it on the first pass.
+
+---
+
+## Tooltips: always use `v-tip`, never `title=`
+
+The native `title` attribute has a hard-coded ~500ms+ delay before
+the browser shows its bubble. On busy pages (scoreboard with
+hundreds of chips, control room icon strips, manager grids) that
+delay is what reads as "the page feels slow."
+
+**Use `v-tip="…"` instead.** The directive (defined in
+`src/directives/tip.js`, registered globally in `src/main.js`)
+sets `data-tip` and `aria-label` on the host element and drops
+the native `title`. The matching `[data-tip]::after` rule in
+`src/styles/app.css` renders the bubble on the very first hover
+frame.
+
+Migration patterns:
+
+```vue
+<!-- Static text -->
+<button title="Refresh">↻</button>          <!-- ❌ slow -->
+<button v-tip="'Refresh'">↻</button>         <!-- ✅ instant -->
+
+<!-- Dynamic expression -->
+<span :title="judge.name + ' ' + judge.country" /> <!-- ❌ slow -->
+<span v-tip="`${judge.name} ${judge.country}`" />  <!-- ✅ instant -->
+```
+
+The bubble supports multi-line tooltips via `\n` in the value
+(CSS `white-space: pre-line`):
+
+```vue
+<span v-tip="`J3 — Maria Schmidt · GER\nClick to open analysis`">
+  7.5
+</span>
+```
+
+If you ever need a native `title` (rare — e.g. a `<abbr>` whose
+expansion is for assistive tech only), use `title=` directly and
+add a comment explaining why. The default expectation is `v-tip`.
+
+---
+
+## Claude Preview: live UI verification
+
+`.claude/launch.json` is committed to the repo (the only file
+under `.claude/` that is — see `.gitignore`). It declares a
+preview-server config that the `mcp__Claude_Preview__*` tools
+use to spin up a real Chrome rendering the SPA against the
+test DB:
+
+```bash
+PORT=3097 \
+RATE_LIMIT_DISABLED=true \
+APP_BASE_URL=http://127.0.0.1:3097 \
+DB_DATABASE=diverecorder_test \
+JWT_SECRET=local-test-secret-do-not-use-in-prod-aaaaa \
+  node server.js
+```
+
+Useful for verifying any change that's "did the tooltip / chip /
+modal / animation actually render right" — Playwright runs
+headless, so a screenshot from `mcp__Claude_Preview__preview_screenshot`
+is the right tool when the question is visual rather than
+behavioural.
+
+A typical agent loop:
+
+1. Edit a Vue file.
+2. `mcp__Claude_Preview__preview_start` (config name `scoreboard-preview`).
+3. `mcp__Claude_Preview__preview_eval` to navigate to the page
+   under test (`location.href = '/scoreboard/<id>'`).
+4. `mcp__Claude_Preview__preview_screenshot` or `…inspect` to
+   verify rendering.
+5. `mcp__Claude_Preview__preview_click` to drive interactions.
+6. `mcp__Claude_Preview__preview_stop` when done.
+
+Don't replace Playwright e2e with this — Playwright is the
+contract. Preview is the "did that look right?" loop while
+iterating.
 
 ---
 

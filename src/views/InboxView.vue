@@ -189,7 +189,7 @@ onMounted(load)
     <EmptyState
       v-else-if="!filtered.length && !rows.length"
       icon="📭"
-      title="Quiet across the board"
+      v-tip="'Quiet across the board'"
       body="Notifications land here when role requests, score corrections,
             referee calls, or finalised events come through. Subscribe to
             push from your dashboard to also catch them on your phone."
@@ -199,7 +199,7 @@ onMounted(load)
     <EmptyState
       v-else-if="!filtered.length && !showRead && !unreadCount"
       icon="✓"
-      title="All caught up"
+      v-tip="'All caught up'"
       body="Nothing unread. Toggle the All filter above to revisit
             anything you've already acknowledged."
       variant="inline"

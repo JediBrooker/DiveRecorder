@@ -301,7 +301,7 @@ onMounted(async () => {
             @focus="openA = true"
             @blur="closeAutocomplete('a')"
           >
-          <button v-if="queryA" class="picker-clear" @click="clearSide('a')" title="Clear">✕</button>
+          <button v-if="queryA" class="picker-clear" @click="clearSide('a')" v-tip="'Clear'">✕</button>
           <button class="btn btn-ghost btn-sm picker-browse" @click="openBrowse('a')">Browse</button>
           <ul v-if="openA && resultsA.length" class="autocomplete-list">
             <li
@@ -336,7 +336,7 @@ onMounted(async () => {
             @focus="openB = true"
             @blur="closeAutocomplete('b')"
           >
-          <button v-if="queryB" class="picker-clear" @click="clearSide('b')" title="Clear">✕</button>
+          <button v-if="queryB" class="picker-clear" @click="clearSide('b')" v-tip="'Clear'">✕</button>
           <button class="btn btn-ghost btn-sm picker-browse" @click="openBrowse('b')">Browse</button>
           <ul v-if="openB && resultsB.length" class="autocomplete-list">
             <li

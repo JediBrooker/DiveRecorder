@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "scoreboard-preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server.js"],
+      "port": 3097,
+      "env": {
+        "PORT": "3097",
+        "RATE_LIMIT_DISABLED": "true",
+        "APP_BASE_URL": "http://127.0.0.1:3097",
+        "DB_DATABASE": "diverecorder_test",
+        "JWT_SECRET": "local-test-secret-do-not-use-in-prod-aaaaa"
+      }
+    }
+  ]
+}

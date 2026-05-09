@@ -197,7 +197,7 @@ onMounted(load)
             <span v-else class="dim">—</span>
           </td>
           <td class="dim">{{ e.actor_name || '—' }}</td>
-          <td class="mono dim" :title="e.user_agent || ''">{{ e.ip_address || '—' }}</td>
+          <td class="mono dim" v-tip="e.user_agent || ''">{{ e.ip_address || '—' }}</td>
         </tr>
       </tbody>
     </table>

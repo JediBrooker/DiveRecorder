@@ -592,7 +592,7 @@ onMounted(async () => {
               <span class="new">{{ r.new_score ?? '—' }}</span>
             </td>
             <td class="mono">{{ r.actor_name || '—' }}</td>
-            <td class="reason-cell" :title="r.reason || ''">{{ r.reason || '—' }}</td>
+            <td class="reason-cell" v-tip="r.reason || ''">{{ r.reason || '—' }}</td>
           </tr>
         </tbody>
       </table>
@@ -666,7 +666,7 @@ onMounted(async () => {
             </td>
             <td v-if="isSysAdmin && !orgFilter" class="dim mono">{{ r.org_name || '—' }}</td>
             <td class="mono">{{ r.actor_name || '—' }}</td>
-            <td class="reason-cell" :title="r.note || ''">{{ r.note || '—' }}</td>
+            <td class="reason-cell" v-tip="r.note || ''">{{ r.note || '—' }}</td>
           </tr>
         </tbody>
       </table>
@@ -727,7 +727,7 @@ onMounted(async () => {
               <strong>{{ r.entity_name || '—' }}</strong>
               <span class="dim"> · {{ r.entity_type }}</span>
             </td>
-            <td class="reason-cell" :title="activitySummary(r)">{{ activitySummary(r) || '—' }}</td>
+            <td class="reason-cell" v-tip="activitySummary(r)">{{ activitySummary(r) || '—' }}</td>
             <td v-if="isSysAdmin && !orgFilter" class="dim mono">{{ r.org_name || '—' }}</td>
             <td class="mono">{{ r.actor_name || '—' }}</td>
           </tr>

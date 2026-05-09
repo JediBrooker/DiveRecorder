@@ -11,7 +11,7 @@
  *
  *   <EmptyState
  *     icon="🏆"
- *     title="No events yet"
+ *     v-tip="'No events yet'"
  *     body="Create your first competition to start collecting
  *           dives and scores."
  *     action-label="Create event"
@@ -24,7 +24,7 @@
  *
  *   or, no action (truly informational):
  *
- *   <EmptyState icon="📭" title="Inbox zero" body="…" />
+ *   <EmptyState icon="📭" v-tip="'Inbox zero'" body="…" />
  *
  * The component is intentionally generic — pages with bespoke
  * needs (the Org Admin "All quiet" panel) keep their own markup.

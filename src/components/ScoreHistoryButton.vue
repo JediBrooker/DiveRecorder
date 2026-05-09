@@ -126,7 +126,7 @@ onBeforeUnmount(() => {
       type="button"
       class="score-history-btn"
       :aria-expanded="open"
-      title="View edit history for this dive"
+      v-tip="'View edit history for this dive'"
       @click="toggle"
     >↻ history</button>
 

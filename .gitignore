@@ -21,8 +21,17 @@ playwright/.cache/
 .idea/
 *.swp
 
-# Claude Code local settings
-.claude/
+# Claude Code local settings — everything inside .claude/ is
+# ignored by default (per-user prefs, telemetry caches), EXCEPT
+# launch.json which we commit so future Claude sessions inherit
+# the preview-server config. Lets the mcp__Claude_Preview__*
+# tools spin up a server pre-wired to the test DB + JWT secret
+# without each session having to rediscover the boot recipe.
+# Note: must use `.claude/*` (not `.claude/`) for the !exception
+# below to work — git can't re-include a file when the parent
+# directory itself is excluded.
+.claude/*
+!.claude/launch.json
 
 # Observability stack — local secrets (Grafana password, etc.)
 ops/observability/.env

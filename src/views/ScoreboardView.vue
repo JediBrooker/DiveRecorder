@@ -1032,7 +1032,7 @@ onMounted(async () => {
       v-if="broadcastMode && currentEventId"
       :to="`/scoreboard/${currentEventId}`"
       class="broadcast-exit"
-      title="Exit broadcast mode"
+      v-tip="'Exit broadcast mode'"
     >✕</RouterLink>
     <!-- Connection banner — visible whenever the spectator
          socket has dropped. Live event watchers won't see new
@@ -1082,14 +1082,14 @@ onMounted(async () => {
           v-if="currentEventId && !isCompleted"
           :to="`/scoreboard/${currentEventId}/broadcast`"
           class="btn btn-ghost btn-sm"
-          title="Open in broadcast / kiosk mode (no page chrome)"
+          v-tip="'Open in broadcast / kiosk mode (no page chrome)'"
         >📺 Broadcast</RouterLink>
         <a
           v-if="currentEventId && !isCompleted"
           :href="`/scoreboard/${currentEventId}?overlay=1`"
           target="_blank" rel="noopener"
           class="btn btn-ghost btn-sm"
-          title="Open the chroma-key overlay (for OBS / streaming). Append &bg=ff00ff for a magenta key colour."
+          v-tip="'Open the chroma-key overlay (for OBS / streaming). Append &bg=ff00ff for a magenta key colour.'"
         >🎬 Stream overlay</a>
         <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">Dashboard</RouterLink>
       </div>
@@ -1127,7 +1127,7 @@ onMounted(async () => {
             :key="ev.id"
             class="live-chip"
             @click="selectEvent(ev.id)"
-            :title="ev.last_diver_name
+            v-tip="ev.last_diver_name
               ? `Round ${ev.current_round}/${ev.total_rounds} · ${ev.last_diver_name} just scored`
               : `Round ${ev.current_round || 1}/${ev.total_rounds}`"
           >
@@ -1171,13 +1171,13 @@ onMounted(async () => {
             <button
               :class="['sb-view-btn', viewMode === 'cards' ? 'is-active' : '']"
               @click="viewMode = 'cards'"
-              title="Card view"
+              v-tip="'Card view'"
               aria-label="Card view"
             >▦</button>
             <button
               :class="['sb-view-btn', viewMode === 'list' ? 'is-active' : '']"
               @click="viewMode = 'list'"
-              title="Compact list view"
+              v-tip="'Compact list view'"
               aria-label="Compact list view"
             >☰</button>
           </div>
@@ -1185,7 +1185,7 @@ onMounted(async () => {
             v-if="filteredEvents.length"
             class="btn btn-ghost btn-sm"
             @click="exportMeetsCsv"
-            title="Download the currently-filtered list as CSV"
+            v-tip="'Download the currently-filtered list as CSV'"
           >Export CSV</button>
         </div>
       </div>
@@ -1254,7 +1254,7 @@ onMounted(async () => {
                   :to="`/meet/${ev.meet_id}`"
                   class="meet-card-meetlink"
                   @click.stop
-                  :title="`Part of ${ev.meet_name}`"
+                  v-tip="`Part of ${ev.meet_name}`"
                 >📅 {{ ev.meet_name }}</RouterLink>
                 <div class="meet-card-tags">
                   <span v-if="ev.gender" class="meet-tag">{{ ev.gender }}</span>
@@ -1292,7 +1292,7 @@ onMounted(async () => {
               :to="`/meet/${ev.meet_id}`"
               class="meet-card-meetlink"
               @click.stop
-              :title="`Part of ${ev.meet_name}`"
+              v-tip="`Part of ${ev.meet_name}`"
             >📅 {{ ev.meet_name }}</RouterLink>
             <div class="meet-card-tags">
               <span v-if="ev.gender" class="meet-tag">{{ ev.gender }}</span>
@@ -1408,13 +1408,12 @@ onMounted(async () => {
                     <RouterLink v-if="judgeForSynchro(h, g.role, si)"
                           :to="`/judge-profile/${judgeForSynchro(h, g.role, si).judge_id}`"
                           :class="['j-score', 'j-link', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                          :data-judge-tip="judgeTooltip(judgeForSynchro(h, g.role, si), { dropped: j.dropped })"
-                          :aria-label="judgeTooltip(judgeForSynchro(h, g.role, si), { dropped: j.dropped })">
+                          v-tip="judgeTooltip(judgeForSynchro(h, g.role, si), { dropped: j.dropped })">
                       {{ j.value.toFixed(1) }}
                     </RouterLink>
                     <span v-else
                           :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                          :title="j.dropped ? 'Dropped by trim rule' : 'Judge identity not available'">
+                          v-tip="j.dropped ? 'Dropped by trim rule' : 'Judge identity not available'">
                       {{ j.value.toFixed(1) }}
                     </span>
                   </template>
@@ -1425,13 +1424,12 @@ onMounted(async () => {
                   <RouterLink v-if="judgeForIndex(h.judge_numbers, si)"
                         :to="`/judge-profile/${judgeForIndex(h.judge_numbers, si).judge_id}`"
                         :class="['j-score', 'j-link', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                        :data-judge-tip="judgeTooltip(judgeForIndex(h.judge_numbers, si), { dropped: j.dropped })"
-                        :aria-label="judgeTooltip(judgeForIndex(h.judge_numbers, si), { dropped: j.dropped })">
+                        v-tip="judgeTooltip(judgeForIndex(h.judge_numbers, si), { dropped: j.dropped })">
                     {{ j.value.toFixed(1) }}
                   </RouterLink>
                   <span v-else
                         :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                        :title="j.dropped ? 'Dropped by trim rule' : 'Judge identity not available'">
+                        v-tip="j.dropped ? 'Dropped by trim rule' : 'Judge identity not available'">
                     {{ j.value.toFixed(1) }}
                   </span>
                 </template>
@@ -1532,15 +1530,14 @@ onMounted(async () => {
                     :class="['j-score', 'j-link',
                              slot.filled ? `j-${slot.category}` : 'j-empty',
                              slot.dropped ? 'j-dropped' : '']"
-                    :data-judge-tip="judgeTooltip(panelByNumber.get(i + 1), { dropped: slot.dropped })"
-                    :aria-label="judgeTooltip(panelByNumber.get(i + 1), { dropped: slot.dropped })">
+                    v-tip="judgeTooltip(panelByNumber.get(i + 1), { dropped: slot.dropped })">
                 {{ slot.filled ? slot.value.toFixed(1) : '—' }}
               </RouterLink>
               <span v-else
                     :class="['j-score',
                              slot.filled ? `j-${slot.category}` : 'j-empty',
                              slot.dropped ? 'j-dropped' : '']"
-                    :title="slot.dropped ? 'Dropped by trim rule' : 'Judge identity not available'">
+                    v-tip="slot.dropped ? 'Dropped by trim rule' : 'Judge identity not available'">
                 {{ slot.filled ? slot.value.toFixed(1) : '—' }}
               </span>
             </template>
@@ -1727,7 +1724,7 @@ onMounted(async () => {
                      Spectators and coaches see this and understand
                      why two identical totals weren't a literal tie. -->
                 <span v-if="s.is_tied_on_total" class="tie-marker"
-                      title="Tied on total — separated by World Aquatics tie-break (highest single dive, then second-highest, etc.)">=</span>
+                      v-tip="'Tied on total — separated by World Aquatics tie-break (highest single dive, then second-highest, etc.)'">=</span>
                 {{ parseFloat(s.total).toFixed(1) }}
               </div>
             </div>
@@ -1963,13 +1960,12 @@ onMounted(async () => {
                             <RouterLink v-if="judgeForSynchro(d, g.role, si)"
                                   :to="`/judge-profile/${judgeForSynchro(d, g.role, si).judge_id}`"
                                   :class="['j-score', 'j-link', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                                  :data-judge-tip="judgeTooltip(judgeForSynchro(d, g.role, si), { dropped: j.dropped })"
-                                  :aria-label="judgeTooltip(judgeForSynchro(d, g.role, si), { dropped: j.dropped })">
+                                  v-tip="judgeTooltip(judgeForSynchro(d, g.role, si), { dropped: j.dropped })">
                               {{ j.value.toFixed(1) }}
                             </RouterLink>
                             <span v-else
                                   :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                                  :title="j.dropped ? 'Dropped by trim rule' : 'Judge identity not available'">
+                                  v-tip="j.dropped ? 'Dropped by trim rule' : 'Judge identity not available'">
                               {{ j.value.toFixed(1) }}
                             </span>
                           </template>
@@ -1980,13 +1976,12 @@ onMounted(async () => {
                           <RouterLink v-if="judgeForIndex(d.judge_numbers, si)"
                                 :to="`/judge-profile/${judgeForIndex(d.judge_numbers, si).judge_id}`"
                                 :class="['j-score', 'j-link', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                                :data-judge-tip="judgeTooltip(judgeForIndex(d.judge_numbers, si), { dropped: j.dropped })"
-                                :aria-label="judgeTooltip(judgeForIndex(d.judge_numbers, si), { dropped: j.dropped })">
+                                v-tip="judgeTooltip(judgeForIndex(d.judge_numbers, si), { dropped: j.dropped })">
                             {{ j.value.toFixed(1) }}
                           </RouterLink>
                           <span v-else
                                 :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                                :title="j.dropped ? 'Dropped by trim rule' : 'Judge identity not available'">
+                                v-tip="j.dropped ? 'Dropped by trim rule' : 'Judge identity not available'">
                             {{ j.value.toFixed(1) }}
                           </span>
                         </template>
@@ -2670,74 +2665,9 @@ onMounted(async () => {
 }
 .j-link:active { transform: scale(0.97); }
 
-/* =========================================================
-   Instant tooltip on .j-link chips.
-
-   Why this exists: the native `title` attribute has a
-   ~500ms+ delay before the browser renders the bubble, and
-   on a scoreboard with hundreds of chips that delay is what
-   the audience reads as "the page feels slow". A CSS-only
-   ::after tooltip via a data attribute renders on the very
-   first hover frame.
-
-   Accessibility: the same string also lives on `aria-label`
-   so screen readers announce judge identity + click hint.
-   We deliberately drop the native `title` so the browser
-   doesn't double-render (custom + native bubble) on slow
-   hover.
-
-   Constraints we accept:
-     * No JS positioning — tooltip is anchored to the chip
-       via position: absolute. Edge-of-viewport chips can
-       overflow horizontally; we cap at max-width 240px and
-       let the layout flow rather than building a popover
-       library for this single use.
-     * pointer-events: none on the tooltip so it doesn't
-       intercept clicks meant for the chip below.
-   ========================================================= */
-.j-link[data-judge-tip]::after {
-  content: attr(data-judge-tip);
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
-  /* Whitespace pre-line: the tooltip string carries \n
-     between "J3 — Maria Schmidt · GER" / "Dropped by trim
-     rule" / "Click to open judge analysis" — we want them
-     stacked. */
-  white-space: pre-line;
-  text-align: left;
-  background: var(--bg-2, #0f172a);
-  border: 1px solid var(--cyan, #06b6d4);
-  border-radius: var(--radius-sm, 4px);
-  padding: 0.5rem 0.7rem;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.45;
-  color: var(--text, #e2e8f0);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  z-index: 100;
-  pointer-events: none;
-  /* Hidden at rest, instantly visible on hover/focus. No
-     transition delay on the show side; a tiny fade-out is
-     fine because that's the user moving their mouse away. */
-  opacity: 0;
-  visibility: hidden;
-  width: max-content;
-  max-width: 240px;
-}
-.j-link[data-judge-tip]:hover::after,
-.j-link[data-judge-tip]:focus-visible::after {
-  opacity: 1;
-  visibility: visible;
-}
-/* Strikethrough on a dropped chip applies to the LINK text
-   only — text-decoration would otherwise cascade into the
-   tooltip bubble's text and look weird. */
-.j-link[data-judge-tip]::after {
-  text-decoration: none;
-}
+/* Tooltip rendering for .j-link chips lives in the global
+   `[data-tip]::after` rule in src/styles/app.css — the chip
+   migrates to v-tip with the rest of the codebase. */
 /* Reserved-height wrapper for the dive-total. Without this
    the catch-up + Up Next blocks below would shift down by
    ~52px the instant the panel completes and the total

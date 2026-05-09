@@ -41,12 +41,12 @@ function iconFor(kind) { return ICONS[kind] ?? '' }
         v-if="state.onAction && state.actionLabel"
         class="notify-bar-action"
         @click="fireAction"
-        :title="`${state.actionLabel} the last action`"
+        v-tip="`${state.actionLabel} the last action`"
       >{{ state.actionLabel }}</button>
       <button
         class="notify-bar-close"
         @click="dismissNotify"
-        title="Dismiss"
+        v-tip="'Dismiss'"
         aria-label="Dismiss"
       >✕</button>
     </div>

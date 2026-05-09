@@ -946,3 +946,87 @@ h1, h2, h3, h4 {
   font-family: var(--font-mono); font-size: 13px; line-height: 1.55;
   color: var(--text-3);
 }
+
+/* =========================================================
+   v-tip — instant tooltip for any element with data-tip.
+
+   Why: native `title` has a ~500ms+ browser delay. This
+   pseudo-element renders the bubble on the very first hover
+   frame. The directive at src/directives/tip.js sets the
+   data-tip attribute and also mirrors to aria-label so
+   screen readers announce the same text.
+
+   Usage in templates:
+     v-tip="someValue"     (preferred — replaces title=)
+     :data-tip="..."       (raw, e.g. for non-Vue partials)
+
+   Constraints we accept:
+     * Hosts must be flow-content (block/inline) — pseudos
+       don't render on SVG nodes. No SVG title= sites in
+       this codebase to migrate.
+     * No JS positioning. Tooltip is anchored to the chip
+       via position: absolute and capped at max-width 240px;
+       chips at the very edge of the viewport can overflow
+       horizontally, which we accept rather than ship a
+       popover library for the single-line case.
+     * pointer-events: none on the bubble so it can never
+       intercept a click meant for the host below.
+   ========================================================= */
+[data-tip] {
+  /* Anchor point for the absolutely-positioned ::after.
+     :where() lowers specificity to (0,0,1) so any explicit
+     position: absolute / fixed / sticky / static a host
+     declares still wins. */
+}
+:where([data-tip]) { position: relative; }
+
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  /* The directive's value can carry literal "\n" between
+     lines (e.g. "J3 — Maria Schmidt · GER\nClick to open
+     judge analysis"). pre-line preserves them. */
+  white-space: pre-line;
+  text-align: left;
+  background: var(--bg-2, #0f172a);
+  border: 1px solid var(--cyan, #06b6d4);
+  border-radius: var(--radius-sm, 4px);
+  padding: 0.5rem 0.7rem;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.45;
+  color: var(--text, #e2e8f0);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  pointer-events: none;
+  width: max-content;
+  max-width: 240px;
+  /* Hidden at rest, instantly visible on hover/focus. No
+     show-side delay so the audience reads "snappy"; tiny
+     fade-out on the remove side via the visibility transition
+     trick is fine. */
+  opacity: 0;
+  visibility: hidden;
+  /* Strip any decoration (e.g. parent .j-dropped's strike
+     through) — the bubble's own text should always be plain. */
+  text-decoration: none;
+}
+[data-tip]:hover::after,
+[data-tip]:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+}
+/* Print + reduced-motion: tooltips never make sense in print
+   output, and a fully-open bubble on every hover would be
+   distracting for users who've asked for less motion. */
+@media print {
+  [data-tip]::after { display: none !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-tip]::after { transition: none; }
+}

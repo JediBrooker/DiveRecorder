@@ -2806,7 +2806,7 @@ onUnmounted(() => {
       v-if="opsBroadcast"
       to="/control"
       class="ops-broadcast-exit"
-      title="Exit broadcast mode"
+      v-tip="'Exit broadcast mode'"
     >✕</RouterLink>
     <!-- Header -->
     <div class="ctrl-header">
@@ -2817,7 +2817,7 @@ onUnmounted(() => {
           <option v-for="ev in events" :key="ev.id" :value="ev.id">{{ ev.name }}</option>
         </select>
         <span class="conn-badge"
-              :title="socket.isConnected.value
+              v-tip="socket.isConnected.value
                 ? 'Live socket connection healthy — score events are streaming in real time'
                 : 'Re-establishing socket connection — incoming scores are queued until this turns green'">
           <span class="status-dot" :class="{ connected: socket.isConnected.value }"></span>
@@ -2851,7 +2851,7 @@ onUnmounted(() => {
           v-if="isHeld"
           class="btn-hold btn-hold-active"
           @click="resumeMeet"
-          title="Resume the meet (H)"
+          v-tip="'Resume the meet (H)'"
         >▶ Resume</button>
         <!-- Overflow menu — secondary chrome that the operator
              touches infrequently. Clicking the ⋯ toggles a small
@@ -2863,7 +2863,7 @@ onUnmounted(() => {
             class="btn-back btn-icon"
             @click.stop="toggleMenu('header')"
             :aria-expanded="headerMenuOpen"
-            title="More actions"
+            v-tip="'More actions'"
           >⋯</button>
           <div v-if="headerMenuOpen" class="dropdown-menu header-menu">
             <button
@@ -2890,7 +2890,7 @@ onUnmounted(() => {
               v-if="finaliseEarlyVisible"
               class="dropdown-item dropdown-item-amber"
               @click="finaliseEvent(); headerMenuOpen = false"
-              title="Finalise the meet now even though dives are still pending. Use sparingly — postponement, equipment failure, etc."
+              v-tip="'Finalise the meet now even though dives are still pending. Use sparingly — postponement, equipment failure, etc.'"
             >✓ Finalise event early…</button>
             <RouterLink to="/dashboard" class="dropdown-item"
                         @click="headerMenuOpen = false">← Dashboard</RouterLink>
@@ -2899,7 +2899,7 @@ onUnmounted(() => {
         <button
           v-if="finaliseBtnShow"
           class="btn-finalise"
-          :title="finaliseBtnTitle"
+          v-tip="finaliseBtnTitle"
           @click="currentEvent?.status === 'Completed' ? showLeaderboard() : finaliseEvent()"
         >{{ finaliseBtnText }}</button>
       </div>
@@ -3053,7 +3053,7 @@ onUnmounted(() => {
                     :key="card.score_ids?.[0] || `${card.competitor_id}-${card.round}`">
           <div
             :class="['hist-card', card.score_ids?.length ? 'hist-card-correctable' : '']"
-            :title="card.score_ids?.length ? 'Click to amend a score' : ''"
+            v-tip="card.score_ids?.length ? 'Click to amend a score' : ''"
             @click="card.score_ids?.length && openCorrection(card)"
           >
             <div class="hist-round">Round {{ card.round }}{{ card.total_rounds ? ` / ${card.total_rounds}` : '' }}</div>
@@ -3105,7 +3105,7 @@ onUnmounted(() => {
                   <span class="judge-group-label">{{ g.label }}</span>
                   <span v-for="(j, si) in g.scores" :key="si"
                         :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                        :title="j.dropped ? 'Dropped by trim rule' : ''">
+                        v-tip="j.dropped ? 'Dropped by trim rule' : ''">
                     {{ j.value.toFixed(1) }}
                   </span>
                 </div>
@@ -3166,7 +3166,7 @@ onUnmounted(() => {
             </span>
             <div v-if="currentActive" :class="['shot-clock', shotClockClass]">
               <button class="shot-clock-face" @click="pauseShotClock"
-                      :title="shotClockRunning
+                      v-tip="shotClockRunning
                         ? '60-second WA post-warning shot clock — click to pause'
                         : (shotClockExpired
                           ? 'Shot clock expired — diver should have begun by now'
@@ -3174,7 +3174,7 @@ onUnmounted(() => {
                 <span class="shot-clock-num">{{ shotClock }}</span>
                 <span class="shot-clock-unit">s</span>
               </button>
-              <button class="shot-clock-reset" @click="resetShotClock" title="Reset to 30s (T)">↻</button>
+              <button class="shot-clock-reset" @click="resetShotClock" v-tip="'Reset to 30s (T)'">↻</button>
             </div>
           </div>
           <!-- Referee-signal banner — appears the moment any
@@ -3222,7 +3222,7 @@ onUnmounted(() => {
             <span
               v-if="currentActive"
               :class="['status-pill', `status-${activeStatus}`, 'status-pill-inline']"
-              :title="activeStatus === 'ready'
+              v-tip="activeStatus === 'ready'
                 ? 'READY — diver is on the board, shot clock running. Auto-advances to DIVING when the clock expires.'
                 : activeStatus === 'diving'
                 ? 'DIVING — shot clock has expired, the dive is happening. Auto-advances to JUDGING when the first score lands.'
@@ -3267,7 +3267,7 @@ onUnmounted(() => {
                       tile.scored ? 'scored' : '',
                       tile.signaled ? 'signaled' : '',
                     ]"
-                    :title="tile.signaled
+                    v-tip="tile.signaled
                       ? `${judgeNameByNumber[tile.judgeIndex] || 'Judge'} ${tile.judgeIndex} — wants the referee`
                       : (judgeNameByNumber[tile.judgeIndex] || `Judge ${tile.judgeIndex}`)"
                   >
@@ -3289,7 +3289,7 @@ onUnmounted(() => {
                   tile.scored ? 'scored' : '',
                   tile.signaled ? 'signaled' : '',
                 ]"
-                :title="tile.signaled
+                v-tip="tile.signaled
                   ? `${judgeNameByNumber[tile.judgeIndex] || 'Judge'} ${tile.judgeIndex} — wants the referee`
                   : (judgeNameByNumber[tile.judgeIndex] || `Judge ${tile.judgeIndex}`)"
               >
@@ -3331,7 +3331,7 @@ onUnmounted(() => {
               <button class="btn btn-ghost"
                       @click="setActive(currentIndex - 1)"
                       :disabled="currentIndex <= 0"
-                      :title="currentIndex <= 0
+                      v-tip="currentIndex <= 0
                         ? 'Already at the first diver in the queue'
                         : 'Step back to the previous diver (←)'">← Prev</button>
               <!-- Adjust ▾ — Failed Dive / Cap Score / Re-Dive
@@ -3343,7 +3343,7 @@ onUnmounted(() => {
                   :disabled="!currentActive"
                   @click.stop="toggleMenu('adjust')"
                   :aria-expanded="adjustMenuOpen"
-                  :title="!currentActive
+                  v-tip="!currentActive
                     ? 'Pick an active diver from the queue first'
                     : 'Failed dive, cap score, or re-dive'"
                 >Adjust ▾</button>
@@ -3374,7 +3374,7 @@ onUnmounted(() => {
                     nextBtnComplete ? 'btn-complete' : 'btn-primary',
                     autoAdvanceCountdown > 0 ? 'btn-counting' : '']"
                   :disabled="nextBtnDisabled"
-                  :title="nextBtnTitle"
+                  v-tip="nextBtnTitle"
                   @click="nextDiver"
                 >
                   {{ nextBtnText }}
@@ -3393,7 +3393,7 @@ onUnmounted(() => {
                     nextBtnComplete ? 'btn-complete' : 'btn-primary']"
                   @click.stop="toggleMenu('autonext')"
                   :aria-expanded="autoNextMenuOpen"
-                  :title="`Auto-next: ${autoAdvanceSeconds === 0 ? 'Manual' : autoAdvanceSeconds + 's'}`"
+                  v-tip="`Auto-next: ${autoAdvanceSeconds === 0 ? 'Manual' : autoAdvanceSeconds + 's'}`"
                 >▾</button>
                 <div v-if="autoNextMenuOpen" class="dropdown-menu autonext-menu">
                   <div class="dropdown-section">Auto-next after the panel completes</div>
@@ -3423,7 +3423,7 @@ onUnmounted(() => {
                   class="btn btn-ghost btn-icon"
                   @click.stop="toggleMenu('kbd')"
                   :aria-expanded="kbdHintsOpen"
-                  title="Keyboard shortcuts"
+                  v-tip="'Keyboard shortcuts'"
                 >?</button>
                 <div v-if="kbdHintsOpen" class="dropdown-menu kbd-menu">
                   <div class="dropdown-section">Keyboard shortcuts</div>
@@ -3447,7 +3447,7 @@ onUnmounted(() => {
               v-if="autoAdvanceCountdown > 0"
               class="btn btn-ghost auto-advance-cancel"
               @click="cancelAutoAdvance"
-              title="Stop the auto-advance timer for this dive"
+              v-tip="'Stop the auto-advance timer for this dive'"
             >✕ Cancel auto-advance</button>
           </div>
         </div>
@@ -3488,7 +3488,7 @@ onUnmounted(() => {
                orange → yellow → green is "step 1 of 4". -->
           <div v-if="currentEvent && roster.length && orderWorkflowState && orderWorkflowState !== 'live'"
                class="wf-stepper"
-               :title="`Pre-meet step ${WORKFLOW_STEPS.indexOf(orderWorkflowState) + 1} of 4`">
+               v-tip="`Pre-meet step ${WORKFLOW_STEPS.indexOf(orderWorkflowState) + 1} of 4`">
             <div :class="['wf-step', wfStepClass('check-in')]">
               <span class="wf-step-num">{{ wfStepClass('check-in') === 'wf-step-done' ? '✓' : '1' }}</span>
               <span class="wf-step-label">Check-in</span>
@@ -3527,28 +3527,28 @@ onUnmounted(() => {
                       class="btn btn-sm wf-btn wf-btn-red"
                       :disabled="orderBusy"
                       @click="startCheckInStep"
-                      title="Open the check-in modal. Mark each diver present / late / DNS, then confirm to advance.">
+                      v-tip="'Open the check-in modal. Mark each diver present / late / DNS, then confirm to advance.'">
                 ✓ Check In Divers
               </button>
               <button v-else-if="orderWorkflowState === 'random'"
                       class="btn btn-sm wf-btn wf-btn-orange"
                       :disabled="orderBusy || !canReorderQueue"
                       @click="randomizeStartOrder"
-                      title="Shuffle the diver start order across every round.">
+                      v-tip="'Shuffle the diver start order across every round.'">
                 {{ orderBusy ? '🎲 …' : '🎲 Randomise Dive Order' }}
               </button>
               <button v-else-if="orderWorkflowState === 'sign-off'"
                       class="btn btn-sm wf-btn wf-btn-yellow"
                       :disabled="orderBusy"
                       @click="signOffDiveOrder"
-                      title="Referee approves the published dive order.">
+                      v-tip="'Referee approves the published dive order.'">
                 {{ orderBusy ? '📋 …' : '📋 Referee Sign Off' }}
               </button>
               <button v-else-if="orderWorkflowState === 'start'"
                       class="btn btn-sm wf-btn wf-btn-green"
                       :disabled="orderBusy"
                       @click="startEvent"
-                      title="Flip the event to Live. The order is then locked.">
+                      v-tip="'Flip the event to Live. The order is then locked.'">
                 {{ orderBusy ? '▶ …' : '▶ Start Event' }}
               </button>
               <!-- Skip-randomise affordance: if the operator has
@@ -3559,7 +3559,7 @@ onUnmounted(() => {
                       class="btn btn-ghost btn-sm wf-skip"
                       :disabled="orderBusy"
                       @click="confirmDiveOrder"
-                      title="Skip randomise — keep the current order and advance to sign-off.">
+                      v-tip="'Skip randomise — keep the current order and advance to sign-off.'">
                 Use current order →
               </button>
               <!-- Reset link: clears every workflow stamp so the
@@ -3569,13 +3569,13 @@ onUnmounted(() => {
                       class="btn btn-ghost btn-sm wf-reset"
                       :disabled="orderBusy"
                       @click="resetDiveOrderWorkflow"
-                      title="Clear all workflow stamps and walk the four steps again.">
+                      v-tip="'Clear all workflow stamps and walk the four steps again.'">
                 ↺ Reset
               </button>
             </template>
             <span v-else-if="currentEvent && currentEvent.status !== 'Upcoming'"
                   class="wf-live-badge"
-                  :title="`Event is ${currentEvent.status}`">
+                  v-tip="`Event is ${currentEvent.status}`">
               {{ currentEvent.status === 'Live' ? '● Live' : '✓ Done' }}
             </span>
             <!-- Check-in is reachable from inside the workflow's
@@ -3586,11 +3586,11 @@ onUnmounted(() => {
                           && orderWorkflowState !== 'check-in'
                           && orderWorkflowState !== 'live'"
                     class="btn btn-ghost btn-sm wf-skip" @click="openCheckIn"
-                    title="Reopen the check-in list to adjust attendance.">
+                    v-tip="'Reopen the check-in list to adjust attendance.'">
               Adjust check-in
             </button>
             <button v-if="currentEvent" class="btn btn-ghost btn-sm" @click="openLateEntry"
-                    title="Add a late-arriving diver">+ Add</button>
+                    v-tip="'Add a late-arriving diver'">+ Add</button>
           </div>
         </div>
 
@@ -3613,7 +3613,7 @@ onUnmounted(() => {
               :class="['up-next-row-btn']"
               :disabled="!!row.withdrawn_at"
               @click="setActive(row.originalIdx)"
-              title="Jump to this diver"
+              v-tip="'Jump to this diver'"
             >
               <!-- Two-column layout: R# label pinned to the
                    LEFT, everything else (names, club, dive code
@@ -3651,7 +3651,7 @@ onUnmounted(() => {
                     && upNextTotal > UP_NEXT_DEFAULT_LIMIT"
               class="up-next-anchor-toggle"
               @click="upNextShowAll = !upNextShowAll"
-              :title="upNextShowAll
+              v-tip="upNextShowAll
                 ? `Show only the next ${UP_NEXT_DEFAULT_LIMIT}`
                 : `Show all ${upNextTotal} remaining`"
             >
@@ -3676,7 +3676,7 @@ onUnmounted(() => {
         <div v-if="reserves.length" class="reserves-panel">
           <button class="reserves-head"
                   @click="reservesOpen = !reservesOpen"
-                  :title="reservesOpen ? 'Collapse' : 'Expand'">
+                  v-tip="reservesOpen ? 'Collapse' : 'Expand'">
             <span class="reserves-head-label">Reserves</span>
             <span class="reserves-head-count">{{ reserves.length }}</span>
             <span class="reserves-head-chevron">{{ reservesOpen ? '▴' : '▾' }}</span>
@@ -3826,7 +3826,7 @@ onUnmounted(() => {
                  right next to them. -->
             <span v-if="currentEvent && !canReorderQueue"
                   class="queue-lock-badge dive-order-lock-badge"
-                  :title="`Start order locked — event is ${currentEvent.status}. Withdraw a diver instead if they need to be skipped.`"
+                  v-tip="`Start order locked — event is ${currentEvent.status}. Withdraw a diver instead if they need to be skipped.`"
                   @click.stop>
               🔒 Order locked
             </span>
@@ -3881,9 +3881,9 @@ onUnmounted(() => {
               <div class="roster-row-head">
                 <span v-if="canReorderQueue"
                       class="roster-grip"
-                      title="Drag to reorder within round">⋮⋮</span>
+                      v-tip="'Drag to reorder within round'">⋮⋮</span>
                 <span v-else class="roster-grip roster-grip-locked"
-                      title="Start order locked — event has started">🔒</span>
+                      v-tip="'Start order locked — event has started'">🔒</span>
                 <button
                   class="roster-jump"
                   :disabled="!!item.withdrawn_at"
@@ -3925,7 +3925,7 @@ onUnmounted(() => {
                           @click.stop="toggleRosterMenu(item.originalIdx)"
                           :aria-expanded="rosterMenuOpenIdx === item.originalIdx"
                           aria-haspopup="menu"
-                          title="Row actions">⋯</button>
+                          v-tip="'Row actions'">⋯</button>
                   <div v-if="rosterMenuOpenIdx === item.originalIdx"
                        class="roster-menu"
                        role="menu">
@@ -4238,13 +4238,13 @@ onUnmounted(() => {
           <div class="checkin-chips">
             <button :class="['chip', 'chip-present', row.status === 'present' ? 'is-active' : '']"
                     @click="setAttendance(row, 'present')"
-                    title="Mark present">✓ Present</button>
+                    v-tip="'Mark present'">✓ Present</button>
             <button :class="['chip', 'chip-late', row.status === 'late' ? 'is-active' : '']"
                     @click="setAttendance(row, 'late')"
-                    title="Mark late">⏱ Late</button>
+                    v-tip="'Mark late'">⏱ Late</button>
             <button :class="['chip', 'chip-absent', row.status === 'absent' ? 'is-active' : '']"
                     @click="setAttendance(row, 'absent')"
-                    title="Mark absent / DNS">✕ DNS</button>
+                    v-tip="'Mark absent / DNS'">✕ DNS</button>
           </div>
         </div>
       </div>
@@ -4263,7 +4263,7 @@ onUnmounted(() => {
       <button class="btn btn-sm wf-btn wf-btn-red"
               :disabled="orderBusy || checkInLoading"
               @click="confirmCheckInComplete"
-              title="Stamp check-in complete and advance to Randomise.">
+              v-tip="'Stamp check-in complete and advance to Randomise.'">
         ✓ Check-in Complete — Continue
       </button>
     </div>
@@ -4299,7 +4299,7 @@ onUnmounted(() => {
         <button :class="['signoff-tab', signoffMode === 'push' ? 'is-active' : '']"
                 @click="signoffMode = 'push'; signoffError = ''"
                 :disabled="!!signoffWaiting || !!signoffCode"
-                :title="(!!signoffWaiting || !!signoffCode)
+                v-tip="(!!signoffWaiting || !!signoffCode)
                   ? 'A request is already pending — close it (Cancel) before switching modes'
                   : 'Push a notification to the referee’s phone for them to approve'">
           📱 Send to referee's device
@@ -4307,7 +4307,7 @@ onUnmounted(() => {
         <button :class="['signoff-tab', signoffMode === 'code' ? 'is-active' : '']"
                 @click="signoffMode = 'code'; signoffError = ''"
                 :disabled="!!signoffWaiting || !!signoffCode"
-                :title="(!!signoffWaiting || !!signoffCode)
+                v-tip="(!!signoffWaiting || !!signoffCode)
                   ? 'A request is already pending — close it (Cancel) before switching modes'
                   : 'Generate a 6-digit code + QR for the referee to enter on their phone'">
           🔢 Code on referee's device
@@ -4315,7 +4315,7 @@ onUnmounted(() => {
         <button :class="['signoff-tab', signoffMode === 'credential' ? 'is-active' : '']"
                 @click="signoffMode = 'credential'; signoffError = ''"
                 :disabled="!!signoffWaiting || !!signoffCode"
-                :title="(!!signoffWaiting || !!signoffCode)
+                v-tip="(!!signoffWaiting || !!signoffCode)
                   ? 'A request is already pending — close it (Cancel) before switching modes'
                   : 'Hand the laptop to the referee — they sign in with their own credentials'">
           🔐 Sign at this device
@@ -4349,7 +4349,7 @@ onUnmounted(() => {
           <div class="signoff-actions">
             <button class="btn btn-primary"
                     :disabled="orderBusy || !signoffPickedRefId"
-                    :title="!signoffPickedRefId ? 'Select a referee from the list above first' : ''"
+                    v-tip="!signoffPickedRefId ? 'Select a referee from the list above first' : ''"
                     @click="sendSignoffPush">
               {{ orderBusy ? 'Sending…' : 'Send sign-off request' }}
             </button>
@@ -4384,7 +4384,7 @@ onUnmounted(() => {
           <div class="signoff-actions">
             <button class="btn btn-primary"
                     :disabled="orderBusy || !signoffPickedRefId"
-                    :title="!signoffPickedRefId ? 'Select a referee from the list above first' : ''"
+                    v-tip="!signoffPickedRefId ? 'Select a referee from the list above first' : ''"
                     @click="generateSignoffCode">
               {{ orderBusy ? 'Generating…' : 'Generate code' }}
             </button>
@@ -4467,7 +4467,7 @@ onUnmounted(() => {
         <div class="signoff-actions">
           <button class="btn btn-primary"
                   :disabled="orderBusy || !credUsername.trim() || !credPassword"
-                  :title="!credUsername.trim() ? 'Enter the referee’s username'
+                  v-tip="!credUsername.trim() ? 'Enter the referee’s username'
                     : (!credPassword ? 'Enter the referee’s password' : '')"
                   @click="submitCredentialSignoff">
             {{ orderBusy ? 'Verifying…' : 'Sign off' }}
@@ -4556,7 +4556,7 @@ onUnmounted(() => {
               @focus="lateActiveSlot = idx"
               @blur="lateCloseDropdown(idx)"
             >
-            <span v-if="slot.dive" class="late-row-resolved" title="Dive matched in directory">✓</span>
+            <span v-if="slot.dive" class="late-row-resolved" v-tip="'Dive matched in directory'">✓</span>
             <ul v-if="lateActiveSlot === idx && lateMatchesFor(idx).length"
                 class="late-autocomplete">
               <li v-for="d in lateMatchesFor(idx)"
@@ -4589,7 +4589,7 @@ onUnmounted(() => {
         <button class="btn btn-ghost btn-sm" @click="lateOpen = false">Cancel</button>
         <button class="btn btn-primary btn-sm"
                 :disabled="lateBusy || !lateAllFilled || !lateCompetitorId"
-                :title="!lateCompetitorId ? 'Pick a diver from the list above first'
+                v-tip="!lateCompetitorId ? 'Pick a diver from the list above first'
                   : (!lateAllFilled ? 'Fill in a dive for every round before submitting' : '')"
                 @click="submitLateEntry">
           {{ lateBusy ? 'Adding…' : `Add ${lateRounds.length}-round list` }}

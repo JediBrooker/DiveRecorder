@@ -72,7 +72,7 @@ async function onDismiss(n, ev) {
       <div v-for="n in visible" :key="n.id"
            :class="['notif-card', `notif-${n.category}`]"
            @click="onBannerClick(n)">
-        <button class="notif-dismiss" @click="onDismiss(n, $event)" title="Dismiss">✕</button>
+        <button class="notif-dismiss" @click="onDismiss(n, $event)" v-tip="'Dismiss'">✕</button>
         <div class="notif-title">{{ n.title }}</div>
         <div v-if="n.body" class="notif-body">{{ n.body }}</div>
         <div v-if="Array.isArray(n.data?.actions) && n.data.actions.length" class="notif-actions">

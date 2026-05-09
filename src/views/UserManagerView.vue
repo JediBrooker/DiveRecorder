@@ -1017,7 +1017,7 @@ onUnmounted(() => {
             <span v-if="link.note" class="coach-note">{{ link.note }}</span>
             <button class="btn btn-ghost btn-sm coach-remove"
                     @click="removeCoachLink(link.id)"
-                    title="Remove this link">✕</button>
+                    v-tip="'Remove this link'">✕</button>
           </div>
         </div>
 

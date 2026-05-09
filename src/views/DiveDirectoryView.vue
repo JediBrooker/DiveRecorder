@@ -294,7 +294,7 @@ onMounted(loadDives)
       <!-- Add affordance only for staff roles (org_admin / meet_manager /
            referee / judge / coach + sysadmin). Divers see read-only browse. -->
       <button v-if="canWrite" class="btn btn-primary btn-sm" @click="openCreate">+ Add Custom Dive</button>
-      <span v-else class="readonly-pill" title="Read-only — your role can browse but not modify">View only</span>
+      <span v-else class="readonly-pill" v-tip="'Read-only — your role can browse but not modify'">View only</span>
     </div>
 
     <!-- Inline create form -->
@@ -395,7 +395,7 @@ onMounted(loadDives)
                      Custom/Core pill so the operator sees both
                      dimensions of the row's status. -->
                 <span v-if="d.in_use" class="src-pill src-pill-locked"
-                      title="Used in a meet — locked to preserve the scoreboard archive">
+                      v-tip="'Used in a meet — locked to preserve the scoreboard archive'">
                   In use · 🔒
                 </span>
               </td>
