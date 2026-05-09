@@ -253,6 +253,7 @@ A non-exhaustive checklist:
 | If you change… | Also check… |
 |---|---|
 | `users` table columns | `routes/auth.js` (the SELECTs that build the JWT payload), `src/types.js`, `init.sql` + a new `migrations/0NN_*.sql` |
+| Super Final endpoints (`/seed-h2h`, `/seed-semi`, `/seed-final`, `/super-final/*`, `/dive-offs`, `/synchro-reserve-pool`) | `docs/2026.03.05-…-Super-Final…pdf` Appendix 3 (re-quote the rule, don't paraphrase), `routes/events.js`, `src/views/ManagerView.vue`, `src/views/ControlView.vue`, `test/e2e/super-final-*.spec.js` |
 | The JWT payload shape | Every `req.user.X` reference in `server.js` (grep), `src/stores/auth.js`'s `user` computed |
 | A `/api/...` response shape | `src/types.js`, every consumer view (grep for the URL) |
 | A SQL function | `init.sql`, all migrations that touch it, `test/calc.test.js` if there's a closed-form test |

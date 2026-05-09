@@ -586,6 +586,103 @@ async function confirmAdvance() {
   }
 }
 
+// Super Final — H2H seeding modal. Opens from a "🥊 Seed
+// Head-to-Head" button on Upcoming super_final_h2h events.
+// Mirrors the openAdvanceModal pattern: pull the preview, show
+// the proposed pairs, commit when the operator confirms.
+//
+// Source of truth for the format: docs/2026.03.05-…-Super-
+// Final…pdf Appendix 3 (committed alongside this view).
+const h2hModalOpen     = ref(false)
+const h2hEvent         = ref(null)
+const h2hMaxPerOrg     = ref(2)        // Appendix 3 §1.1 default
+const h2hLockMinutes   = ref(30)       // WA Article 6.7.3
+const h2hPreview       = ref(null)     // { pairs, capped_orgs, shortfall, ranked }
+const h2hLoading       = ref(false)
+const h2hErr           = ref('')
+const h2hResults       = ref(null)     // { pairs: [...] } for Live/Completed display
+
+async function openH2hModal(ev) {
+  h2hEvent.value     = ev
+  h2hPreview.value   = null
+  h2hErr.value       = ''
+  h2hMaxPerOrg.value = 2
+  h2hLockMinutes.value = 30
+  h2hModalOpen.value = true
+  h2hLoading.value   = true
+  try {
+    const url = `/api/events/${ev.id}/seed-h2h/preview?max_per_org=${h2hMaxPerOrg.value}`
+    h2hPreview.value = await auth.apiFetch(url)
+  } catch (err) {
+    h2hErr.value = err.message || 'Failed to load preview'
+  } finally {
+    h2hLoading.value = false
+  }
+}
+
+async function refreshH2hPreview() {
+  if (!h2hEvent.value) return
+  h2hLoading.value = true
+  h2hErr.value     = ''
+  try {
+    const url = `/api/events/${h2hEvent.value.id}/seed-h2h/preview?max_per_org=${h2hMaxPerOrg.value}`
+    h2hPreview.value = await auth.apiFetch(url)
+  } catch (err) {
+    h2hErr.value = err.message || 'Failed to load preview'
+  } finally {
+    h2hLoading.value = false
+  }
+}
+
+function closeH2hModal() {
+  h2hModalOpen.value = false
+  h2hEvent.value = null
+  h2hPreview.value = null
+}
+
+async function confirmH2hSeed() {
+  if (!h2hEvent.value) return
+  h2hErr.value = ''
+  h2hLoading.value = true
+  try {
+    const result = await auth.apiFetch(`/api/events/${h2hEvent.value.id}/seed-h2h`, {
+      method: 'POST',
+      body: JSON.stringify({
+        max_per_org:  parseInt(h2hMaxPerOrg.value) || 2,
+        lock_minutes: parseInt(h2hLockMinutes.value) || 0,
+      }),
+    })
+    showSuccess(`Seeded ${result.seeded} divers across 6 H2H pairs.`)
+    closeH2hModal()
+    await loadEvents()
+  } catch (err) {
+    h2hErr.value = err.message || 'Failed to seed H2H'
+  } finally {
+    h2hLoading.value = false
+  }
+}
+
+// "View pair results" — opens a small modal with the bracket-
+// style outcome of the H2H stage (totals + winners). Visible on
+// Live or Completed super_final_h2h events.
+const h2hResultsModalOpen = ref(false)
+async function openH2hResultsModal(ev) {
+  h2hEvent.value = ev
+  h2hResults.value = null
+  h2hResultsModalOpen.value = true
+  h2hErr.value = ''
+  try {
+    h2hResults.value = await auth.apiFetch(`/api/events/${ev.id}/super-final/h2h-results`)
+  } catch (err) {
+    h2hErr.value = err.message || 'Failed to load H2H results'
+  }
+}
+function closeH2hResultsModal() {
+  h2hResultsModalOpen.value = false
+  h2hEvent.value = null
+  h2hResults.value = null
+}
+
 // Meet management — separate from event create/edit. A meet is
 // a bundle of events; org admins create them here so events
 // can be filed under e.g. "2026 National Open".
@@ -2076,6 +2173,22 @@ onUnmounted(() => {
                     v-tip="'Open the modal to choose top N + reserves + dive order, preview the ranking, and seed the next stage'">
               Advance to next stage →
             </button>
+            <!-- Super Final H2H — Diving World Cup 2026 Appendix 3.
+                 Seed button is only meaningful pre-Live; once the
+                 event has gone Live, switch to "View pair results"
+                 so the operator can see who advances to SF. -->
+            <button v-if="ev.event_format === 'super_final_h2h' && ev.status === 'Upcoming'"
+                    class="btn btn-primary btn-sm advance-btn"
+                    @click="openH2hModal(ev)"
+                    v-tip="'Seed the 6 H2H pairs from the Stop-1 ranking (Appendix 3 §2.1.1)'">
+              🥊 Seed Head-to-Head
+            </button>
+            <button v-if="ev.event_format === 'super_final_h2h' && ev.status !== 'Upcoming'"
+                    class="btn btn-ghost btn-sm"
+                    @click="openH2hResultsModal(ev)"
+                    v-tip="'See pair-by-pair winners — divers who advance to the Semi Final'">
+              View pair results
+            </button>
             <!-- Status-aware primary action. Each path deep-
                  links into the screen the operator's most
                  likely to want next. -->
@@ -2598,6 +2711,126 @@ onUnmounted(() => {
           </button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Super Final — Seed Head-to-Head modal. Mirrors the
+       advance modal: preview + a single confirm action. -->
+  <div v-if="h2hModalOpen" class="modal-backdrop" @click.self="closeH2hModal">
+    <div class="modal modal-advance" @click.stop style="max-width:720px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
+        <h2 style="font-size:22px;font-style:italic">🥊 Seed Head-to-Head</h2>
+        <button class="btn btn-ghost btn-sm" @click="closeH2hModal">Cancel ✕</button>
+      </div>
+
+      <p class="hint" style="margin-bottom:1rem" v-if="h2hEvent">
+        Seed <strong>"{{ h2hEvent.name }}"</strong> from the Stop-1 ranking
+        — pairs are 12v1, 11v2, 10v3, 9v4, 8v5, 7v6
+        (Appendix 3 §2.1.1; max {{ h2hMaxPerOrg }} per Federation per WC Rule 1.4).
+      </p>
+
+      <div v-if="h2hErr" class="msg msg-error" style="margin-bottom:0.75rem">{{ h2hErr }}</div>
+      <div v-if="h2hLoading" class="hint" style="margin-bottom:0.75rem">Loading preview…</div>
+
+      <div v-if="!h2hLoading && h2hPreview" class="advance-form">
+        <div class="advance-field-row">
+          <label class="advance-field">
+            <span class="label">Max per Federation</span>
+            <input class="input" type="number" min="1" max="12"
+                   v-model="h2hMaxPerOrg" @change="refreshH2hPreview">
+          </label>
+          <label class="advance-field">
+            <span class="label">Dive-list lock (minutes)</span>
+            <input class="input" type="number" min="0" max="120" v-model="h2hLockMinutes">
+            <span class="hint" style="margin-top:0.25rem">
+              WA Article 6.7.3 — change-of-dives window after the previous stage ended.
+            </span>
+          </label>
+        </div>
+
+        <!-- Capped orgs — surface so the operator sees who got
+             dropped because of the per-Federation cap. -->
+        <div v-if="h2hPreview.capped_orgs && h2hPreview.capped_orgs.length"
+             class="hint" style="margin-top:0.75rem;padding:0.5rem 0.75rem;
+                                 border-left:3px solid var(--cyan);
+                                 background:rgba(6,182,212,0.08)">
+          Per-Federation cap dropped:
+          <span v-for="(c, i) in h2hPreview.capped_orgs" :key="c.org_id">
+            <strong>{{ c.dropped }}</strong> from one federation<span v-if="i < h2hPreview.capped_orgs.length - 1">, </span>
+          </span>
+          (<strong>{{ h2hPreview.capped_orgs.reduce((s, c) => s + c.kept_count, 0) }}</strong> kept).
+        </div>
+
+        <!-- Shortfall warning -->
+        <div v-if="h2hPreview.shortfall" class="msg msg-warn" style="margin-top:0.75rem">
+          {{ h2hPreview.shortfall }}
+        </div>
+
+        <!-- Pair preview -->
+        <div v-if="h2hPreview.pairs && h2hPreview.pairs.length" class="advance-preview"
+             style="margin-top:1rem">
+          <div class="advance-preview-head">
+            6 pairs · 12 divers (G1 = pairs 12v1, 9v4, 8v5 · G2 = pairs 11v2, 10v3, 7v6)
+          </div>
+          <div v-for="p in h2hPreview.pairs" :key="p.pair_index"
+               class="advance-preview-row primary"
+               style="grid-template-columns: 36px 1fr 24px 1fr">
+            <span class="advance-rank">G{{ p.group_number }}</span>
+            <span class="advance-name">
+              <strong>#{{ p.seed_a }}</strong> {{ p.full_name_a }}
+              <span v-if="p.country_code_a" class="hint">· {{ p.country_code_a }}</span>
+            </span>
+            <span style="text-align:center;color:var(--muted)">vs</span>
+            <span class="advance-name">
+              <strong>#{{ p.seed_b }}</strong> {{ p.full_name_b }}
+              <span v-if="p.country_code_b" class="hint">· {{ p.country_code_b }}</span>
+            </span>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:0.5rem;margin-top:1.25rem">
+          <button type="button" class="btn btn-ghost" @click="closeH2hModal">Cancel</button>
+          <button type="button" class="btn btn-primary"
+                  :disabled="h2hLoading || !!h2hPreview.shortfall"
+                  @click="confirmH2hSeed">
+            {{ h2hLoading ? 'Seeding…' : 'Confirm seeding' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Super Final — H2H pair results modal. Read-only,
+       opens on Live/Completed super_final_h2h events. -->
+  <div v-if="h2hResultsModalOpen" class="modal-backdrop" @click.self="closeH2hResultsModal">
+    <div class="modal modal-advance" @click.stop style="max-width:720px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
+        <h2 style="font-size:22px;font-style:italic">H2H — pair results</h2>
+        <button class="btn btn-ghost btn-sm" @click="closeH2hResultsModal">Close ✕</button>
+      </div>
+
+      <p class="hint" style="margin-bottom:1rem" v-if="h2hEvent">
+        <strong>"{{ h2hEvent.name }}"</strong> — winners advance to the Semi Final.
+        Tied pairs need a dive-off (Appendix 3 §6).
+      </p>
+      <div v-if="h2hErr" class="msg msg-error" style="margin-bottom:0.75rem">{{ h2hErr }}</div>
+
+      <div v-if="h2hResults && h2hResults.pairs" class="advance-preview">
+        <div v-for="p in h2hResults.pairs" :key="p.pair_index"
+             :class="['advance-preview-row', p.tied ? 'reserve' : 'primary']"
+             style="grid-template-columns: 36px 1fr 60px 1fr 60px">
+          <span class="advance-rank">G{{ p.group_number }}</span>
+          <span class="advance-name" :style="{ fontWeight: p.winner_id === p.competitor_a_id ? '700' : '500' }">
+            #{{ p.seed_a }} {{ p.full_name_a }}
+          </span>
+          <span style="text-align:center" class="hint">{{ Number(p.total_a).toFixed(2) }}</span>
+          <span class="advance-name" :style="{ fontWeight: p.winner_id === p.competitor_b_id ? '700' : '500' }">
+            #{{ p.seed_b }} {{ p.full_name_b }}
+          </span>
+          <span style="text-align:center" class="hint">{{ Number(p.total_b).toFixed(2) }}</span>
+        </div>
+      </div>
+      <div v-else-if="!h2hErr" class="hint">Loading…</div>
     </div>
   </div>
 

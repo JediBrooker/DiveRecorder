@@ -224,14 +224,20 @@ module.exports = function createEventsRouter({
         error: "Synchronised pair events require 9 or 11 judges",
       });
     }
-    // Validate event_format. Three valid stages, in order:
-    //   preliminary → semifinal → final
-    // 'final' is the default.
+    // Validate event_format. Six valid stages:
+    //   preliminary → semifinal → final         (standard chain)
+    //   super_final_h2h → super_final_semi
+    //                  → super_final_final      (Diving World Cup
+    //                                             Super Final 2026,
+    //                                             Appendix 3)
+    // 'final' is the default for standalone events.
+    const SUPER_FINAL_FORMATS = ['super_final_h2h', 'super_final_semi', 'super_final_final'];
+    const ALLOWED_FORMATS = ['preliminary', 'semifinal', 'final', ...SUPER_FINAL_FORMATS];
     const fmt = event_format || "final";
-    if (!["preliminary", "semifinal", "final"].includes(fmt)) {
+    if (!ALLOWED_FORMATS.includes(fmt)) {
       return res
         .status(400)
-        .json({ error: "event_format must be 'preliminary', 'semifinal' or 'final'" });
+        .json({ error: `event_format must be one of: ${ALLOWED_FORMATS.join(', ')}` });
     }
     const client = await pool.connect();
     try {
@@ -251,9 +257,19 @@ module.exports = function createEventsRouter({
       }
       // Validate parent_event_id if this event is downstream of
       // another stage. Allowed parent shapes:
-      //   semifinal → parent must be a 'preliminary'
-      //   final     → parent may be a 'preliminary' OR a 'semifinal'
-      //   preliminary → must NOT have a parent (it's the source)
+      //   semifinal         → parent must be a 'preliminary'
+      //   final             → parent may be a 'preliminary' OR a 'semifinal'
+      //                        OR a 'super_final_final' (allowing a
+      //                        Stop-1 prelim/semi/final to feed the
+      //                        Super Final H2H seeding via the
+      //                        super_final_h2h branch below).
+      //   preliminary       → must NOT have a parent (it's the source)
+      //   super_final_h2h   → parent is the Stop-1 final (event_format
+      //                        'final' or 'preliminary' — the operator
+      //                        picks whichever stage produced the
+      //                        12-diver ranking).
+      //   super_final_semi  → parent must be a 'super_final_h2h'
+      //   super_final_final → parent must be a 'super_final_semi'
       if (parent_event_id) {
         if (fmt === "preliminary") {
           await client.query("ROLLBACK");
@@ -270,9 +286,13 @@ module.exports = function createEventsRouter({
           return res.status(400).json({ error: "Parent event not found in this org" });
         }
         const parentFmt = p.rows[0].event_format;
-        const allowedParents = fmt === "semifinal"
-          ? ["preliminary"]
-          : ["preliminary", "semifinal"];
+        const allowedParents =
+          fmt === "semifinal"          ? ["preliminary"]
+          : fmt === "final"            ? ["preliminary", "semifinal"]
+          : fmt === "super_final_h2h"  ? ["preliminary", "semifinal", "final"]
+          : fmt === "super_final_semi" ? ["super_final_h2h"]
+          : fmt === "super_final_final"? ["super_final_semi"]
+          : [];
         if (!allowedParents.includes(parentFmt)) {
           await client.query("ROLLBACK");
           return res.status(400).json({
@@ -403,7 +423,9 @@ module.exports = function createEventsRouter({
         error: "Synchronised pair events require 9 or 11 judges",
       });
     }
-    if (event_format && !["preliminary", "semifinal", "final"].includes(event_format)) {
+    if (event_format && !["preliminary", "semifinal", "final",
+                          "super_final_h2h", "super_final_semi", "super_final_final"
+                         ].includes(event_format)) {
       return res
         .status(400)
         .json({ error: "event_format must be 'preliminary', 'semifinal' or 'final'" });
@@ -1502,6 +1524,648 @@ module.exports = function createEventsRouter({
         res.status(500).json({ error: "Internal server error" });
       } finally {
         client.release();
+      }
+    },
+  );
+
+  // -------------------------------------------------------------
+  // SUPER FINAL — Diving World Cup 2026, Appendix 3.
+  //
+  // Three endpoint families implement the format:
+  //   POST /seed-h2h               seed the 6 H2H pairs from the
+  //                                Stop-1 ranking (Phase 2)
+  //   GET  /seed-h2h/preview       read-only preview of the same
+  //                                pairing logic (Phase 2)
+  //   GET  /super-final/h2h-results
+  //                                pair-by-pair winners after H2H
+  //                                scoring (Phase 2)
+  //   POST /seed-semi              seed 6 H2H winners into the SF
+  //                                stage with carry-forward scoring
+  //                                (Phase 3a)
+  //   POST /seed-final             seed top-2-per-group from SF
+  //                                cumulative; F resets scores
+  //                                (Phase 3a)
+  //   GET  /super-final/rankings   merged 1-12 ranking
+  //                                (4 from F, 2 from SF non-q,
+  //                                 6 from H2H non-advancers)
+  //                                (Phase 3b)
+  //   POST /dive-offs              referee-created tie-break record
+  //                                (Phase 3c)
+  //   PATCH/dive-offs/:id          update + resolve tie-break
+  //                                (Phase 3c)
+  //   GET  /dive-offs              list tie-breaks (public)
+  //                                (Phase 3c)
+  //   GET  /synchro-reserve-pool   eligible synchro replacements
+  //                                (Phase 3d)
+  //   POST /replace-from-synchro   referee swaps a withdrawn diver
+  //                                for a synchro reserve
+  //                                (Phase 3d)
+  //
+  // Source of truth: docs/2026.03.05-…-Super-Final…pdf Appendix 3.
+  // -------------------------------------------------------------
+
+  // Build the H2H seeding plan from a parent stage's ranking. Used
+  // by both the preview endpoint (read-only) and the seed endpoint
+  // (which writes after running this same logic).
+  //
+  // Steps:
+  //   1. Pull ranked divers from the parent via the same helper the
+  //      standard advance flow uses.
+  //   2. Apply the per-Federation cap (Appendix 3 §1.1 / WC Rule
+  //      1.4: "Maximum 2 divers per Federation"). Within each org,
+  //      keep the top maxPerOrg divers; everyone else falls out.
+  //   3. Take the global top 12 from what remains.
+  //   4. Build pairs: indexes 0..5 →
+  //        (rank 12 vs 1), (11 vs 2), (10 vs 3),
+  //        (9 vs 4),       (8 vs 5),  (7 vs 6).
+  //   5. Group assignment per Appendix 3 §2.1.1:
+  //        Group 1: pairs (12,1), (9,4), (8,5)
+  //        Group 2: pairs (11,2), (10,3), (7,6)
+  //
+  // Returns { pairs, top12, capped: [{ org_id, kept_count, dropped }],
+  //           shortfall: null|string }. shortfall is set when fewer
+  // than 12 divers qualify under the cap so the caller can 400 with
+  // the explanation.
+  async function buildH2hSeedingPlan(client, parentEventId, maxPerOrg) {
+    // Pull every scored diver in the parent stage with their org.
+    // We can't reuse rankedDiversForAdvance directly because it
+    // doesn't surface org_id; instead, mirror its query with an
+    // org_id projection so the per-Federation cap can run before
+    // the top-12 cut.
+    const r = await client.query(
+      `WITH dive_totals AS (
+         SELECT s.competitor_id, s.round_number,
+                calc_event_dive_points(
+                  array_agg(ej.judge_number ORDER BY ej.judge_number),
+                  array_agg(s.score ORDER BY ej.judge_number),
+                  e.number_of_judges, MAX(d.dd), e.event_type,
+                  BOOL_OR(cdl.partner_id IS NOT NULL)
+                ) AS round_total
+         FROM scores s
+         JOIN events e ON e.id = s.event_id
+         LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+         LEFT JOIN competitor_dive_lists cdl
+           ON cdl.event_id = s.event_id
+          AND cdl.competitor_id = s.competitor_id
+          AND cdl.round_number = s.round_number
+         LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+         WHERE s.event_id = $1
+         GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+       ),
+       cumulative AS (
+         SELECT competitor_id,
+                SUM(round_total) AS total,
+                array_agg(round_total ORDER BY round_total DESC, round_number) AS dives_desc
+         FROM dive_totals
+         GROUP BY competitor_id
+       ),
+       ranked AS (
+         SELECT competitor_id, total, dives_desc,
+                RANK() OVER (ORDER BY total DESC, dives_desc DESC) AS rnk
+         FROM cumulative
+       )
+       SELECT r.competitor_id, r.total, r.rnk, r.dives_desc,
+              u.org_id, u.full_name, u.username,
+              o.country_code,
+              MIN(cdl.display_order) AS parent_display_order,
+              array_agg(json_build_object(
+                'round_number', cdl.round_number,
+                'dive_id',      cdl.dive_id
+              ) ORDER BY cdl.round_number) FILTER (WHERE cdl.dive_id IS NOT NULL) AS dives,
+              ROW_NUMBER() OVER (PARTITION BY u.org_id
+                                 ORDER BY r.total DESC, r.dives_desc DESC) AS org_rank
+         FROM ranked r
+         JOIN users u ON u.id = r.competitor_id
+         JOIN organisations o ON o.id = u.org_id
+         LEFT JOIN competitor_dive_lists cdl
+           ON cdl.event_id = $1
+          AND cdl.competitor_id = r.competitor_id
+          AND cdl.withdrawn_at IS NULL
+        GROUP BY r.competitor_id, r.total, r.rnk, r.dives_desc,
+                 u.org_id, u.full_name, u.username, o.country_code
+        ORDER BY r.rnk ASC, u.full_name ASC`,
+      [parentEventId],
+    );
+
+    const allRanked = r.rows;
+    // Apply the cap.
+    const capRows = allRanked.filter((row) => Number(row.org_rank) <= maxPerOrg);
+    // Track which orgs lost divers because of the cap so the
+    // preview / seed response can show "Org A capped: 5 → 2".
+    const orgCounts = new Map();
+    for (const row of allRanked) {
+      orgCounts.set(row.org_id, (orgCounts.get(row.org_id) || 0) + 1);
+    }
+    const orgKeptCounts = new Map();
+    for (const row of capRows) {
+      orgKeptCounts.set(row.org_id, (orgKeptCounts.get(row.org_id) || 0) + 1);
+    }
+    const capped = [];
+    for (const [orgId, total] of orgCounts.entries()) {
+      const kept = orgKeptCounts.get(orgId) || 0;
+      if (total > kept) {
+        capped.push({ org_id: orgId, total, kept_count: kept, dropped: total - kept });
+      }
+    }
+
+    // Top 12 from the cap-applied pool.
+    const top12 = capRows.slice(0, 12);
+    const shortfall = top12.length < 12
+      ? `Only ${top12.length} divers qualify under max_per_org=${maxPerOrg} — need 12 to seed an H2H bracket`
+      : null;
+
+    // Build pairs: index 0 = seed12 vs seed1, ..., index 5 = seed7 vs seed6.
+    // Group 1 owns indexes [0, 3, 4] = (12,1), (9,4), (8,5).
+    // Group 2 owns indexes [1, 2, 5] = (11,2), (10,3), (7,6).
+    const GROUP_ASSIGN = {
+      0: 1, 3: 1, 4: 1, // (12,1), (9,4), (8,5)
+      1: 2, 2: 2, 5: 2, // (11,2), (10,3), (7,6)
+    };
+    const pairs = [];
+    if (top12.length >= 12) {
+      for (let i = 0; i < 6; i++) {
+        const lower = top12[11 - i]; // seed 12, 11, 10, 9, 8, 7
+        const higher = top12[i];     // seed  1,  2,  3, 4, 5, 6
+        pairs.push({
+          pair_index:      i,
+          group_number:    GROUP_ASSIGN[i],
+          seed_a:          11 - i + 1, // 12, 11, 10, 9, 8, 7 (the lower seed in the pair, dives first)
+          seed_b:          i + 1,      //  1,  2,  3, 4, 5, 6
+          competitor_a_id: lower.competitor_id,
+          competitor_b_id: higher.competitor_id,
+          full_name_a:     lower.full_name,
+          full_name_b:     higher.full_name,
+          country_code_a:  lower.country_code,
+          country_code_b:  higher.country_code,
+          // Carry the parent dive lists so the seed endpoint can
+          // copy rounds 1..3 verbatim.
+          dives_a:         Array.isArray(lower.dives) ? lower.dives : [],
+          dives_b:         Array.isArray(higher.dives) ? higher.dives : [],
+        });
+      }
+    }
+
+    return { pairs, top12, capped, shortfall, allRanked };
+  }
+
+  // GET /api/events/:id/seed-h2h/preview — read-only.
+  // :id is the H2H event itself (event_format=super_final_h2h).
+  // Returns the proposed pairing without writing anything.
+  router.get(
+    "/api/events/:id/seed-h2h/preview",
+    requireEventManager(),
+    async (req, res) => {
+      const maxPerOrg = parseInt(req.query.max_per_org) || 2;
+      const client = await pool.connect();
+      try {
+        const evRes = await client.query(
+          `SELECT id, event_format, status, parent_event_id, total_rounds, gender
+             FROM events WHERE id = $1`,
+          [req.params.id],
+        );
+        if (!evRes.rows.length) {
+          return res.status(404).json({ error: "Event not found" });
+        }
+        const ev = evRes.rows[0];
+        if (ev.event_format !== "super_final_h2h") {
+          return res.status(400).json({ error: "Event is not a Super Final H2H stage" });
+        }
+        if (!ev.parent_event_id) {
+          return res.status(400).json({
+            error: "Super Final H2H must have parent_event_id set to the Stop-1 final",
+          });
+        }
+        const plan = await buildH2hSeedingPlan(client, ev.parent_event_id, maxPerOrg);
+        res.json({
+          parent_event_id: ev.parent_event_id,
+          max_per_org:     maxPerOrg,
+          pairs:           plan.pairs,
+          capped_orgs:     plan.capped,
+          shortfall:       plan.shortfall,
+          ranked:          plan.allRanked.map((r) => ({
+            competitor_id:        r.competitor_id,
+            full_name:            r.full_name,
+            country_code:         r.country_code,
+            org_id:               r.org_id,
+            org_rank:             Number(r.org_rank),
+            rnk:                  Number(r.rnk),
+            total:                Number(r.total),
+            qualifies_under_cap:  Number(r.org_rank) <= maxPerOrg,
+            in_top_12:            plan.pairs.some((p) =>
+              p.competitor_a_id === r.competitor_id ||
+              p.competitor_b_id === r.competitor_id),
+          })),
+        });
+      } catch (err) {
+        console.error("[Seed H2H Preview Error]", err.message);
+        res.status(500).json({ error: "Internal server error" });
+      } finally {
+        client.release();
+      }
+    },
+  );
+
+  // POST /api/events/:id/seed-h2h — commits the H2H bracket.
+  //
+  // Body (all optional):
+  //   max_per_org   default 2  (Appendix 3 §1.1 — World Cup cap)
+  //   lock_minutes  default 30 (WA Article 6.7.3 — change-of-dives)
+  //
+  // Writes 36 competitor_dive_lists rows (12 divers × 3 rounds),
+  // sets group_number 1 or 2, sets display_order so the dive
+  // sequence within a group is "Dive 1: divers 12,1; 9,4; 8,5"
+  // (Appendix 3 §2.1.2 — lower-seeded diver of each pair goes
+  // first within the pair, pairs in seed order). Stamps the
+  // dive_list_locks_at on the H2H event.
+  router.post(
+    "/api/events/:id/seed-h2h",
+    requireEventManager(),
+    async (req, res) => {
+      const maxPerOrg = Number.isFinite(parseInt(req.body?.max_per_org))
+        ? Math.max(1, Math.min(parseInt(req.body.max_per_org), 12))
+        : 2;
+      const lockMin = Number.isFinite(parseInt(req.body?.lock_minutes))
+        ? Math.max(0, Math.min(parseInt(req.body.lock_minutes), 24 * 60))
+        : 30;
+
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+
+        const evRes = await client.query(
+          `SELECT id, event_format, status, parent_event_id,
+                  total_rounds, gender, name
+             FROM events WHERE id = $1`,
+          [req.params.id],
+        );
+        if (!evRes.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ error: "Event not found" });
+        }
+        const ev = evRes.rows[0];
+        if (ev.event_format !== "super_final_h2h") {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "Event is not a Super Final H2H stage (event_format=super_final_h2h)",
+          });
+        }
+        if (ev.status !== "Upcoming") {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "H2H must be Upcoming to seed (re-seeding only valid pre-Live)",
+          });
+        }
+        if (Number(ev.total_rounds) !== 3) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "H2H must have total_rounds=3 (3 dives per Appendix 3 §1.2.2)",
+          });
+        }
+        if (!ev.parent_event_id) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "H2H must have parent_event_id set to the Stop-1 final/qualifier",
+          });
+        }
+        const parentRes = await client.query(
+          "SELECT id, status FROM events WHERE id = $1",
+          [ev.parent_event_id],
+        );
+        if (!parentRes.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: "Parent event not found" });
+        }
+        if (parentRes.rows[0].status !== "Completed") {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "Parent stage must be Completed before seeding H2H",
+          });
+        }
+
+        const plan = await buildH2hSeedingPlan(client, ev.parent_event_id, maxPerOrg);
+        if (plan.shortfall) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: plan.shortfall });
+        }
+
+        // Wipe any existing roster on the H2H event — re-seeding
+        // (still Upcoming) is "redo not append", same as advance.
+        await client.query(
+          "DELETE FROM competitor_dive_lists WHERE event_id = $1",
+          [ev.id],
+        );
+
+        // Build the dive order. Appendix 3 §2.1.2 reads as:
+        //
+        //   Group 1 — Dive 1: Divers 12,1; 9,4; 8,5
+        //   Group 1 — Dive 2: Same divers
+        //   Group 1 — Dive 3: Same divers
+        //   Group 2 — Dive 1: Divers 11,2; 10,3; 7,6
+        //   …etc.
+        //
+        // In a single competitor_dive_lists.display_order field
+        // (which is per-row, sorted within a round), we represent
+        // this by giving each diver a group-local position within
+        // their group: in Group 1, seed12 → position 1 (dives
+        // first), seed1 → position 2, seed9 → 3, seed4 → 4,
+        // seed8 → 5, seed5 → 6. Same shape in Group 2.
+        //
+        // The Up-Next query in scoreboard.js orders by
+        // display_order NULLS LAST, then full_name; we use a
+        // global display_order so Group 1's six rows always come
+        // before Group 2's, matching the spec ("short break of a
+        // few minutes between Head-to-Head from Group 1 and
+        // Group 2"). Group-1 divers get display_order 1..6; Group
+        // 2 gets 7..12.
+        const orderByCompetitor = new Map();
+        for (const pair of plan.pairs) {
+          // Within Group 1: pairs at index 0, 3, 4 → group order 0, 1, 2
+          // Within Group 2: pairs at index 1, 2, 5 → group order 0, 1, 2
+          const groupPairOrder =
+            pair.pair_index === 0 ? 0
+            : pair.pair_index === 3 ? 1
+            : pair.pair_index === 4 ? 2
+            : pair.pair_index === 1 ? 0
+            : pair.pair_index === 2 ? 1
+            : 2; // pair_index === 5
+          // Group 1 starts at display_order 1; Group 2 at 7.
+          const groupBase = pair.group_number === 1 ? 1 : 7;
+          // Lower-seeded diver of each pair dives first (Diver
+          // 12 before Diver 1, etc.), so competitor_a_id (the
+          // lower seed) gets the even-numbered slot in the pair
+          // (1st of 2 within the pair).
+          orderByCompetitor.set(pair.competitor_a_id, groupBase + groupPairOrder * 2);
+          orderByCompetitor.set(pair.competitor_b_id, groupBase + groupPairOrder * 2 + 1);
+        }
+
+        // Per-diver: copy dive_id for rounds 1..3 from the parent
+        // stage's submission. If a diver didn't have a row for a
+        // given round in the parent (incomplete list), the dive_id
+        // will be NULL and the diver will need to submit before
+        // dive_list_locks_at.
+        async function insertDiverRows(competitorId, dives, groupNumber, displayOrder) {
+          const byRound = new Map(
+            (dives || []).map((d) => [Number(d.round_number), d.dive_id]),
+          );
+          for (let r = 1; r <= 3; r++) {
+            await client.query(
+              `INSERT INTO competitor_dive_lists
+                (event_id, competitor_id, dive_id, round_number,
+                 display_order, group_number, is_reserve)
+               VALUES ($1, $2, $3, $4, $5, $6, FALSE)`,
+              [
+                ev.id,
+                competitorId,
+                byRound.get(r) || null,
+                r,
+                displayOrder,
+                groupNumber,
+              ],
+            );
+          }
+        }
+
+        for (const pair of plan.pairs) {
+          await insertDiverRows(
+            pair.competitor_a_id,
+            pair.dives_a,
+            pair.group_number,
+            orderByCompetitor.get(pair.competitor_a_id),
+          );
+          await insertDiverRows(
+            pair.competitor_b_id,
+            pair.dives_b,
+            pair.group_number,
+            orderByCompetitor.get(pair.competitor_b_id),
+          );
+        }
+
+        // Lock the dive list (WA Article 6.7.3 — 30-min window
+        // for change-of-dives after the previous stage ends).
+        let lockAtIso = null;
+        if (lockMin > 0) {
+          const lockRes = await client.query(
+            `UPDATE events
+                SET dive_list_locks_at = NOW() + ($2::int || ' minutes')::interval
+              WHERE id = $1
+              RETURNING dive_list_locks_at`,
+            [ev.id, lockMin],
+          );
+          lockAtIso = lockRes.rows[0]?.dive_list_locks_at?.toISOString() || null;
+        } else {
+          await client.query(
+            "UPDATE events SET dive_list_locks_at = NULL WHERE id = $1",
+            [ev.id],
+          );
+        }
+
+        await recordAudit(client, {
+          ...auditFromReq(req),
+          org_id:      req.user.org_id,
+          entity_type: "event",
+          entity_id:   ev.id,
+          entity_name: ev.name,
+          action:      "event.h2h_seeded",
+          metadata: {
+            parent_event_id: ev.parent_event_id,
+            max_per_org:     maxPerOrg,
+            lock_minutes:    lockMin,
+            dive_list_locks_at: lockAtIso,
+            pairs: plan.pairs.map((p) => ({
+              pair_index:      p.pair_index,
+              group_number:    p.group_number,
+              seed_a:          p.seed_a,
+              seed_b:          p.seed_b,
+              competitor_a_id: p.competitor_a_id,
+              competitor_b_id: p.competitor_b_id,
+            })),
+            capped_orgs: plan.capped,
+          },
+        });
+
+        await client.query("COMMIT");
+
+        // Push notifications to the 12 advanced divers — same
+        // best-effort pattern as /advance.
+        if (push && typeof push.sendNotification === "function") {
+          try {
+            const ids = plan.pairs.flatMap((p) => [p.competitor_a_id, p.competitor_b_id]);
+            const lockHint = lockAtIso
+              ? ` Locks at ${new Date(lockAtIso).toLocaleString()}.`
+              : "";
+            await push.sendNotification(ids, {
+              category:  "h2h_seeded",
+              title:     `You've advanced to "${ev.name}" Head-to-Head`,
+              body:      `Pick your 3 H2H dives.${lockHint} Tap to confirm or edit.`,
+              data:      {
+                event_id:        ev.id,
+                parent_event_id: ev.parent_event_id,
+                lock_at:         lockAtIso,
+              },
+              action_url: `/competitor?event=${ev.id}`,
+            });
+          } catch (notifErr) {
+            console.error("[H2H Seed Notification Skipped]", notifErr.message);
+          }
+        }
+
+        res.json({
+          seeded:             12,
+          pairs:              plan.pairs.map((p) => ({
+            pair_index:      p.pair_index,
+            group_number:    p.group_number,
+            seed_a:          p.seed_a,
+            seed_b:          p.seed_b,
+            competitor_a_id: p.competitor_a_id,
+            competitor_b_id: p.competitor_b_id,
+            full_name_a:     p.full_name_a,
+            full_name_b:     p.full_name_b,
+            country_code_a:  p.country_code_a,
+            country_code_b:  p.country_code_b,
+          })),
+          dive_list_locks_at: lockAtIso,
+          capped_orgs:        plan.capped,
+        });
+      } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("[Seed H2H Error]", err.message);
+        res.status(500).json({ error: "Internal server error" });
+      } finally {
+        client.release();
+      }
+    },
+  );
+
+  // GET /api/events/:id/super-final/h2h-results — public read.
+  //
+  // Sums each diver's 3 H2H dives and declares the winner of each
+  // pair. tied=true means the meet manager needs to resolve via
+  // a dive-off (Phase 3c).
+  //
+  // Public-readable: the bracket outcome is part of the official
+  // record, same posture as /api/scoreboard/:eventId.
+  router.get(
+    "/api/events/:id/super-final/h2h-results",
+    async (req, res) => {
+      try {
+        const evRes = await pool.query(
+          `SELECT id, event_format, parent_event_id FROM events WHERE id = $1`,
+          [req.params.id],
+        );
+        if (!evRes.rows.length) {
+          return res.status(404).json({ error: "Event not found" });
+        }
+        if (evRes.rows[0].event_format !== "super_final_h2h") {
+          return res.status(400).json({ error: "Event is not a Super Final H2H stage" });
+        }
+
+        // Per-diver totals over all rounds in the H2H event,
+        // grouped into pairs by display_order parity within
+        // each group.
+        const r = await pool.query(
+          `WITH per_dive AS (
+             SELECT s.competitor_id, s.round_number,
+                    calc_event_dive_points(
+                      array_agg(ej.judge_number ORDER BY ej.judge_number),
+                      array_agg(s.score ORDER BY ej.judge_number),
+                      e.number_of_judges, MAX(d.dd), e.event_type,
+                      BOOL_OR(cdl.partner_id IS NOT NULL)
+                    ) AS dive_points
+             FROM scores s
+             JOIN events e ON e.id = s.event_id
+             LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+             LEFT JOIN competitor_dive_lists cdl
+               ON cdl.event_id = s.event_id
+              AND cdl.competitor_id = s.competitor_id
+              AND cdl.round_number = s.round_number
+             LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+             WHERE s.event_id = $1
+             GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+           ),
+           competitor AS (
+             SELECT pd.competitor_id,
+                    SUM(pd.dive_points) AS total
+             FROM per_dive pd
+             GROUP BY pd.competitor_id
+           )
+           SELECT cdl.competitor_id,
+                  cdl.group_number,
+                  MIN(cdl.display_order) AS display_order,
+                  u.full_name,
+                  o.country_code,
+                  COALESCE(c.total, 0) AS total
+             FROM competitor_dive_lists cdl
+             JOIN users u ON u.id = cdl.competitor_id
+             JOIN organisations o ON o.id = u.org_id
+             LEFT JOIN competitor c ON c.competitor_id = cdl.competitor_id
+            WHERE cdl.event_id = $1
+              AND cdl.is_reserve = FALSE
+              AND cdl.withdrawn_at IS NULL
+            GROUP BY cdl.competitor_id, cdl.group_number, u.full_name, o.country_code, c.total`,
+          [req.params.id],
+        );
+
+        // Reconstruct pair structure from group_number + display_order.
+        // Within a group the divers are ordered: pair0_a, pair0_b,
+        // pair1_a, pair1_b, pair2_a, pair2_b. So the 6 rows in
+        // each group split into 3 pairs by index/2.
+        const byGroup = { 1: [], 2: [] };
+        for (const row of r.rows) {
+          if (row.group_number == null) continue;
+          byGroup[row.group_number] = byGroup[row.group_number] || [];
+          byGroup[row.group_number].push(row);
+        }
+        for (const g of [1, 2]) {
+          byGroup[g].sort((a, b) =>
+            (a.display_order ?? Infinity) - (b.display_order ?? Infinity));
+        }
+        const pairs = [];
+        // Spec: G1 has pairs indexed 0, 3, 4 (12v1, 9v4, 8v5);
+        //       G2 has pairs indexed 1, 2, 5 (11v2, 10v3, 7v6).
+        const G1_PAIR_INDEXES = [0, 3, 4];
+        const G2_PAIR_INDEXES = [1, 2, 5];
+        const SEEDS_BY_PAIR_INDEX = [
+          [12, 1], [11, 2], [10, 3], [9, 4], [8, 5], [7, 6],
+        ];
+        for (const g of [1, 2]) {
+          const indexes = g === 1 ? G1_PAIR_INDEXES : G2_PAIR_INDEXES;
+          for (let p = 0; p < 3; p++) {
+            const a = byGroup[g][p * 2];
+            const b = byGroup[g][p * 2 + 1];
+            if (!a || !b) continue;
+            const totalA = Number(a.total);
+            const totalB = Number(b.total);
+            const tied = totalA === totalB;
+            const winnerId = tied
+              ? null
+              : (totalA > totalB ? a.competitor_id : b.competitor_id);
+            const pairIndex = indexes[p];
+            const [seedA, seedB] = SEEDS_BY_PAIR_INDEX[pairIndex];
+            pairs.push({
+              pair_index:      pairIndex,
+              group_number:    g,
+              seed_a:          seedA,
+              seed_b:          seedB,
+              competitor_a_id: a.competitor_id,
+              competitor_b_id: b.competitor_id,
+              full_name_a:     a.full_name,
+              full_name_b:     b.full_name,
+              country_code_a:  a.country_code,
+              country_code_b:  b.country_code,
+              total_a:         totalA,
+              total_b:         totalB,
+              winner_id:       winnerId,
+              tied,
+            });
+          }
+        }
+        // Stable sort by pair_index for a predictable response.
+        pairs.sort((a, b) => a.pair_index - b.pair_index);
+
+        res.json({ pairs });
+      } catch (err) {
+        console.error("[H2H Results Error]", err.message);
+        res.status(500).json({ error: "Internal server error" });
       }
     },
   );
