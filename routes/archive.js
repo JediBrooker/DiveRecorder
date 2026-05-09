@@ -136,7 +136,7 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
   // -------------------------------------------------------------
   router.get("/api/archive/:eventId/results", async (req, res) => {
     try {
-      const [ev, standings, history] = await Promise.all([
+      const [ev, standings, history, panel] = await Promise.all([
         reads.query("SELECT e.name, e.gender, e.height, e.total_rounds, e.number_of_judges, e.event_type, o.name AS org_name FROM events e JOIN organisations o ON e.org_id = o.id WHERE e.id = $1", [req.params.eventId]),
         reads.query(
           `WITH per_dive AS (
@@ -235,7 +235,13 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
                     e.number_of_judges, d.dd, e.event_type,
                   BOOL_OR(cdl.partner_id IS NOT NULL)
     ) AS total_dive_score,
-                  STRING_AGG(s.score::text, ',' ORDER BY ej.judge_number) AS judge_scores
+                  STRING_AGG(s.score::text, ',' ORDER BY ej.judge_number) AS judge_scores,
+                  /* Parallel array — same order as judge_scores so
+                     the SPA can zip chip i with judge_numbers[i]
+                     and look up identity from the top-level
+                     panel array. Robust to events where the
+                     panel was edited mid-meet (sparse positions). */
+                  JSON_AGG(ej.judge_number ORDER BY ej.judge_number) AS judge_numbers
            FROM scores s
            JOIN events e ON e.id = s.event_id
            JOIN users u ON s.competitor_id = u.id
@@ -257,9 +263,34 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
            ORDER BY u.full_name ASC, u.id ASC, s.round_number ASC`,
           [req.params.eventId],
         ),
+        // Panel — see /api/scoreboard/:id for the rationale: lets
+        // the scoreboard show a tooltip on each chip and link the
+        // chip to /judge-profile/<id>. Same shape across both
+        // endpoints so the SPA's panel-by-number map can be built
+        // identically for live + archived events.
+        reads.query(
+          `SELECT ej.judge_id, ej.judge_number,
+                  u.full_name,
+                  o.country_code  AS country_code,
+                  o.name          AS org_name,
+                  cl.name         AS club_name,
+                  cl.short_code   AS club_code
+           FROM event_judges ej
+           JOIN users u         ON u.id = ej.judge_id
+           JOIN organisations o ON o.id = u.org_id
+           LEFT JOIN clubs cl   ON cl.id = u.club_id
+           WHERE ej.event_id = $1
+           ORDER BY ej.judge_number ASC`,
+          [req.params.eventId],
+        ),
       ]);
       if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
-      res.json({ event: ev.rows[0], standings: standings.rows, dives: history.rows });
+      res.json({
+        event: ev.rows[0],
+        standings: standings.rows,
+        dives: history.rows,
+        panel: panel.rows,
+      });
     } catch (err) {
       console.error("[Archive Results Error]", err.message);
       res.status(500).json({ error: "Internal server error" });

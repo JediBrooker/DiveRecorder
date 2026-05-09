@@ -40,7 +40,7 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
     }
     metrics?.scoreboardCacheMisses.inc();
     try {
-      const [st, hi, up] = await Promise.all([
+      const [st, hi, up, panel] = await Promise.all([
         // Standings: per-dive points (trimmed × DD × scaling) summed
         // across all of a competitor's dives in the event.
         pool.query(
@@ -150,7 +150,13 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
                     e.number_of_judges, d.dd, e.event_type,
                   BOOL_OR(cdl.partner_id IS NOT NULL)
     ) AS total_dive_score,
-                  STRING_AGG(s.score::text, ',' ORDER BY ej.judge_number) AS judge_array
+                  STRING_AGG(s.score::text, ',' ORDER BY ej.judge_number) AS judge_array,
+                  /* Parallel array — same ordering as judge_array,
+                     so consumers can zip score chip i with
+                     judge_numbers[i] then look up identity from
+                     the top-level panel array. Robust to panels
+                     with sparse judge_number sequences. */
+                  JSON_AGG(ej.judge_number ORDER BY ej.judge_number) AS judge_numbers
            FROM scores s
            JOIN events e ON e.id = s.event_id
            JOIN users u ON s.competitor_id = u.id
@@ -232,6 +238,29 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
            ORDER BY ordered.round_number, ordered.round_order`,
           [req.params.eventId],
         ),
+        // Panel — public listing of the judges seated for this
+        // event, with country + club so the scoreboard can show
+        // each chip's tooltip ("J3 — Maria Schmidt · GER · MDC")
+        // and link the chip through to /judge-profile/<id>. Same
+        // shape as /api/events/:id/judges but public-readable
+        // (the scoreboard is anonymous-accessible, so the panel
+        // identities have to be too — and judge profiles are
+        // already public, so there's no new disclosure here).
+        pool.query(
+          `SELECT ej.judge_id, ej.judge_number,
+                  u.full_name,
+                  o.country_code  AS country_code,
+                  o.name          AS org_name,
+                  cl.name         AS club_name,
+                  cl.short_code   AS club_code
+           FROM event_judges ej
+           JOIN users u         ON u.id = ej.judge_id
+           JOIN organisations o ON o.id = u.org_id
+           LEFT JOIN clubs cl   ON cl.id = u.club_id
+           WHERE ej.event_id = $1
+           ORDER BY ej.judge_number ASC`,
+          [req.params.eventId],
+        ),
       ]);
 
       // Compute the public_id hash in Node from competitor_id /
@@ -250,13 +279,18 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
           null,
       }));
 
-      const payload = { standings, history: hi.rows, upcoming: up.rows };
+      const payload = {
+        standings,
+        history: hi.rows,
+        upcoming: up.rows,
+        panel: panel.rows,
+      };
       if (scoreboardCache) scoreboardCache.set(eventId, payload);
       res.set("X-Scoreboard-Cache", "miss");
       res.json(payload);
     } catch (err) {
       console.error("[Scoreboard Error]", err.message);
-      res.status(500).json({ standings: [], history: [], upcoming: [] });
+      res.status(500).json({ standings: [], history: [], upcoming: [], panel: [] });
     }
   });
 

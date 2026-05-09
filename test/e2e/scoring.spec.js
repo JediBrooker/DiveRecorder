@@ -141,6 +141,34 @@ test("five judges submit scores → scoreboard shows the diver's total", async (
   expect(Number(row.total)).toBeGreaterThan(20);
   expect(Number(row.total)).toBeLessThan(60);
 
+  // ---- Public chip-link payload — every spectator should get
+  //      everything the SPA needs to wire each score chip to
+  //      /judge-profile/<id> with a tooltip. The contract is:
+  //        * `panel`        — judge identity per panel position
+  //        * each history row's `judge_numbers` parallel array —
+  //          maps chip index → judge_number → panelByNumber lookup
+  expect(Array.isArray(sbData.panel)).toBe(true);
+  expect(sbData.panel).toHaveLength(5);
+  // Panel rows surface what the tooltip needs (name + country/club).
+  for (const p of sbData.panel) {
+    expect(p.judge_id).toBeTruthy();
+    expect(p.judge_number).toBeGreaterThanOrEqual(1);
+    expect(p.judge_number).toBeLessThanOrEqual(5);
+    expect(p.full_name).toMatch(/Judge \d/);
+    expect(p.country_code).toBeTruthy();
+  }
+  // The 5 distinct judge_numbers should match the 5 we assigned.
+  const numbers = sbData.panel.map((p) => p.judge_number).sort();
+  expect(numbers).toEqual([1, 2, 3, 4, 5]);
+
+  // History row carries judge_numbers in the same order as the
+  // judge_array CSV.
+  expect(sbData.history.length).toBeGreaterThanOrEqual(1);
+  const h0 = sbData.history[0];
+  expect(Array.isArray(h0.judge_numbers)).toBe(true);
+  expect(h0.judge_numbers).toHaveLength(5);
+  expect(h0.judge_array.split(",")).toHaveLength(5);
+
   // ---- And via the browser, just to satisfy "Playwright" ----
   await page.goto(`/scoreboard/${eventId}`);
   await expect(page).toHaveTitle(/dive recorder/i);

@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useSocket } from '@/composables/useSocket'
-import { annotatedScores, groupedSynchroScoresForDisplay, trimCount } from '@/composables/useScoreCategories'
+import { annotatedScores, groupedSynchroScoresForDisplay, trimCount, synchroJudgeGroups } from '@/composables/useScoreCategories'
 import { diveDescription } from '@/composables/useDiveLabel'
 import { cachedFetch } from '@/lib/idbCache'
 import { fmtDate } from '@/lib/format'
@@ -337,6 +337,78 @@ const liveJudgeScores = ref([])
 // breakdown, podium and event-stats panels.
 const archiveResults = ref(null)
 
+// Panel for the current event — `[{judge_id, judge_number,
+// full_name, country_code, club_code, org_name, club_name}, …]`
+// ordered by judge_number. Drives:
+//   * tooltips on every score chip ("J3 — Maria Schmidt · GER ·
+//     Munich Diving Club. Click to open judge analysis.")
+//   * the RouterLink each chip wraps → /judge-profile/<id>
+// Populated from /api/scoreboard/:id (live) or /api/archive/:id/
+// results (completed). Empty when the panel hasn't been seated
+// yet (rare — pre-meet scoreboard) — chips fall back to a
+// non-clickable rendering with a "panel not assigned" tooltip.
+const eventPanel = ref([])
+
+// O(1) lookup for chip rendering. Built off eventPanel; rebuilt
+// whenever the panel ref updates.
+const panelByNumber = computed(() => {
+  const map = new Map()
+  for (const j of eventPanel.value) {
+    if (j && j.judge_number != null) map.set(Number(j.judge_number), j)
+  }
+  return map
+})
+
+// Compose the judge tooltip line shown on every score chip.
+// Mentions the click action explicitly so a viewer who's never
+// followed the link knows why the chip is interactive.
+function judgeTooltip(judge, opts = {}) {
+  if (!judge) return 'Judge identity not available'
+  const parts = []
+  parts.push(`J${judge.judge_number} — ${judge.full_name}`)
+  const where = []
+  if (judge.country_code) where.push(judge.country_code)
+  if (judge.club_code)    where.push(judge.club_code)
+  else if (judge.club_name) where.push(judge.club_name)
+  else if (judge.org_name) where.push(judge.org_name)
+  if (where.length) parts[0] += ` · ${where.join(' · ')}`
+  if (opts.dropped) parts.push('Dropped by trim rule')
+  parts.push('Click to open judge analysis')
+  return parts.join('\n')
+}
+
+// Map a chip's position in the rendered list back to its
+// judge_number using the parallel `judge_numbers` array supplied
+// by the API. Falls back to (i + 1) when judge_numbers is missing
+// (e.g. cached responses pre-dating the rollout) — works for the
+// common case of a dense panel.
+function judgeNumberAt(judgeNumbers, i) {
+  if (Array.isArray(judgeNumbers) && judgeNumbers[i] != null) {
+    return Number(judgeNumbers[i])
+  }
+  return i + 1
+}
+
+function judgeForIndex(judgeNumbers, i) {
+  return panelByNumber.value.get(judgeNumberAt(judgeNumbers, i)) || null
+}
+
+// Map a chip's slot inside a synchro role group back to the
+// real judge. groupedSynchroScoresForDisplay emits `scores`
+// arrays in role order (Exec A → Exec B → Sync), but the
+// underlying panel positions are fixed by World Aquatics — see
+// synchroJudgeGroups: 9-judge synchro → a [1,2], b [3,4],
+// sync [5..9]; 11-judge synchro → a [1..3], b [4..6],
+// sync [7..11]. We re-derive the panel position from role + i.
+function judgeForSynchro(historyRow, role, i) {
+  const numJudges = currentEvent.value?.number_of_judges
+  const groups = synchroJudgeGroups(numJudges)
+  if (!groups) return null
+  const judgeNumber = groups[role]?.[i]
+  if (judgeNumber == null) return null
+  return panelByNumber.value.get(judgeNumber) || null
+}
+
 const isCompleted = computed(() => currentEvent.value?.status === 'Completed')
 
 const latestRound = computed(() => {
@@ -577,6 +649,8 @@ async function refreshData() {
       standings.value = archive.standings || []
       historyItems.value = []
       leaderboardRounds.value = leaderboard.rounds || []
+      // Panel comes from the archive payload for completed events.
+      eventPanel.value = archive.panel || []
     } else {
       archiveResults.value = null
       const [scoreboard, leaderboard] = await Promise.all([
@@ -587,6 +661,8 @@ async function refreshData() {
       standings.value = scoreboard.standings || []
       upcoming.value = scoreboard.upcoming || []
       leaderboardRounds.value = leaderboard.rounds || []
+      // Panel comes from the scoreboard payload for live events.
+      eventPanel.value = scoreboard.panel || []
     }
     if (expandedRound.value === null && leaderboardRounds.value.length) {
       expandedRound.value = leaderboardRounds.value[leaderboardRounds.value.length - 1].round_number
@@ -1318,19 +1394,45 @@ onMounted(async () => {
                      :key="g.role"
                      :class="['judge-group', `judge-group-${g.role}`]">
                   <span class="judge-group-label">{{ g.label }}</span>
-                  <span v-for="(j, si) in g.scores" :key="si"
-                        :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                        :title="j.dropped ? 'Dropped by trim rule' : ''">
-                    {{ j.value.toFixed(1) }}
-                  </span>
+                  <!-- Synchro: each score's judge_number is the
+                       N-th member of the role-specific subpanel
+                       (Exec A / Exec B / Sync). g.scores is in
+                       judge_number order within the role, so we
+                       map back via groupedSynchroScoresForDisplay
+                       providing the original judge_numbers. The
+                       chip's "right" judge_number lives in the
+                       parent dive row's judge_numbers array; we
+                       index into it by the chip's overall position
+                       (computed from role + slot). -->
+                  <template v-for="(j, si) in g.scores" :key="si">
+                    <RouterLink v-if="judgeForSynchro(h, g.role, si)"
+                          :to="`/judge-profile/${judgeForSynchro(h, g.role, si).judge_id}`"
+                          :class="['j-score', 'j-link', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                          :title="judgeTooltip(judgeForSynchro(h, g.role, si), { dropped: j.dropped })">
+                      {{ j.value.toFixed(1) }}
+                    </RouterLink>
+                    <span v-else
+                          :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                          :title="j.dropped ? 'Dropped by trim rule' : 'Judge identity not available'">
+                      {{ j.value.toFixed(1) }}
+                    </span>
+                  </template>
                 </div>
               </template>
               <template v-else>
-                <span v-for="(j, si) in annotatedScores(h.judge_array, currentEvent?.number_of_judges)" :key="si"
-                      :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                      :title="j.dropped ? 'Dropped by trim rule' : ''">
-                  {{ j.value.toFixed(1) }}
-                </span>
+                <template v-for="(j, si) in annotatedScores(h.judge_array, currentEvent?.number_of_judges)" :key="si">
+                  <RouterLink v-if="judgeForIndex(h.judge_numbers, si)"
+                        :to="`/judge-profile/${judgeForIndex(h.judge_numbers, si).judge_id}`"
+                        :class="['j-score', 'j-link', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                        :title="judgeTooltip(judgeForIndex(h.judge_numbers, si), { dropped: j.dropped })">
+                    {{ j.value.toFixed(1) }}
+                  </RouterLink>
+                  <span v-else
+                        :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                        :title="j.dropped ? 'Dropped by trim rule' : 'Judge identity not available'">
+                    {{ j.value.toFixed(1) }}
+                  </span>
+                </template>
               </template>
             </div>
           </div>
@@ -1417,13 +1519,28 @@ onMounted(async () => {
                a min-height so its eventual appearance doesn't
                push the catch-up + Up Next blocks below it down. -->
           <div v-if="centrePerformer" class="sb-live-judges">
-            <span v-for="(slot, i) in liveJudgeSlots" :key="i"
-                  :class="['j-score',
-                           slot.filled ? `j-${slot.category}` : 'j-empty',
-                           slot.dropped ? 'j-dropped' : '']"
-                  :title="slot.dropped ? 'Dropped by trim rule' : ''">
-              {{ slot.filled ? slot.value.toFixed(1) : '—' }}
-            </span>
+            <template v-for="(slot, i) in liveJudgeSlots" :key="i">
+              <!-- Live chips: each slot's judge_number is i+1 (the
+                   panel is dense and ordered). Wrap in a RouterLink
+                   when we know who the judge is so spectators can
+                   click through to /judge-profile; fall back to a
+                   non-clickable span before the panel has loaded. -->
+              <RouterLink v-if="panelByNumber.get(i + 1)"
+                    :to="`/judge-profile/${panelByNumber.get(i + 1).judge_id}`"
+                    :class="['j-score', 'j-link',
+                             slot.filled ? `j-${slot.category}` : 'j-empty',
+                             slot.dropped ? 'j-dropped' : '']"
+                    :title="judgeTooltip(panelByNumber.get(i + 1), { dropped: slot.dropped })">
+                {{ slot.filled ? slot.value.toFixed(1) : '—' }}
+              </RouterLink>
+              <span v-else
+                    :class="['j-score',
+                             slot.filled ? `j-${slot.category}` : 'j-empty',
+                             slot.dropped ? 'j-dropped' : '']"
+                    :title="slot.dropped ? 'Dropped by trim rule' : 'Judge identity not available'">
+                {{ slot.filled ? slot.value.toFixed(1) : '—' }}
+              </span>
+            </template>
           </div>
           <div v-if="centrePerformer" class="sb-live-total-slot">
             <div v-show="liveDiveTotal != null" class="sb-live-total">
@@ -1839,19 +1956,35 @@ onMounted(async () => {
                              :key="g.role"
                              :class="['judge-group', `judge-group-${g.role}`]">
                           <span class="judge-group-label">{{ g.label }}</span>
-                          <span v-for="(j, si) in g.scores" :key="si"
-                                :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                                :title="j.dropped ? 'Dropped by trim rule' : ''">
-                            {{ j.value.toFixed(1) }}
-                          </span>
+                          <template v-for="(j, si) in g.scores" :key="si">
+                            <RouterLink v-if="judgeForSynchro(d, g.role, si)"
+                                  :to="`/judge-profile/${judgeForSynchro(d, g.role, si).judge_id}`"
+                                  :class="['j-score', 'j-link', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                                  :title="judgeTooltip(judgeForSynchro(d, g.role, si), { dropped: j.dropped })">
+                              {{ j.value.toFixed(1) }}
+                            </RouterLink>
+                            <span v-else
+                                  :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                                  :title="j.dropped ? 'Dropped by trim rule' : 'Judge identity not available'">
+                              {{ j.value.toFixed(1) }}
+                            </span>
+                          </template>
                         </div>
                       </template>
                       <template v-else>
-                        <span v-for="(j, si) in annotatedScores(d.judge_scores, currentEvent?.number_of_judges)" :key="si"
-                              :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                              :title="j.dropped ? 'Dropped by trim rule' : ''">
-                          {{ j.value.toFixed(1) }}
-                        </span>
+                        <template v-for="(j, si) in annotatedScores(d.judge_scores, currentEvent?.number_of_judges)" :key="si">
+                          <RouterLink v-if="judgeForIndex(d.judge_numbers, si)"
+                                :to="`/judge-profile/${judgeForIndex(d.judge_numbers, si).judge_id}`"
+                                :class="['j-score', 'j-link', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                                :title="judgeTooltip(judgeForIndex(d.judge_numbers, si), { dropped: j.dropped })">
+                            {{ j.value.toFixed(1) }}
+                          </RouterLink>
+                          <span v-else
+                                :class="['j-score', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
+                                :title="j.dropped ? 'Dropped by trim rule' : 'Judge identity not available'">
+                            {{ j.value.toFixed(1) }}
+                          </span>
+                        </template>
                       </template>
                       <!-- Officials-only audit history. Sits at
                            the trailing edge of the judges' chip
@@ -2506,6 +2639,28 @@ onMounted(async () => {
   color: var(--text-3);
   opacity: 0.55;
 }
+
+/* .j-link — a score chip rendered as a RouterLink to the
+   judge's analysis page. Looks identical to a .j-score chip at
+   rest (so the colour-by-category visual vocabulary is
+   preserved), but cursor + subtle outline on hover signal that
+   it's clickable. The whole-tile click target keeps the chip's
+   tap area large enough for poolside / phone use. */
+.j-link {
+  text-decoration: none;
+  cursor: pointer;
+  transition: outline-color 0.15s, transform 0.05s;
+  outline: 1px solid transparent;
+  /* Inherits colour from the .j-<category> class so the
+     RouterLink doesn't go blue-with-underline. */
+  color: inherit;
+}
+.j-link:hover,
+.j-link:focus-visible {
+  outline-color: var(--cyan);
+  outline-offset: 1px;
+}
+.j-link:active { transform: scale(0.97); }
 /* Reserved-height wrapper for the dive-total. Without this
    the catch-up + Up Next blocks below would shift down by
    ~52px the instant the panel completes and the total
