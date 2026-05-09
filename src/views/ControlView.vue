@@ -5362,8 +5362,18 @@ onUnmounted(() => {
 
 /* Generic overflow-menu styling for the four ⋯ / Adjust ▾ /
    ▾ / ? popovers. The host is the relative-positioned wrapper;
-   the menu itself is absolutely positioned underneath. */
+   the menu itself is absolutely positioned underneath.
+   When any descendant button has aria-expanded="true" the host
+   gets elevated into its own stacking context so the popover
+   paints above subsequent rows + panels. Without this, sibling
+   roster rows that follow in the document tree paint on top of
+   the menu (later-DOM-order wins at equal z-index inside the
+   parent stacking context, regardless of the menu's own
+   z-index value). The :has() selector is a one-line, JS-free
+   way to express it; supported in every browser this app
+   targets. */
 .dropdown-host { position: relative; }
+.dropdown-host:has([aria-expanded="true"]) { z-index: 200; }
 .dropdown-menu {
   position: absolute; z-index: 50; top: calc(100% + 0.4rem);
   min-width: 200px;
@@ -6163,12 +6173,16 @@ onUnmounted(() => {
 /* Popover that opens when ⋯ is clicked. Anchored to the
    bottom-right of the trigger; nudges left enough to stay
    inside the right-column panel on the typical desktop layout
-   (right column is ~280–320px wide). */
+   (right column is ~280–320px wide).
+   z-index higher than the parent's elevated stacking context
+   (.dropdown-host:has([aria-expanded="true"]) → z-index: 200)
+   so it floats above any sibling roster rows + the round-block
+   header that comes next in document order. */
 .roster-menu {
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
-  z-index: 50;
+  z-index: 250;
   min-width: 220px;
   background: var(--bg-2);
   border: 1px solid var(--border-2);
