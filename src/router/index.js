@@ -150,6 +150,17 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    // Diver meet-day view — focused phone-deck experience for
+    // an athlete mid-competition. Shows their next dive, queue
+    // position, current rank, and what they need to score for
+    // gold/silver/bronze. Powered by /api/events/:id/me-meet-day,
+    // which gates on competitor_dive_lists membership so any
+    // diver entered in the event reaches it.
+    path: '/me/meet/:eventId',
+    component: () => import('@/views/MeetDayView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     // Dive Directory browser: read the World Aquatics catalog,
     // add custom rows for poolside / progression dives. Anyone
     // signed in can browse; the create/edit/delete affordances

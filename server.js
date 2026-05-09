@@ -682,6 +682,7 @@ app.use(require("./routes/templates")({ pool, verifyToken }));
 // =============================================================
 app.use(require("./routes/competitor")({
   pool,
+  verifyToken,
   requireOrgRole,
   bulkWriteLimiter,
   loadEventForEntries,

@@ -3,6 +3,12 @@ import { RouterLink } from 'vue-router'
 
 defineProps({
   diverNextMeet: { type: Object, default: null },
+  /* The Live event (if any) — when present we render the
+     meet-day CTA card at the top of the panel, deep-linking to
+     /me/meet/:eventId. The endpoint 403s for divers who aren't
+     entered, so this card hiding itself for non-entrants
+     happens server-side rather than via a client predicate. */
+  diverLiveMeet: { type: Object, default: null },
   fmtCloses:     { type: Function, required: true },
   icons:         { type: Object, required: true },
 })
@@ -10,6 +16,21 @@ defineProps({
 
 <template>
   <section class="panel">
+    <!-- Meet day card — visible whenever a Live event is on.
+         The diver opens this from the warm-up area or the deck
+         and gets a focused "next dive / rank / what to score"
+         view that beats refreshing the public scoreboard. -->
+    <div v-if="diverLiveMeet" class="panel-section">
+      <div class="panel-section-label">Meet day · live now</div>
+      <RouterLink :to="`/me/meet/${diverLiveMeet.id}`" class="diver-next-card md-cta">
+        <div class="diver-next-name">{{ diverLiveMeet.name }}</div>
+        <div class="diver-next-meta">
+          Tap to see your next dive, current rank, and what you need to score
+        </div>
+        <div class="diver-next-arrow" aria-hidden="true">→</div>
+      </RouterLink>
+    </div>
+
     <div v-if="diverNextMeet" class="panel-section">
       <div class="panel-section-label">Your next meet</div>
       <RouterLink to="/competitor" class="diver-next-card">
@@ -20,7 +41,7 @@ defineProps({
         <div class="diver-next-arrow" aria-hidden="true">→</div>
       </RouterLink>
     </div>
-    <div v-else class="dashboard-panel-empty">
+    <div v-else-if="!diverLiveMeet" class="dashboard-panel-empty">
       <div class="empty-state-icon">🤿</div>
       <div class="empty-state-title">No upcoming meets</div>
       <div class="empty-state-body">

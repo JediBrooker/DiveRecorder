@@ -839,6 +839,24 @@ h1, h2, h3, h4 {
 }
 .diver-next-card:hover .diver-next-arrow { color: var(--green); transform: translate(3px, -50%); }
 
+/* Meet-day CTA variant of the diver-next-card. Same shape, but
+   red-pulsing + cyan-tinted to call out that the meet is live
+   right now and the diver should jump in. */
+.diver-next-card.md-cta {
+  border-left: 3px solid var(--red);
+  background: linear-gradient(90deg, rgba(239,68,68,0.06), rgba(6,182,212,0.04));
+}
+.diver-next-card.md-cta::before {
+  content: '🔴 LIVE';
+  position: absolute; top: 0.7rem; right: 1.4rem;
+  font-family: var(--font-display);
+  font-size: 9px; font-weight: 900; letter-spacing: 0.18em;
+  color: var(--red);
+  animation: pulse-red 2s infinite;
+}
+.diver-next-card.md-cta:hover { border-color: var(--cyan); }
+.diver-next-card.md-cta:hover .diver-next-arrow { color: var(--cyan); }
+
 /* GO TO tiles — small grid per panel */
 .goto-grid {
   display: grid;

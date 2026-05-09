@@ -20,6 +20,7 @@ const express = require("express");
 
 module.exports = function createCompetitorRouter({
   pool,
+  verifyToken,
   requireOrgRole,
   bulkWriteLimiter,
   loadEventForEntries,
@@ -186,6 +187,292 @@ module.exports = function createCompetitorRouter({
       }
     },
   );
+
+  // -------------------------------------------------------------
+  // GET /api/events/:id/me-meet-day
+  //
+  // The diver's competition-day "now" view. Composes data the
+  // operator surfaces and the spectator scoreboard already have
+  // — dive list + queue + standings + catch-up math — into a
+  // single payload for a focused phone-deck experience:
+  //
+  //   { event, next_dive, queue, standing, targets }
+  //
+  // Auth: caller must hold a competitor_dive_lists row for this
+  // event. That implicitly covers host org + every participating
+  // org because the entry endpoint already gated on that.
+  // -------------------------------------------------------------
+  router.get("/api/events/:id/me-meet-day", verifyToken, async (req, res) => {
+    const eventId = req.params.id;
+    const userId = req.user.id;
+    try {
+      // 1. Verify the caller is in this event AND pull the event.
+      const evRes = await pool.query(
+        `SELECT e.id, e.name, e.status, e.event_type::text AS event_type,
+                e.height, e.total_rounds, e.number_of_judges,
+                o.name AS org_name, o.country_code
+           FROM events e
+           JOIN organisations o ON o.id = e.org_id
+          WHERE e.id = $1`,
+        [eventId],
+      );
+      if (!evRes.rows.length) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const event = evRes.rows[0];
+      const isMine = await pool.query(
+        `SELECT 1 FROM competitor_dive_lists
+          WHERE event_id = $1 AND competitor_id = $2 AND withdrawn_at IS NULL
+          LIMIT 1`,
+        [eventId, userId],
+      );
+      if (!isMine.rows.length) {
+        return res.status(403).json({
+          error: "You're not entered in this event",
+        });
+      }
+
+      // 2. My dive list, joined to directory, with completion flag.
+      const myDivesRes = await pool.query(
+        `SELECT cdl.round_number, cdl.dive_id,
+                d.dive_code, d.position::text AS position,
+                d.dd, d.description, d.height::text AS dive_height,
+                COALESCE(score_count.n, 0)::int AS judges_in,
+                $3::int AS judges_needed
+           FROM competitor_dive_lists cdl
+           LEFT JOIN dive_directory d ON d.id = cdl.dive_id
+           LEFT JOIN LATERAL (
+             SELECT COUNT(*)::int AS n
+               FROM scores s
+              WHERE s.event_id = cdl.event_id
+                AND s.competitor_id = cdl.competitor_id
+                AND s.round_number = cdl.round_number
+           ) score_count ON true
+          WHERE cdl.event_id = $1 AND cdl.competitor_id = $2
+            AND cdl.withdrawn_at IS NULL
+          ORDER BY cdl.round_number ASC`,
+        [eventId, userId, parseInt(event.number_of_judges) || 5],
+      );
+      const myDives = myDivesRes.rows.map(r => ({
+        round_number: r.round_number,
+        dive_code: r.dive_code,
+        position: r.position,
+        dd: r.dd != null ? Number(r.dd) : null,
+        description: r.description,
+        dive_height: r.dive_height,
+        completed: r.judges_in >= r.judges_needed,
+      }));
+      const nextDive = myDives.find(d => !d.completed) || null;
+      const remainingDives = myDives.filter(d => !d.completed).length;
+
+      // 3. Standings — same per-dive math as the public scoreboard,
+      //    rolled up per competitor. Rank ties share (FINA practice).
+      const standRes = await pool.query(
+        `WITH per_dive AS (
+           SELECT s.competitor_id, s.round_number,
+                  calc_event_dive_points(
+                    array_agg(ej.judge_number ORDER BY ej.judge_number),
+                    array_agg(s.score        ORDER BY ej.judge_number),
+                    e.number_of_judges, MAX(d.dd), e.event_type,
+                    BOOL_OR(cdl.partner_id IS NOT NULL)
+                  ) AS dive_points
+             FROM scores s
+             JOIN events e ON e.id = s.event_id
+             LEFT JOIN event_judges ej
+               ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+             LEFT JOIN competitor_dive_lists cdl
+               ON cdl.event_id = s.event_id
+              AND cdl.competitor_id = s.competitor_id
+              AND cdl.round_number = s.round_number
+             LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+            WHERE s.event_id = $1
+            GROUP BY s.competitor_id, s.round_number,
+                     e.number_of_judges, e.event_type
+         ), totals AS (
+           SELECT competitor_id, SUM(dive_points)::numeric AS total
+             FROM per_dive
+            GROUP BY competitor_id
+         )
+         SELECT competitor_id, total::float AS total
+           FROM totals
+          ORDER BY total DESC NULLS LAST`,
+        [eventId],
+      );
+      const standings = standRes.rows;
+      // Ties share rank (FINA practice).
+      const ranked = standings.map((s, i) => ({ ...s, _idx: i }));
+      let prevTotal = null;
+      let prevRank  = 0;
+      for (const s of ranked) {
+        if (prevTotal !== null && Math.abs(s.total - prevTotal) < 1e-9) {
+          s.rank = prevRank;
+        } else {
+          s.rank = s._idx + 1;
+          prevRank  = s.rank;
+          prevTotal = s.total;
+        }
+      }
+      const meRow = ranked.find(s => s.competitor_id === userId);
+      const myRank  = meRow ? meRow.rank  : null;
+      const myTotal = meRow ? Number(meRow.total) : 0;
+      const totalCompetitors = ranked.length;
+      const leaderTotal = ranked[0] ? Number(ranked[0].total) : 0;
+
+      // Top three distinct totals — these are the gold/silver/
+      // bronze targets. Tied scores at the cut share the medal so
+      // the diver-facing math stays accurate even at podium edges.
+      const distinctTotals = [];
+      for (const s of ranked) {
+        if (!distinctTotals.includes(Number(s.total))) {
+          distinctTotals.push(Number(s.total));
+          if (distinctTotals.length >= 3) break;
+        }
+      }
+      const goldTotal   = distinctTotals[0] ?? null;
+      const silverTotal = distinctTotals[1] ?? null;
+      const bronzeTotal = distinctTotals[2] ?? null;
+
+      // 4. Catch-up math — mirrors ScoreboardView's
+      //    activeProjection. The DD proxy is the diver's NEXT
+      //    dive (we know it; the public scoreboard had to use the
+      //    active diver's dive as a proxy).
+      const numJudges = parseInt(event.number_of_judges) || 5;
+      const isSynchro = event.event_type === "synchro_pair";
+      // Trim count: 5j drop 1+1, 7j drop 2+2, 9j drop 2+2, 11j drop 3+3.
+      function trimCount(n) {
+        if (n >= 11) return 3;
+        if (n >= 7)  return 2;
+        if (n >= 5)  return 1;
+        return 0;
+      }
+      function panelMultiplier(j, sync) {
+        if (sync) return 9;
+        const drop = trimCount(j);
+        return Math.max(1, j - 2 * drop);
+      }
+      const mult = panelMultiplier(numJudges, isSynchro);
+      const ddProxy = nextDive ? nextDive.dd : null;
+      const remaining = remainingDives;
+
+      function targetFor(targetTotal) {
+        if (targetTotal == null || myTotal >= targetTotal) {
+          return { gap: 0, needs_avg: 0, possible: true, achieved: true };
+        }
+        const gap = targetTotal - myTotal;
+        if (!remaining || !ddProxy) {
+          return { gap, needs_avg: null, possible: null, achieved: false };
+        }
+        const raw = gap / (mult * ddProxy * remaining);
+        const rounded = Math.ceil(raw * 2) / 2;
+        return {
+          gap: Number(gap.toFixed(2)),
+          needs_avg: rounded,
+          possible: raw <= 10,
+          achieved: false,
+        };
+      }
+
+      const targets = {
+        gold:   targetFor(goldTotal),
+        silver: targetFor(silverTotal),
+        bronze: targetFor(bronzeTotal),
+      };
+
+      // 5. Queue — who's on the board now + how many divers until
+      //    me. Pull the live state row + the dive order around me.
+      const liveRes = await pool.query(
+        "SELECT active_diver_payload FROM event_live_state WHERE event_id = $1",
+        [eventId],
+      );
+      const active = liveRes.rows[0]?.active_diver_payload || null;
+      let activeName = null;
+      let activeRound = null;
+      if (active) {
+        activeName  = active.full_name || active.diverName || null;
+        activeRound = active.round_number != null ? parseInt(active.round_number) : null;
+      }
+      // How many divers in nextDive's round are ahead of me by
+      // display_order. Without an active diver we report null —
+      // the SPA renders "Pre-event" instead of a misleading 0.
+      let diversUntilMe = null;
+      let myPositionInRound = null;
+      if (nextDive) {
+        const meOrderRes = await pool.query(
+          `SELECT display_order
+             FROM competitor_dive_lists
+            WHERE event_id = $1 AND competitor_id = $2 AND round_number = $3`,
+          [eventId, userId, nextDive.round_number],
+        );
+        const myOrder = meOrderRes.rows[0]?.display_order;
+        if (myOrder != null) {
+          myPositionInRound = myOrder;
+          if (active && activeRound === nextDive.round_number) {
+            const activeId = active.competitor_id || active.id;
+            if (activeId) {
+              const activeOrderRes = await pool.query(
+                `SELECT display_order FROM competitor_dive_lists
+                  WHERE event_id = $1 AND competitor_id = $2 AND round_number = $3`,
+                [eventId, activeId, nextDive.round_number],
+              );
+              const activeOrder = activeOrderRes.rows[0]?.display_order;
+              if (activeOrder != null) {
+                diversUntilMe = Math.max(0, myOrder - activeOrder);
+              }
+            }
+          } else if (activeRound != null && activeRound < nextDive.round_number) {
+            // Active is in a prior round — the count of remaining
+            // divers in this round is just my position.
+            diversUntilMe = myOrder;
+          }
+        }
+      }
+
+      res.json({
+        event: {
+          id: event.id,
+          name: event.name,
+          status: event.status,
+          event_type: event.event_type,
+          height: event.height,
+          total_rounds: event.total_rounds,
+          number_of_judges: event.number_of_judges,
+          org_name: event.org_name,
+          country_code: event.country_code,
+        },
+        me: {
+          competitor_id: userId,
+          full_name: req.user.full_name,
+        },
+        next_dive: nextDive ? {
+          round_number:    nextDive.round_number,
+          dive_code:       nextDive.dive_code,
+          position:        nextDive.position,
+          dd:              nextDive.dd,
+          description:     nextDive.description,
+          dive_height:     nextDive.dive_height,
+        } : null,
+        remaining_dives: remaining,
+        completed_dives: myDives.length - remaining,
+        total_dives:     myDives.length,
+        queue: {
+          active_diver_name:  activeName,
+          active_round:       activeRound,
+          divers_until_me:    diversUntilMe,
+          my_position_in_round: myPositionInRound,
+        },
+        standing: {
+          rank:               myRank,
+          total:              myTotal,
+          total_competitors:  totalCompetitors,
+          behind_leader:      leaderTotal - myTotal,
+        },
+        targets,
+      });
+    } catch (err) {
+      console.error("[Meet Day Error]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
 
   return router;
 };

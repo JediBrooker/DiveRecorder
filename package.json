@@ -12,6 +12,7 @@
     "test": "node --test test/syntax.test.js test/calc.test.js test/score-trim.test.js test/dive-label.test.js test/integration.test.js",
     "test:safe": "node --test test/syntax.test.js test/calc.test.js test/score-trim.test.js test/dive-label.test.js",
     "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed --slow-mo=300",
     "migrate": "node scripts/migrate.js"
   },
   "keywords": [],

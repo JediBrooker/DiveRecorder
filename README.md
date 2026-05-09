@@ -141,6 +141,16 @@ Where divers build their list for an upcoming event. Step 1 picks the event (aut
 
 ![Diver Portal](./docs/screenshots/competitor.png)
 
+#### Diver Meet Day View
+
+Phone-deck experience for athletes mid-competition. Lives at `/me/meet/:eventId` — surfaced from the dashboard's Diver tab as a pulsing **Meet day · live now** card the moment any event the diver is entered in flips Live. Three blocks stacked vertically, designed for the two minutes between drying off and walking up to the platform:
+
+- **Your next dive** — code (`201B`), description, board height, DD; round pip in the corner; pulsing cyan **YOU'RE UP** banner when the diver is next, otherwise an "N divers until you're up" countdown.
+- **Current standing** — rank in 56 px italic cyan with `↑` / `↓` movement, total points, gap to leader (or 🥇 for the leader). FINA-style tied-rank sharing.
+- **What you need** — gold/silver/bronze rows colour-coded reachable / achieved / out-of-reach. The per-judge average required (rounded UP to the next 0.5) reuses the same `calc_event_dive_points`-based math the Control Room and audience scoreboard use, so coach + athlete + spectator all see consistent numbers.
+
+Real-time: subscribes to the event-room socket; `score_received` / `state_update` / `score_corrected` trigger a 250 ms-debounced bundle refetch. Endpoint: `GET /api/events/:id/me-meet-day`, gated on `competitor_dive_lists` membership (403s for non-entrants).
+
 #### Diver Profile
 
 Per-diver stats: meets entered, dives performed, average DD attempted, best single dive, an SVG sparkline of total scores across meets, and a personal-bests table keyed by dive code + position + height. The Customize modal lets each diver pick which of 10+ analytics widgets to show (Recent Form, Medal Counts, Height Breakdown, Round-by-Round Form with stamina insight, DD Risk Profile, Compare-to-Peers, Year-over-Year, etc.) — the choices persist per-user. Cmd-P / Ctrl-P prints the dashboard to PDF; `/compare?a=&b=` puts two divers side-by-side.

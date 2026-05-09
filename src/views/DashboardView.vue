@@ -711,6 +711,22 @@ const diverNextMeet = computed(() => {
   return upcoming[0] || null
 })
 
+// Live event the diver is currently competing in (or just
+// "happening now in their federation"). Surfaces the meet-day
+// CTA at the top of the diver panel when relevant. Null when
+// nothing is live — the panel falls back to the next-upcoming
+// card. We don't filter by "diver is entered" client-side
+// because the events list isn't joined with competitor_dive_lists;
+// /api/events/:id/me-meet-day will 403 if the diver isn't
+// entered, and the panel handles that path.
+const diverLiveMeet = computed(() => {
+  const live = events.value
+    .filter((e) => e.status === 'Live')
+    .sort((a, b) => (b.created_at ? +new Date(b.created_at) : 0)
+                  - (a.created_at ? +new Date(a.created_at) : 0))
+  return live[0] || null
+})
+
 // Per-tab badge counts for the tab strip.
 function badgeFor(id) {
   if (id === 'org_admin') {
@@ -1132,6 +1148,7 @@ function attachSocketHandlers() {
     <DiverPanel
       v-else-if="activeTab === 'diver'"
       :diver-next-meet="diverNextMeet"
+      :diver-live-meet="diverLiveMeet"
       :fmt-closes="fmtCloses"
       :icons="ICONS"
     />
