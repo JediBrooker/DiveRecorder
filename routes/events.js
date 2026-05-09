@@ -1439,10 +1439,6 @@ module.exports = function createEventsRouter({
         // wired the rows just skip notification.
         if (push && typeof push.sendNotification === "function") {
           try {
-            const advancedIds = [
-              ...primaries.map((d) => d.competitor_id),
-              ...reserveRows.map((d) => d.competitor_id),
-            ];
             const evNameRes = await pool.query(
               "SELECT name FROM events WHERE id = $1",
               [child.id],
@@ -1451,17 +1447,43 @@ module.exports = function createEventsRouter({
             const lockHint = lockAtIso
               ? ` Locks at ${new Date(lockAtIso).toLocaleString()}.`
               : "";
-            await push.sendNotification(advancedIds, {
-              category:  "dive_list_advanced",
-              title:     `You've advanced to "${childName}"`,
-              body:      `Your dive list carried over from the previous stage.${lockHint} Tap to confirm or edit before then.`,
-              data:      {
-                event_id: child.id,
-                parent_event_id: parent.id,
-                lock_at: lockAtIso,
-              },
-              action_url: `/competitor?event=${child.id}`,
-            });
+            // Primaries: "You've advanced". Different copy from
+            // reserves so the diver immediately knows whether
+            // they're competing or on standby.
+            const primaryIds = primaries.map((d) => d.competitor_id);
+            if (primaryIds.length) {
+              await push.sendNotification(primaryIds, {
+                category:  "dive_list_advanced",
+                title:     `You've advanced to "${childName}"`,
+                body:      `Your dive list carried over from the previous stage.${lockHint} Tap to confirm or edit before then.`,
+                data:      {
+                  event_id: child.id,
+                  parent_event_id: parent.id,
+                  lock_at: lockAtIso,
+                  is_reserve: false,
+                },
+                action_url: `/competitor?event=${child.id}`,
+              });
+            }
+            // Reserves: explicit "you're a reserve" framing per
+            // WA Article 4.1.12. Same lock window applies — they
+            // should keep the list current in case they're
+            // promoted before the deadline.
+            if (reserveRows.length) {
+              const reserveIds = reserveRows.map((d) => d.competitor_id);
+              await push.sendNotification(reserveIds, {
+                category:  "dive_list_reserve",
+                title:     `You're a reserve for "${childName}"`,
+                body:      `You'll only compete if a primary withdraws (WA Article 4.1.12).${lockHint} Tap to confirm or edit your list now so you're ready if you're promoted.`,
+                data:      {
+                  event_id: child.id,
+                  parent_event_id: parent.id,
+                  lock_at: lockAtIso,
+                  is_reserve: true,
+                },
+                action_url: `/competitor?event=${child.id}`,
+              });
+            }
           } catch (notifErr) {
             console.error("[Advance Notification Skipped]", notifErr.message);
           }
@@ -1706,6 +1728,41 @@ module.exports = function createEventsRouter({
         });
 
         await client.query("COMMIT");
+
+        // Notify the just-promoted diver — they were a reserve a
+        // moment ago and now need to know they're competing.
+        // Best-effort; if push isn't wired the row just doesn't
+        // get sent.
+        if (push && typeof push.sendNotification === "function") {
+          try {
+            const evRow = await pool.query(
+              "SELECT name, dive_list_locks_at FROM events WHERE id = $1",
+              [eventId],
+            );
+            const evName = evRow.rows[0]?.name || "the event";
+            const lockAt = evRow.rows[0]?.dive_list_locks_at;
+            const lockHint = lockAt
+              ? ` Dive list locks at ${new Date(lockAt).toLocaleString()}.`
+              : "";
+            await push.sendNotification([competitorId], {
+              category:  "reserve_promoted",
+              title:     `You've been promoted into "${evName}"`,
+              body:      replacedName
+                ? `${replacedName} withdrew — you're now competing in their slot.${lockHint} Confirm or edit your dive list now.`
+                : `You're now competing.${lockHint} Confirm or edit your dive list now.`,
+              data:      {
+                event_id: eventId,
+                replaced_competitor_id: replaces_competitor_id || null,
+                display_order: targetOrder,
+                lock_at: lockAt ? new Date(lockAt).toISOString() : null,
+              },
+              action_url: `/competitor?event=${eventId}`,
+            });
+          } catch (notifErr) {
+            console.error("[Promote Notification Skipped]", notifErr.message);
+          }
+        }
+
         res.json({
           promoted: true,
           display_order: targetOrder,

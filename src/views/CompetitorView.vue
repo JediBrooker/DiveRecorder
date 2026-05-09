@@ -472,8 +472,38 @@ async function onEventChange() {
   }
   // Reserves status (migration 040) — drives the "You're Reserve
   // N" banner if the diver carried over as a reserve rather than
-  // a primary in this stage.
+  // a primary in this stage. Also returns the diver's own
+  // existing dive list so we can pre-fill the form (e.g. when
+  // they advanced from a prior stage and the inherited list
+  // should show in the picker rows).
   await loadMyListStatus()
+  if (Array.isArray(myListStatus.value.dives) && myListStatus.value.dives.length) {
+    // Resize selectedDives if needed — the diver-list endpoint
+    // is the authoritative source when the operator hasn't
+    // prescribed a different round count.
+    const maxRound = Math.max(...myListStatus.value.dives.map(d => d.round_number))
+    if (selectedDives.value.length < maxRound) {
+      selectedDives.value = Array(maxRound).fill(null).map(
+        (_, i) => selectedDives.value[i] || null,
+      )
+    }
+    // Pre-fill any round that doesn't already have a dive
+    // (operator-prescribed slots from the round-dives endpoint
+    // win — we only fill the gaps).
+    for (const d of myListStatus.value.dives) {
+      const idx = d.round_number - 1
+      if (!selectedDives.value[idx] && d.dive_id) {
+        selectedDives.value[idx] = {
+          id:          d.dive_id,
+          dive_code:   d.dive_code,
+          position:    d.position,
+          dd:          d.dd,
+          description: d.description,
+          height:      Number(d.dive_height ?? 0),
+        }
+      }
+    }
+  }
 }
 
 // True when round (1-indexed) has an operator-pinned dive_id —

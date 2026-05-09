@@ -320,26 +320,46 @@ module.exports = function createCompetitorRouter({
       return res.status(400).json({ error: "event_id query param required" });
     }
     try {
-      const r = await pool.query(
-        `SELECT BOOL_OR(cdl.is_reserve)            AS is_reserve,
-                MIN(cdl.reserve_position)          AS reserve_position,
-                MAX(cdl.confirmed_at)              AS confirmed_at,
-                MAX(e.dive_list_locks_at)          AS dive_list_locks_at,
-                COUNT(*)                           AS row_count
-           FROM competitor_dive_lists cdl
-           JOIN events e ON e.id = cdl.event_id
-          WHERE cdl.event_id = $1
-            AND cdl.competitor_id = $2
-            AND cdl.withdrawn_at IS NULL`,
-        [eventId, req.user.id],
-      );
-      const row = r.rows[0];
+      const [meta, divesRes] = await Promise.all([
+        pool.query(
+          `SELECT BOOL_OR(cdl.is_reserve)            AS is_reserve,
+                  MIN(cdl.reserve_position)          AS reserve_position,
+                  MAX(cdl.confirmed_at)              AS confirmed_at,
+                  MAX(e.dive_list_locks_at)          AS dive_list_locks_at,
+                  COUNT(*)                           AS row_count
+             FROM competitor_dive_lists cdl
+             JOIN events e ON e.id = cdl.event_id
+            WHERE cdl.event_id = $1
+              AND cdl.competitor_id = $2
+              AND cdl.withdrawn_at IS NULL`,
+          [eventId, req.user.id],
+        ),
+        // Diver's own dives by round, joined with the dive
+        // directory so the diver portal can pre-fill their
+        // existing list (whether they self-submitted earlier
+        // or it was inherited from a prior stage).
+        pool.query(
+          `SELECT cdl.round_number,
+                  cdl.dive_id,
+                  d.dive_code, d.position, d.dd, d.description,
+                  d.height AS dive_height
+             FROM competitor_dive_lists cdl
+             LEFT JOIN dive_directory d ON d.id = cdl.dive_id
+            WHERE cdl.event_id = $1
+              AND cdl.competitor_id = $2
+              AND cdl.withdrawn_at IS NULL
+            ORDER BY cdl.round_number ASC`,
+          [eventId, req.user.id],
+        ),
+      ]);
+      const row = meta.rows[0];
       res.json({
         entered:            Number(row.row_count) > 0,
         is_reserve:         !!row.is_reserve,
         reserve_position:   row.reserve_position,
         confirmed_at:       row.confirmed_at,
         dive_list_locks_at: row.dive_list_locks_at,
+        dives:              divesRes.rows,
       });
     } catch (err) {
       console.error("[List Status Error]", err.message);
