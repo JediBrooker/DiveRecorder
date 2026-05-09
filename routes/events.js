@@ -1479,15 +1479,118 @@ module.exports = function createEventsRouter({
     },
   );
 
+  // -------------------------------------------------------------
+  // GET /api/events/:id/reserves — list reserves on an event with
+  // their dive-list preview (round + dive_code/dd) so the Control
+  // Room reserves panel can render rich rows + "promote" buttons.
+  // Visible to event managers.
+  // -------------------------------------------------------------
+  router.get(
+    "/api/events/:id/reserves",
+    requireEventManager(),
+    async (req, res) => {
+      try {
+        const r = await pool.query(
+          `SELECT cdl.competitor_id,
+                  cdl.reserve_position,
+                  u.full_name,
+                  cl.short_code AS club_code,
+                  cl.name       AS club_name,
+                  array_agg(json_build_object(
+                    'round_number', cdl.round_number,
+                    'dive_code',    d.dive_code,
+                    'position',     d.position,
+                    'dd',           d.dd,
+                    'description',  d.description
+                  ) ORDER BY cdl.round_number) AS dives
+             FROM competitor_dive_lists cdl
+             JOIN users u   ON u.id = cdl.competitor_id
+             LEFT JOIN clubs cl ON cl.id = u.club_id
+             LEFT JOIN dive_directory d ON d.id = cdl.dive_id
+            WHERE cdl.event_id = $1 AND cdl.is_reserve = TRUE
+            GROUP BY cdl.competitor_id, cdl.reserve_position,
+                     u.full_name, cl.short_code, cl.name
+            ORDER BY cdl.reserve_position ASC NULLS LAST, u.full_name ASC`,
+          [req.params.id],
+        );
+
+        // Also surface withdrawn primaries so the Control Room
+        // can offer a "Replace [withdrawn diver] →" picker on
+        // each reserve. Per WA DD 9.1 the reserve inherits the
+        // withdrawn diver's start order.
+        const w = await pool.query(
+          `SELECT DISTINCT ON (cdl.competitor_id)
+                  cdl.competitor_id,
+                  u.full_name,
+                  cl.short_code AS club_code,
+                  cdl.withdrawn_at,
+                  cdl.display_order
+             FROM competitor_dive_lists cdl
+             JOIN users u   ON u.id = cdl.competitor_id
+             LEFT JOIN clubs cl ON cl.id = u.club_id
+            WHERE cdl.event_id = $1
+              AND cdl.is_reserve = FALSE
+              AND cdl.withdrawn_at IS NOT NULL
+            ORDER BY cdl.competitor_id, cdl.round_number ASC`,
+          [req.params.id],
+        );
+
+        // Active primaries — used by the Control Room to offer
+        // "Replace …" against any active diver too (e.g. the
+        // operator pre-emptively swaps before official Live
+        // start, when the diver gives advance notice).
+        const a = await pool.query(
+          `SELECT DISTINCT ON (cdl.competitor_id)
+                  cdl.competitor_id,
+                  u.full_name,
+                  cl.short_code AS club_code,
+                  cdl.display_order
+             FROM competitor_dive_lists cdl
+             JOIN users u   ON u.id = cdl.competitor_id
+             LEFT JOIN clubs cl ON cl.id = u.club_id
+            WHERE cdl.event_id = $1
+              AND cdl.is_reserve = FALSE
+              AND cdl.withdrawn_at IS NULL
+            ORDER BY cdl.competitor_id, cdl.display_order ASC NULLS LAST`,
+          [req.params.id],
+        );
+
+        res.json({
+          reserves:  r.rows,
+          withdrawn: w.rows,
+          active:    a.rows,
+        });
+      } catch (err) {
+        console.error("[Reserves List Error]", err.message);
+        res.status(500).json({ error: "Internal server error" });
+      }
+    },
+  );
+
   // Promote a reserve to active. Flips is_reserve=false on every
   // row for that competitor in the event, clears reserve_position,
   // assigns the next open display_order so they slot into the
-  // back of the queue.
+  // back of the queue (for filling an empty slot in the
+  // semi-final / final).
+  //
+  // Body (optional):
+  //   replaces_competitor_id — when set, the operator is using
+  //                            this reserve to replace a primary
+  //                            who has withdrawn. Per WA Rule
+  //                            DD 9.1 / 9.2, the reserve takes
+  //                            the withdrawn diver's start
+  //                            position so the original dive
+  //                            order is preserved. The replaced
+  //                            diver gets withdrawn_at stamped
+  //                            (if not already), display_order
+  //                            cleared, and is moved out of the
+  //                            active queue.
   router.post(
     "/api/events/:id/reserves/:competitorId/promote",
     requireEventManager(),
     async (req, res) => {
       const { id: eventId, competitorId } = req.params;
+      const { replaces_competitor_id } = req.body || {};
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
@@ -1502,24 +1605,88 @@ module.exports = function createEventsRouter({
           await client.query("ROLLBACK");
           return res.status(404).json({ error: "Reserve not found" });
         }
-        // Find the next open display_order = max active + 1.
-        const next = await client.query(
-          `SELECT COALESCE(MAX(display_order), 0) + 1 AS next
-             FROM competitor_dive_lists
-            WHERE event_id = $1 AND is_reserve = FALSE`,
-          [eventId],
-        );
-        const nextOrder = next.rows[0].next;
+
+        // Replacement path — WA DD 9.1 / 9.2: reserve inherits
+        // the withdrawn diver's start position. We grab the
+        // withdrawn diver's display_order, withdraw them (if
+        // not already), then assign that order to the reserve
+        // so the dive sequence is preserved.
+        let inheritedOrder = null;
+        let replacedName = null;
+        if (replaces_competitor_id) {
+          const withdraw = await client.query(
+            `SELECT MIN(display_order) AS dorder, MIN(u.full_name) AS name
+               FROM competitor_dive_lists cdl
+               JOIN users u ON u.id = cdl.competitor_id
+              WHERE cdl.event_id = $1
+                AND cdl.competitor_id = $2
+                AND cdl.is_reserve = FALSE`,
+            [eventId, replaces_competitor_id],
+          );
+          if (!withdraw.rows.length || withdraw.rows[0].dorder == null) {
+            await client.query("ROLLBACK");
+            return res.status(404).json({
+              error: "Diver to replace not found in active roster",
+            });
+          }
+          inheritedOrder = withdraw.rows[0].dorder;
+          replacedName = withdraw.rows[0].name;
+          // Withdraw the original diver: stamp withdrawn_at if
+          // not already + clear display_order so they don't
+          // appear in the active queue. Their dive_id rows stay
+          // in place for the audit trail.
+          await client.query(
+            `UPDATE competitor_dive_lists
+                SET withdrawn_at = COALESCE(withdrawn_at, NOW()),
+                    display_order = NULL
+              WHERE event_id = $1 AND competitor_id = $2`,
+            [eventId, replaces_competitor_id],
+          );
+        }
+
+        const targetOrder = inheritedOrder != null
+          ? inheritedOrder
+          : (await client.query(
+              `SELECT COALESCE(MAX(display_order), 0) + 1 AS next
+                 FROM competitor_dive_lists
+                WHERE event_id = $1 AND is_reserve = FALSE`,
+              [eventId],
+            )).rows[0].next;
+
         await client.query(
           `UPDATE competitor_dive_lists
               SET is_reserve = FALSE,
                   reserve_position = NULL,
                   display_order = $3
             WHERE event_id = $1 AND competitor_id = $2`,
-          [eventId, competitorId, nextOrder],
+          [eventId, competitorId, targetOrder],
         );
+
+        // Audit trail — replacements are evidentiary; the
+        // operator may need to defend why a reserve dived
+        // ahead of someone else later.
+        await recordAudit(client, {
+          ...auditFromReq(req),
+          org_id:      req.user.org_id,
+          entity_type: "event",
+          entity_id:   eventId,
+          entity_name: null,
+          action:      replaces_competitor_id ? "reserve.replaced_diver" : "reserve.promoted",
+          metadata: {
+            reserve_competitor_id: competitorId,
+            replaces_competitor_id: replaces_competitor_id || null,
+            replaced_name: replacedName,
+            display_order: targetOrder,
+          },
+        });
+
         await client.query("COMMIT");
-        res.json({ promoted: true, display_order: nextOrder });
+        res.json({
+          promoted: true,
+          display_order: targetOrder,
+          replaced_competitor_id: replaces_competitor_id || null,
+          replaced_name: replacedName,
+        });
       } catch (err) {
         await client.query("ROLLBACK");
         console.error("[Promote Reserve Error]", err.message);

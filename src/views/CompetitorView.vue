@@ -78,6 +78,32 @@ const diveListLockExpired = computed(() => {
   return new Date(at) <= new Date()
 })
 
+// Migration 040 reserves: the diver's status in the currently-
+// selected event (loaded from /api/competitor/list-status when
+// the event changes). Drives the "You're Reserve N" banner —
+// reserves stay editable while the lock is open so they're
+// ready to compete if the meet manager promotes them.
+const myListStatus = ref({
+  entered: false,
+  is_reserve: false,
+  reserve_position: null,
+  confirmed_at: null,
+  dive_list_locks_at: null,
+})
+async function loadMyListStatus() {
+  if (!currentEvent.value) {
+    myListStatus.value = { entered: false, is_reserve: false, reserve_position: null, confirmed_at: null, dive_list_locks_at: null }
+    return
+  }
+  try {
+    myListStatus.value = await auth.apiFetch(
+      `/api/competitor/list-status?event_id=${currentEvent.value.id}`,
+    )
+  } catch {
+    myListStatus.value = { entered: false, is_reserve: false, reserve_position: null, confirmed_at: null, dive_list_locks_at: null }
+  }
+}
+
 async function confirmInheritedList() {
   if (!currentEvent.value) return
   confirmingList.value = true
@@ -444,6 +470,10 @@ async function onEventChange() {
     // rejects, with the same prescribed-violation message they'd
     // see anyway.
   }
+  // Reserves status (migration 040) — drives the "You're Reserve
+  // N" banner if the diver carried over as a reserve rather than
+  // a primary in this stage.
+  await loadMyListStatus()
 }
 
 // True when round (1-indexed) has an operator-pinned dive_id —
@@ -598,6 +628,27 @@ watch(currentEvent, async (ev) => {
       <p v-else-if="currentEvent && currentEvent.entries_close_at" class="hint-line" style="margin-top:0.5rem">
         Entries close {{ new Date(currentEvent.entries_close_at).toLocaleString() }}.
       </p>
+
+      <!-- Reserve banner (migration 040, WA DD 9.1 / 9.2). Shown
+           when the diver advanced as a reserve rather than a
+           primary. Reserves don't compete unless the meet
+           manager promotes them, but they stay editable so
+           they're ready to dive if a primary withdraws. -->
+      <div v-if="currentEvent && myListStatus.is_reserve" class="reserve-banner">
+        <div class="reserve-banner-head">
+          <span class="reserve-banner-icon">⏳</span>
+          <span class="reserve-banner-title">
+            You're Reserve {{ myListStatus.reserve_position || '?' }} for "{{ currentEvent.name }}"
+          </span>
+        </div>
+        <p class="reserve-banner-body">
+          You don't compete unless the meet manager promotes you (e.g. a primary
+          withdraws). Per <strong>World Aquatics rule DD 9.1</strong> a promoted
+          reserve dives in the withdrawn diver's start position. Keep your dive
+          list current — confirm or edit it before the lock and you're ready to
+          compete the moment you're promoted.
+        </p>
+      </div>
 
       <!-- Post-advance lock banner (migration 041, WA DD 7.4 /
            7.5). Shown when the meet manager has stamped a
@@ -920,6 +971,27 @@ watch(currentEvent, async (ev) => {
 .advance-banner-confirmed {
   margin: 0.4rem 0 0; font-size: 12px; color: #34d399;
   font-family: var(--font-mono);
+}
+
+/* Reserve banner — amber accent so it reads as a holding
+   state distinct from the cyan post-advance lock banner. */
+.reserve-banner {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #ffc857;
+  background: rgba(255, 200, 87, 0.08);
+  border-radius: var(--radius);
+}
+.reserve-banner-head {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-family: var(--font-display); font-size: 14px; font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.reserve-banner-icon { font-size: 16px; }
+.reserve-banner-title { color: #ffc857; }
+.reserve-banner-body {
+  margin: 0.5rem 0 0; font-size: 13px; color: var(--text-2);
+  line-height: 1.5;
 }
 
 /* Round-rules summary strip — one row per section, showing

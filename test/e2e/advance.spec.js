@@ -285,3 +285,122 @@ test("advance: dive-list lock + confirm-list endpoint", async ({ request }) => {
 
   await setup.deleteOrg(orgId);
 });
+
+// Reserve replacement — World Aquatics rule DD 9.1 / 9.2: when
+// a primary withdraws before the event starts, the reserve takes
+// the WITHDRAWN diver's start position so the dive order is
+// preserved (vs. just being slotted at the back of the queue).
+//
+// Test:
+//   1. Create an event with 2 primaries (display_order 1, 2)
+//      and 1 reserve (reserve_position=1, no display_order).
+//   2. Hit promote with `replaces_competitor_id` = primary 1.
+//   3. Verify primary 1 is now withdrawn (withdrawn_at stamped,
+//      display_order cleared) AND the reserve has primary 1's
+//      original display_order=1.
+//   4. List endpoint should now return 0 reserves + 1 withdrawn.
+
+test("advance: reserve replaces a withdrawn primary, inherits start order", async ({
+  request,
+}) => {
+  test.setTimeout(45_000);
+
+  const { orgId, adminToken } = await setup.createOrgAndAdmin(request);
+
+  const event = await setup.createEvent(request, {
+    adminToken,
+    name: "E2E Reserve Replace",
+    height: "3m",
+    number_of_judges: 5,
+    total_rounds: 1,
+    event_format: "final",
+  });
+
+  // Insert two primaries (display_order 1 + 2) and one reserve.
+  const fwd = await setup.pickDiveId({ height: 3.0, dive_code: "101", position: "B" });
+  const primaryA = await setup.insertUser({ orgId, role: "diver", fullName: "Primary A" });
+  const primaryB = await setup.insertUser({ orgId, role: "diver", fullName: "Primary B" });
+  const reserve  = await setup.insertUser({ orgId, role: "diver", fullName: "Reserve One" });
+
+  await setup.pool.query(
+    `INSERT INTO competitor_dive_lists
+       (event_id, competitor_id, dive_id, round_number, display_order, is_reserve, reserve_position)
+     VALUES
+       ($1, $2, $3, 1, 1, FALSE, NULL),
+       ($1, $4, $3, 1, 2, FALSE, NULL),
+       ($1, $5, $3, 1, NULL, TRUE, 1)`,
+    [event.id, primaryA.userId, fwd, primaryB.userId, reserve.userId],
+  );
+
+  // Sanity: reserves list shows 1 reserve + 0 withdrawn + 2 active.
+  const before = await request.get(`/api/events/${event.id}/reserves`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const beforeBody = await before.json();
+  expect(beforeBody.reserves).toHaveLength(1);
+  expect(beforeBody.withdrawn).toHaveLength(0);
+  expect(beforeBody.active).toHaveLength(2);
+
+  // Replace primary A with the reserve.
+  const promoteRes = await request.post(
+    `/api/events/${event.id}/reserves/${reserve.userId}/promote`,
+    {
+      headers: { Authorization: `Bearer ${adminToken}` },
+      data: { replaces_competitor_id: primaryA.userId },
+    },
+  );
+  expect(promoteRes.status()).toBe(200);
+  const promoteBody = await promoteRes.json();
+  expect(promoteBody.promoted).toBe(true);
+  // The reserve takes primary A's display_order, NOT the back
+  // of the queue (which would be 3).
+  expect(promoteBody.display_order).toBe(1);
+  expect(promoteBody.replaced_competitor_id).toBe(primaryA.userId);
+  expect(promoteBody.replaced_name).toBe("Primary A");
+
+  // Verify the data flipped correctly.
+  const verify = await setup.pool.query(
+    `SELECT competitor_id, display_order, is_reserve, withdrawn_at
+       FROM competitor_dive_lists
+      WHERE event_id = $1
+      ORDER BY display_order NULLS LAST`,
+    [event.id],
+  );
+  // Reserve now has display_order=1, is_reserve=false.
+  const reserveRow = verify.rows.find(r => r.competitor_id === reserve.userId);
+  expect(Number(reserveRow.display_order)).toBe(1);
+  expect(reserveRow.is_reserve).toBe(false);
+  expect(reserveRow.withdrawn_at).toBeNull();
+  // Primary A is now withdrawn with cleared display_order.
+  const aRow = verify.rows.find(r => r.competitor_id === primaryA.userId);
+  expect(aRow.display_order).toBeNull();
+  expect(aRow.withdrawn_at).not.toBeNull();
+  // Primary B unchanged at display_order=2.
+  const bRow = verify.rows.find(r => r.competitor_id === primaryB.userId);
+  expect(Number(bRow.display_order)).toBe(2);
+
+  // Reserves list now shows 0 reserves + 1 withdrawn + 2 active
+  // (primary B + the just-promoted reserve).
+  const after = await request.get(`/api/events/${event.id}/reserves`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+  const afterBody = await after.json();
+  expect(afterBody.reserves).toHaveLength(0);
+  expect(afterBody.withdrawn).toHaveLength(1);
+  expect(afterBody.withdrawn[0].full_name).toBe("Primary A");
+  expect(afterBody.active).toHaveLength(2);
+
+  // Diver-side list-status: the promoted reserve is now NOT a
+  // reserve.
+  const reserveLogin = await setup.loginAs(request, reserve.username);
+  const status = await request.get(
+    `/api/competitor/list-status?event_id=${event.id}`,
+    { headers: { Authorization: `Bearer ${reserveLogin.token}` } },
+  );
+  expect(status.status()).toBe(200);
+  const statusBody = await status.json();
+  expect(statusBody.entered).toBe(true);
+  expect(statusBody.is_reserve).toBe(false);
+
+  await setup.deleteOrg(orgId);
+});

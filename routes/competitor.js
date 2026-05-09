@@ -303,6 +303,50 @@ module.exports = function createCompetitorRouter({
   //
   // Idempotent — safe to re-run; just re-stamps the timestamp.
   // -------------------------------------------------------------
+  // -------------------------------------------------------------
+  // GET /api/competitor/list-status?event_id=…
+  //
+  // Returns the caller's status in the given event:
+  //   { entered, is_reserve, reserve_position, confirmed_at,
+  //     dive_list_locks_at }
+  //
+  // Used by the diver portal to render the "You're a reserve"
+  // banner + the post-advance lock messaging. Cheap query, one
+  // event at a time.
+  // -------------------------------------------------------------
+  router.get("/api/competitor/list-status", verifyToken, async (req, res) => {
+    const eventId = req.query.event_id;
+    if (!eventId) {
+      return res.status(400).json({ error: "event_id query param required" });
+    }
+    try {
+      const r = await pool.query(
+        `SELECT BOOL_OR(cdl.is_reserve)            AS is_reserve,
+                MIN(cdl.reserve_position)          AS reserve_position,
+                MAX(cdl.confirmed_at)              AS confirmed_at,
+                MAX(e.dive_list_locks_at)          AS dive_list_locks_at,
+                COUNT(*)                           AS row_count
+           FROM competitor_dive_lists cdl
+           JOIN events e ON e.id = cdl.event_id
+          WHERE cdl.event_id = $1
+            AND cdl.competitor_id = $2
+            AND cdl.withdrawn_at IS NULL`,
+        [eventId, req.user.id],
+      );
+      const row = r.rows[0];
+      res.json({
+        entered:            Number(row.row_count) > 0,
+        is_reserve:         !!row.is_reserve,
+        reserve_position:   row.reserve_position,
+        confirmed_at:       row.confirmed_at,
+        dive_list_locks_at: row.dive_list_locks_at,
+      });
+    } catch (err) {
+      console.error("[List Status Error]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   router.post("/api/competitor/confirm-list", verifyToken, async (req, res) => {
     const { event_id } = req.body || {};
     if (!event_id) {

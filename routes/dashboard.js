@@ -22,14 +22,20 @@
 //       judge_events:     [...],   // judge role only
 //       coach:            { ... }, // coach role only — minimal slice
 //       diver_event_ids:  [...],   // diver role only — event_ids the
-//                                  // caller has a competitor_dive_lists
-//                                  // entry for. Lets the diver-tab
-//                                  // "Meet day · Live now" card filter
-//                                  // out events the diver isn't actually
-//                                  // entered in (matches the gate on
+//                                  // caller has an active (is_reserve=
+//                                  // FALSE) competitor_dive_lists entry
+//                                  // for. Lets the diver-tab "Meet day
+//                                  // · Live now" card filter out events
+//                                  // the diver isn't actually competing
+//                                  // in (matches the gate on
 //                                  // /api/events/:id/me-meet-day so a
 //                                  // surfaced card never dead-ends in
 //                                  // a 403).
+//       diver_reserve_event_ids:    // diver role only — events where
+//         [{event_id, reserve_position}, …]   // the caller is a reserve.
+//                                  // Surfaced as a separate card so the
+//                                  // diver can confirm their list before
+//                                  // the post-advance lock fires.
 //     }
 //
 // Each slice is fetched only when the caller's roles authorise
@@ -213,9 +219,28 @@ module.exports = function createDashboardRouter({ pool, verifyToken }) {
         `SELECT DISTINCT event_id
            FROM competitor_dive_lists
           WHERE competitor_id = $1
-            AND withdrawn_at IS NULL`,
+            AND withdrawn_at IS NULL
+            AND is_reserve = FALSE`,
         [user.id],
       ).then((r) => r.rows.map((row) => row.event_id)).catch(() => []);
+      // Migration 040: separate slice for events where the
+      // diver is a reserve. Surfaced as a "You're a reserve in
+      // [event]" card on the diver tab — the Meet Day card
+      // doesn't make sense (reserves don't compete) but the
+      // diver should still see the event so they can confirm
+      // their list before the lock.
+      tasks.diver_reserve_event_ids = pool.query(
+        `SELECT DISTINCT event_id, MIN(reserve_position) AS reserve_position
+           FROM competitor_dive_lists
+          WHERE competitor_id = $1
+            AND withdrawn_at IS NULL
+            AND is_reserve = TRUE
+          GROUP BY event_id`,
+        [user.id],
+      ).then((r) => r.rows.map((row) => ({
+        event_id: row.event_id,
+        reserve_position: row.reserve_position,
+      }))).catch(() => []);
     }
 
     // ---- Coach slice (coach role only) ----

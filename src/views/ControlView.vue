@@ -1604,6 +1604,67 @@ async function refreshStandingsPreview() {
 // projection logic.
 const standingsTop5 = computed(() => standingsPreview.value.slice(0, 5))
 
+// Reserves panel state (migration 040 + DD 9.1 / 9.2 reserve
+// replacement). Loaded from /api/events/:id/reserves on event
+// change + after each promote. Operator picks a withdrawn or
+// active primary to replace from the per-row dropdown — the
+// reserve inherits that primary's display_order so the dive
+// sequence stays intact.
+const reserves            = ref([])
+const reservesWithdrawn   = ref([])
+const reservesActive      = ref([])
+const reservesOpen        = ref(true)
+const reservesPromoting   = ref(null)   // competitor_id mid-flight
+const reservesReplaceChoice = ref({})   // competitor_id → replaces_id
+
+async function loadReserves() {
+  if (!currentEvent.value) {
+    reserves.value = []
+    reservesWithdrawn.value = []
+    reservesActive.value = []
+    return
+  }
+  try {
+    const r = await auth.apiFetch(`/api/events/${currentEvent.value.id}/reserves`)
+    reserves.value          = Array.isArray(r.reserves)  ? r.reserves  : []
+    reservesWithdrawn.value = Array.isArray(r.withdrawn) ? r.withdrawn : []
+    reservesActive.value    = Array.isArray(r.active)    ? r.active    : []
+  } catch {
+    reserves.value = []
+    reservesWithdrawn.value = []
+    reservesActive.value = []
+  }
+}
+
+async function promoteReserve(competitorId) {
+  if (!currentEvent.value) return
+  reservesPromoting.value = competitorId
+  try {
+    const replaces = reservesReplaceChoice.value[competitorId] || null
+    const result = await auth.apiFetch(
+      `/api/events/${currentEvent.value.id}/reserves/${competitorId}/promote`,
+      {
+        method: 'POST',
+        body: JSON.stringify(replaces ? { replaces_competitor_id: replaces } : {}),
+      },
+    )
+    if (result.replaced_name) {
+      showSuccess(`Promoted reserve to slot #${result.display_order}, replacing ${result.replaced_name}.`)
+    } else {
+      showSuccess(`Promoted reserve to slot #${result.display_order}.`)
+    }
+    delete reservesReplaceChoice.value[competitorId]
+    // Refresh reserves + the active roster (the dive-order +
+    // queue both need to pick up the new display_order).
+    await loadReserves()
+    await onEventChange()
+  } catch (err) {
+    showError(`Failed to promote: ${err.message}`)
+  } finally {
+    reservesPromoting.value = null
+  }
+}
+
 // "Anna Smith & Bella Jones" for a synchro pair, just the lead's
 // full name otherwise. Used everywhere a standings row needs a
 // human-readable label so synchro pairs aren't represented by
@@ -2411,6 +2472,10 @@ async function onEventChange() {
   judgePanel.value = Array.isArray(judgesData) ? judgesData : []
   // Top-5 standings preview alongside the queue.
   refreshStandingsPreview()
+  // Reserves panel — only meaningful on advanced events
+  // (semi-final / final), but the endpoint just returns []
+  // when none exist so we always call.
+  loadReserves()
 
   ;[...histData].reverse().forEach(h => {
     addHistoryCard({
@@ -3355,6 +3420,56 @@ onUnmounted(() => {
                   : `Show ${upNextTotal - UP_NEXT_DEFAULT_LIMIT} more ↓` }}
             </button>
             </template>
+          </div>
+        </div>
+
+        <!-- Reserves panel — surfaces when the meet manager
+             advanced from a prelim/semi with reserves. Per
+             World Aquatics DD 9.1 / 9.2, a reserve replacing
+             a withdrawing primary INHERITS that primary's
+             start position so the dive order is preserved.
+             The "Replace…" picker (only shown when there's
+             at least one active or already-withdrawn primary)
+             promotes the reserve into that exact slot;
+             clicking just "Promote" slots them at the back
+             of the queue. -->
+        <div v-if="reserves.length" class="reserves-panel">
+          <button class="reserves-head"
+                  @click="reservesOpen = !reservesOpen"
+                  :title="reservesOpen ? 'Collapse' : 'Expand'">
+            <span class="reserves-head-label">Reserves</span>
+            <span class="reserves-head-count">{{ reserves.length }}</span>
+            <span class="reserves-head-chevron">{{ reservesOpen ? '▴' : '▾' }}</span>
+          </button>
+          <div v-if="reservesOpen" class="reserves-list">
+            <div v-for="r in reserves" :key="r.competitor_id" class="reserves-row">
+              <div class="reserves-row-head">
+                <span class="reserves-row-pos">R{{ r.reserve_position }}</span>
+                <span class="reserves-row-name">{{ r.full_name }}</span>
+                <span v-if="r.club_code" class="reserves-row-club">{{ r.club_code }}</span>
+              </div>
+              <div class="reserves-row-actions">
+                <select v-model="reservesReplaceChoice[r.competitor_id]" class="select reserves-row-select">
+                  <option value="">Slot at back of queue</option>
+                  <optgroup v-if="reservesWithdrawn.length" label="Replace withdrawn">
+                    <option v-for="w in reservesWithdrawn" :key="w.competitor_id" :value="w.competitor_id">
+                      {{ w.full_name }}{{ w.club_code ? ' · ' + w.club_code : '' }}
+                    </option>
+                  </optgroup>
+                  <optgroup v-if="reservesActive.length" label="Replace active (will withdraw them)">
+                    <option v-for="a in reservesActive" :key="a.competitor_id" :value="a.competitor_id">
+                      {{ a.full_name }}{{ a.club_code ? ' · ' + a.club_code : '' }} (#{{ a.display_order }})
+                    </option>
+                  </optgroup>
+                </select>
+                <button type="button"
+                        class="btn btn-primary btn-sm"
+                        :disabled="reservesPromoting === r.competitor_id"
+                        @click="promoteReserve(r.competitor_id)">
+                  {{ reservesPromoting === r.competitor_id ? 'Promoting…' : 'Promote' }}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -5687,6 +5802,68 @@ onUnmounted(() => {
    panel is expanded by default; a click on the header toggles
    showStandingsProjection (persisted per browser).
    ========================================================= */
+/* Reserves panel — surfaces between Up Next and Standings on
+   advanced events (semi-final / final) when the operator
+   advanced with reserves. Subtle amber accent so it reads as
+   secondary to Up Next but more prominent than Standings. */
+.reserves-panel {
+  display: flex; flex-direction: column;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 200, 87, 0.04);
+  flex-shrink: 0;
+}
+.reserves-head {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 0.85rem;
+  background: transparent; border: none; cursor: pointer;
+  font: inherit; text-align: left; color: #ffc857;
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.reserves-head:hover { background: rgba(255, 200, 87, 0.08); }
+.reserves-head-label { flex: 1; }
+.reserves-head-count {
+  font-family: var(--font-mono); font-size: 10px; font-weight: normal;
+  letter-spacing: 0; color: #ffc857;
+  background: rgba(255, 200, 87, 0.12);
+  padding: 0.1rem 0.45rem; border-radius: 999px;
+}
+.reserves-head-chevron { color: var(--text-3); font-size: 12px; }
+.reserves-list {
+  display: flex; flex-direction: column; gap: 0.4rem;
+  padding: 0 0.6rem 0.6rem;
+}
+.reserves-row {
+  border: 1px solid rgba(255, 200, 87, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.6rem;
+  background: var(--bg-3);
+}
+.reserves-row-head {
+  display: flex; align-items: center; gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  font-family: var(--font-mono); font-size: 12px;
+}
+.reserves-row-pos {
+  color: #ffc857;
+  font-weight: bold;
+  background: rgba(255, 200, 87, 0.12);
+  padding: 0.1rem 0.4rem; border-radius: 4px;
+  font-size: 11px;
+}
+.reserves-row-name { flex: 1; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reserves-row-club {
+  color: var(--text-3); font-size: 10px;
+  background: rgba(255,255,255,0.04);
+  padding: 0.1rem 0.4rem; border-radius: 4px;
+}
+.reserves-row-actions {
+  display: flex; gap: 0.4rem; align-items: center;
+}
+.reserves-row-select {
+  flex: 1; font-size: 11px; padding: 0.3rem 0.5rem;
+}
+
 .standings-preview {
   display: flex; flex-direction: column;
   border-bottom: 1px solid var(--border);
