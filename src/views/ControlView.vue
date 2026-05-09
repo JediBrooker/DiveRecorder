@@ -1641,11 +1641,23 @@ const headerMenuOpen  = ref(false)   // Hold / Broadcast / Dashboard
 const adjustMenuOpen  = ref(false)   // Failed Dive / Cap Score / Re-Dive
 const autoNextMenuOpen = ref(false)  // Auto-next: Manual / 5s / 10s / …
 const kbdHintsOpen    = ref(false)   // ? popover with all shortcuts
+// Per-roster-row overflow menu (the ⋯ in the Dive Order
+// panel). One menu open at a time, like every other overflow
+// in the Control Room. The value is the row's originalIdx,
+// or -1 when nothing is open.
+const rosterMenuOpenIdx = ref(-1)
+
 function closeOverflowMenus() {
   headerMenuOpen.value = false
   adjustMenuOpen.value = false
   autoNextMenuOpen.value = false
   kbdHintsOpen.value = false
+  rosterMenuOpenIdx.value = -1
+}
+function toggleRosterMenu(originalIdx) {
+  const wasOpen = rosterMenuOpenIdx.value === originalIdx
+  closeOverflowMenus()
+  rosterMenuOpenIdx.value = wasOpen ? -1 : originalIdx
 }
 // Toggle the named menu and close all the others — only one
 // overflow popover open at a time keeps the canvas predictable.
@@ -2499,6 +2511,18 @@ function onKeydown(e) {
   if (e.altKey || e.metaKey || e.ctrlKey) return
 
   switch (e.key) {
+    case 'Escape':
+      // Close any open overflow menu / popover before falling
+      // through to the default browser handling.
+      if (rosterMenuOpenIdx.value >= 0
+          || headerMenuOpen.value
+          || adjustMenuOpen.value
+          || autoNextMenuOpen.value
+          || kbdHintsOpen.value) {
+        e.preventDefault()
+        closeOverflowMenus()
+      }
+      break
     case 'ArrowRight':
     case ' ':                 // space = advance — same muscle memory as a remote
       e.preventDefault()
@@ -3863,28 +3887,53 @@ onUnmounted(() => {
                     <span>DD {{ item.dd != null ? item.dd : '—' }}</span>
                   </div>
                 </button>
-                <!-- Reorder + withdraw controls. Use originalIdx
-                     so reorder targets the correct unfiltered slot. -->
-                <div class="roster-controls">
-                  <button class="roster-ctrl"
-                          :disabled="!canReorderQueue || item.originalIdx === 0 || roster[item.originalIdx - 1].round_number !== item.round_number"
-                          @click.stop="reorderRosterRow(item.originalIdx, 'up')"
-                          :title="canReorderQueue ? 'Move up within round' : 'Order locked — event has started'">▲</button>
-                  <button class="roster-ctrl"
-                          :disabled="!canReorderQueue || item.originalIdx >= roster.length - 1 || roster[item.originalIdx + 1].round_number !== item.round_number"
-                          @click.stop="reorderRosterRow(item.originalIdx, 'down')"
-                          :title="canReorderQueue ? 'Move down within round' : 'Order locked — event has started'">▼</button>
-                  <button class="roster-ctrl roster-edit-dive"
-                          :disabled="!!item.withdrawn_at"
-                          @click.stop="openEditDive(item)"
-                          title="Edit this round's dive (mid-event change-of-dives — WA Article 6.7.4)">
-                    ✎
-                  </button>
-                  <button :class="['roster-ctrl', item.withdrawn_at ? 'roster-reinstate' : 'roster-withdraw']"
-                          @click.stop="withdrawRosterRow(item.originalIdx)"
-                          :title="item.withdrawn_at ? 'Reinstate' : 'Withdraw / scratch'">
-                    {{ item.withdrawn_at ? '↻' : '✕' }}
-                  </button>
+                <!-- Per-row overflow menu — replaces 4 tiny
+                     icon buttons with a single ⋯ trigger that
+                     opens a labelled action popover (same
+                     pattern as the Meet Manager event-row ⋯
+                     menu). Big tap target, self-documenting,
+                     scales to whatever actions we add later. -->
+                <div class="roster-controls dropdown-host">
+                  <button class="roster-overflow"
+                          @click.stop="toggleRosterMenu(item.originalIdx)"
+                          :aria-expanded="rosterMenuOpenIdx === item.originalIdx"
+                          aria-haspopup="menu"
+                          title="Row actions">⋯</button>
+                  <div v-if="rosterMenuOpenIdx === item.originalIdx"
+                       class="roster-menu"
+                       role="menu">
+                    <button type="button" role="menuitem"
+                            class="roster-menu-item"
+                            :disabled="!!item.withdrawn_at"
+                            @click="openEditDive(item); closeOverflowMenus()">
+                      <span class="roster-menu-icon">✎</span>
+                      <span class="roster-menu-label">Edit dive</span>
+                      <span class="roster-menu-sub">Change-of-dives (Article 6.7.4)</span>
+                    </button>
+                    <button type="button" role="menuitem"
+                            class="roster-menu-item"
+                            :disabled="!canReorderQueue || item.originalIdx === 0 || roster[item.originalIdx - 1]?.round_number !== item.round_number"
+                            @click="reorderRosterRow(item.originalIdx, 'up'); closeOverflowMenus()">
+                      <span class="roster-menu-icon">↑</span>
+                      <span class="roster-menu-label">Move up</span>
+                      <span class="roster-menu-sub">Within round only</span>
+                    </button>
+                    <button type="button" role="menuitem"
+                            class="roster-menu-item"
+                            :disabled="!canReorderQueue || item.originalIdx >= roster.length - 1 || roster[item.originalIdx + 1]?.round_number !== item.round_number"
+                            @click="reorderRosterRow(item.originalIdx, 'down'); closeOverflowMenus()">
+                      <span class="roster-menu-icon">↓</span>
+                      <span class="roster-menu-label">Move down</span>
+                      <span class="roster-menu-sub">Within round only</span>
+                    </button>
+                    <button type="button" role="menuitem"
+                            :class="['roster-menu-item', item.withdrawn_at ? 'roster-menu-reinstate' : 'roster-menu-withdraw']"
+                            @click="withdrawRosterRow(item.originalIdx); closeOverflowMenus()">
+                      <span class="roster-menu-icon">{{ item.withdrawn_at ? '↻' : '✕' }}</span>
+                      <span class="roster-menu-label">{{ item.withdrawn_at ? 'Reinstate' : 'Withdraw' }}</span>
+                      <span class="roster-menu-sub">{{ item.withdrawn_at ? 'Bring diver back into the queue' : 'Scratch / DNS / DNF' }}</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -5460,26 +5509,89 @@ onUnmounted(() => {
 }
 .roster-jump:disabled { cursor: default; opacity: 0.5; }
 .roster-controls {
-  display: flex; flex-direction: column; gap: 0.15rem;
+  position: relative;            /* anchor for the popover */
+  display: flex; align-items: center;
   margin-left: 0.4rem; flex-shrink: 0;
 }
-.roster-ctrl {
-  background: transparent; border: 1px solid var(--border);
-  border-radius: 3px; cursor: pointer;
-  font-size: 9px; padding: 0 0.3rem; line-height: 1;
-  color: var(--text-3); transition: all 0.1s;
-  min-width: 18px;
+/* Overflow trigger — single tap target, big enough to land
+   reliably on a tablet at deck-side. Replaces the previous
+   stacked 4× tiny icon buttons. */
+.roster-overflow {
+  width: 32px; height: 32px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: 18px; line-height: 1;
+  cursor: pointer;
+  transition: all 0.1s;
+  display: flex; align-items: center; justify-content: center;
 }
-.roster-ctrl:hover:not(:disabled) {
+.roster-overflow:hover,
+.roster-overflow[aria-expanded="true"] {
   border-color: var(--cyan); color: var(--cyan);
+  background: rgba(0, 224, 255, 0.05);
 }
-.roster-ctrl:disabled { opacity: 0.3; cursor: default; }
-.roster-withdraw:hover { border-color: var(--red); color: var(--red); }
-.roster-reinstate {
-  border-color: rgba(245,158,11,0.4); color: var(--amber);
+
+/* Popover that opens when ⋯ is clicked. Anchored to the
+   bottom-right of the trigger; nudges left enough to stay
+   inside the right-column panel on the typical desktop layout
+   (right column is ~280–320px wide). */
+.roster-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 50;
+  min-width: 220px;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.55);
+  padding: 0.3rem;
+  display: flex; flex-direction: column; gap: 0.15rem;
 }
-.roster-edit-dive:hover:not(:disabled) {
-  border-color: var(--cyan); color: var(--cyan);
+.roster-menu-item {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  grid-template-rows: auto auto;
+  gap: 0.05rem 0.6rem;
+  align-items: center;
+  padding: 0.5rem 0.6rem;
+  background: transparent; border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer; text-align: left;
+  font: inherit; color: var(--text);
+  transition: background 0.1s;
+}
+.roster-menu-item:hover:not(:disabled) {
+  background: rgba(0, 224, 255, 0.08);
+}
+.roster-menu-item:disabled {
+  opacity: 0.35; cursor: default;
+}
+.roster-menu-icon {
+  grid-row: 1 / span 2;
+  font-size: 16px; color: var(--cyan);
+  text-align: center;
+}
+.roster-menu-label {
+  font-family: var(--font-display); font-size: 13px; font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.roster-menu-sub {
+  font-family: var(--font-mono); font-size: 10.5px;
+  color: var(--text-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Withdraw / reinstate get tinted accents so destructive vs.
+   constructive actions read at a glance. */
+.roster-menu-withdraw .roster-menu-icon { color: var(--red); }
+.roster-menu-withdraw:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.10);
+}
+.roster-menu-reinstate .roster-menu-icon { color: var(--amber); }
+.roster-menu-reinstate:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.10);
 }
 
 /* Edit-Dive modal — sized for the picker. Two-column result
