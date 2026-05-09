@@ -202,9 +202,11 @@ test("judge-analytics: deviation + drop math matches WA trim semantics", async (
   expect(Number(j4P.stats.drop_low_rate)).toBe(1);
   expect(Number(j4P.stats.drop_high_rate)).toBe(0);
 
-  // ---- Permissions — a different org's judge cannot read J1's
-  // analytics (403). The other-org judge has a fresh token from
-  // their own org so the request is fully authenticated.
+  // ---- Public read — judge profiles are public (transparency).
+  // A different org's judge can read J1's analytics, AND a
+  // genuinely anonymous viewer (no Authorization header) can too.
+  // What's redacted from public viewers: `dashboard_widgets`
+  // (UI preference) — that field stays owner / same-org only.
   const otherOrg = await setup.createOrgAndAdmin(request);
   const otherJudge = await setup.insertUser({
     orgId: otherOrg.orgId, role: "judge", fullName: "Other Org Judge",
@@ -214,7 +216,53 @@ test("judge-analytics: deviation + drop math matches WA trim semantics", async (
     `/api/judges/${judges[0].userId}/profile`,
     { headers: { Authorization: `Bearer ${otherLogin.token}` } },
   );
-  expect(cross.status()).toBe(403);
+  expect(cross.status()).toBe(200);
+  const crossBody = await cross.json();
+  expect(crossBody.judge.full_name).toBe("Analytics Judge 1");
+  // Cross-org viewer is NOT owner / same-org admin → no UI prefs.
+  expect(crossBody.dashboard_widgets).toBeUndefined();
+  // The deviation rollups are still there.
+  expect(Number(crossBody.stats.mean_signed_deviation)).toBeCloseTo(0.5, 3);
+
+  // Anonymous viewer (no token) — the same redaction rules apply.
+  const anon = await request.get(
+    `/api/judges/${judges[0].userId}/profile`,
+  );
+  expect(anon.status()).toBe(200);
+  const anonBody = await anon.json();
+  expect(anonBody.judge.full_name).toBe("Analytics Judge 1");
+  expect(anonBody.dashboard_widgets).toBeUndefined();
+
+  // Anonymous /analytics also resolves cleanly.
+  const anonAnalytics = await request.get(
+    `/api/judges/${judges[0].userId}/analytics`,
+  );
+  expect(anonAnalytics.status()).toBe(200);
+
+  // Public directory — anonymous viewer can browse + search.
+  const dir = await request.get(`/api/judges/directory?q=Analytics+Judge+1`);
+  expect(dir.status()).toBe(200);
+  const dirBody = await dir.json();
+  expect(dirBody.rows.length).toBeGreaterThanOrEqual(1);
+  const j1Row = dirBody.rows.find(r => r.id === judges[0].userId);
+  expect(j1Row).toBeTruthy();
+  // total_scores comes back as the count of scores submitted.
+  expect(j1Row.total_scores).toBe(1);
+
+  // Public typeahead.
+  const search = await request.get(`/api/judges/search?q=Analytics`);
+  expect(search.status()).toBe(200);
+  const searchBody = await search.json();
+  expect(Array.isArray(searchBody)).toBe(true);
+  expect(searchBody.length).toBeGreaterThanOrEqual(1);
+
+  // Anonymous viewers still cannot mutate the layout (verifyToken
+  // returns 403 "No token provided" — that's the existing API
+  // behaviour shared with every other write endpoint).
+  const anonPut = await request.put(`/api/users/me/judge-dashboard`, {
+    data: { widgets: ["bias_summary"] },
+  });
+  expect(anonPut.status()).toBe(403);
 
   // ---- PUT widget layout — should drop unknown ids and dedupe.
   const layoutRes = await request.put(

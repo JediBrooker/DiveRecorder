@@ -2,8 +2,12 @@
 //
 //   GET /api/judges/:id/profile     header stats + recent meets
 //   GET /api/judges/:id/analytics   the customisable widget rollups
+//   GET /api/judges/directory       public directory (paginated browse)
+//   GET /api/judges/search          public typeahead (≥2 chars)
 //   PUT /api/users/me/judge-dashboard
 //                                   persist the judge's widget layout
+//                                   (owner-only — the only mutating
+//                                   endpoint here)
 //
 // The numeric reference for every "how is this judge tracking?"
 // metric is the **panel-kept mean** — the arithmetic mean of the
@@ -28,15 +32,25 @@
 //
 // Permissions
 // -----------
-// A judge can always see their own analytics. Org admins, meet
-// managers, and referees in the same org can see analytics for
-// any judge in their org (this is the "evidence trail before
-// 8.4.9" use case — referees often want to confirm a hunch about
-// a judge before raising a Jury of Appeal report). System admins
-// see everything. Outside-org viewers get a 403.
+// Judge profiles + analytics are PUBLIC by design — the same
+// transparency stance the existing diver profile takes (every
+// score this analytics rollup aggregates is already visible on
+// the public scoreboard, archived meet pages, and PDF score
+// sheets; pre-aggregating per-judge just makes patterns visible
+// instead of leaving them buried in 300 rows of per-dive HTML).
+// Public visibility is the explicit feature: a spectator looking
+// at a meet can click through to the panel and check whether a
+// judge's calls trend with their country / club / etc.
+//
+// What stays private
+//   * `judge_dashboard_widgets` — UI preference. Returned only to
+//     the owner and to same-org admins/managers/referees who can
+//     plausibly customise on the judge's behalf. Outside viewers
+//     don't see the field at all (it's redacted, not zero'd).
+//   * The PUT endpoint — owner only.
 //
 // The endpoints accept a `?from_date=&to_date=` filter so a
-// judge can scope a window (e.g. the last competition season)
+// viewer can scope a window (e.g. the last competition season)
 // — same parsing helper the diver-profile router uses.
 
 const express = require("express");
@@ -63,7 +77,10 @@ const KNOWN_WIDGETS = new Set([
   "panel_compare",
 ]);
 
-function canViewJudgeProfile(viewer, judgeRow) {
+// True when the viewer is allowed to see judge-private fields
+// (UI preferences, etc.) on top of the public analytics. Owners
+// and same-org administrative roles see them; the public doesn't.
+function canViewJudgePrivate(viewer, judgeRow) {
   if (!viewer) return false;
   if (viewer.is_system_admin) return true;
   if (viewer.id === judgeRow.id) return true;
@@ -80,9 +97,16 @@ module.exports = function createJudgeAnalyticsRouter({
   pool,
   readPool,
   verifyToken,
+  optionalAuth,
   parseDateRange,
 }) {
   if (!pool) throw new Error("createJudgeAnalyticsRouter requires { pool, … }");
+  // Public-read endpoints (profile + analytics + directory) decode
+  // the token if one is sent so we still see req.user for owner-
+  // only branches (e.g. dashboard_widgets), but anonymous requests
+  // are accepted. Falls back to verifyToken if the host hasn't
+  // been updated yet — belt-and-braces during the rollout.
+  const maybeAuth = optionalAuth || verifyToken;
   // Profile + analytics are heavy historical reads; route through
   // the optional read replica when available.
   const reads = readPool || pool;
@@ -90,8 +114,10 @@ module.exports = function createJudgeAnalyticsRouter({
 
   // -------------------------------------------------------------
   // GET /api/judges/:id/profile — header stats + dashboard prefs
+  // Public — anyone can read the analytics; owner / same-org
+  // admins also get `dashboard_widgets` for the customise modal.
   // -------------------------------------------------------------
-  router.get("/api/judges/:id/profile", verifyToken, async (req, res) => {
+  router.get("/api/judges/:id/profile", maybeAuth, async (req, res) => {
     try {
       let dateRange;
       try { dateRange = parseDateRange(req.query); }
@@ -112,9 +138,8 @@ module.exports = function createJudgeAnalyticsRouter({
         return res.status(404).json({ error: "Judge not found" });
       }
       const judge = judgeRes.rows[0];
-      if (!canViewJudgeProfile(req.user, judge)) {
-        return res.status(403).json({ error: "Not permitted to view this judge profile" });
-      }
+      // Profiles are public — no permission gate here. Owner-only
+      // fields are redacted further down.
 
       // Header stats — total events officiated, total dives scored,
       // overall mean signed deviation, mean absolute deviation, drop
@@ -174,9 +199,17 @@ module.exports = function createJudgeAnalyticsRouter({
           drop_high_rate: null,
           drop_low_rate: null,
         },
-        dashboard_widgets:
-          judge.judge_dashboard_widgets ||
-          ["bias_summary", "deviation_distribution", "height_breakdown", "recent_meets"],
+        // Only owner / same-org admins see the dashboard layout —
+        // everyone else gets the public analytics without the UI
+        // preference. Outside viewers don't see the field at all
+        // (redacted, not zero'd) so there's nothing to leak.
+        ...(canViewJudgePrivate(req.user, judge)
+          ? {
+              dashboard_widgets:
+                judge.judge_dashboard_widgets ||
+                ["bias_summary", "deviation_distribution", "height_breakdown", "recent_meets"],
+            }
+          : {}),
       });
     } catch (err) {
       console.error("[Judge Profile Error]", err.message);
@@ -186,8 +219,9 @@ module.exports = function createJudgeAnalyticsRouter({
 
   // -------------------------------------------------------------
   // GET /api/judges/:id/analytics — widget rollups in parallel
+  // Public — same transparency stance as the diver profile.
   // -------------------------------------------------------------
-  router.get("/api/judges/:id/analytics", verifyToken, async (req, res) => {
+  router.get("/api/judges/:id/analytics", maybeAuth, async (req, res) => {
     try {
       let dateRange;
       try { dateRange = parseDateRange(req.query); }
@@ -201,9 +235,7 @@ module.exports = function createJudgeAnalyticsRouter({
       if (!judgeRes.rows.length) {
         return res.status(404).json({ error: "Judge not found" });
       }
-      if (!canViewJudgeProfile(req.user, judgeRes.rows[0])) {
-        return res.status(403).json({ error: "Not permitted to view this judge profile" });
-      }
+      // Public endpoint — no permission gate.
 
       const id = req.params.id;
 
@@ -605,6 +637,109 @@ module.exports = function createJudgeAnalyticsRouter({
     } catch (err) {
       console.error("[Judge Analytics Error]", err.message);
       res.status(500).json({ error: "Failed to load judge analytics" });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // GET /api/judges/search — public typeahead (≥2 chars, ≤20 rows)
+  // Same shape as /api/divers/search; powers the public Judges
+  // directory search box. Username is deliberately omitted (it's
+  // a credential identifier; the UI label is full_name + club).
+  // -------------------------------------------------------------
+  router.get("/api/judges/search", maybeAuth, async (req, res) => {
+    const q = (req.query.q || "").trim();
+    if (q.length < 2) return res.json([]);
+    try {
+      const r = await reads.query(
+        `SELECT u.id, u.full_name,
+                o.id AS org_id, o.name AS org_name, o.country_code,
+                cl.id AS club_id, cl.name AS club_name, cl.short_code AS club_code
+         FROM users u
+         JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id AND r.role = 'judge'
+         JOIN organisations o  ON o.id = u.org_id
+         LEFT JOIN clubs cl    ON cl.id = u.club_id
+         WHERE u.full_name ILIKE $1
+         ORDER BY
+           CASE WHEN u.full_name ILIKE $2 THEN 0 ELSE 1 END,
+           u.full_name ASC
+         LIMIT 20`,
+        [`%${q}%`, `${q}%`],
+      );
+      res.json(r.rows);
+    } catch (err) {
+      console.error("[Judge Search Error]", err.message);
+      res.status(500).json([]);
+    }
+  });
+
+  // -------------------------------------------------------------
+  // GET /api/judges/directory — public paginated browse + filters.
+  // Each row carries a `total_scores` count so the directory can
+  // sort/filter on "judges with at least N dives officiated"
+  // (the deviation rollups are noisy under N≈10 — surfacing the
+  // count up-front lets the UI tell viewers when to trust the
+  // summary numbers).
+  //
+  // Path is `/directory` (not just `/api/judges`) because the
+  // routes/users.js judge-picker endpoint already owns
+  // `/api/judges` for the meet-manager assign UI; that one is
+  // org-scoped and returns a tiny shape, this one is public and
+  // paginated. Different consumers, different shapes — keep them
+  // on distinct paths.
+  // -------------------------------------------------------------
+  router.get("/api/judges/directory", maybeAuth, async (req, res) => {
+    const q           = (req.query.q || "").trim();
+    const orgId       = req.query.org_id || null;
+    const clubId      = req.query.club_id || null;
+    const countryCode = (req.query.country_code || "").trim().toUpperCase() || null;
+    const limit       = Math.min(Math.max(Number(req.query.limit)  || 50, 1), 100);
+    const offset      = Math.max(Number(req.query.offset) || 0, 0);
+    try {
+      const r = await reads.query(
+        `SELECT u.id, u.full_name,
+                o.id AS org_id, o.name AS org_name, o.country_code,
+                cl.id AS club_id, cl.name AS club_name, cl.short_code AS club_code,
+                /* Count of scores submitted by this judge across
+                   all events. Useful for the directory: a judge
+                   with 0 dives doesn't yet have analytics, and
+                   anyone consuming the bias number wants to know
+                   the sample size up-front. LEFT JOIN keeps zero-
+                   judge rows in the listing. */
+                COALESCE(scs.total_scores, 0)::int AS total_scores,
+                COUNT(*) OVER ()::int AS total_count
+         FROM users u
+         JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id AND r.role = 'judge'
+         JOIN organisations o  ON o.id = u.org_id
+         LEFT JOIN clubs cl    ON cl.id = u.club_id
+         LEFT JOIN LATERAL (
+           SELECT COUNT(*) AS total_scores
+           FROM scores s WHERE s.judge_id = u.id
+         ) scs ON TRUE
+         WHERE ($1::text IS NULL OR u.full_name ILIKE $1)
+           AND ($2::uuid IS NULL OR u.org_id  = $2::uuid)
+           AND ($3::uuid IS NULL OR u.club_id = $3::uuid)
+           AND ($4::text IS NULL OR o.country_code = $4::text)
+         ORDER BY u.full_name ASC
+         LIMIT $5 OFFSET $6`,
+        [
+          q ? `%${q}%` : null,
+          orgId,
+          clubId,
+          countryCode,
+          limit,
+          offset,
+        ],
+      );
+      const total = r.rows[0]?.total_count ?? 0;
+      res.json({
+        total,
+        limit,
+        offset,
+        rows: r.rows.map(({ total_count, ...rest }) => rest),
+      });
+    } catch (err) {
+      console.error("[Judge Browse Error]", err.message);
+      res.status(500).json({ total: 0, limit, offset, rows: [] });
     }
   });
 

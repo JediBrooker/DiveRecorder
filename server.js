@@ -728,6 +728,7 @@ app.use(require("./routes/judge-analytics")({
   pool,
   readPool,
   verifyToken,
+  optionalAuth,
   parseDateRange,
 }));
 

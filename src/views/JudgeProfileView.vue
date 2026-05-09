@@ -331,7 +331,8 @@ watch(() => route.params.id, () => { load() })
         </div>
       </div>
       <div class="header-actions">
-        <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">← Dashboard</RouterLink>
+        <RouterLink to="/judges" class="btn btn-ghost btn-sm">← All judges</RouterLink>
+        <RouterLink v-if="auth.isLoggedIn" to="/dashboard" class="btn btn-ghost btn-sm">Dashboard</RouterLink>
         <button v-if="isSelf" class="btn btn-ghost btn-sm" @click="customizing = true">
           ⚙ Customise
         </button>

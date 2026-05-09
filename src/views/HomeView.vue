@@ -22,6 +22,7 @@ onMounted(() => {
       <RouterLink to="/login" class="hero-btn-primary">Sign In</RouterLink>
       <RouterLink to="/register" class="hero-btn-ghost">Create Account</RouterLink>
       <RouterLink to="/scoreboard" class="hero-btn-ghost">Scoreboard &amp; Results</RouterLink>
+      <RouterLink to="/judges" class="hero-btn-ghost">Judge Analysis</RouterLink>
     </div>
   </section>
 

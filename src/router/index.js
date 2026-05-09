@@ -69,15 +69,24 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['judge'] },
   },
   {
-    // Judge Analysis — self-service "how am I tracking" dashboard
-    // for the judge persona. /judge-profile (no id) means the
-    // viewer's own analysis. /judge-profile/:id is the same view
-    // for org admins / referees / managers reviewing a judge in
-    // their org. The API enforces "same org + privileged role"
-    // for non-self viewers.
+    // Judge Analysis — public transparency dashboard for any
+    // judge in the system. Anonymous spectators can land here
+    // from a scoreboard / meet page and verify whether a panel
+    // member's calls trend with a country / club / etc — same
+    // public-by-default stance as /profile/:id for divers.
+    //
+    // /judge-profile        → owner's own analysis (auth required)
+    // /judge-profile/:id    → public profile for that judge
     path: '/judge-profile/:id?',
     component: () => import('@/views/JudgeProfileView.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuthIfNoId: true },
+  },
+  {
+    // Public judge directory — paginated browse + search across
+    // every active org's judges. Open to anonymous viewers as a
+    // discovery surface for the public Judge Analysis pages.
+    path: '/judges',
+    component: () => import('@/views/JudgeDirectoryView.vue'),
   },
   {
     // Unified live + archive surface — the old /archive route

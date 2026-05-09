@@ -1026,6 +1026,10 @@ function attachSocketHandlers() {
           <span class="header-secondary-link-icon" aria-hidden="true">🏆</span>
           <span>Scoreboard &amp; Results</span>
         </RouterLink>
+        <RouterLink to="/judges" class="header-secondary-link">
+          <span class="header-secondary-link-icon" aria-hidden="true">⚖️</span>
+          <span>Judge Analysis</span>
+        </RouterLink>
       </nav>
     </div>
 
