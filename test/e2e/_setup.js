@@ -283,8 +283,35 @@ async function installDialogDelay(page) {
   });
 }
 
+// Bypass the first-login RoleTour modal that fires globally on
+// any dashboard mount for `coach` / `judge` / `diver` roles
+// (src/components/RoleTour.vue). The tour gates on three
+// localStorage keys; setting them before navigation makes the
+// component skip auto-open without touching production code.
+//
+// Without this, every fresh-context Playwright run with a
+// tour-eligible role lands on a modal that obscures the
+// dashboard, and any subsequent `.event-row` / nav click times
+// out at 180s. Cheap to call from every test that hits /login
+// — admin / meet_manager flows are unaffected (the tour ignores
+// those roles anyway).
+async function bypassRoleTour(page) {
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem("dr_tour_seen_coach", "1");
+      localStorage.setItem("dr_tour_seen_judge", "1");
+      localStorage.setItem("dr_tour_seen_diver", "1");
+    } catch { /* private mode / storage disabled — ignore */ }
+  });
+}
+
 const HIGHLIGHT_ENABLED = process.env.E2E_HIGHLIGHT !== "0";
 async function installClickHighlight(page) {
+  // Always bypass the role tour, regardless of E2E_HIGHLIGHT.
+  // Most tests already call installClickHighlight before navigating
+  // to /login, so piggybacking here covers them without each spec
+  // having to opt in.
+  await bypassRoleTour(page);
   if (!HIGHLIGHT_ENABLED) return;
 
   // Forward [e2e-click] coordinate logs from the page to the
@@ -419,4 +446,5 @@ module.exports = {
   deleteOrg,
   installDialogDelay,
   installClickHighlight,
+  bypassRoleTour,
 };
