@@ -146,4 +146,16 @@ CREATE TABLE IF NOT EXISTS public.tiebreak_dive_offs (
 CREATE INDEX IF NOT EXISTS idx_tiebreak_event
   ON public.tiebreak_dive_offs(event_id);
 
+-- Bump schema_meta.version. Migrations 035-042 silently stopped
+-- bumping the singleton — the audit caught that init.sql now
+-- declares 43 while a migrated DB still reads 34. The runner
+-- relies on this column to compute "what's pending" so a stale
+-- value re-applies idempotent migrations on every run (harmless
+-- but wasteful + observability gap). 043 picks the responsibility
+-- back up; backfilling 035-042's bumps is a separate cleanup.
+INSERT INTO public.schema_meta (id, version)
+VALUES (1, 43)
+ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version
+WHERE public.schema_meta.version < EXCLUDED.version;
+
 COMMIT;

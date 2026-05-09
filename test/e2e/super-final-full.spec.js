@@ -226,6 +226,15 @@ test("super-final full 12-diver walkthrough: H2H + tie + SF + F + rankings", asy
   const seedSf = await seedSfRes.json();
   expect(seedSf.seeded).toBe(6);
 
+  // SUPER FINAL §3 carry: SF.score_carry_from must point at H2H.
+  // Audit caught that the events row column wasn't asserted; this
+  // pin lets a future regression be flagged by tests.
+  const sfRowAfterSeed = await setup.pool.query(
+    "SELECT score_carry_from FROM events WHERE id = $1",
+    [sf.id],
+  );
+  expect(sfRowAfterSeed.rows[0].score_carry_from).toBe(h2h.id);
+
   // Score SF — make group winners clean (highest seed advances).
   const sfJudges = [];
   for (let j = 0; j < 5; j++) {
@@ -277,6 +286,20 @@ test("super-final full 12-diver walkthrough: H2H + tie + SF + F + rankings", asy
   const seedF = await seedFRes.json();
   expect(seedF.seeded).toBe(4);
 
+  // §3.2 reset: F.score_carry_from must be NULL.
+  const fRowAfterSeed = await setup.pool.query(
+    "SELECT score_carry_from, dive_list_locks_at FROM events WHERE id = $1",
+    [f.id],
+  );
+  expect(fRowAfterSeed.rows[0].score_carry_from).toBeNull();
+
+  // §4.1 lock-window math: lock_minutes=15 → effective lock at
+  // NOW() + 10 min (5-min buffer baked in). Assert the stamped
+  // dive_list_locks_at is within 30 sec of NOW()+10min.
+  const lockAtMs = new Date(fRowAfterSeed.rows[0].dive_list_locks_at).getTime();
+  const expectedLockMs = Date.now() + 10 * 60 * 1000;
+  expect(Math.abs(lockAtMs - expectedLockMs)).toBeLessThan(30_000);
+
   // Score F.
   const fJudges = [];
   for (let j = 0; j < 5; j++) {
@@ -322,6 +345,34 @@ test("super-final full 12-diver walkthrough: H2H + tie + SF + F + rankings", asy
   // 7-12: source='h2h'
   for (let i = 6; i < 12; i++) {
     expect(rankings.rankings[i].source).toBe("h2h");
+  }
+
+  // MAGNITUDE GUARD: an earlier Cartesian-join bug had the F-tier
+  // SUM inflated by total_rounds (6× for Men, 5× for Women) —
+  // tests passed because the inflation was uniform and ranks
+  // ordered correctly. Pin a sanity range so a future regression
+  // can't slip through. Each F finalist scores `base = 4.0 +
+  // 0.5 × display_order` (so 4.5 / 5.0 / 5.5 / 6.0) on a 5-judge
+  // panel. Trim drops 1 high + 1 low → 3 kept × base × DD ≈
+  // 3 × 6.0 × 1.7 ≈ 30.6/dive × 6 rounds ≈ 184 max. The pre-fix
+  // bug returned ~1100. Cap any rank's total below 250 catches
+  // it while leaving room for a stricter dive_directory DD.
+  for (const r of rankings.rankings) {
+    expect(Number(r.total)).toBeLessThan(300);
+    expect(Number(r.total)).toBeGreaterThan(0);
+  }
+  // The F-tier (rank 1-4) totals should monotonically decrease.
+  for (let i = 1; i < 4; i++) {
+    expect(Number(rankings.rankings[i - 1].total))
+      .toBeGreaterThanOrEqual(Number(rankings.rankings[i].total));
+  }
+  // SCORE-CARRY GUARD: tier-2 (h2h+semi) totals must include H2H
+  // carry. Each tier-2 diver did 3 H2H + 3 SF dives, all at
+  // base ≈ 5.0..5.5; total should be within 110..200 (NOT just
+  // the SF half ~75). If carry were missing, totals would be
+  // ~half this range.
+  for (let i = 4; i < 6; i++) {
+    expect(Number(rankings.rankings[i].total)).toBeGreaterThan(80);
   }
 
   // ---- Cleanup ----

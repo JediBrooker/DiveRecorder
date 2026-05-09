@@ -1207,6 +1207,29 @@ module.exports = function createEventsRouter({
     return r.rows[0] || null;
   }
 
+  // Refuse a re-seed (advance / seed-h2h / seed-semi / seed-final)
+  // when the target event already has scored dives. The seed path
+  // does `DELETE FROM competitor_dive_lists WHERE event_id = $1`
+  // and `scores` cascades on competitor_dive_lists' (event_id,
+  // competitor_id, round_number) FK — so a re-seed without this
+  // guard SILENTLY destroys every recorded score. The route's
+  // status === 'Upcoming' gate isn't sufficient because PUT
+  // /api/events/:id/status lets a manager flip a Live event back
+  // to Upcoming.
+  //
+  // Returns null when safe; otherwise returns an Express-ready
+  // error string. Caller is expected to ROLLBACK + 409 on a
+  // non-null return.
+  async function refuseIfScoresExist(client, eventId) {
+    const r = await client.query(
+      "SELECT COUNT(*)::int AS n FROM scores WHERE event_id = $1",
+      [eventId],
+    );
+    const n = r.rows[0]?.n || 0;
+    if (n === 0) return null;
+    return `Cannot re-seed: ${n} score row${n === 1 ? "" : "s"} already exist on this event. Clear the scores first (admin tooling) or use a different event.`;
+  }
+
   router.get(
     "/api/events/:id/advance/preview",
     requireEventManager(),
@@ -1359,9 +1382,20 @@ module.exports = function createEventsRouter({
           prescribedRes.rows.map((r) => [r.round_number, r.dive_id]),
         );
 
+        // Refuse if scores already exist on the child — a re-run
+        // advance would CASCADE-delete them via the scores FK.
+        // The status gate above isn't sufficient because PUT
+        // /api/events/:id/status can flip a Live event back to
+        // Upcoming. Belt-and-braces.
+        const scoresErr = await refuseIfScoresExist(client, child.id);
+        if (scoresErr) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ error: scoresErr });
+        }
+
         // Wipe any existing roster on the child — re-running advance
-        // is a "redo" not an append. Score-bearing rows would have
-        // status != Upcoming so we already short-circuited above.
+        // is a "redo" not an append. The guard above prevents the
+        // CASCADE-destroys-scores foot-gun.
         await client.query(
           "DELETE FROM competitor_dive_lists WHERE event_id = $1",
           [child.id],
@@ -1849,8 +1883,16 @@ module.exports = function createEventsRouter({
           return res.status(400).json({ error: plan.shortfall });
         }
 
+        // Refuse if scores already exist — a re-seed would
+        // CASCADE-delete them. See refuseIfScoresExist comment.
+        const scoresErrH2h = await refuseIfScoresExist(client, ev.id);
+        if (scoresErrH2h) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ error: scoresErrH2h });
+        }
+
         // Wipe any existing roster on the H2H event — re-seeding
-        // (still Upcoming) is "redo not append", same as advance.
+        // (still Upcoming, with no scores) is "redo not append".
         await client.query(
           "DELETE FROM competitor_dive_lists WHERE event_id = $1",
           [ev.id],
@@ -2405,6 +2447,13 @@ module.exports = function createEventsRouter({
           stop1ByCompetitor.get(r.competitor_id).set(Number(r.round_number), r.dive_id);
         }
 
+        // Refuse if scores already exist — see refuseIfScoresExist.
+        const scoresErrSemi = await refuseIfScoresExist(client, ev.id);
+        if (scoresErrSemi) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ error: scoresErrSemi });
+        }
+
         // Wipe + reseed.
         await client.query(
           "DELETE FROM competitor_dive_lists WHERE event_id = $1",
@@ -2549,9 +2598,18 @@ module.exports = function createEventsRouter({
     // Pull SF totals + carry totals separately, then sum in JS
     // (cleaner than juggling a single CTE that has to cope with
     // a NULL carry_from and 7-table joins twice).
+    // BUG-FIX: the previous shape `LEFT JOIN per_dive pd ON
+    // pd.competitor_id = cdl.competitor_id` (without round_number)
+    // produced an N×N Cartesian explosion — N rows in cdl × N
+    // rows in per_dive per competitor → SUM was N× the real
+    // total (where N = total_rounds). Pre-aggregate per_dive by
+    // competitor_id with a CTE that already sums dive_points,
+    // then LEFT JOIN that single-row-per-competitor view onto
+    // cdl. The cdl GROUP BY collapses the duplicate rows but
+    // pd_summed.total is now the unique correct figure.
     const sfTotalsRes = await client.query(
       `WITH per_dive AS (
-         SELECT s.competitor_id,
+         SELECT s.competitor_id, s.round_number,
                 calc_event_dive_points(
                   array_agg(ej.judge_number ORDER BY ej.judge_number),
                   array_agg(s.score ORDER BY ej.judge_number),
@@ -2568,15 +2626,20 @@ module.exports = function createEventsRouter({
          LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
          WHERE s.event_id = $1
          GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+       ),
+       per_competitor AS (
+         SELECT competitor_id, COALESCE(SUM(dive_points), 0) AS sf_total
+           FROM per_dive
+          GROUP BY competitor_id
        )
        SELECT cdl.competitor_id, cdl.group_number,
               MIN(cdl.display_order) AS display_order,
               u.full_name, o.country_code,
-              COALESCE(SUM(pd.dive_points), 0) AS sf_total
+              COALESCE(MAX(pc.sf_total), 0) AS sf_total
          FROM competitor_dive_lists cdl
          JOIN users u ON u.id = cdl.competitor_id
          JOIN organisations o ON o.id = u.org_id
-         LEFT JOIN per_dive pd ON pd.competitor_id = cdl.competitor_id
+         LEFT JOIN per_competitor pc ON pc.competitor_id = cdl.competitor_id
         WHERE cdl.event_id = $1
           AND cdl.withdrawn_at IS NULL
           AND cdl.is_reserve = FALSE
@@ -2763,6 +2826,13 @@ module.exports = function createEventsRouter({
         const ordered = [...finalists].sort((a, b) => a.cumulative_total - b.cumulative_total);
         const orderByCompetitor = new Map();
         ordered.forEach((f, i) => orderByCompetitor.set(f.competitor_id, i + 1));
+
+        // Refuse if scores already exist — see refuseIfScoresExist.
+        const scoresErrFinal = await refuseIfScoresExist(client, ev.id);
+        if (scoresErrFinal) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ error: scoresErrFinal });
+        }
 
         await client.query(
           "DELETE FROM competitor_dive_lists WHERE event_id = $1",
@@ -3684,9 +3754,17 @@ module.exports = function createEventsRouter({
         }
 
         // Tier 1 (positions 1-4): F stage standings, no carry.
+        // BUG-FIX: pre-aggregate per-competitor totals into a
+        // dedicated CTE before joining onto cdl. The previous
+        // shape joined an N-rows-per-competitor `per_dive` against
+        // an N-rows-per-competitor cdl on competitor_id only —
+        // Cartesian explosion meant SUM came out N× the real
+        // value (where N = total_rounds, so 5× for women / 6×
+        // for men). Tests only checked rank ordering (which the
+        // uniform inflation preserved) so the bug shipped green.
         const fTier = await client.query(
           `WITH per_dive AS (
-             SELECT s.competitor_id,
+             SELECT s.competitor_id, s.round_number,
                     calc_event_dive_points(
                       array_agg(ej.judge_number ORDER BY ej.judge_number),
                       array_agg(s.score ORDER BY ej.judge_number),
@@ -3703,21 +3781,28 @@ module.exports = function createEventsRouter({
              LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
              WHERE s.event_id = $1
              GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+           ),
+           per_competitor AS (
+             SELECT competitor_id,
+                    COALESCE(SUM(dive_points), 0) AS total,
+                    array_agg(dive_points ORDER BY dive_points DESC NULLS LAST) AS dives_desc
+               FROM per_dive
+              GROUP BY competitor_id
            )
            SELECT cdl.competitor_id, u.full_name, o.country_code, cl.name AS club_name,
-                  COALESCE(SUM(pd.dive_points), 0) AS total,
-                  array_agg(pd.dive_points ORDER BY pd.dive_points DESC NULLS LAST) AS dives_desc
+                  COALESCE(MAX(pc.total), 0) AS total,
+                  COALESCE(MAX(pc.dives_desc), ARRAY[]::numeric[]) AS dives_desc
              FROM competitor_dive_lists cdl
              JOIN users u ON u.id = cdl.competitor_id
              JOIN organisations o ON o.id = u.org_id
              LEFT JOIN clubs cl ON cl.id = u.club_id
-             LEFT JOIN per_dive pd ON pd.competitor_id = cdl.competitor_id
+             LEFT JOIN per_competitor pc ON pc.competitor_id = cdl.competitor_id
             WHERE cdl.event_id = $1
               AND cdl.withdrawn_at IS NULL
               AND cdl.is_reserve = FALSE
             GROUP BY cdl.competitor_id, u.full_name, o.country_code, cl.name
-            ORDER BY COALESCE(SUM(pd.dive_points), 0) DESC,
-                     array_agg(pd.dive_points ORDER BY pd.dive_points DESC NULLS LAST) DESC`,
+            ORDER BY COALESCE(MAX(pc.total), 0) DESC,
+                     COALESCE(MAX(pc.dives_desc), ARRAY[]::numeric[]) DESC`,
           [req.params.id],
         );
         const finalistIds = new Set(fTier.rows.map((r) => r.competitor_id));
