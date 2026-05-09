@@ -1408,7 +1408,8 @@ onMounted(async () => {
                     <RouterLink v-if="judgeForSynchro(h, g.role, si)"
                           :to="`/judge-profile/${judgeForSynchro(h, g.role, si).judge_id}`"
                           :class="['j-score', 'j-link', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                          :title="judgeTooltip(judgeForSynchro(h, g.role, si), { dropped: j.dropped })">
+                          :data-judge-tip="judgeTooltip(judgeForSynchro(h, g.role, si), { dropped: j.dropped })"
+                          :aria-label="judgeTooltip(judgeForSynchro(h, g.role, si), { dropped: j.dropped })">
                       {{ j.value.toFixed(1) }}
                     </RouterLink>
                     <span v-else
@@ -1424,7 +1425,8 @@ onMounted(async () => {
                   <RouterLink v-if="judgeForIndex(h.judge_numbers, si)"
                         :to="`/judge-profile/${judgeForIndex(h.judge_numbers, si).judge_id}`"
                         :class="['j-score', 'j-link', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                        :title="judgeTooltip(judgeForIndex(h.judge_numbers, si), { dropped: j.dropped })">
+                        :data-judge-tip="judgeTooltip(judgeForIndex(h.judge_numbers, si), { dropped: j.dropped })"
+                        :aria-label="judgeTooltip(judgeForIndex(h.judge_numbers, si), { dropped: j.dropped })">
                     {{ j.value.toFixed(1) }}
                   </RouterLink>
                   <span v-else
@@ -1530,7 +1532,8 @@ onMounted(async () => {
                     :class="['j-score', 'j-link',
                              slot.filled ? `j-${slot.category}` : 'j-empty',
                              slot.dropped ? 'j-dropped' : '']"
-                    :title="judgeTooltip(panelByNumber.get(i + 1), { dropped: slot.dropped })">
+                    :data-judge-tip="judgeTooltip(panelByNumber.get(i + 1), { dropped: slot.dropped })"
+                    :aria-label="judgeTooltip(panelByNumber.get(i + 1), { dropped: slot.dropped })">
                 {{ slot.filled ? slot.value.toFixed(1) : '—' }}
               </RouterLink>
               <span v-else
@@ -1960,7 +1963,8 @@ onMounted(async () => {
                             <RouterLink v-if="judgeForSynchro(d, g.role, si)"
                                   :to="`/judge-profile/${judgeForSynchro(d, g.role, si).judge_id}`"
                                   :class="['j-score', 'j-link', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                                  :title="judgeTooltip(judgeForSynchro(d, g.role, si), { dropped: j.dropped })">
+                                  :data-judge-tip="judgeTooltip(judgeForSynchro(d, g.role, si), { dropped: j.dropped })"
+                                  :aria-label="judgeTooltip(judgeForSynchro(d, g.role, si), { dropped: j.dropped })">
                               {{ j.value.toFixed(1) }}
                             </RouterLink>
                             <span v-else
@@ -1976,7 +1980,8 @@ onMounted(async () => {
                           <RouterLink v-if="judgeForIndex(d.judge_numbers, si)"
                                 :to="`/judge-profile/${judgeForIndex(d.judge_numbers, si).judge_id}`"
                                 :class="['j-score', 'j-link', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                                :title="judgeTooltip(judgeForIndex(d.judge_numbers, si), { dropped: j.dropped })">
+                                :data-judge-tip="judgeTooltip(judgeForIndex(d.judge_numbers, si), { dropped: j.dropped })"
+                                :aria-label="judgeTooltip(judgeForIndex(d.judge_numbers, si), { dropped: j.dropped })">
                             {{ j.value.toFixed(1) }}
                           </RouterLink>
                           <span v-else
@@ -2651,6 +2656,9 @@ onMounted(async () => {
   cursor: pointer;
   transition: outline-color 0.15s, transform 0.05s;
   outline: 1px solid transparent;
+  /* position: relative anchors the ::after tooltip to the chip
+     itself rather than to a distant positioned ancestor. */
+  position: relative;
   /* Inherits colour from the .j-<category> class so the
      RouterLink doesn't go blue-with-underline. */
   color: inherit;
@@ -2661,6 +2669,75 @@ onMounted(async () => {
   outline-offset: 1px;
 }
 .j-link:active { transform: scale(0.97); }
+
+/* =========================================================
+   Instant tooltip on .j-link chips.
+
+   Why this exists: the native `title` attribute has a
+   ~500ms+ delay before the browser renders the bubble, and
+   on a scoreboard with hundreds of chips that delay is what
+   the audience reads as "the page feels slow". A CSS-only
+   ::after tooltip via a data attribute renders on the very
+   first hover frame.
+
+   Accessibility: the same string also lives on `aria-label`
+   so screen readers announce judge identity + click hint.
+   We deliberately drop the native `title` so the browser
+   doesn't double-render (custom + native bubble) on slow
+   hover.
+
+   Constraints we accept:
+     * No JS positioning — tooltip is anchored to the chip
+       via position: absolute. Edge-of-viewport chips can
+       overflow horizontally; we cap at max-width 240px and
+       let the layout flow rather than building a popover
+       library for this single use.
+     * pointer-events: none on the tooltip so it doesn't
+       intercept clicks meant for the chip below.
+   ========================================================= */
+.j-link[data-judge-tip]::after {
+  content: attr(data-judge-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  /* Whitespace pre-line: the tooltip string carries \n
+     between "J3 — Maria Schmidt · GER" / "Dropped by trim
+     rule" / "Click to open judge analysis" — we want them
+     stacked. */
+  white-space: pre-line;
+  text-align: left;
+  background: var(--bg-2, #0f172a);
+  border: 1px solid var(--cyan, #06b6d4);
+  border-radius: var(--radius-sm, 4px);
+  padding: 0.5rem 0.7rem;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text, #e2e8f0);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  pointer-events: none;
+  /* Hidden at rest, instantly visible on hover/focus. No
+     transition delay on the show side; a tiny fade-out is
+     fine because that's the user moving their mouse away. */
+  opacity: 0;
+  visibility: hidden;
+  width: max-content;
+  max-width: 240px;
+}
+.j-link[data-judge-tip]:hover::after,
+.j-link[data-judge-tip]:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+}
+/* Strikethrough on a dropped chip applies to the LINK text
+   only — text-decoration would otherwise cascade into the
+   tooltip bubble's text and look weird. */
+.j-link[data-judge-tip]::after {
+  text-decoration: none;
+}
 /* Reserved-height wrapper for the dive-total. Without this
    the catch-up + Up Next blocks below would shift down by
    ~52px the instant the panel completes and the total
