@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { diveDescription } from '@/composables/useDiveLabel'
@@ -77,6 +77,43 @@ const diveListLockExpired = computed(() => {
   if (!at) return false
   return new Date(at) <= new Date()
 })
+
+// Super Final F has a stricter lock window than the standard
+// 30-min WA Article 6.7.3 default — Appendix 3 §4.1 specifies a
+// 15-min break between SF and F with the change-of-dives request
+// "made after the SF and at LATEST 5 minutes before the Final".
+// On super_final_final events we surface a louder countdown
+// banner so the diver knows the deadline is sooner than the
+// standard prelim → final flow.
+const isSuperFinalFinal = computed(() =>
+  currentEvent.value?.event_format === 'super_final_final'
+)
+// Live countdown to the lock — re-computed once per second so
+// the banner ticks down in real time. Returns a friendly string
+// like "4 min 12 sec" or null when no lock is set / past.
+const liveTickRef = ref(0)
+let liveTickHandle = null
+function startLiveTick() {
+  if (liveTickHandle) return
+  liveTickHandle = setInterval(() => { liveTickRef.value++ }, 1000)
+}
+function stopLiveTick() {
+  if (liveTickHandle) { clearInterval(liveTickHandle); liveTickHandle = null }
+}
+const diveListLockCountdown = computed(() => {
+  // Reference liveTickRef so the computed re-runs each tick.
+  liveTickRef.value
+  const at = currentEvent.value?.dive_list_locks_at
+  if (!at) return null
+  const ms = new Date(at).getTime() - Date.now()
+  if (ms <= 0) return null
+  const totalSec = Math.floor(ms / 1000)
+  const min = Math.floor(totalSec / 60)
+  const sec = totalSec % 60
+  return min > 0 ? `${min} min ${sec.toString().padStart(2, '0')} sec` : `${sec} sec`
+})
+onMounted(() => startLiveTick())
+onUnmounted(() => stopLiveTick())
 
 // Migration 040 reserves: the diver's status in the currently-
 // selected event (loaded from /api/competitor/list-status when
@@ -690,14 +727,27 @@ watch(currentEvent, async (ev) => {
            inherited list by default; clicking Confirm
            explicitly stamps confirmed_at so the operator can
            audit who actively responded. Editing rounds via the
-           picker below also counts as confirmation. -->
+           picker below also counts as confirmation.
+
+           Super Final F gets a louder variant: live MM:SS
+           countdown + a "WHY this is shorter" hint citing
+           Appendix 3 §4.1 (15-min break between SF and F,
+           change-of-dives latest 5 minutes before the Final). -->
       <div v-if="currentEvent && currentEvent.dive_list_locks_at"
-           :class="['advance-banner', diveListLockExpired ? 'locked' : '']">
+           :class="['advance-banner',
+                    diveListLockExpired ? 'locked' : '',
+                    isSuperFinalFinal ? 'super-final-f' : '']">
         <div class="advance-banner-head">
-          <span class="advance-banner-icon">{{ diveListLockExpired ? '🔒' : '⏱' }}</span>
+          <span class="advance-banner-icon">
+            {{ diveListLockExpired ? '🔒' : (isSuperFinalFinal ? '⚡' : '⏱') }}
+          </span>
           <span class="advance-banner-title">
             <template v-if="diveListLockExpired">
               Dive list locked at {{ new Date(currentEvent.dive_list_locks_at).toLocaleString() }}
+            </template>
+            <template v-else-if="isSuperFinalFinal && diveListLockCountdown">
+              <strong>Dive change deadline: {{ diveListLockCountdown }}</strong>
+              — locks at {{ new Date(currentEvent.dive_list_locks_at).toLocaleTimeString() }}
             </template>
             <template v-else>
               You've advanced to this event — confirm or edit your list by
@@ -708,6 +758,13 @@ watch(currentEvent, async (ev) => {
         <p class="advance-banner-body">
           <template v-if="diveListLockExpired">
             The lock window has passed. Contact the meet manager for late changes.
+          </template>
+          <template v-else-if="isSuperFinalFinal">
+            Super Final has a tighter window than the standard event:
+            change requests must be in at LATEST 5 minutes before the Final
+            (Appendix 3 §4.1 — the 15-min break between Semi Final and Final
+            absorbs the standard 30-min change-of-dives buffer). Confirm
+            below or edit a round to lock your final list in.
           </template>
           <template v-else>
             Your dives carried forward from the previous stage. If you're happy with
@@ -1003,6 +1060,28 @@ watch(currentEvent, async (ev) => {
 .advance-banner-confirmed {
   margin: 0.4rem 0 0; font-size: 12px; color: #34d399;
   font-family: var(--font-mono);
+}
+/* Super Final F — louder banner because the change window is
+   shorter than the standard prelim → final. Amber pulse and
+   bold MM:SS countdown so the diver doesn't miss the deadline. */
+.advance-banner.super-final-f {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+  animation: superFinalLockPulse 2.5s ease-in-out infinite;
+}
+.advance-banner.super-final-f .advance-banner-title {
+  color: #fbbf24;
+}
+@keyframes superFinalLockPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.0); }
+  50%      { box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.18); }
+}
+.advance-banner.super-final-f.locked {
+  /* Once the deadline passes the urgency is moot — drop the
+     pulse, keep the amber border so the audit trail looks
+     consistent with the alert state. */
+  animation: none;
+  border-color: var(--border);
 }
 
 /* Reserve banner — amber accent so it reads as a holding
