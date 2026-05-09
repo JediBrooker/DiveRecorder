@@ -211,47 +211,45 @@ const showMixedHeightHelp = ref(false)
 // format (final / preliminary), prelim/final link, advance count,
 // per-round DD limits.
 //
-// Age group is structured: a category dropdown +
-// sub-selection. Composes into the flat `events.age_group`
-// VARCHAR(40) on submit so historical data + reports keep
-// working unchanged.
+// Age group / division is a single dropdown using <optgroup>
+// for visual grouping — every option is reachable in a single
+// click. The composite value space:
 //
-//   createAgeCategory  — top-level: '' | 'age' | 'junior' | 'open' | 'other'
-//   createAgeAge       — when category='age': '11_under' | '12_13' | '14_15' | '16_18' | 'masters'
-//   createAgeMasters   — when category='age' + age='masters': free text "30-34" / "M40+" etc.
-//   createAgeJunior    — when category='junior': 'A' | 'B' | 'C' | 'D' | 'E'
-//   createAgeOther     — when category='other': free text
+//   ''             → un-bracketed (historical default)
+//   'age:11_under' → "11 and under"
+//   'age:12_13'    → "12/13"
+//   'age:14_15'    → "14/15"
+//   'age:16_18'    → "16-18"
+//   'age:masters'  → "Masters" (+ free-text suffix)
+//   'junior:A'..'E'→ "Junior Group A".."E"
+//   'open'         → "Open"
+//   'other'        → free text
 //
-// Empty category = un-bracketed (the historical default).
-const createAgeCategory = ref('')
-const createAgeAge      = ref('')
-const createAgeMasters  = ref('')
-const createAgeJunior   = ref('')
-const createAgeOther    = ref('')
-const createAgeGroup    = computed(() => composeAgeGroup({
-  category: createAgeCategory.value,
-  age:      createAgeAge.value,
-  masters:  createAgeMasters.value,
-  junior:   createAgeJunior.value,
-  other:    createAgeOther.value,
+// The sub-inputs (Masters range, Other custom) only render
+// when the matching option is picked. Composed into the
+// existing events.age_group VARCHAR(40) on submit.
+const createAgeChoice  = ref('')
+const createAgeMasters = ref('')
+const createAgeOther   = ref('')
+const createAgeGroup   = computed(() => composeAgeGroup({
+  choice:  createAgeChoice.value,
+  masters: createAgeMasters.value,
+  other:   createAgeOther.value,
 }))
-function composeAgeGroup(parts) {
-  if (parts.category === 'age') {
-    if (parts.age === '11_under') return '11 and under'
-    if (parts.age === '12_13')    return '12/13'
-    if (parts.age === '14_15')    return '14/15'
-    if (parts.age === '16_18')    return '16-18'
-    if (parts.age === 'masters') {
-      const m = (parts.masters || '').trim()
-      return m ? `Masters ${m}` : 'Masters'
-    }
-    return ''
+function composeAgeGroup({ choice, masters, other }) {
+  if (!choice) return ''
+  if (choice === 'open')         return 'Open'
+  if (choice === 'other')        return (other || '').trim()
+  if (choice === 'age:11_under') return '11 and under'
+  if (choice === 'age:12_13')    return '12/13'
+  if (choice === 'age:14_15')    return '14/15'
+  if (choice === 'age:16_18')    return '16-18'
+  if (choice === 'age:masters') {
+    const m = (masters || '').trim()
+    return m ? `Masters ${m}` : 'Masters'
   }
-  if (parts.category === 'junior') {
-    return parts.junior ? `Junior Group ${parts.junior}` : ''
-  }
-  if (parts.category === 'open')  return 'Open'
-  if (parts.category === 'other') return (parts.other || '').trim()
+  const junior = choice.match(/^junior:([A-E])$/)
+  if (junior) return `Junior Group ${junior[1]}`
   return ''
 }
 // Reverse-decompose a stored age_group string back into the
@@ -260,17 +258,17 @@ function composeAgeGroup(parts) {
 // text preserved.
 function decomposeAgeGroup(value) {
   const v = (value || '').trim()
-  if (!v) return { category: '', age: '', masters: '', junior: '', other: '' }
-  if (v === '11 and under') return { category: 'age', age: '11_under', masters: '', junior: '', other: '' }
-  if (v === '12/13')        return { category: 'age', age: '12_13',    masters: '', junior: '', other: '' }
-  if (v === '14/15')        return { category: 'age', age: '14_15',    masters: '', junior: '', other: '' }
-  if (v === '16-18')        return { category: 'age', age: '16_18',    masters: '', junior: '', other: '' }
-  if (v === 'Open')         return { category: 'open', age: '', masters: '', junior: '', other: '' }
+  if (!v)                   return { choice: '',             masters: '', other: '' }
+  if (v === '11 and under') return { choice: 'age:11_under', masters: '', other: '' }
+  if (v === '12/13')        return { choice: 'age:12_13',    masters: '', other: '' }
+  if (v === '14/15')        return { choice: 'age:14_15',    masters: '', other: '' }
+  if (v === '16-18')        return { choice: 'age:16_18',    masters: '', other: '' }
+  if (v === 'Open')         return { choice: 'open',         masters: '', other: '' }
   const masters = v.match(/^Masters\b\s*(.*)$/i)
-  if (masters) return { category: 'age', age: 'masters', masters: masters[1] || '', junior: '', other: '' }
+  if (masters) return { choice: 'age:masters', masters: masters[1] || '', other: '' }
   const junior = v.match(/^Junior Group\s+([A-E])$/i)
-  if (junior) return { category: 'junior', age: '', masters: '', junior: junior[1].toUpperCase(), other: '' }
-  return { category: 'other', age: '', masters: '', junior: '', other: v }
+  if (junior) return { choice: `junior:${junior[1].toUpperCase()}`, masters: '', other: '' }
+  return { choice: 'other', masters: '', other: v }
 }
 const createScheduledAt  = ref('')      // datetime-local string, '' = unscheduled
 const createEntriesCloseAt = ref('')    // datetime-local string, '' = no deadline
@@ -364,11 +362,9 @@ function applyEventTemplate(t) {
     // back into its sub-refs so the structured dropdown picks
     // the right option.
     const parts = decomposeAgeGroup(c.age_group)
-    createAgeCategory.value = parts.category
-    createAgeAge.value      = parts.age
-    createAgeMasters.value  = parts.masters
-    createAgeJunior.value   = parts.junior
-    createAgeOther.value    = parts.other
+    createAgeChoice.value  = parts.choice
+    createAgeMasters.value = parts.masters
+    createAgeOther.value   = parts.other
   }
   if (c.event_format)      createFormat.value = c.event_format
   if (c.advance_count)     createAdvanceCount.value = c.advance_count
@@ -407,17 +403,23 @@ function applyEventTemplate(t) {
 
 // Standard / "WA-aligned" templates surfaced in the modal. Filtered
 // live by the operator's current Gender + Age Group so the strip
-// only shows applicable rule shapes.
+// only shows applicable rule shapes. Collapsed by default — the
+// summary line shows the match count and expands on click so the
+// strip doesn't dominate the top of the modal.
 const suggestedStandardTemplates = computed(() =>
   filterStandardTemplates({
     gender: createGender.value,
     age_group: createAgeGroup.value,
   }),
 )
+const suggestedTemplatesOpen = ref(false)
 function applyStandardTemplate(t) {
   // Reuse the same path as user-saved templates so the form
   // receives a consistent shape regardless of source.
   applyEventTemplate({ name: t.name, config: t.config })
+  // After applying, collapse the strip so the operator's eye
+  // moves down to the populated form.
+  suggestedTemplatesOpen.value = false
 }
 
 async function saveAsEventTemplate() {
@@ -650,17 +652,13 @@ const editEntriesCloseAt = ref('')   // datetime-local string, '' = no deadline
 const editEnforceSignoff = ref(false)
 const editMixedHeight    = ref(false)
 // Structured age group — same shape as the Create form.
-const editAgeCategory = ref('')
-const editAgeAge      = ref('')
-const editAgeMasters  = ref('')
-const editAgeJunior   = ref('')
-const editAgeOther    = ref('')
-const editAgeGroup    = computed(() => composeAgeGroup({
-  category: editAgeCategory.value,
-  age:      editAgeAge.value,
-  masters:  editAgeMasters.value,
-  junior:   editAgeJunior.value,
-  other:    editAgeOther.value,
+const editAgeChoice  = ref('')
+const editAgeMasters = ref('')
+const editAgeOther   = ref('')
+const editAgeGroup   = computed(() => composeAgeGroup({
+  choice:  editAgeChoice.value,
+  masters: editAgeMasters.value,
+  other:   editAgeOther.value,
 }))
 // Migration 039: prescribed round dives mirrored into the Edit
 // modal. Same shape as createRoundDives — each entry is
@@ -950,11 +948,9 @@ async function createEvent() {
     createRoundDives.value = []
     createType.value = 'individual'
     createMeetId.value = ''
-    createAgeCategory.value = ''
-    createAgeAge.value      = ''
-    createAgeMasters.value  = ''
-    createAgeJunior.value   = ''
-    createAgeOther.value    = ''
+    createAgeChoice.value  = ''
+    createAgeMasters.value = ''
+    createAgeOther.value   = ''
     createScheduledAt.value = ''
     createEntriesCloseAt.value = ''
     createFormat.value = 'final'
@@ -983,11 +979,9 @@ async function openEdit(ev) {
   editMixedHeight.value    = !!ev.is_mixed_height
   // Decompose stored age_group into the structured dropdown.
   const ageParts = decomposeAgeGroup(ev.age_group)
-  editAgeCategory.value = ageParts.category
-  editAgeAge.value      = ageParts.age
-  editAgeMasters.value  = ageParts.masters
-  editAgeJunior.value   = ageParts.junior
-  editAgeOther.value    = ageParts.other
+  editAgeChoice.value  = ageParts.choice
+  editAgeMasters.value = ageParts.masters
+  editAgeOther.value   = ageParts.other
   // entries_close_at comes back as an ISO string from the server.
   // <input type="datetime-local"> wants 'YYYY-MM-DDTHH:mm' in local
   // time, no zone, no seconds — so format it for display.
@@ -1415,20 +1409,26 @@ onUnmounted(() => {
       </div>
 
       <!-- World Aquatics / federation-standard templates. Filtered
-           live by the operator's current Gender + Age Group so the
-           strip narrows to applicable rule shapes. Distinct from
-           the user-saved templates above (those are per-org). -->
-      <div v-if="suggestedStandardTemplates.length" class="event-templates std-templates">
-        <div class="std-templates-head">
-          <span>Suggested templates</span>
-          <span class="std-templates-sub">
-            {{ createGender }}{{ createAgeGroup ? ' · ' + createAgeGroup : '' }} — {{ suggestedStandardTemplates.length }} match{{ suggestedStandardTemplates.length === 1 ? '' : 'es' }}
+           live by the operator's current Gender + Age Group, and
+           collapsed by default so the strip doesn't dominate the
+           top of the modal — click to expand. -->
+      <div v-if="suggestedStandardTemplates.length"
+           :class="['std-templates', suggestedTemplatesOpen ? 'open' : 'closed']">
+        <button type="button" class="std-templates-toggle"
+                @click="suggestedTemplatesOpen = !suggestedTemplatesOpen">
+          <span class="std-templates-icon">🎯</span>
+          <span class="std-templates-summary">
+            {{ suggestedStandardTemplates.length }} suggested template{{ suggestedStandardTemplates.length === 1 ? '' : 's' }}
+            <span class="std-templates-context">
+              for {{ createGender }}{{ createAgeGroup ? ' · ' + createAgeGroup : '' }}
+            </span>
           </span>
-        </div>
-        <div class="event-templates-list">
+          <span class="std-templates-chevron" aria-hidden="true">{{ suggestedTemplatesOpen ? '▴' : '▾' }}</span>
+        </button>
+        <div v-if="suggestedTemplatesOpen" class="std-templates-list">
           <button v-for="t in suggestedStandardTemplates" :key="t.name"
                   type="button"
-                  class="event-template-apply std-template"
+                  class="std-template"
                   :title="t.description"
                   @click="applyStandardTemplate(t)">
             <span class="event-template-name">{{ t.name }}</span>
@@ -1468,45 +1468,32 @@ onUnmounted(() => {
              composed string lands in events.age_group on submit. -->
         <div class="field age-group-field">
           <label class="label">Age Group / Division</label>
-          <select class="select age-category" v-model="createAgeCategory"
-                  @change="createAgeAge=''; createAgeMasters=''; createAgeJunior=''; createAgeOther=''">
+          <select class="select age-category" v-model="createAgeChoice">
             <option value="">— Un-bracketed —</option>
             <optgroup label="Age Group">
-              <option value="age">Age Group (11 and under … Masters)</option>
+              <option value="age:11_under">11 and under</option>
+              <option value="age:12_13">12/13</option>
+              <option value="age:14_15">14/15</option>
+              <option value="age:16_18">16-18</option>
+              <option value="age:masters">Masters (specify range)</option>
             </optgroup>
             <optgroup label="Junior (World Aquatics Group)">
-              <option value="junior">Junior Group (A–E)</option>
+              <option value="junior:E">Group E</option>
+              <option value="junior:D">Group D</option>
+              <option value="junior:C">Group C</option>
+              <option value="junior:B">Group B</option>
+              <option value="junior:A">Group A</option>
             </optgroup>
             <option value="open">Open</option>
             <option value="other">Other (custom)</option>
           </select>
 
-          <!-- Sub-selectors -->
-          <select v-if="createAgeCategory === 'age'" class="select" v-model="createAgeAge"
-                  style="margin-top:0.5rem">
-            <option value="">— Pick age group —</option>
-            <option value="11_under">11 and under</option>
-            <option value="12_13">12/13</option>
-            <option value="14_15">14/15</option>
-            <option value="16_18">16-18</option>
-            <option value="masters">Masters (specify range)</option>
-          </select>
-          <input v-if="createAgeCategory === 'age' && createAgeAge === 'masters'"
+          <!-- Sub-inputs only appear when Masters / Other is picked. -->
+          <input v-if="createAgeChoice === 'age:masters'"
                  class="input" v-model="createAgeMasters"
-                 placeholder='e.g. "30-34", "M40+", "70+"'
+                 placeholder='Masters range — e.g. "30-34", "M40+", "70+"'
                  style="margin-top:0.5rem">
-
-          <select v-if="createAgeCategory === 'junior'" class="select" v-model="createAgeJunior"
-                  style="margin-top:0.5rem">
-            <option value="">— Pick junior group —</option>
-            <option value="E">Group E</option>
-            <option value="D">Group D</option>
-            <option value="C">Group C</option>
-            <option value="B">Group B</option>
-            <option value="A">Group A</option>
-          </select>
-
-          <input v-if="createAgeCategory === 'other'" class="input"
+          <input v-if="createAgeChoice === 'other'" class="input"
                  v-model="createAgeOther"
                  placeholder='e.g. "Para Class S1", "Ex-Pat Open"'
                  style="margin-top:0.5rem">
@@ -2162,44 +2149,31 @@ onUnmounted(() => {
              modal so an operator can change it post-event. -->
         <div class="field">
           <label class="label">Age Group / Division</label>
-          <select class="select" v-model="editAgeCategory"
-                  @change="editAgeAge=''; editAgeMasters=''; editAgeJunior=''; editAgeOther=''">
+          <select class="select" v-model="editAgeChoice">
             <option value="">— Un-bracketed —</option>
             <optgroup label="Age Group">
-              <option value="age">Age Group (11 and under … Masters)</option>
+              <option value="age:11_under">11 and under</option>
+              <option value="age:12_13">12/13</option>
+              <option value="age:14_15">14/15</option>
+              <option value="age:16_18">16-18</option>
+              <option value="age:masters">Masters (specify range)</option>
             </optgroup>
             <optgroup label="Junior (World Aquatics Group)">
-              <option value="junior">Junior Group (A–E)</option>
+              <option value="junior:E">Group E</option>
+              <option value="junior:D">Group D</option>
+              <option value="junior:C">Group C</option>
+              <option value="junior:B">Group B</option>
+              <option value="junior:A">Group A</option>
             </optgroup>
             <option value="open">Open</option>
             <option value="other">Other (custom)</option>
           </select>
 
-          <select v-if="editAgeCategory === 'age'" class="select" v-model="editAgeAge"
-                  style="margin-top:0.5rem">
-            <option value="">— Pick age group —</option>
-            <option value="11_under">11 and under</option>
-            <option value="12_13">12/13</option>
-            <option value="14_15">14/15</option>
-            <option value="16_18">16-18</option>
-            <option value="masters">Masters (specify range)</option>
-          </select>
-          <input v-if="editAgeCategory === 'age' && editAgeAge === 'masters'"
+          <input v-if="editAgeChoice === 'age:masters'"
                  class="input" v-model="editAgeMasters"
-                 placeholder='e.g. "30-34", "M40+", "70+"'
+                 placeholder='Masters range — e.g. "30-34", "M40+", "70+"'
                  style="margin-top:0.5rem">
-
-          <select v-if="editAgeCategory === 'junior'" class="select" v-model="editAgeJunior"
-                  style="margin-top:0.5rem">
-            <option value="">— Pick junior group —</option>
-            <option value="E">Group E</option>
-            <option value="D">Group D</option>
-            <option value="C">Group C</option>
-            <option value="B">Group B</option>
-            <option value="A">Group A</option>
-          </select>
-
-          <input v-if="editAgeCategory === 'other'" class="input"
+          <input v-if="editAgeChoice === 'other'" class="input"
                  v-model="editAgeOther"
                  placeholder='e.g. "Para Class S1", "Ex-Pat Open"'
                  style="margin-top:0.5rem">
@@ -2745,33 +2719,51 @@ onUnmounted(() => {
 }
 .event-template-save .input { flex: 1; font-size: 12px; padding: 0.4rem 0.6rem; }
 
-/* Suggested templates strip — distinct visual treatment so the
-   operator can tell at a glance which row is a federation
-   standard vs. their own saved template. */
+/* Suggested templates — collapsible. Closed = a single compact
+   line so the strip doesn't dominate the top of the modal.
+   Open = expands the list of clickable templates inline. */
 .std-templates {
-  border-color: var(--cyan-dim);
-  background: rgba(0, 224, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 1rem;
+  background: rgba(0, 224, 255, 0.03);
 }
-.std-templates-head {
-  display: flex; justify-content: space-between; align-items: baseline;
-  font-family: var(--font-display); font-size: 12px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.08em;
-  color: var(--cyan);
-  margin-bottom: 0.5rem;
+.std-templates.open { background: rgba(0, 224, 255, 0.05); }
+
+.std-templates-toggle {
+  display: flex; align-items: center; gap: 0.5rem;
+  width: 100%; padding: 0.5rem 0.75rem;
+  background: transparent; border: none; cursor: pointer;
+  text-align: left; font: inherit; color: var(--text);
 }
-.std-templates-sub {
+.std-templates-toggle:hover { color: var(--cyan); }
+.std-templates-icon { font-size: 14px; }
+.std-templates-summary {
+  flex: 1; font-family: var(--font-display); font-size: 12px; font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.std-templates-context {
   font-family: var(--font-mono); font-size: 11px; font-weight: normal;
-  letter-spacing: 0; text-transform: none; color: var(--text-3);
+  letter-spacing: 0; color: var(--text-3); margin-left: 0.4rem;
+}
+.std-templates-chevron {
+  font-size: 13px; color: var(--text-3);
+}
+
+.std-templates-list {
+  display: flex; flex-direction: column; gap: 0.35rem;
+  padding: 0 0.6rem 0.6rem;
 }
 .std-template {
   display: flex; flex-direction: column; gap: 0.15rem;
   padding: 0.5rem 0.7rem;
   background: var(--bg-3); border: 1px solid var(--border);
   border-radius: var(--radius-sm); cursor: pointer;
-  text-align: left; font: inherit;
+  text-align: left; font: inherit; color: var(--text);
   width: 100%;
 }
 .std-template:hover { border-color: var(--cyan); background: rgba(0, 224, 255, 0.06); }
+.std-template:hover .event-template-name { color: var(--cyan); }
 
 /* Advance-to-final action — green to suggest "promote".
    Visible only on preliminary rows whose final exists. */

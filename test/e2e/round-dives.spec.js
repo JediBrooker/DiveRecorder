@@ -199,19 +199,26 @@ test("round-dives: suggested templates filter by gender + age group and apply on
   await page.getByRole("button", { name: /\+ New Event/i }).click();
   await expect(page.locator(".modal-create-event")).toBeVisible();
 
-  // Default form: Female + un-bracketed → strip surfaces Female
-  // templates with no age_group requirement (none today, so the
-  // strip is empty until the operator picks an age group).
+  // Default form: Female + un-bracketed → strip empty until the
+  // operator picks an age group.
   const strip = page.locator(".std-templates");
 
-  // Pick "Open" from the structured age-group dropdown.
+  // Pick "Open" — single-select dropdown, optgroups for visual
+  // grouping but every option is reachable in one click.
   const ageDropdown = page.locator(".modal-create-event select.age-category");
   await ageDropdown.selectOption("open");
   // Hint underneath confirms the composed string.
   await expect(page.locator(".modal-create-event").getByText("Stored as")).toBeVisible();
 
-  // Strip now shows Female-Open templates (3 individual + 2 synchro = 5).
+  // Strip surfaces (collapsed) once Open is picked. Header shows
+  // the match count.
   await expect(strip).toBeVisible();
+  const toggle = strip.locator(".std-templates-toggle");
+  await expect(toggle).toContainText(/suggested templates/i);
+  // Click to expand.
+  await toggle.click();
+
+  // Templates render as buttons inside .std-templates-list.
   await expect(strip.locator(".std-template").first()).toContainText(/Senior Open/);
 
   // Pick the "Women's 3m Springboard — Senior Open" entry.
@@ -220,6 +227,9 @@ test("round-dives: suggested templates filter by gender + age group and apply on
   await expect(page.locator(".rd-row")).toHaveCount(5);
   // The round-structure section editor populated too.
   await expect(page.locator(".modal-create-event .rr-section")).toHaveCount(1);
+  // Strip auto-collapsed after a click so the operator's eye
+  // moves to the now-populated form.
+  await expect(strip.locator(".std-templates-list")).toHaveCount(0);
 
   await setup.deleteOrg(orgId);
 });
