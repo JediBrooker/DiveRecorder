@@ -231,3 +231,57 @@ A non-exhaustive checklist:
 If something feels off and you can't find it in this file, that's the
 signal to **read the code and then update this file** so the next agent
 finds it on the first pass.
+
+---
+
+## Verification: run CI locally before pushing
+
+**Workflow rule (set 2026-05-09):** every change has to pass the
+test suite **on the local Mac** before it gets pushed. Don't rely
+on the GitHub Actions round-trip — push-then-watch-CI is a 15-minute
+loop that hides bugs behind merge commits and is twice as slow as
+running locally even with this machine's slow boot.
+
+The local equivalent of `.github/workflows/ci.yml`:
+
+```bash
+# 1. Lint + build (fast, no DB)
+npm run lint
+npm run build
+
+# 2. Integration tests (requires Postgres at $DB_DATABASE,
+#    default diverecorder_test). Boots server.js in-process.
+npm test
+
+# 3. End-to-end (Playwright + Chromium). Boots its own server
+#    via webServer config; the boot wait is the slow step on
+#    this machine, see note below.
+npx playwright test
+```
+
+A change is "ready to push" only after all three are green.
+
+### Local boot-hang gotcha
+
+The project lives on a Google Drive Cloud Storage path
+(`~/Library/CloudStorage/GoogleDrive-…/DiveRecorderV4`).
+Node module resolution does many small reads per file and fights
+the Drive sync layer + Spotlight indexing — `node server.js`
+takes 2-5 minutes to accept connections instead of <1 second.
+
+What this means for the local CI workflow:
+
+- `npm test` boots the server in-process; the slow first
+  `require('./server.js')` is the bottleneck. Set `DB_DATABASE`,
+  let it run, give it ~3 minutes before declaring a hang.
+- `npx playwright test` runs `webServer.command` (`npm run build &&
+  PORT=3097 node server.js`) and waits up to `webServer.timeout`
+  for `/api/health`. The default 60_000ms in `playwright.config.js`
+  isn't enough on this machine; bump it to 300_000ms locally if you
+  need to run the e2e suite.
+- Pre-booting the server in another terminal + relying on
+  `reuseExistingServer: true` is the fastest path: pay the boot
+  hang once, then iterate on tests freely.
+
+If a fresh local copy outside Google Drive becomes available,
+delete this section.
