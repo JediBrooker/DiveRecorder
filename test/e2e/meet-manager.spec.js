@@ -430,20 +430,35 @@ test("meet-manager full E2E (random variant)", async ({
   await page.waitForTimeout(WORKFLOW_HOLD_MS);
   await checkinContinueBtn.click();
 
-  // STATE 2 — Orange randomise button. Click opens a confirm
-  // modal (cut from native confirm() to a styled modal that
-  // spells out the consequences); click the modal's Randomise
-  // primary button to actually run the shuffle.
+  // STATE 2 — Orange randomise button. Click opens the
+  // randomise-draw modal (WA Article 4.1.6 ceremony). Three
+  // phases: preview → 5-sec animated shuffle → confirm.
+  // Driving the full ceremony in the meet-manager spec would
+  // add ~5s to every run; we just exercise the start + confirm
+  // path here. The dedicated randomise-modal spec covers the
+  // animation timing.
   const wfOrangeBtn = page.locator(".wf-btn.wf-btn-orange");
   await expect(wfOrangeBtn).toBeVisible({ timeout: 5000 });
   await expect(wfOrangeBtn).toHaveText(/Randomise Dive Order/i);
   await page.waitForTimeout(WORKFLOW_HOLD_MS);
   await wfOrangeBtn.click();
-  const randomiseConfirm = page.locator(".confirm-modal .confirm-btn-warn", {
-    hasText: /Randomise/i,
+
+  const randomiseModal = page.locator(".randomise-modal");
+  await expect(randomiseModal).toBeVisible({ timeout: 5000 });
+
+  // Phase 1: "Start the draw" — kicks off the 5-sec animation
+  // + parallel server randomise.
+  await page.locator(".randomise-go").click();
+
+  // Phase 3: wait for the "Confirm dive order" button to
+  // appear (animation phase ends after ~5s, then the modal
+  // flips to phase=done).
+  const confirmDrawBtn = randomiseModal.getByRole("button", {
+    name: /Confirm dive order/i,
   });
-  await expect(randomiseConfirm).toBeVisible({ timeout: 5000 });
-  await randomiseConfirm.click();
+  await expect(confirmDrawBtn).toBeVisible({ timeout: 10_000 });
+  await confirmDrawBtn.click();
+  await expect(randomiseModal).toHaveCount(0);
 
   // STATE 3 — Yellow referee sign-off button.
   // Cut 2: clicking the yellow button now opens a modal with two

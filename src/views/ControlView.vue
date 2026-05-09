@@ -703,58 +703,86 @@ function patchCurrentEvent(patch) {
   if (row) Object.assign(row, patch)
 }
 
-// Randomise-animation state. While the shuffle is "running"
-// in the UI, randomiseShuffling=true and the Dive Order rows
-// re-render with names cycling through random permutations
-// every ~120ms. The actual server-side randomisation happens
-// in parallel with the animation; we hold the result back
-// until the animation duration elapses, then settle to the
-// real new order. Demoes well at pre-meet meetings — divers /
-// referees can SEE the random pick happen.
-const randomiseShuffling = ref(false)
-const randomiseShufflePreview = ref([])  // overlay roster while spinning
-let randomiseShuffleTimer = null
+// =============================================================
+// RANDOM DIVE-ORDER DRAW (WA Article 4.1.6)
+//
+// The draw is a public ceremony at the Technical / Team
+// Leaders' Meeting; this modal is designed to be shown on the
+// projector front-and-centre so the room can watch.
+//
+// Three phases:
+//   * 'preview'  — shows the CURRENT order, "Start the draw"
+//                  button. Operator confirms before any
+//                  randomisation happens.
+//   * 'shuffling'— 5-second animated reel. Names cycle through
+//                  random permutations every ~140ms. Server-side
+//                  randomise fires in parallel, but the result
+//                  is held until the 5-sec floor elapses so the
+//                  audience sees the full ceremony.
+//   * 'done'     — final server-determined order. Operator
+//                  picks "Confirm" to close, or "Re-shuffle"
+//                  to run the draw again.
+//
+// The displayed list ALWAYS reflects roster.value while the
+// modal is open — during 'shuffling' we render an overlay of
+// randomly-permuted copies; on 'done' roster.value is updated
+// from the server response.
+// =============================================================
+const randomiseModalOpen   = ref(false)
+const randomiseStage       = ref('preview')   // 'preview' | 'shuffling' | 'done'
+const randomiseShufflePreview = ref([])       // overlay rows during 'shuffling'
+let randomiseShuffleTimer  = null
 
-async function randomizeStartOrder() {
+const ANIM_MS = 5000   // user spec: 5 seconds
+const TICK_MS = 140    // 140ms per permutation → ~36 ticks across the run
+
+// Rows the modal should render — preview reads from roster,
+// shuffling reads from the cycling overlay, done reads from
+// roster again (now the post-randomise one).
+const randomiseDisplayRows = computed(() => {
+  if (randomiseStage.value === 'shuffling') {
+    return randomiseShufflePreview.value
+  }
+  // Same shape the server's roster endpoint returns.
+  return roster.value.map((r) => ({ ...r }))
+})
+
+function openRandomiseDraw() {
   if (!currentEvent.value) return
   if (!canReorderQueue.value) {
     showInfo('The dive order is locked once the event has started.')
     return
   }
+  randomiseStage.value = 'preview'
+  randomiseShufflePreview.value = []
+  randomiseModalOpen.value = true
+}
+
+function closeRandomiseModal() {
+  if (randomiseShuffleTimer) {
+    clearInterval(randomiseShuffleTimer)
+    randomiseShuffleTimer = null
+  }
+  randomiseModalOpen.value = false
+  randomiseStage.value = 'preview'
+  randomiseShufflePreview.value = []
+}
+
+// Called from the modal's "Start the draw" button (and from
+// "Re-shuffle"). Runs the 5-sec animation + parallel server
+// randomise, then settles the final order.
+async function runRandomiseDraw() {
   const ev = currentEvent.value
-  if (!await confirmAction({
-    title: 'Randomise dive order?',
-    body:  `Every diver's position in "${ev.name}" will be reshuffled across all rounds. The shuffle will animate so the room can watch the draw — leave the Dive Order panel open during the pre-meet meeting.`,
-    consequences: [
-      'Animation runs for ~3 seconds before the final order locks in',
-      'You can re-run randomise as many times as you like before sign-off',
-      'Manual reordering after this overrides the random order',
-    ],
-    confirmLabel: 'Randomise',
-    confirmKind:  'warn',
-  })) return
-  orderBusy.value = true
+  if (!ev) return
 
-  // Force the Dive Order panel open if it's collapsed — the
-  // animation is the whole point.
-  diveOrderOpen.value = true
-
-  // ---- Start the shuffle animation ----------------------
-  // We rotate through random permutations of the existing
-  // roster every ~120ms. Each tick, the roster renders with
-  // names in a different random order, so the viewer sees a
-  // "spinning" reel effect. The animation overlay is just
-  // randomiseShufflePreview which the template uses in place
-  // of `roster` while randomiseShuffling is true.
-  const ANIM_MS = 2500
-  const TICK_MS = 120
-  randomiseShuffling.value = true
-  // Snapshot the existing roster so each tick can shuffle a
-  // copy without touching the real one.
+  // Snapshot the current order — every animation tick re-shuffles
+  // a fresh copy of this so each frame is genuinely random.
   const baseRoster = roster.value.map(r => ({ ...r }))
+
   function shuffleTick() {
-    // Fisher-Yates per round_number bucket so spectators see
-    // shuffling within each round (rather than rounds mixing).
+    // Fisher-Yates within each round_number bucket so spectators
+    // see shuffling within each round (rounds don't intermix —
+    // they're dived sequentially).
     const byRound = new Map()
     for (const r of baseRoster) {
       const key = r.round_number
@@ -770,7 +798,7 @@ async function randomizeStartOrder() {
         ;[arr[i], arr[j]] = [arr[j], arr[i]]
       }
       // Re-stamp display_order so the rendered row numbers
-      // also cycle (1, 2, 3…) — looks like a real reel.
+      // also cycle (1, 2, 3…) — looks like a slot-machine reel.
       arr.forEach((row, idx) => {
         row.display_order = idx + 1
         row.round_order = idx + 1
@@ -779,43 +807,46 @@ async function randomizeStartOrder() {
     }
     randomiseShufflePreview.value = shuffled
   }
+
+  randomiseStage.value = 'shuffling'
   shuffleTick()
   randomiseShuffleTimer = setInterval(shuffleTick, TICK_MS)
 
   try {
-    // Kick off the server-side shuffle in parallel with the
-    // animation so we don't waste real time on cosmetic delay.
     const [, fresh] = await Promise.all([
       auth.apiFetch(`/api/events/${ev.id}/dive-lists/randomize`, { method: 'POST' }),
-      // Hold the animation for at least ANIM_MS even if the
-      // server returns faster.
+      // Hold the ceremony for the full ANIM_MS even if the
+      // server returns faster — the audience needs the full
+      // animation to read the moment as a "draw".
       new Promise((resolve) => setTimeout(resolve, ANIM_MS)).then(() =>
         auth.apiFetch(`/api/events/${ev.id}/roster`),
       ),
     ])
     roster.value = fresh
-    // currentIndex no longer points at a meaningful row; reset it
-    // and let the operator re-pick the active diver.
     currentIndex.value = -1
     currentActive.value = null
-    // Server stamped randomised_at + cleared signed_off — mirror
-    // that on the local event so the button flips to yellow.
     patchCurrentEvent({
       dive_order_randomised_at: new Date().toISOString(),
       dive_order_signed_off_at: null,
       dive_order_signed_off_by: null,
     })
+    randomiseStage.value = 'done'
   } catch (err) {
     showError('Randomise failed: ' + err.message)
+    randomiseStage.value = 'preview'
   } finally {
     if (randomiseShuffleTimer) {
       clearInterval(randomiseShuffleTimer)
       randomiseShuffleTimer = null
     }
-    randomiseShuffling.value = false
     randomiseShufflePreview.value = []
-    orderBusy.value = false
   }
+}
+
+// Backwards-compatible alias — the workflow button still calls
+// the old name. We just open the modal now.
+async function randomizeStartOrder() {
+  openRandomiseDraw()
 }
 
 // "Skip randomise" path — operator already arranged the order
@@ -2008,15 +2039,6 @@ const queueSearch = ref('')
 const queueRoundFilter = ref(null)   // null = all rounds
 
 const filteredRoster = computed(() => {
-  // While the randomise animation is running, render the
-  // shuffle-preview overlay verbatim — no search/filter
-  // applied (the spectator-facing draw should show every
-  // diver as they cycle through positions).
-  if (randomiseShuffling.value) {
-    return randomiseShufflePreview.value.map((r, originalIdx) =>
-      ({ ...r, originalIdx, _shuffling: true }),
-    )
-  }
   const term = queueSearch.value.trim().toLowerCase()
   return roster.value
     .map((r, originalIdx) => ({ ...r, originalIdx }))
@@ -3794,16 +3816,6 @@ onUnmounted(() => {
             </span>
           </button>
           <div v-if="diveOrderOpen" class="dive-order-body">
-            <!-- Randomise-animation banner — shown while the
-                 shuffle is "spinning" the rows so the room can
-                 watch the draw at the pre-meet meeting. -->
-            <div v-if="randomiseShuffling" class="randomise-banner">
-              <span class="randomise-banner-icon">🎲</span>
-              <span class="randomise-banner-text">
-                Drawing dive order…
-                <span class="randomise-banner-sub">Watch the draw — final order locks in shortly</span>
-              </span>
-            </div>
             <!-- Search + jump-to-round chips -->
             <div class="queue-filters">
               <input
@@ -3842,7 +3854,6 @@ onUnmounted(() => {
                 dragRosterIdx === item.originalIdx ? 'is-dragging' : '',
                 dragOverRosterIdx === item.originalIdx ? 'is-drop-target' : '',
                 !canReorderQueue ? 'is-locked' : '',
-                item._shuffling ? 'is-shuffling' : '',
               ]"
               :draggable="canReorderQueue && !item.withdrawn_at"
               @dragstart="onRosterDragStart(item.originalIdx, $event)"
@@ -3942,6 +3953,87 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Random Dive-Order Draw modal (WA Article 4.1.6).
+       Centred + projector-friendly so it can be shown to the
+       room during the Technical/Team Leaders' Meeting. Three
+       phases: preview the current order, animate the shuffle
+       for 5 sec, then confirm or re-shuffle. -->
+  <div v-if="randomiseModalOpen" class="lb-backdrop"
+       @click.self="randomiseStage !== 'shuffling' && closeRandomiseModal()"></div>
+  <div v-if="randomiseModalOpen"
+       :class="['lb-modal', 'randomise-modal', `phase-${randomiseStage}`]"
+       @click.stop>
+    <div class="randomise-head">
+      <div class="randomise-icon">🎲</div>
+      <div>
+        <div class="randomise-title">
+          <template v-if="randomiseStage === 'preview'">Random Dive-Order Draw</template>
+          <template v-else-if="randomiseStage === 'shuffling'">Drawing dive order…</template>
+          <template v-else>Final dive order</template>
+        </div>
+        <div class="randomise-sub">
+          <template v-if="currentEvent">
+            {{ currentEvent.name }} ·
+            <em>WA Article 4.1.6 (random draw at the Technical/Team Leaders' Meeting)</em>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <p class="randomise-body-text">
+      <template v-if="randomiseStage === 'preview'">
+        The current dive order is shown below. Click <strong>Start the draw</strong>
+        when the room is ready — the draw will animate for 5 seconds before
+        the new order is revealed.
+      </template>
+      <template v-else-if="randomiseStage === 'shuffling'">
+        Watch the draw. The reel cycles through random permutations until the
+        official order is locked in.
+      </template>
+      <template v-else>
+        Below is the dive order for <strong>{{ currentEvent?.name }}</strong>.
+        Confirm to lock it in, or re-shuffle if the room agrees.
+      </template>
+    </p>
+
+    <!-- Round-bucketed list. Per WA 4.1.6 the random draw is per
+         round, so visually grouping by round makes the ceremony
+         readable. -->
+    <div class="randomise-list">
+      <template v-for="(item, idx) in randomiseDisplayRows" :key="`${item.round_number}-${item.competitor_id}-${idx}`">
+        <div v-if="idx === 0 || randomiseDisplayRows[idx - 1].round_number !== item.round_number"
+             class="randomise-round-divider">
+          Round {{ item.round_number }}
+        </div>
+        <div :class="['randomise-row', randomiseStage === 'shuffling' ? 'is-shuffling' : '']">
+          <span class="randomise-row-pos">{{ item.round_order ?? item.display_order ?? '?' }}</span>
+          <span class="randomise-row-name">
+            {{ item.full_name }}<span v-if="item.country_code" class="randomise-row-country">{{ item.country_code }}</span>
+          </span>
+          <span v-if="item.club_code" class="randomise-row-club">{{ item.club_code }}</span>
+        </div>
+      </template>
+    </div>
+
+    <div class="randomise-actions">
+      <template v-if="randomiseStage === 'preview'">
+        <button type="button" class="btn btn-ghost" @click="closeRandomiseModal">Cancel</button>
+        <button type="button" class="btn btn-primary-lg randomise-go" @click="runRandomiseDraw">
+          🎲  Start the draw
+        </button>
+      </template>
+      <template v-else-if="randomiseStage === 'shuffling'">
+        <div class="randomise-progress">Drawing…</div>
+      </template>
+      <template v-else>
+        <button type="button" class="btn btn-ghost" @click="runRandomiseDraw">Re-shuffle</button>
+        <button type="button" class="btn btn-primary-lg" @click="closeRandomiseModal">
+          ✓  Confirm dive order
+        </button>
+      </template>
     </div>
   </div>
 
@@ -4956,46 +5048,9 @@ onUnmounted(() => {
 .roster-item:hover { border-color: var(--border-2); }
 .roster-item.active { background: var(--cyan-dim); border-color: var(--cyan); }
 
-/* Randomise-draw animation. Each tick of the shuffle (~120ms)
-   re-renders the rows in a new permutation; this transition
-   smooths the row re-position with a quick translate so the
-   eye perceives a "spinning" reel instead of a snap-cut. The
-   .is-shuffling marker also tints the row so the operator can
-   tell the rows aren't yet final. */
-.roster-item.is-shuffling {
-  border-color: var(--cyan);
-  background: rgba(0, 224, 255, 0.05);
-  animation: rd-row-pulse 0.25s ease-out;
-}
-@keyframes rd-row-pulse {
-  0%   { transform: translateY(-3px); opacity: 0.7; }
-  100% { transform: translateY(0);    opacity: 1;   }
-}
-
-/* Drawing dive order banner — cyan accent, lives at the top
-   of the Dive Order body while randomiseShuffling is true. */
-.randomise-banner {
-  display: flex; align-items: center; gap: 0.6rem;
-  padding: 0.55rem 0.75rem; margin-bottom: 0.6rem;
-  border: 1px solid var(--cyan);
-  background: rgba(0, 224, 255, 0.08);
-  border-radius: var(--radius-sm);
-  animation: rd-banner-glow 1.2s ease-in-out infinite alternate;
-}
-.randomise-banner-icon { font-size: 22px; }
-.randomise-banner-text {
-  display: flex; flex-direction: column; gap: 0.1rem;
-  font-family: var(--font-display); font-size: 13px; font-weight: 700;
-  letter-spacing: 0.04em; color: var(--cyan);
-}
-.randomise-banner-sub {
-  font-family: var(--font-mono); font-size: 11px; font-weight: normal;
-  letter-spacing: 0; color: var(--text-2);
-}
-@keyframes rd-banner-glow {
-  from { box-shadow: 0 0 0 rgba(0, 224, 255, 0); }
-  to   { box-shadow: 0 0 12px rgba(0, 224, 255, 0.35); }
-}
+/* The randomise modal lives separately; see .randomise-modal
+   below. Old in-panel animation removed in favour of the
+   centred modal "draw ceremony". */
 .roster-name { font-family: var(--font-display); font-size: 12px; font-weight: 700; color: var(--text); line-height: 1.2; }
 .roster-order {
   /* Same diving-position chip as the active diver + history
@@ -5419,6 +5474,141 @@ onUnmounted(() => {
    ========================================================= */
 .hold-modal { max-width: 480px; }
 .correct-modal { max-width: 520px; }
+
+/* =========================================================
+   Random dive-order draw modal (WA Article 4.1.6 ceremony).
+   Wide + projector-friendly so divers / referees / spectators
+   in the meeting room can read it from the back.
+   ========================================================= */
+.randomise-modal {
+  max-width: 760px;
+  max-height: 92vh;
+  display: flex; flex-direction: column;
+}
+.randomise-head {
+  display: flex; align-items: center; gap: 1rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border);
+}
+.randomise-icon {
+  font-size: 42px; line-height: 1; flex-shrink: 0;
+  filter: drop-shadow(0 0 8px rgba(0, 224, 255, 0.4));
+}
+.randomise-modal.phase-shuffling .randomise-icon {
+  animation: rd-icon-spin 0.9s linear infinite;
+}
+@keyframes rd-icon-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.randomise-title {
+  font-family: var(--font-display);
+  font-size: 22px; font-weight: 700;
+  font-style: italic;
+  color: var(--cyan);
+  letter-spacing: 0.02em;
+}
+.randomise-modal.phase-shuffling .randomise-title {
+  animation: rd-title-pulse 1.4s ease-in-out infinite alternate;
+}
+@keyframes rd-title-pulse {
+  from { text-shadow: 0 0 0 rgba(0, 224, 255, 0); }
+  to   { text-shadow: 0 0 14px rgba(0, 224, 255, 0.6); }
+}
+.randomise-sub {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-3); margin-top: 0.2rem;
+}
+.randomise-sub em { font-style: italic; opacity: 0.85; }
+.randomise-body-text {
+  margin: 1rem 0;
+  font-size: 14px; line-height: 1.55; color: var(--text-2);
+}
+
+/* List of divers — large, readable from across the room.
+   While shuffling, the .is-shuffling rows pulse subtly. */
+.randomise-list {
+  flex: 1; min-height: 0;
+  overflow-y: auto;
+  display: flex; flex-direction: column; gap: 0.4rem;
+  padding: 0.25rem;
+}
+.randomise-round-divider {
+  margin-top: 0.35rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(0, 224, 255, 0.08);
+  border-left: 3px solid var(--cyan);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-display); font-weight: 700;
+  font-size: 13px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--cyan);
+}
+.randomise-round-divider:first-child { margin-top: 0; }
+.randomise-row {
+  display: grid; grid-template-columns: 56px 1fr auto;
+  align-items: center; gap: 0.85rem;
+  padding: 0.7rem 0.85rem;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 18px; font-weight: 600;
+  color: var(--text);
+  transition: background 0.15s, border-color 0.15s;
+}
+.randomise-row.is-shuffling {
+  border-color: var(--cyan);
+  background: rgba(0, 224, 255, 0.06);
+  animation: rd-row-flicker 0.18s ease-out;
+}
+@keyframes rd-row-flicker {
+  0%   { transform: translateY(-2px); opacity: 0.65; }
+  100% { transform: translateY(0);    opacity: 1;    }
+}
+.randomise-row-pos {
+  font-family: var(--font-display); font-size: 28px;
+  font-weight: 800; color: var(--cyan);
+  text-align: center;
+  background: rgba(0, 224, 255, 0.10);
+  border-radius: var(--radius-sm);
+  padding: 0.15rem 0;
+}
+.randomise-row-name {
+  display: flex; align-items: center; gap: 0.5rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.randomise-row-country {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 700;
+  color: var(--text-3);
+  background: rgba(255,255,255,0.04);
+  padding: 0.12rem 0.45rem; border-radius: 4px;
+  letter-spacing: 0.04em;
+}
+.randomise-row-club {
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-3);
+  background: rgba(255,255,255,0.04);
+  padding: 0.12rem 0.5rem; border-radius: 4px;
+}
+
+.randomise-actions {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 0.75rem; padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  margin-top: 0.5rem;
+}
+.randomise-actions .btn-primary-lg {
+  width: auto; min-width: 220px;
+  font-size: 16px;
+}
+.randomise-go {
+  background: var(--cyan); color: var(--bg);
+}
+.randomise-progress {
+  width: 100%; text-align: center;
+  font-family: var(--font-display); font-size: 16px; font-weight: 700;
+  letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--cyan);
+  animation: rd-title-pulse 1.0s ease-in-out infinite alternate;
+}
 
 /* Score-correction live preview — refreshes on every keystroke
    so the operator can see the impact of the edit (trim-sum
