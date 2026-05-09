@@ -2883,6 +2883,179 @@ module.exports = function createEventsRouter({
     },
   );
 
+  // GET /api/events/:id/super-final/rankings — public read.
+  //
+  // :id is the F event. Returns the merged 1-12 official ranking
+  // per Appendix 3 §7:
+  //
+  //   Positions 1-4 : top 4 from F stage scores (no carry).
+  //   Positions 5-6 : the 2 SF non-finalists (1 per SF group)
+  //                   ranked by H2H + SF cumulative.
+  //   Positions 7-12: the 6 H2H non-advancers (one per pair)
+  //                   ranked by H2H total only.
+  //
+  // Cross-tier ties are impossible by construction (a position-1
+  // diver can't tie a position-7 diver — they're in different
+  // pools). Within-tier ties resolve by the WA tie-break key
+  // (cumulative_total DESC, dives_desc DESC) — same shape the
+  // standard scoreboard uses.
+  router.get(
+    "/api/events/:id/super-final/rankings",
+    async (req, res) => {
+      const client = await pool.connect();
+      try {
+        const fRes = await client.query(
+          `SELECT id, event_format, parent_event_id FROM events WHERE id = $1`,
+          [req.params.id],
+        );
+        if (!fRes.rows.length) {
+          return res.status(404).json({ error: "Event not found" });
+        }
+        if (fRes.rows[0].event_format !== "super_final_final") {
+          return res.status(400).json({
+            error: "Endpoint expects the F event id (event_format=super_final_final)",
+          });
+        }
+        const sfId = fRes.rows[0].parent_event_id;
+        if (!sfId) {
+          return res.status(400).json({ error: "F has no parent SF stage" });
+        }
+        const sfMetaRes = await client.query(
+          `SELECT id, parent_event_id FROM events WHERE id = $1`,
+          [sfId],
+        );
+        const h2hId = sfMetaRes.rows[0]?.parent_event_id;
+        if (!h2hId) {
+          return res.status(400).json({ error: "SF has no parent H2H stage" });
+        }
+
+        // Tier 1 (positions 1-4): F stage standings, no carry.
+        const fTier = await client.query(
+          `WITH per_dive AS (
+             SELECT s.competitor_id,
+                    calc_event_dive_points(
+                      array_agg(ej.judge_number ORDER BY ej.judge_number),
+                      array_agg(s.score ORDER BY ej.judge_number),
+                      e.number_of_judges, MAX(d.dd), e.event_type,
+                      BOOL_OR(cdl.partner_id IS NOT NULL)
+                    ) AS dive_points
+             FROM scores s
+             JOIN events e ON e.id = s.event_id
+             LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+             LEFT JOIN competitor_dive_lists cdl
+               ON cdl.event_id = s.event_id
+              AND cdl.competitor_id = s.competitor_id
+              AND cdl.round_number = s.round_number
+             LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+             WHERE s.event_id = $1
+             GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+           )
+           SELECT cdl.competitor_id, u.full_name, o.country_code, cl.name AS club_name,
+                  COALESCE(SUM(pd.dive_points), 0) AS total,
+                  array_agg(pd.dive_points ORDER BY pd.dive_points DESC NULLS LAST) AS dives_desc
+             FROM competitor_dive_lists cdl
+             JOIN users u ON u.id = cdl.competitor_id
+             JOIN organisations o ON o.id = u.org_id
+             LEFT JOIN clubs cl ON cl.id = u.club_id
+             LEFT JOIN per_dive pd ON pd.competitor_id = cdl.competitor_id
+            WHERE cdl.event_id = $1
+              AND cdl.withdrawn_at IS NULL
+              AND cdl.is_reserve = FALSE
+            GROUP BY cdl.competitor_id, u.full_name, o.country_code, cl.name
+            ORDER BY COALESCE(SUM(pd.dive_points), 0) DESC,
+                     array_agg(pd.dive_points ORDER BY pd.dive_points DESC NULLS LAST) DESC`,
+          [req.params.id],
+        );
+        const finalistIds = new Set(fTier.rows.map((r) => r.competitor_id));
+
+        // Tier 2 (positions 5-6): SF non-finalists, ranked by
+        // SF cumulative (which already includes H2H carry).
+        const sfRows = await loadSfCumulative(client, sfId);
+        const sfMissed = sfRows
+          .filter((r) => !finalistIds.has(r.competitor_id))
+          .sort((a, b) => b.cumulative_total - a.cumulative_total);
+        const sfTier = sfMissed.slice(0, 2); // exactly 2 in a clean run
+
+        // Tier 3 (positions 7-12): H2H non-advancers (loser of
+        // each pair), ranked by H2H total only.
+        const h2hPairs = await loadH2hPairResults(client, h2hId);
+        const h2hLosers = [];
+        for (const p of h2hPairs) {
+          if (!p.winner_id) continue; // dead-tied pair shouldn't reach here
+          const loser = p.winner_id === p.competitor_a.id ? p.competitor_b : p.competitor_a;
+          h2hLosers.push({
+            competitor_id: loser.id,
+            full_name:     loser.full_name,
+            total:         loser.total,
+          });
+        }
+        // Hydrate country_code/club_name for the H2H losers via
+        // a single batched lookup.
+        const loserIds = h2hLosers.map((l) => l.competitor_id);
+        let loserMeta = new Map();
+        if (loserIds.length) {
+          const metaRes = await client.query(
+            `SELECT u.id, o.country_code, cl.name AS club_name
+               FROM users u
+               JOIN organisations o ON o.id = u.org_id
+               LEFT JOIN clubs cl ON cl.id = u.club_id
+              WHERE u.id = ANY($1::uuid[])`,
+            [loserIds],
+          );
+          loserMeta = new Map(metaRes.rows.map((r) => [r.id, r]));
+        }
+        const h2hTier = h2hLosers
+          .sort((a, b) => b.total - a.total)
+          .slice(0, 6);
+
+        // Build merged rankings.
+        const rankings = [];
+        let pos = 1;
+        for (const r of fTier.rows.slice(0, 4)) {
+          rankings.push({
+            rank:          pos++,
+            source:        "final",
+            competitor_id: r.competitor_id,
+            full_name:     r.full_name,
+            country_code:  r.country_code,
+            club_name:     r.club_name,
+            total:         Number(r.total),
+          });
+        }
+        for (const r of sfTier) {
+          rankings.push({
+            rank:          pos++,
+            source:        "h2h+semi",
+            competitor_id: r.competitor_id,
+            full_name:     r.full_name,
+            country_code:  r.country_code,
+            club_name:     null,
+            total:         r.cumulative_total,
+          });
+        }
+        for (const r of h2hTier) {
+          const meta = loserMeta.get(r.competitor_id);
+          rankings.push({
+            rank:          pos++,
+            source:        "h2h",
+            competitor_id: r.competitor_id,
+            full_name:     r.full_name,
+            country_code:  meta?.country_code || null,
+            club_name:     meta?.club_name || null,
+            total:         r.total,
+          });
+        }
+
+        res.json({ rankings });
+      } catch (err) {
+        console.error("[Super Final Rankings Error]", err.message);
+        res.status(500).json({ error: "Internal server error" });
+      } finally {
+        client.release();
+      }
+    },
+  );
+
   // -------------------------------------------------------------
   // GET /api/events/:id/reserves — list reserves on an event with
   // their dive-list preview (round + dive_code/dd) so the Control

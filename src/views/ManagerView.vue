@@ -662,6 +662,96 @@ async function confirmH2hSeed() {
   }
 }
 
+// Super Final SF + F seeding modals. These are simpler than the
+// H2H modal: no per-Federation cap, no preview of pairs, just a
+// single "Confirm" action that posts to seed-semi or seed-final.
+const sfSeedModalOpen = ref(false)
+const sfSeedEvent     = ref(null)
+const sfSeedLockMin   = ref(30)
+const sfSeedLoading   = ref(false)
+const sfSeedErr       = ref('')
+
+function openSfSeedModal(ev) {
+  sfSeedEvent.value     = ev
+  sfSeedLockMin.value   = 30
+  sfSeedErr.value       = ''
+  sfSeedLoading.value   = false
+  sfSeedModalOpen.value = true
+}
+function closeSfSeedModal() { sfSeedModalOpen.value = false; sfSeedEvent.value = null }
+async function confirmSfSeed() {
+  if (!sfSeedEvent.value) return
+  sfSeedErr.value = ''
+  sfSeedLoading.value = true
+  try {
+    const result = await auth.apiFetch(`/api/events/${sfSeedEvent.value.id}/seed-semi`, {
+      method: 'POST',
+      body: JSON.stringify({ lock_minutes: parseInt(sfSeedLockMin.value) || 0 }),
+    })
+    showSuccess(`Seeded ${result.seeded} divers into the Semi Final (${result.sf_rounds} dives).`)
+    closeSfSeedModal()
+    await loadEvents()
+  } catch (err) {
+    sfSeedErr.value = err.message || 'Failed to seed Semi Final'
+  } finally {
+    sfSeedLoading.value = false
+  }
+}
+
+const fSeedModalOpen = ref(false)
+const fSeedEvent     = ref(null)
+const fSeedLockMin   = ref(15)   // Appendix 3 §4.1 — 15-min break
+const fSeedLoading   = ref(false)
+const fSeedErr       = ref('')
+
+function openFSeedModal(ev) {
+  fSeedEvent.value     = ev
+  fSeedLockMin.value   = 15
+  fSeedErr.value       = ''
+  fSeedLoading.value   = false
+  fSeedModalOpen.value = true
+}
+function closeFSeedModal() { fSeedModalOpen.value = false; fSeedEvent.value = null }
+async function confirmFSeed() {
+  if (!fSeedEvent.value) return
+  fSeedErr.value = ''
+  fSeedLoading.value = true
+  try {
+    const result = await auth.apiFetch(`/api/events/${fSeedEvent.value.id}/seed-final`, {
+      method: 'POST',
+      body: JSON.stringify({ lock_minutes: parseInt(fSeedLockMin.value) || 0 }),
+    })
+    showSuccess(`Seeded ${result.seeded} finalists (${result.f_rounds} dives, scores reset).`)
+    closeFSeedModal()
+    await loadEvents()
+  } catch (err) {
+    fSeedErr.value = err.message || 'Failed to seed Final'
+  } finally {
+    fSeedLoading.value = false
+  }
+}
+
+// Merged Super Final rankings — Appendix 3 §7.
+// Opens from the Final event's "View Super Final rankings" link.
+const superFinalRankingsModalOpen = ref(false)
+const superFinalRankings          = ref(null)
+const superFinalRankingsErr       = ref('')
+
+async function openSuperFinalRankingsModal(ev) {
+  superFinalRankings.value = null
+  superFinalRankingsErr.value = ''
+  superFinalRankingsModalOpen.value = true
+  try {
+    superFinalRankings.value = await auth.apiFetch(`/api/events/${ev.id}/super-final/rankings`)
+  } catch (err) {
+    superFinalRankingsErr.value = err.message || 'Failed to load rankings'
+  }
+}
+function closeSuperFinalRankingsModal() {
+  superFinalRankingsModalOpen.value = false
+  superFinalRankings.value = null
+}
+
 // "View pair results" — opens a small modal with the bracket-
 // style outcome of the H2H stage (totals + winners). Visible on
 // Live or Completed super_final_h2h events.
@@ -2189,6 +2279,27 @@ onUnmounted(() => {
                     v-tip="'See pair-by-pair winners — divers who advance to the Semi Final'">
               View pair results
             </button>
+            <!-- Super Final SF — seed from H2H winners. -->
+            <button v-if="ev.event_format === 'super_final_semi' && ev.status === 'Upcoming'"
+                    class="btn btn-primary btn-sm advance-btn"
+                    @click="openSfSeedModal(ev)"
+                    v-tip="'Seed the Semi Final from the 6 H2H winners (Appendix 3 §1.2.3)'">
+              Seed Semi Final
+            </button>
+            <!-- Super Final F — seed top-2-per-group from SF cumulative. -->
+            <button v-if="ev.event_format === 'super_final_final' && ev.status === 'Upcoming'"
+                    class="btn btn-primary btn-sm advance-btn"
+                    @click="openFSeedModal(ev)"
+                    v-tip="'Seed the Final with the top 2 from each SF group (Appendix 3 §1.2.4)'">
+              Seed Final
+            </button>
+            <!-- Super Final F — official 1-12 rankings (post-event). -->
+            <button v-if="ev.event_format === 'super_final_final' && ev.status === 'Completed'"
+                    class="btn btn-ghost btn-sm"
+                    @click="openSuperFinalRankingsModal(ev)"
+                    v-tip="'Official Super Final rankings (Appendix 3 §7) — 1-4 from F, 5-6 from H2H+SF, 7-12 from H2H'">
+              View Super Final rankings
+            </button>
             <!-- Status-aware primary action. Each path deep-
                  links into the screen the operator's most
                  likely to want next. -->
@@ -2831,6 +2942,102 @@ onUnmounted(() => {
         </div>
       </div>
       <div v-else-if="!h2hErr" class="hint">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Super Final — Seed Semi Final modal. -->
+  <div v-if="sfSeedModalOpen" class="modal-backdrop" @click.self="closeSfSeedModal">
+    <div class="modal modal-advance" @click.stop style="max-width:520px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
+        <h2 style="font-size:22px;font-style:italic">Seed Semi Final</h2>
+        <button class="btn btn-ghost btn-sm" @click="closeSfSeedModal">Cancel ✕</button>
+      </div>
+      <p class="hint" style="margin-bottom:1rem" v-if="sfSeedEvent">
+        Seed <strong>"{{ sfSeedEvent.name }}"</strong> with the 6 H2H winners.
+        Scores from H2H carry forward (Appendix 3 §3.1).
+        Starting order is reversed within each group (lowest H2H total dives first).
+      </p>
+      <div v-if="sfSeedErr" class="msg msg-error" style="margin-bottom:0.75rem">{{ sfSeedErr }}</div>
+      <label class="advance-field">
+        <span class="label">Dive-list lock (minutes)</span>
+        <input class="input" type="number" min="0" max="120" v-model="sfSeedLockMin">
+        <span class="hint" style="margin-top:0.25rem">
+          WA Article 6.7.3 — change-of-dives window. Default 30 min.
+        </span>
+      </label>
+      <div style="display:flex;gap:0.5rem;margin-top:1.25rem">
+        <button type="button" class="btn btn-ghost" @click="closeSfSeedModal">Cancel</button>
+        <button type="button" class="btn btn-primary" :disabled="sfSeedLoading" @click="confirmSfSeed">
+          {{ sfSeedLoading ? 'Seeding…' : 'Confirm seed' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Super Final — Seed Final modal. -->
+  <div v-if="fSeedModalOpen" class="modal-backdrop" @click.self="closeFSeedModal">
+    <div class="modal modal-advance" @click.stop style="max-width:520px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
+        <h2 style="font-size:22px;font-style:italic">Seed Final</h2>
+        <button class="btn btn-ghost btn-sm" @click="closeFSeedModal">Cancel ✕</button>
+      </div>
+      <p class="hint" style="margin-bottom:1rem" v-if="fSeedEvent">
+        Seed <strong>"{{ fSeedEvent.name }}"</strong> with the top 2 from each SF group.
+        Scores reset (Appendix 3 §3.2). Highest cumulative SF score dives last.
+      </p>
+      <div v-if="fSeedErr" class="msg msg-error" style="margin-bottom:0.75rem">{{ fSeedErr }}</div>
+      <label class="advance-field">
+        <span class="label">Lock window (minutes)</span>
+        <input class="input" type="number" min="5" max="60" v-model="fSeedLockMin">
+        <span class="hint" style="margin-top:0.25rem">
+          Appendix 3 §4.1 — 15-min break between SF and F; change requests
+          must be made at LATEST 5 minutes before the Final. The effective
+          lock is set to NOW() + (this − 5) minutes.
+        </span>
+      </label>
+      <div style="display:flex;gap:0.5rem;margin-top:1.25rem">
+        <button type="button" class="btn btn-ghost" @click="closeFSeedModal">Cancel</button>
+        <button type="button" class="btn btn-primary" :disabled="fSeedLoading" @click="confirmFSeed">
+          {{ fSeedLoading ? 'Seeding…' : 'Confirm seed' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Super Final — Official 1-12 rankings (Appendix 3 §7). -->
+  <div v-if="superFinalRankingsModalOpen" class="modal-backdrop" @click.self="closeSuperFinalRankingsModal">
+    <div class="modal modal-advance" @click.stop style="max-width:680px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
+        <h2 style="font-size:22px;font-style:italic">Super Final — Official Rankings</h2>
+        <button class="btn btn-ghost btn-sm" @click="closeSuperFinalRankingsModal">Close ✕</button>
+      </div>
+      <p class="hint" style="margin-bottom:1rem">
+        Per Appendix 3 §7: positions 1-4 from the Final stage; 5-6 from
+        H2H + SF cumulative (the SF non-finalists); 7-12 from H2H total only
+        (the H2H non-advancers).
+      </p>
+      <div v-if="superFinalRankingsErr" class="msg msg-error" style="margin-bottom:0.75rem">
+        {{ superFinalRankingsErr }}
+      </div>
+      <div v-if="superFinalRankings && superFinalRankings.rankings" class="advance-preview">
+        <div v-for="r in superFinalRankings.rankings" :key="r.rank"
+             :class="['advance-preview-row',
+                      r.source === 'final' ? 'primary'
+                      : r.source === 'h2h+semi' ? 'reserve'
+                      : 'cut']"
+             style="grid-template-columns: 36px 1fr 90px 80px">
+          <span class="advance-rank">#{{ r.rank }}</span>
+          <span class="advance-name">
+            {{ r.full_name }}
+            <span v-if="r.country_code" class="hint">· {{ r.country_code }}</span>
+          </span>
+          <span class="hint" style="text-align:right">
+            {{ r.source === 'final' ? 'Final' : r.source === 'h2h+semi' ? 'H2H + SF' : 'H2H only' }}
+          </span>
+          <span class="advance-total">{{ Number(r.total).toFixed(2) }}</span>
+        </div>
+      </div>
+      <div v-else-if="!superFinalRankingsErr" class="hint">Loading…</div>
     </div>
   </div>
 
