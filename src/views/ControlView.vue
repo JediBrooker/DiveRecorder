@@ -739,12 +739,30 @@ const TICK_MS = 140    // 140ms per permutation → ~36 ticks across the run
 // Rows the modal should render — preview reads from roster,
 // shuffling reads from the cycling overlay, done reads from
 // roster again (now the post-randomise one).
+//
+// Start order is per-diver, not per-(diver, round) — every
+// round dives in the SAME order. So we dedupe roster.value
+// by competitor_id (the roster endpoint returns one row per
+// diver-round combination, and display_order is identical
+// across rounds for the same diver). Reserves are also
+// excluded — they're not in the start order until promoted.
 const randomiseDisplayRows = computed(() => {
   if (randomiseStage.value === 'shuffling') {
     return randomiseShufflePreview.value
   }
-  // Same shape the server's roster endpoint returns.
-  return roster.value.map((r) => ({ ...r }))
+  const seen = new Set()
+  const unique = []
+  for (const r of roster.value) {
+    if (r.is_reserve || r.withdrawn_at) continue
+    if (seen.has(r.competitor_id)) continue
+    seen.add(r.competitor_id)
+    unique.push({ ...r })
+  }
+  // Sort by display_order so the rendered list reads 1..N.
+  unique.sort((a, b) =>
+    (a.display_order ?? Infinity) - (b.display_order ?? Infinity),
+  )
+  return unique
 })
 
 function openRandomiseDraw() {
@@ -775,37 +793,35 @@ async function runRandomiseDraw() {
   const ev = currentEvent.value
   if (!ev) return
 
-  // Snapshot the current order — every animation tick re-shuffles
-  // a fresh copy of this so each frame is genuinely random.
-  const baseRoster = roster.value.map(r => ({ ...r }))
+  // Start order is per-diver, applied identically across every
+  // round (Article 4.1.6). Snapshot ONE row per unique diver
+  // (excluding reserves + withdrawn) — that's the list the
+  // animation cycles. Server-side, the randomize endpoint
+  // assigns the same display_order to every round-row of a
+  // given diver, so there's no need for the animation to think
+  // in (diver, round) tuples.
+  const seen = new Set()
+  const baseRoster = []
+  for (const r of roster.value) {
+    if (r.is_reserve || r.withdrawn_at) continue
+    if (seen.has(r.competitor_id)) continue
+    seen.add(r.competitor_id)
+    baseRoster.push({ ...r })
+  }
 
   function shuffleTick() {
-    // Fisher-Yates within each round_number bucket so spectators
-    // see shuffling within each round (rounds don't intermix —
-    // they're dived sequentially).
-    const byRound = new Map()
-    for (const r of baseRoster) {
-      const key = r.round_number
-      if (!byRound.has(key)) byRound.set(key, [])
-      byRound.get(key).push({ ...r })
+    // Fisher-Yates the diver list, then re-stamp display_order
+    // so the rendered position pills also cycle (1, 2, 3…).
+    const arr = baseRoster.map(r => ({ ...r }))
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[arr[i], arr[j]] = [arr[j], arr[i]]
     }
-    const shuffled = []
-    const sortedRounds = [...byRound.keys()].sort((a, b) => a - b)
-    for (const rn of sortedRounds) {
-      const arr = byRound.get(rn)
-      for (let i = arr.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1))
-        ;[arr[i], arr[j]] = [arr[j], arr[i]]
-      }
-      // Re-stamp display_order so the rendered row numbers
-      // also cycle (1, 2, 3…) — looks like a slot-machine reel.
-      arr.forEach((row, idx) => {
-        row.display_order = idx + 1
-        row.round_order = idx + 1
-      })
-      shuffled.push(...arr)
-    }
-    randomiseShufflePreview.value = shuffled
+    arr.forEach((row, idx) => {
+      row.display_order = idx + 1
+      row.round_order = idx + 1
+    })
+    randomiseShufflePreview.value = arr
   }
 
   randomiseStage.value = 'shuffling'
@@ -3999,23 +4015,18 @@ onUnmounted(() => {
       </template>
     </p>
 
-    <!-- Round-bucketed list. Per WA 4.1.6 the random draw is per
-         round, so visually grouping by round makes the ceremony
-         readable. -->
+    <!-- Single list of divers — start order is per-diver, the
+         same across every round (Article 4.1.6). -->
     <div class="randomise-list">
-      <template v-for="(item, idx) in randomiseDisplayRows" :key="`${item.round_number}-${item.competitor_id}-${idx}`">
-        <div v-if="idx === 0 || randomiseDisplayRows[idx - 1].round_number !== item.round_number"
-             class="randomise-round-divider">
-          Round {{ item.round_number }}
-        </div>
-        <div :class="['randomise-row', randomiseStage === 'shuffling' ? 'is-shuffling' : '']">
-          <span class="randomise-row-pos">{{ item.round_order ?? item.display_order ?? '?' }}</span>
-          <span class="randomise-row-name">
-            {{ item.full_name }}<span v-if="item.country_code" class="randomise-row-country">{{ item.country_code }}</span>
-          </span>
-          <span v-if="item.club_code" class="randomise-row-club">{{ item.club_code }}</span>
-        </div>
-      </template>
+      <div v-for="item in randomiseDisplayRows"
+           :key="item.competitor_id"
+           :class="['randomise-row', randomiseStage === 'shuffling' ? 'is-shuffling' : '']">
+        <span class="randomise-row-pos">{{ item.display_order ?? '?' }}</span>
+        <span class="randomise-row-name">
+          {{ item.full_name }}<span v-if="item.country_code" class="randomise-row-country">{{ item.country_code }}</span>
+        </span>
+        <span v-if="item.club_code" class="randomise-row-club">{{ item.club_code }}</span>
+      </div>
     </div>
 
     <div class="randomise-actions">
@@ -5533,17 +5544,6 @@ onUnmounted(() => {
   display: flex; flex-direction: column; gap: 0.4rem;
   padding: 0.25rem;
 }
-.randomise-round-divider {
-  margin-top: 0.35rem;
-  padding: 0.4rem 0.6rem;
-  background: rgba(0, 224, 255, 0.08);
-  border-left: 3px solid var(--cyan);
-  border-radius: var(--radius-sm);
-  font-family: var(--font-display); font-weight: 700;
-  font-size: 13px; letter-spacing: 0.08em;
-  text-transform: uppercase; color: var(--cyan);
-}
-.randomise-round-divider:first-child { margin-top: 0; }
 .randomise-row {
   display: grid; grid-template-columns: 56px 1fr auto;
   align-items: center; gap: 0.85rem;
