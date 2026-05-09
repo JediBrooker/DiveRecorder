@@ -1891,6 +1891,157 @@ async function promoteReserve(competitorId) {
   }
 }
 
+// Super Final dive-offs (Appendix 3 §6). Visible on
+// super_final_h2h or super_final_semi events. The operator
+// creates a tie-break record when two divers are tied at the
+// end of the stage; once both pick a previously-performed dive
+// and re-do it, the operator records the scores + winner.
+const diveOffs           = ref([])
+const diveOffModalOpen   = ref(false)
+const diveOffEditing     = ref(null)   // existing row OR null = create
+const diveOffForm        = ref({
+  competitor_a_id: '',
+  competitor_b_id: '',
+  dive_a_id:       '',
+  dive_b_id:       '',
+  score_a:         '',
+  score_b:         '',
+  winner_id:       '',
+  notes:           '',
+  confirm_tied:    false,
+})
+const diveOffBusy        = ref(false)
+const diveOffErr         = ref('')
+
+const isSuperFinalH2hOrSemi = computed(() => {
+  const fmt = currentEvent.value?.event_format
+  return fmt === 'super_final_h2h' || fmt === 'super_final_semi'
+})
+
+async function loadDiveOffs() {
+  if (!currentEvent.value || !isSuperFinalH2hOrSemi.value) {
+    diveOffs.value = []
+    return
+  }
+  try {
+    const r = await auth.apiFetch(`/api/events/${currentEvent.value.id}/dive-offs`)
+    diveOffs.value = Array.isArray(r.dive_offs) ? r.dive_offs : []
+  } catch {
+    diveOffs.value = []
+  }
+}
+
+function openCreateDiveOff() {
+  diveOffEditing.value = null
+  diveOffForm.value = {
+    competitor_a_id: '',
+    competitor_b_id: '',
+    dive_a_id:       '',
+    dive_b_id:       '',
+    score_a:         '',
+    score_b:         '',
+    winner_id:       '',
+    notes:           '',
+    confirm_tied:    false,
+  }
+  diveOffErr.value = ''
+  diveOffModalOpen.value = true
+}
+
+function openEditDiveOff(row) {
+  diveOffEditing.value = row
+  diveOffForm.value = {
+    competitor_a_id: row.competitor_a_id,
+    competitor_b_id: row.competitor_b_id,
+    dive_a_id:       row.dive_a_id || '',
+    dive_b_id:       row.dive_b_id || '',
+    score_a:         row.score_a == null ? '' : String(row.score_a),
+    score_b:         row.score_b == null ? '' : String(row.score_b),
+    winner_id:       row.winner_id || '',
+    notes:           row.notes || '',
+    confirm_tied:    true,
+  }
+  diveOffErr.value = ''
+  diveOffModalOpen.value = true
+}
+
+function closeDiveOffModal() {
+  diveOffModalOpen.value = false
+  diveOffEditing.value = null
+  diveOffErr.value = ''
+}
+
+async function saveDiveOff() {
+  if (!currentEvent.value) return
+  diveOffBusy.value = true
+  diveOffErr.value = ''
+  try {
+    const f = diveOffForm.value
+    // Auto-fill winner_id from scores if both are present and
+    // operator hasn't picked one explicitly.
+    let winnerId = f.winner_id
+    if (!winnerId && f.score_a !== '' && f.score_b !== '') {
+      const sa = Number(f.score_a), sb = Number(f.score_b)
+      if (sa > sb) winnerId = f.competitor_a_id
+      else if (sb > sa) winnerId = f.competitor_b_id
+    }
+    const body = {
+      competitor_a_id: f.competitor_a_id || null,
+      competitor_b_id: f.competitor_b_id || null,
+      dive_a_id:       f.dive_a_id || null,
+      dive_b_id:       f.dive_b_id || null,
+      score_a:         f.score_a === '' ? null : Number(f.score_a),
+      score_b:         f.score_b === '' ? null : Number(f.score_b),
+      winner_id:       winnerId || null,
+      notes:           f.notes || null,
+      confirm_tied:    !!f.confirm_tied,
+    }
+    if (diveOffEditing.value) {
+      // PATCH — drop competitors from body (they're immutable).
+      delete body.competitor_a_id
+      delete body.competitor_b_id
+      delete body.confirm_tied
+      await auth.apiFetch(
+        `/api/events/${currentEvent.value.id}/dive-offs/${diveOffEditing.value.id}`,
+        { method: 'PATCH', body: JSON.stringify(body) },
+      )
+      showSuccess('Dive-off updated.')
+    } else {
+      await auth.apiFetch(`/api/events/${currentEvent.value.id}/dive-offs`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      })
+      showSuccess('Dive-off created.')
+    }
+    closeDiveOffModal()
+    await loadDiveOffs()
+  } catch (err) {
+    diveOffErr.value = err.message || 'Failed to save dive-off'
+  } finally {
+    diveOffBusy.value = false
+  }
+}
+
+// Suggest tied pairs for a quick-pick dropdown. For H2H, the
+// h2h-results endpoint already flags tied=true; for SF we surface
+// the within-group standings so the operator can pick.
+const tiedPairsSuggestion = ref([])
+async function loadTiedSuggestion() {
+  tiedPairsSuggestion.value = []
+  if (!currentEvent.value) return
+  if (currentEvent.value.event_format === 'super_final_h2h') {
+    try {
+      const r = await auth.apiFetch(`/api/events/${currentEvent.value.id}/super-final/h2h-results`)
+      tiedPairsSuggestion.value = (r.pairs || []).filter(p => p.tied).map(p => ({
+        competitor_a_id: p.competitor_a_id,
+        competitor_b_id: p.competitor_b_id,
+        full_name_a:     p.full_name_a,
+        full_name_b:     p.full_name_b,
+      }))
+    } catch { /* swallow — best-effort */ }
+  }
+}
+
 // "Anna Smith & Bella Jones" for a synchro pair, just the lead's
 // full name otherwise. Used everywhere a standings row needs a
 // human-readable label so synchro pairs aren't represented by
@@ -2714,6 +2865,12 @@ async function onEventChange() {
   // (semi-final / final), but the endpoint just returns []
   // when none exist so we always call.
   loadReserves()
+
+  // Super Final dive-offs panel + tied-pair suggestions —
+  // only meaningful on H2H or SF stages but the loader is a
+  // no-op on other formats.
+  loadDiveOffs()
+  loadTiedSuggestion()
 
   ;[...histData].reverse().forEach(h => {
     addHistoryCard({
@@ -3713,6 +3870,52 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- Super Final — Dive-offs panel (Appendix 3 §6).
+             Visible on H2H + SF stages. Lists existing dive-offs
+             with status (pending / resolved) and a "Create
+             dive-off" button that opens the modal. -->
+        <div v-if="isSuperFinalH2hOrSemi" class="reserves-panel">
+          <div class="reserves-head" style="cursor:default">
+            <span class="reserves-head-label">🥊 Dive-offs</span>
+            <span class="reserves-head-count">{{ diveOffs.length }}</span>
+            <button class="btn btn-primary btn-sm"
+                    style="margin-left:auto"
+                    @click="openCreateDiveOff"
+                    v-tip="'Record a tie-break dive-off (Appendix 3 §6)'">
+              + Create
+            </button>
+          </div>
+          <div v-if="tiedPairsSuggestion.length" class="hint" style="padding:0.5rem 0.75rem;color:var(--cyan)">
+            Tied pairs flagged by H2H results: {{ tiedPairsSuggestion.length }} — resolve before seeding SF.
+          </div>
+          <div class="reserves-list">
+            <div v-for="d in diveOffs" :key="d.id" class="reserves-row">
+              <div class="reserves-row-head">
+                <span class="reserves-row-pos" :style="{ background: d.resolved_at ? 'var(--green, #16a34a)' : 'var(--amber, #f59e0b)', color: '#fff' }">
+                  {{ d.resolved_at ? '✓' : '…' }}
+                </span>
+                <span class="reserves-row-name">
+                  {{ d.competitor_a_name }} vs {{ d.competitor_b_name }}
+                  <span v-if="d.score_a != null && d.score_b != null" class="hint">
+                    · {{ Number(d.score_a).toFixed(2) }} : {{ Number(d.score_b).toFixed(2) }}
+                  </span>
+                  <span v-if="d.winner_name" class="hint" style="color:var(--cyan)">
+                    · winner: {{ d.winner_name }}
+                  </span>
+                </span>
+              </div>
+              <div class="reserves-row-actions">
+                <button type="button" class="btn btn-ghost btn-sm" @click="openEditDiveOff(d)">
+                  {{ d.resolved_at ? 'View / edit' : 'Record result' }}
+                </button>
+              </div>
+            </div>
+            <div v-if="!diveOffs.length" class="hint" style="padding:0.5rem 0.75rem">
+              No dive-offs yet. Create one when two divers tie at the end of the stage.
+            </div>
+          </div>
+        </div>
+
         <!-- Standings + projected leader — top 5 inline so the
              meet referee always knows the running state. Mirrors
              the Dive Order pattern below: clickable header with
@@ -4621,6 +4824,107 @@ onUnmounted(() => {
       <div style="display:flex;justify-content:flex-end;gap:0.5rem">
         <button class="btn btn-ghost btn-sm" @click="roundEndPromptOpen = false; cancelAutoAdvance()">Skip</button>
         <button class="btn btn-primary btn-sm" @click="announceRoundEnd">📣 Announce standings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Super Final — Dive-off modal (Appendix 3 §6).
+       Operator records a tie-break dive-off after two divers
+       picked their previously-performed dives + re-dove them. -->
+  <div v-if="diveOffModalOpen" class="lb-backdrop" @click.self="closeDiveOffModal">
+    <div class="lb-modal" style="max-width:560px">
+      <div class="lb-head">
+        <div>
+          <div class="lb-title">{{ diveOffEditing ? 'Dive-off — record result' : 'Create dive-off' }}</div>
+          <div class="lb-event">Tie-break (Appendix 3 §6) — doesn't affect official scores.</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" @click="closeDiveOffModal">Close ✕</button>
+      </div>
+      <div class="lb-body">
+        <div v-if="diveOffErr" class="msg msg-error" style="margin-bottom:0.75rem">{{ diveOffErr }}</div>
+
+        <!-- Suggest tied pairs from H2H. -->
+        <div v-if="!diveOffEditing && tiedPairsSuggestion.length"
+             class="hint" style="margin-bottom:0.5rem">
+          Tied H2H pairs:
+          <button v-for="(p, i) in tiedPairsSuggestion" :key="i"
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  style="margin:0 0.25rem 0.25rem 0"
+                  @click="diveOffForm.competitor_a_id = p.competitor_a_id;
+                          diveOffForm.competitor_b_id = p.competitor_b_id">
+            {{ p.full_name_a }} vs {{ p.full_name_b }}
+          </button>
+        </div>
+
+        <div v-if="!diveOffEditing" style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:0.75rem">
+          <label>
+            <span class="hint">Diver A (lower seed)</span>
+            <input class="input" type="text" v-model="diveOffForm.competitor_a_id"
+                   placeholder="competitor_id (UUID)">
+          </label>
+          <label>
+            <span class="hint">Diver B (higher seed)</span>
+            <input class="input" type="text" v-model="diveOffForm.competitor_b_id"
+                   placeholder="competitor_id (UUID)">
+          </label>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:0.75rem">
+          <label>
+            <span class="hint">Dive A id (optional)</span>
+            <input class="input" type="text" v-model="diveOffForm.dive_a_id">
+          </label>
+          <label>
+            <span class="hint">Dive B id (optional)</span>
+            <input class="input" type="text" v-model="diveOffForm.dive_b_id">
+          </label>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:0.75rem">
+          <label>
+            <span class="hint">Score A</span>
+            <input class="input" type="number" step="0.01" v-model="diveOffForm.score_a">
+          </label>
+          <label>
+            <span class="hint">Score B</span>
+            <input class="input" type="number" step="0.01" v-model="diveOffForm.score_b">
+          </label>
+        </div>
+
+        <label style="display:block;margin-bottom:0.75rem">
+          <span class="hint">Winner — defaults to higher score if blank</span>
+          <select class="select" v-model="diveOffForm.winner_id">
+            <option value="">— Auto from scores —</option>
+            <option :value="diveOffForm.competitor_a_id">A wins</option>
+            <option :value="diveOffForm.competitor_b_id">B wins</option>
+          </select>
+        </label>
+
+        <label style="display:block;margin-bottom:0.75rem">
+          <span class="hint">Notes</span>
+          <textarea class="input" rows="2" v-model="diveOffForm.notes"
+                    placeholder="Referee notes — chosen dive, witness, etc."></textarea>
+        </label>
+
+        <label v-if="!diveOffEditing" style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.75rem">
+          <input type="checkbox" v-model="diveOffForm.confirm_tied">
+          <span class="hint">
+            Confirm these divers are tied (server otherwise refuses
+            if computed totals differ — useful when a corrective
+            re-score has just landed but the operator wants to
+            create the record anyway).
+          </span>
+        </label>
+
+        <div style="display:flex;justify-content:flex-end;gap:0.5rem">
+          <button class="btn btn-ghost btn-sm" @click="closeDiveOffModal">Cancel</button>
+          <button class="btn btn-primary btn-sm"
+                  :disabled="diveOffBusy"
+                  @click="saveDiveOff">
+            {{ diveOffBusy ? 'Saving…' : (diveOffEditing ? 'Save' : 'Create') }}
+          </button>
+        </div>
       </div>
     </div>
   </div>

@@ -550,6 +550,7 @@ app.use(require("./routes/events")({
   io,
   verifyToken,
   requireOrgAdmin,
+  requireOrgRole,
   requireEventManager,
   sendEventStartedEmails,
   sendEventResultsEmails,
