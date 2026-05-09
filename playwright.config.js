@@ -60,6 +60,13 @@ module.exports = defineConfig({
         viewport: null,
         launchOptions: {
           args: ["--window-size=1440,900"],
+          // Playwright Test doesn't accept `--slow-mo` on the
+          // CLI (that flag belongs to `playwright codegen` /
+          // Puppeteer); the equivalent for tests is
+          // launchOptions.slowMo. Read it from PW_SLOWMO so the
+          // npm test:e2e:headed script can pass it through
+          // without editing config. 0 = no slow-mo (default).
+          slowMo: Number(process.env.PW_SLOWMO || 0),
         },
       },
     },
