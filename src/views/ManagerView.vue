@@ -217,14 +217,27 @@ const showMixedHeightHelp = ref(false)
 // click. The composite value space:
 //
 //   ''             → un-bracketed (historical default)
-//   'age:11_under' → "11 and under"
-//   'age:12_13'    → "12/13"
-//   'age:14_15'    → "14/15"
-//   'age:16_18'    → "16-18"
+//   'junior:A'     → "Junior Group A"  (16-18, WA Article 13.2.2)
+//   'junior:B'     → "Junior Group B"  (14-15, WA Article 13.2.1)
+//   'junior:C'     → "Junior Group C"  (12-13, WA Article 13.3.1)
+//   'junior:D'     → "Junior Group D"  (11 and under — extends WA
+//                                       scheme down per common
+//                                       national-federation usage)
 //   'age:masters'  → "Masters" (+ free-text suffix)
-//   'junior:A'..'E'→ "Junior Group A".."E"
 //   'open'         → "Open"
 //   'other'        → free text
+//
+// The dropdown shows the age range alongside the WA group letter
+// ("Group D — 11 and under") so the operator picks once and the
+// mapping is visible. Stored format stays "Junior Group X" for
+// backward compatibility with existing events.
+//
+// composeAgeGroup retains support for the legacy 'age:11_under',
+// 'age:12_13', 'age:14_15', 'age:16_18' choice values so any
+// programmatic caller that hasn't migrated keeps working;
+// decomposeAgeGroup auto-maps the same legacy stored strings
+// ("11 and under" etc.) into the new junior:* selections so the
+// Edit modal shows the right WA Group when an old event is opened.
 //
 // The sub-inputs (Masters range, Other custom) only render
 // when the matching option is picked. Composed into the
@@ -260,10 +273,16 @@ function composeAgeGroup({ choice, masters, other }) {
 function decomposeAgeGroup(value) {
   const v = (value || '').trim()
   if (!v)                   return { choice: '',             masters: '', other: '' }
-  if (v === '11 and under') return { choice: 'age:11_under', masters: '', other: '' }
-  if (v === '12/13')        return { choice: 'age:12_13',    masters: '', other: '' }
-  if (v === '14/15')        return { choice: 'age:14_15',    masters: '', other: '' }
-  if (v === '16-18')        return { choice: 'age:16_18',    masters: '', other: '' }
+  // Legacy numeric-range stored values map onto their WA Junior
+  // Group equivalents so the Edit modal lights up the right
+  // dropdown row when an old event is opened. Article 13 anchors
+  // A=16-18, B=14-15, C=12-13; D=11-and-under is a national-
+  // federation extension that mirrors the WA naming convention
+  // (see Diving Australia / USA Diving etc.).
+  if (v === '11 and under') return { choice: 'junior:D',     masters: '', other: '' }
+  if (v === '12/13')        return { choice: 'junior:C',     masters: '', other: '' }
+  if (v === '14/15')        return { choice: 'junior:B',     masters: '', other: '' }
+  if (v === '16-18')        return { choice: 'junior:A',     masters: '', other: '' }
   if (v === 'Open')         return { choice: 'open',         masters: '', other: '' }
   const masters = v.match(/^Masters\b\s*(.*)$/i)
   if (masters) return { choice: 'age:masters', masters: masters[1] || '', other: '' }
@@ -1717,27 +1736,23 @@ onUnmounted(() => {
           </select>
         </div>
 
-        <!-- Age Group / Division. Structured dropdown — categories
-             are Age Group (numeric ranges + Masters), World Aquatics Junior
-             Group (E–A), Open, or Other (free text). The
-             composed string lands in events.age_group on submit. -->
+        <!-- Age Group / Division. Structured dropdown — option
+             labels show the WA Group letter alongside its age
+             range so the operator picks once and the mapping is
+             visible (per Article 13.2 / 13.3 / national-federation
+             convention for Group D). Plus Masters / Open / Other
+             for non-junior events. The composed string lands in
+             events.age_group on submit. -->
         <div class="field age-group-field">
           <label class="label">Age Group / Division</label>
           <select class="select age-category" v-model="createAgeChoice">
             <option value="">— Un-bracketed —</option>
-            <optgroup label="Age Group">
-              <option value="age:11_under">11 and under</option>
-              <option value="age:12_13">12/13</option>
-              <option value="age:14_15">14/15</option>
-              <option value="age:16_18">16-18</option>
+            <optgroup label="Age Group (WA Article 13)">
+              <option value="junior:D">Group D — 11 and under</option>
+              <option value="junior:C">Group C — 12/13</option>
+              <option value="junior:B">Group B — 14/15</option>
+              <option value="junior:A">Group A — 16-18</option>
               <option value="age:masters">Masters (specify range)</option>
-            </optgroup>
-            <optgroup label="Junior (World Aquatics Group)">
-              <option value="junior:E">Group E</option>
-              <option value="junior:D">Group D</option>
-              <option value="junior:C">Group C</option>
-              <option value="junior:B">Group B</option>
-              <option value="junior:A">Group A</option>
             </optgroup>
             <option value="open">Open</option>
             <option value="other">Other (custom)</option>
@@ -2419,19 +2434,12 @@ onUnmounted(() => {
           <label class="label">Age Group / Division</label>
           <select class="select" v-model="editAgeChoice">
             <option value="">— Un-bracketed —</option>
-            <optgroup label="Age Group">
-              <option value="age:11_under">11 and under</option>
-              <option value="age:12_13">12/13</option>
-              <option value="age:14_15">14/15</option>
-              <option value="age:16_18">16-18</option>
+            <optgroup label="Age Group (WA Article 13)">
+              <option value="junior:D">Group D — 11 and under</option>
+              <option value="junior:C">Group C — 12/13</option>
+              <option value="junior:B">Group B — 14/15</option>
+              <option value="junior:A">Group A — 16-18</option>
               <option value="age:masters">Masters (specify range)</option>
-            </optgroup>
-            <optgroup label="Junior (World Aquatics Group)">
-              <option value="junior:E">Group E</option>
-              <option value="junior:D">Group D</option>
-              <option value="junior:C">Group C</option>
-              <option value="junior:B">Group B</option>
-              <option value="junior:A">Group A</option>
             </optgroup>
             <option value="open">Open</option>
             <option value="other">Other (custom)</option>
