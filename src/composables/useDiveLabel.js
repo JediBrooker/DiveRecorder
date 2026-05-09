@@ -4,11 +4,11 @@
 //
 // dive_directory.description holds only the action ("Forward
 // Dive", "Back 2½ Somersaults", …) and dive_directory.position
-// holds the FINA letter code (A/B/C/D). Audiences expect the
+// holds the World Aquatics letter code (A/B/C/D). Audiences expect the
 // position word ("Pike", "Tuck", …) appended — dive numbers
 // don't mean anything to a casual viewer without it.
 
-// FINA / World Aquatics position codes:
+// World Aquatics position codes:
 //   A = Straight   (legs locked, body fully extended)
 //   B = Pike       (legs straight, hips bent)
 //   C = Tuck       (knees + hips bent, body folded)

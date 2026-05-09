@@ -1,4 +1,4 @@
-// Team routes — the parallel grouping to clubs, used for FINA
+// Team routes — the parallel grouping to clubs, used for World Aquatics
 // Team Event entries. A diver can belong to multiple teams over
 // time; a team enrols in events via event_teams.
 //

@@ -276,14 +276,14 @@ const createScheduledAt  = ref('')      // datetime-local string, '' = unschedul
 const createEntriesCloseAt = ref('')    // datetime-local string, '' = no deadline
 const createFormat       = ref('final') // 'final' | 'preliminary'
 const createParentEventId = ref('')     // set on a 'final' to link its prelim
-const createAdvanceCount = ref(12)      // FINA standard
+const createAdvanceCount = ref(12)      // World Aquatics standard
 const createDdLimitRounds = ref(0)      // 0 = no limit
 const createDdLimitValue  = ref('')     // '' = no limit; numeric otherwise
 
 // Round structure (migration 038). Empty array = legacy
 // behaviour (use the dd_limit_* pair above). Populated = a list
 // of sections, each with its own DD cap + min-distinct-groups
-// rule. Mirrors real-world FINA / Diving Australia bulletins —
+// rule. Mirrors real-world World Aquatics / Diving Australia bulletins —
 // e.g. "4 dives @ 7.6 from 4 different groups + 4 dives unlimited
 // from 4 different groups" → two sections with rounds=4 each,
 // dd_limit=7.6 and null, min_distinct_groups=4 on both.
@@ -1403,7 +1403,7 @@ onUnmounted(() => {
           <input class="input"
                  type="text"
                  v-model="saveTemplateName"
-                 placeholder='Template name (e.g. "FINA U16 Womens 3m")'
+                 placeholder='Template name (e.g. "World Aquatics U16 Womens 3m")'
                  @keyup.enter="saveAsEventTemplate">
           <button type="button" class="btn btn-primary btn-sm"
                   :disabled="saveTemplateBusy"
@@ -1447,7 +1447,7 @@ onUnmounted(() => {
           <select class="select" v-model="createType">
             <option value="individual">Individual</option>
             <option value="synchro_pair">Synchronised Pair</option>
-            <option value="team">Team (FINA)</option>
+            <option value="team">Team (World Aquatics)</option>
           </select>
           <p v-if="createType === 'synchro_pair'" class="hint">
             Synchro: positions 1–2 (or 1–3) score Diver A's execution, 3–4 (or 4–6) score Diver B's execution, the rest score synchronisation. World Aquatics requires a 9- or 11-judge panel.
@@ -1463,7 +1463,7 @@ onUnmounted(() => {
         </div>
 
         <!-- Age Group / Division. Structured dropdown — categories
-             are Age Group (numeric ranges + Masters), FINA Junior
+             are Age Group (numeric ranges + Masters), World Aquatics Junior
              Group (E–A), Open, or Other (free text). The
              composed string lands in events.age_group on submit. -->
         <div class="field age-group-field">
@@ -1474,7 +1474,7 @@ onUnmounted(() => {
             <optgroup label="Age Group">
               <option value="age">Age Group (11 and under … Masters)</option>
             </optgroup>
-            <optgroup label="Junior (FINA Group)">
+            <optgroup label="Junior (World Aquatics Group)">
               <option value="junior">Junior Group (A–E)</option>
             </optgroup>
             <option value="open">Open</option>
@@ -2146,7 +2146,7 @@ onUnmounted(() => {
           <select class="select" v-model="editType">
             <option value="individual">Individual</option>
             <option value="synchro_pair">Synchronised Pair</option>
-            <option value="team">Team (FINA)</option>
+            <option value="team">Team (World Aquatics)</option>
           </select>
         </div>
         <div class="field">
@@ -2168,7 +2168,7 @@ onUnmounted(() => {
             <optgroup label="Age Group">
               <option value="age">Age Group (11 and under … Masters)</option>
             </optgroup>
-            <optgroup label="Junior (FINA Group)">
+            <optgroup label="Junior (World Aquatics Group)">
               <option value="junior">Junior Group (A–E)</option>
             </optgroup>
             <option value="open">Open</option>
@@ -2404,7 +2404,7 @@ onUnmounted(() => {
     </div>
     <p class="hint" style="margin-bottom:1rem">
       The dive will be added to your federation's custom directory and
-      become available to every event. Use the canonical FINA dive
+      become available to every event. Use the canonical World Aquatics dive
       code (e.g. <code>5132</code>) for cross-federation matching.
     </p>
     <form @submit.prevent="submitCreateDive" class="form-stack">

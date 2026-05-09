@@ -129,7 +129,7 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
   // Returns:
   //   event:     event metadata
   //   standings: total per competitor (or per team, for team
-  //              events), FINA tie-break by descending dive
+  //              events), World Aquatics tie-break by descending dive
   //              points
   //   dives:     dive-by-dive history with judge scores chips
   //              ordered by panel position
@@ -213,7 +213,7 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
              UNION ALL
              SELECT * FROM comp_standings
            ) merged
-           /* FINA tie-break: highest single dive desc, then second
+           /* World Aquatics tie-break: highest single dive desc, then second
               highest, etc. team rows have NULL dives_desc which
               sorts last with NULLS LAST (default DESC). */
            ORDER BY total DESC, dives_desc DESC NULLS LAST`,

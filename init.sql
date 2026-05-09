@@ -518,7 +518,7 @@ CREATE TABLE public.score_audit_log (
 );
 
 -- Saved event configurations. A meet manager builds an event
--- once ("FINA U16 Women's 3m") then re-applies the template
+-- once ("World Aquatics U16 Women's 3m") then re-applies the template
 -- for future seasons. config jsonb holds the form state — name
 -- pattern, gender, height, judges, rounds, format, dd_limit_*,
 -- age_group, etc. — so adding new event columns later doesn't
@@ -1144,7 +1144,7 @@ $$;
 
 -- =============================================================
 -- DIVE DIRECTORY DATA
--- World Aquatics / FINA DD tables (valid from 2017, confirmed
+-- World Aquatics / World Aquatics DD tables (valid from 2017, confirmed
 -- against the 2024 publication).
 -- Heights:    1m, 3m (springboard) | 5m, 7.5m, 10m (platform)
 -- Positions:  A = Straight, B = Pike, C = Tuck, D = Free

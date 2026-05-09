@@ -30,4 +30,4 @@ assignees: ''
 
 ## Anything else?
 
-<!-- Mockups, links to FINA / World Aquatics rules, similar features in other apps, etc. -->
+<!-- Mockups, links to World Aquatics rules, similar features in other apps, etc. -->

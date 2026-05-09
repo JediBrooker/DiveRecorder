@@ -406,7 +406,7 @@ const countryMedalTable = computed(() => {
   // standings already sorted by total descending, but doesn't
   // include a rank column. Without this the medal table was
   // rendering 0/0/0 for every country because s.rank was always
-  // undefined. Tied totals share a rank (FINA practice: both
+  // undefined. Tied totals share a rank (World Aquatics practice: both
   // divers on the same total get gold), and subsequent ranks
   // skip by the size of the tied group (1, 1, 3).
   let prevTotal = null
@@ -643,7 +643,7 @@ socket.on('state_update', data => {
 // room. We collect them in judge_number order so the SPA's
 // inline-under-active-diver display can show the lights coming
 // in one at a time and (once the panel is full) shade the high
-// + low as dropped under FINA trim rules.
+// + low as dropped under World Aquatics trim rules.
 socket.on('score_received', data => {
   if (!currentEventId.value) return
   if (data.event_id !== currentEventId.value) return
@@ -731,7 +731,7 @@ const liveAnnotatedScores = computed(() => {
 // Without this the row started at 0px, then jumped to ~50px the
 // instant the first score landed, shoving the catch-up + Up Next
 // blocks below it down. Each slot either carries a populated score
-// (with FINA category + dropped flag) or renders as a dim "—"
+// (with World Aquatics category + dropped flag) or renders as a dim "—"
 // placeholder; either way the tile dimensions are identical.
 const liveJudgeSlots = computed(() => {
   const numJudges = Number(currentEvent.value?.number_of_judges) || 5
@@ -1602,12 +1602,12 @@ onMounted(async () => {
               </div>
               <div class="standing-score">
                 <!-- "=" marker when two divers shared the raw total
-                     but were separated by the FINA tie-break rule
+                     but were separated by the World Aquatics tie-break rule
                      (highest single dive, then second-highest, …).
                      Spectators and coaches see this and understand
                      why two identical totals weren't a literal tie. -->
                 <span v-if="s.is_tied_on_total" class="tie-marker"
-                      title="Tied on total — separated by FINA tie-break (highest single dive, then second-highest, etc.)">=</span>
+                      title="Tied on total — separated by World Aquatics tie-break (highest single dive, then second-highest, etc.)">=</span>
                 {{ parseFloat(s.total).toFixed(1) }}
               </div>
             </div>
@@ -2940,7 +2940,7 @@ onMounted(async () => {
    recap header next to the event title. Wrap on narrow screens. */
 .export-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 
-/* "=" marker for FINA tie-break disambiguation. Cyan accent so
+/* "=" marker for World Aquatics tie-break disambiguation. Cyan accent so
    it reads as informational, not error. */
 .tie-marker {
   display: inline-block;
@@ -3185,7 +3185,7 @@ onMounted(async () => {
   color: var(--cyan); text-align: right;
 }
 .dr-judges { display: flex; gap: 0.25rem; flex-wrap: wrap; min-width: 0; }
-/* .j-score (FINA category chips) styles are global in
+/* .j-score (World Aquatics category chips) styles are global in
    public/css/app.css — shared with the Archive view. */
 .dr-total {
   font-family: var(--font-mono); font-size: 13px; font-weight: 700;

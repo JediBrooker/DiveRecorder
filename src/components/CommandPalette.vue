@@ -44,7 +44,7 @@ const STATIC_ENTRIES = [
   { kind:'go', label:'User Manager',   sub:'Roles + coach links',       to:'/users',         roles:['org_admin'],  icon:'👥' },
   { kind:'go', label:'Audit Log',      sub:'Federation activity',       to:'/audit',         roles:['org_admin'],  icon:'📋' },
   { kind:'go', label:'Clubs',          sub:'Federation registry',       to:'/clubs',         roles:['org_admin'],  icon:'🏛' },
-  { kind:'go', label:'Teams',          sub:'FINA Team Event entries',   to:'/teams',         roles:['org_admin'],  icon:'🏆' },
+  { kind:'go', label:'Teams',          sub:'World Aquatics Team Event entries',   to:'/teams',         roles:['org_admin'],  icon:'🏆' },
   { kind:'go', label:'Dive Directory', sub:'All diving codes + DD',     to:'/dives',         roles:null,           icon:'📖' },
   { kind:'go', label:'Assign Judges',  sub:'Match panels to events',    to:'/assign-judges', roles:['org_admin','meet_manager'], icon:'⚖️' },
   { kind:'go', label:'Replay tour',    sub:'See the role-specific intro again', to:null,    roles:null,           icon:'🎬',

@@ -394,7 +394,7 @@ watch(() => drawerTeam.value, (val) => {
                 <div class="empty-state-title">No teams yet</div>
                 <div class="empty-state-body">
                   Teams sit alongside clubs as a separate grouping for
-                  <strong>FINA Team Event</strong> entries — multiple members
+                  <strong>World Aquatics Team Event</strong> entries — multiple members
                   share a team and dive across rounds together. A diver can
                   belong to several teams over time. Click
                   <strong>+ New Team</strong> above to add your first one.

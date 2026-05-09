@@ -34,7 +34,7 @@ const WIDGET_CATALOG = [
   { id: 'placings',          label: 'Medal Counts',          desc: 'Lifetime tally of gold / silver / bronze + finalist appearances.' },
   { id: 'height_breakdown',  label: 'Height Breakdown',      desc: 'Average and best dive total per board height.' },
   { id: 'round_stamina',     label: 'Round-by-Round Form',   desc: 'Average score by round number — do you fade in later rounds?' },
-  { id: 'quality_mix',       label: 'Score Quality Mix',     desc: 'Distribution of judge scores across the FINA categories.' },
+  { id: 'quality_mix',       label: 'Score Quality Mix',     desc: 'Distribution of judge scores across the World Aquatics categories.' },
   { id: 'dd_risk',           label: 'DD Risk Profile',       desc: 'Average + max DD attempted; how you score at the upper bound.' },
   { id: 'frequent_dives',    label: 'Go-To Dives',           desc: 'Top 5 most-attempted dives with avg / best totals.' },
   { id: 'streak',            label: 'Current Streak',        desc: 'Consecutive top-3 / top-1 finishes from your most recent meet.' },
@@ -520,7 +520,7 @@ function barWidth(value, list, key) {
   return Math.max(4, (Number(value) / max) * 100)
 }
 
-// FINA category buckets in display order. Mirrors the colour
+// World Aquatics category buckets in display order. Mirrors the colour
 // classes used by the live scoreboard chips. Driven from the
 // analytics payload so the legend stays consistent.
 const qualityBuckets = computed(() => {
@@ -907,7 +907,7 @@ watch(targetId, load)
         </p>
       </div>
 
-      <!-- Score quality mix — distribution across FINA categories,
+      <!-- Score quality mix — distribution across World Aquatics categories,
            rendered as a horizontal stacked bar with category
            colours matching the live scoreboard chips. -->
       <div v-if="isEnabled('quality_mix')" class="card" :style="{ order: widgetOrder('quality_mix') }">

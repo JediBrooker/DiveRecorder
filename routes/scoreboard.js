@@ -65,7 +65,7 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
            ),
            /* Team-event branch: aggregate by team. dives_desc is
               the descending-sorted array of dive points used as the
-              FINA tie-break key when two teams share a raw total.
+              World Aquatics tie-break key when two teams share a raw total.
               public_id is computed in Node from team_id below — we
               expose team_id here so the router can hash it. The
               spectator-facing JSON drops team_id and only emits
@@ -124,7 +124,7 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
                     partner_id, partner_name, partner_country, total, dives_desc
              FROM team_standings
            )
-           /* FINA tie-break ordering: total desc, then highest dive,
+           /* World Aquatics tie-break ordering: total desc, then highest dive,
               then second-highest, etc. (Postgres element-wise array
               comparison gives that.) is_tied_on_total flags pairs
               that shared the raw total but were separated by the
@@ -291,10 +291,10 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
                     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
                   ) AS cumulative_total,
                   /* All dives this competitor has done up to AND
-                     including this round, sorted desc — the FINA
+                     including this round, sorted desc — the World Aquatics
                      tie-break key (highest single dive, then
                      second-highest, etc.). Postgres element-wise
-                     array DESC ordering gives the FINA semantics. */
+                     array DESC ordering gives the World Aquatics semantics. */
                   array_agg(round_total) OVER (
                     PARTITION BY competitor_id
                     ORDER BY round_total DESC, round_number
@@ -303,7 +303,7 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
            FROM dive_totals
          ),
          ranked AS (
-           /* Apply FINA tie-break to per-round rankings so the
+           /* Apply World Aquatics tie-break to per-round rankings so the
               up/down movement arrows on the live scoreboard match
               what the standings panel shows. Previously the
               leaderboard ordered by total DESC only, disagreeing

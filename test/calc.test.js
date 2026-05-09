@@ -1,7 +1,7 @@
 // World Aquatics scoring tests — exercises the SQL functions
 // calc_dive_points and calc_synchro_dive_points against a live
 // Postgres connection. The functions are pure and deterministic
-// so we use known FINA-rule examples and assert exact outputs.
+// so we use known World Aquatics-rule examples and assert exact outputs.
 //
 // Connection: prefers the app's own DB_* env vars (the ones
 // .env.example documents) and falls back to libpq's PG* names so

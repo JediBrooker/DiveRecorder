@@ -35,7 +35,7 @@ const HEIGHT   = process.env.J_HEIGHT
   || HEIGHTS[Math.floor(Math.random() * HEIGHTS.length)];
 const HEIGHT_NUMERIC = parseFloat(HEIGHT);
 
-// Synchro must be 9 or 11 judges (FINA gate). Individual stays 5.
+// Synchro must be 9 or 11 judges (World Aquatics gate). Individual stays 5.
 // Synchro defaults to 11 so the bigger panel layout (Exec A 1-3,
 // Exec B 4-6, Sync 7-11) is exercised on every run — the 9-panel
 // shape is structurally a strict subset.

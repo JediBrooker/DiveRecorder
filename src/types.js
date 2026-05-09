@@ -287,7 +287,7 @@
  * @property {number}       total
  * @property {string}       public_id          See RosterRow.public_id.
  * @property {boolean}      is_tied_on_total   True when 2+ rows share this total
- *                                             but were separated by FINA tie-break.
+ *                                             but were separated by World Aquatics tie-break.
  */
 
 // Force this file to be a module so import('@/types') works in

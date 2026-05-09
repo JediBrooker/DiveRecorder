@@ -22,9 +22,9 @@
 // left blank — operators add them per the bulletin in force.
 //
 // World Aquatics Senior conditions used as the source of truth:
-//   * Men individual:   6 dives, 6 different FINA groups (or
+//   * Men individual:   6 dives, 6 different World Aquatics groups (or
 //                        5 + 1 free on springboard).
-//   * Women individual: 5 dives, 5 different FINA groups.
+//   * Women individual: 5 dives, 5 different World Aquatics groups.
 //   * Synchro:          first 2 voluntary @ DD 2.0, then 3 (W) or
 //                        4 (M) optional.
 

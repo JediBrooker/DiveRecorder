@@ -1,4 +1,4 @@
-// Pure unit tests for the FINA trim algorithm. Doesn't need a DB
+// Pure unit tests for the World Aquatics trim algorithm. Doesn't need a DB
 // or a running server — just the algorithm in
 // src/composables/useScoreTrim.js. Catches drift in:
 //   * which scores get marked as dropped under each panel size
@@ -32,7 +32,7 @@ function panel(scores) {
 // any drift in the algorithm is caught here too.
 // =====================================================================
 
-test("scoreCategory returns the expected FINA bucket", () => {
+test("scoreCategory returns the expected World Aquatics bucket", () => {
   assert.equal(scoreCategory(0),    "failed");
   assert.equal(scoreCategory(1),    "deficient");
   assert.equal(scoreCategory(2.0),  "deficient");
@@ -158,7 +158,7 @@ test("non-array input → empty result", () => {
 });
 
 test("unknown panel size → no drops (matches calc_event_dive_points)", () => {
-  // 4-judge panel doesn't exist in FINA's table; algorithm
+  // 4-judge panel doesn't exist in World Aquatics's table; algorithm
   // should leave everything in rather than guess.
   const out = annotateJudgeRows(panel([5, 6, 7, 8]), 4, "individual");
   assert.deepEqual(out.map(o => o.dropped), [false, false, false, false]);

@@ -70,7 +70,7 @@ const PER_DIVE = `
 //   event_totals  — per-(event, competitor) sum of dive points + a
 //                   `dives_desc` array of the diver's dive points
 //                   sorted descending (used as the tie-break key)
-//   ranked        — event_totals + RANK over the FINA ordering:
+//   ranked        — event_totals + RANK over the World Aquatics ordering:
 //                     ORDER BY total DESC, dives_desc DESC
 //                   plus an `is_tied_on_total` flag for UI hints
 //                   when two divers share a raw total but the
@@ -81,12 +81,12 @@ const PER_DIVE = `
 //   $2 = from_date (date or null)
 //   $3 = to_date   (date or null)
 //
-// FINA tie-break: when two divers have the same total, the higher
+// World Aquatics tie-break: when two divers have the same total, the higher
 // finish goes to whoever has the highest single dive; if those tie,
 // the second-highest; and so on. Postgres element-wise array
 // comparison on `dives_desc DESC` implements that exactly —
 // [9,8,7] > [9,8,6] > [9,8,5]. RANK() with that ordering gives the
-// correct FINA placement for free.
+// correct World Aquatics placement for free.
 // =====================================================================
 const FULL_FIELD_RANKING = `
   diver_events AS (

@@ -787,7 +787,7 @@ app.use(exportLimiter, require("./routes/archive")({ pool, readPool }));
 // [SECTION: ROUTES — PDF EXPORT]
 // 4 PDFs (program, start-list, score-sheet, results) + 1 CSV
 // (per-dive results) extracted into routes/pdf.js along with
-// the local csvCell / csvRow helpers and the FINA trim
+// the local csvCell / csvRow helpers and the World Aquatics trim
 // annotation used by the score sheet.
 // =============================================================
 app.use(exportLimiter, require("./routes/pdf")({ pool }));

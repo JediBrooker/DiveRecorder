@@ -21,10 +21,9 @@ const TERMS = {
   completed:    "Status: event finalised. Public scoreboard shows recap; results in the archive.",
   setup:        "Status: event being configured — roster, judges, dive list. Not visible to spectators.",
 
-  // FINA / World Aquatics
-  FINA:         "Fédération Internationale de Natation — now World Aquatics. Source of the official rule book + scoring formula.",
-  "FINA TE":    "FINA Team Event — synchronised event scored as a team rather than per individual diver.",
-  WA:           "World Aquatics, the rebranded FINA. Same rules, new initials.",
+  // World Aquatics
+  WA:           "World Aquatics — the international governing body for aquatic sports, source of the official rule book + scoring formula.",
+  "WA TE":      "World Aquatics Team Event — synchronised event scored as a team rather than per individual diver.",
   panel:        "The set of judges (typically 5 or 7) who score each dive.",
   referee:      "The senior official who oversees the panel, rules on balks/redives, and approves final results.",
 

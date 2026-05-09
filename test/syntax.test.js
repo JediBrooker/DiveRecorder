@@ -2,7 +2,7 @@
 // invocation so a fresh dev clone catches obvious breakage.
 //   - server.js parses cleanly
 //   - SPA built bundle, if present, contains the expected entry
-//   - the FINA category helper is consistent (no DB)
+//   - the World Aquatics category helper is consistent (no DB)
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
@@ -74,7 +74,7 @@ test("init.sql declares schema version 31", () => {
   assert.match(sql, /INSERT INTO public\.schema_meta \(id, version\) VALUES \(1, 31\)/);
 });
 
-test("scoreCategory boundaries match FINA buckets", () => {
+test("scoreCategory boundaries match World Aquatics buckets", () => {
   // We can't import the .js composable directly under CommonJS, so
   // re-implement the same boundaries here. If they ever drift, this
   // test will catch it. (Mirror of src/composables/useScoreCategories.js.)

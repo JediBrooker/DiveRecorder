@@ -136,8 +136,8 @@ above it.
 | Auth-aware fetch with auto-redirect on 401 | `auth.apiFetch(url, opts)` | `src/stores/auth.js` |
 | Stale-while-revalidate fetch | `cachedFetch(url, opts, { onUpdate })` | `src/lib/idbCache.js` |
 | Wipe per-user IndexedDB cache | `idbClear()` | `src/lib/idbCache.js` |
-| Trim & tag judges' scores (FINA rules) | `annotateJudgeRows(judges, n, eventType)` | `src/composables/useScoreTrim.js` |
-| Bucket a score into a FINA category | `scoreCategory(s)` | `src/composables/useScoreCategories.js` |
+| Trim & tag judges' scores (World Aquatics rules) | `annotateJudgeRows(judges, n, eventType)` | `src/composables/useScoreTrim.js` |
+| Bucket a score into a World Aquatics category | `scoreCategory(s)` | `src/composables/useScoreCategories.js` |
 
 If you write the third copy of any of these, **stop and consolidate** into
 a helper. The repo has bled time on duplicated patterns.
@@ -168,7 +168,7 @@ know X":
    is to feed `RANK()` a CTE that's already filtered to the diver, which
    silently makes every meet rank 1st-of-1. Use the
    `analyticsRankingCTE(eventIdsSubquery)` helper.
-2. **The FINA category boundaries are duplicated.** Source of truth is
+2. **The World Aquatics category boundaries are duplicated.** Source of truth is
    `src/composables/useScoreCategories.js`; the test mirror at
    `test/syntax.test.js` is intentional and detects drift in the
    composable. Don't add a third copy.

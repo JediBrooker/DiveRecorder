@@ -411,7 +411,7 @@ module.exports = function createPdfRouter({ pool }) {
   // PER-DIVER SCORE SHEET PDF — every diver wants their own
   // report after a meet. Reuses the dive-with-judges shape we
   // already build for Recent Form: per-round dive metadata + each
-  // judge's raw score (with the dropped scores marked under FINA
+  // judge's raw score (with the dropped scores marked under World Aquatics
   // trim rules, the same way the live scoreboard renders them).
   // -------------------------------------------------------------
   router.get("/api/events/:id/divers/:diverId/score-sheet.pdf", async (req, res) => {
@@ -509,7 +509,7 @@ module.exports = function createPdfRouter({ pool }) {
       const dives = divesRes.rows;
       const totals = totalRes.rows[0] || {};
 
-      // FINA trim — apply the same algorithm the frontend uses
+      // World Aquatics trim — apply the same algorithm the frontend uses
       // (lib/score-trim semantics) so the dropped marks line up.
       function trimCount(n) {
         if (!n || n <= 3) return 0;
@@ -696,7 +696,7 @@ module.exports = function createPdfRouter({ pool }) {
       // Compute final placings up front so the CSV's per-dive rows
       // can carry both the dive total and the diver's final rank.
       // Keyed by competitor_id (not full_name) so two same-named
-      // divers don't collide; FINA tie-break applied via dives_desc.
+      // divers don't collide; World Aquatics tie-break applied via dives_desc.
       const totalsRes = await pool.query(
         `WITH per_dive AS (
            SELECT s.competitor_id,
@@ -811,7 +811,7 @@ module.exports = function createPdfRouter({ pool }) {
            ) p ON true
            LEFT JOIN users pu ON pu.id = p.partner_id
            GROUP BY u.id, u.full_name, o.country_code, cl.name, pu.full_name
-           /* FINA tie-break: highest single dive, then second-
+           /* World Aquatics tie-break: highest single dive, then second-
               highest, etc. Element-wise array DESC ordering. */
            ORDER BY total DESC, dives_desc DESC`,
           [req.params.id],

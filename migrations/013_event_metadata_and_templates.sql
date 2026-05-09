@@ -14,11 +14,11 @@
 --                     NULL preserves the final if the prelim
 --                     is removed.
 --   advance_count   — how many divers advance from prelim to
---                     final. Default 12 (FINA standard); manager
+--                     final. Default 12 (World Aquatics standard); manager
 --                     can override per-event.
 --
 -- Plus a new event_templates table: a manager saves a config
--- once ("FINA U16 Women's 3m") then re-applies it for future
+-- once ("World Aquatics U16 Women's 3m") then re-applies it for future
 -- events with one click. Stored as JSON so adding more fields
 -- to events later doesn't require a template-table migration.
 --

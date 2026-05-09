@@ -6,7 +6,7 @@
 -- every event row has a single `org_id`, every authz gate checks
 -- equality against `req.user.org_id`. That's fine for domestic
 -- meets but breaks the moment a federation hosts a multi-country
--- competition (Pacific Junior Champs, FINA Grand Prix stops,
+-- competition (Pacific Junior Champs, World Aquatics Grand Prix stops,
 -- bilateral invitationals). Foreign divers had no way to enter
 -- without creating a shadow account in the host federation,
 -- which split their personal best history and broke their coach

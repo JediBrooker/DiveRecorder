@@ -2,7 +2,7 @@
 // Used by the Scoreboard and Archive views — keep them in sync so
 // dive breakdowns look identical wherever they appear.
 
-// FINA judge score categories. Each maps to a colour class in
+// World Aquatics judge score categories. Each maps to a colour class in
 // public/css/app.css (.j-failed, .j-deficient, etc).
 export function scoreCategory(s) {
   if (s == null || Number.isNaN(s)) return null
@@ -15,7 +15,7 @@ export function scoreCategory(s) {
   return 'excellent'   // 10
 }
 
-// Standard FINA trim rules for an individual diving panel:
+// Standard World Aquatics trim rules for an individual diving panel:
 //   3 judges  → keep all
 //   5 judges  → drop high + low
 //   7 judges  → drop 2 high + 2 low

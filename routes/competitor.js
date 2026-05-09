@@ -340,7 +340,7 @@ module.exports = function createCompetitorRouter({
       const remainingDives = myDives.filter(d => !d.completed).length;
 
       // 3. Standings — same per-dive math as the public scoreboard,
-      //    rolled up per competitor. Rank ties share (FINA practice).
+      //    rolled up per competitor. Rank ties share (World Aquatics practice).
       const standRes = await pool.query(
         `WITH per_dive AS (
            SELECT s.competitor_id, s.round_number,
@@ -373,7 +373,7 @@ module.exports = function createCompetitorRouter({
         [eventId],
       );
       const standings = standRes.rows;
-      // Ties share rank (FINA practice).
+      // Ties share rank (World Aquatics practice).
       const ranked = standings.map((s, i) => ({ ...s, _idx: i }));
       let prevTotal = null;
       let prevRank  = 0;

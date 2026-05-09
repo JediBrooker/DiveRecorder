@@ -77,13 +77,13 @@ The public hub for a multi-event meet. Federation hero + dates + venue at the to
 
 #### Live Scoreboard
 
-What the audience sees while a meet is running. Three-column layout: completed dives on the left (each card shows the diver, country chip, club, dive code + DD + description, and per-judge scores with FINA-category colour-coding); current performer (or on-deck preview) in the centre with a **catch-up projection** below the rank line — the average judge score the active diver needs to overtake the leaders, rounded up to the next achievable 0.5; standings on the right with Final / By Round tabs.
+What the audience sees while a meet is running. Three-column layout: completed dives on the left (each card shows the diver, country chip, club, dive code + DD + description, and per-judge scores with World Aquatics-category colour-coding); current performer (or on-deck preview) in the centre with a **catch-up projection** below the rank line — the average judge score the active diver needs to overtake the leaders, rounded up to the next achievable 0.5; standings on the right with Final / By Round tabs.
 
 ![Live Scoreboard](./docs/screenshots/scoreboard-live.png)
 
 #### Completed Meet Recap
 
-When a meet is over, the Scoreboard switches to a recap layout: podium spotlight, full standings with club + team lines, and a per-diver dive-by-dive breakdown. Per-judge scores are colour-coded by FINA category (excellent → failed) with the trim rule visualised by struck-through dimmed scores. **PDF / CSV / Start List** buttons in the header export the recap in print-ready form.
+When a meet is over, the Scoreboard switches to a recap layout: podium spotlight, full standings with club + team lines, and a per-diver dive-by-dive breakdown. Per-judge scores are colour-coded by World Aquatics category (excellent → failed) with the trim rule visualised by struck-through dimmed scores. **PDF / CSV / Start List** buttons in the header export the recap in print-ready form.
 
 ![Completed Meet Recap](./docs/screenshots/scoreboard.png)
 
@@ -109,7 +109,7 @@ For age-grouped meets that follow real-world bulletin formats — Diving NSW's "
 
 The New Event form itself lives in a **modal** (migration 039) that opens via the `+ New Event` button, giving the operator real screen real-estate for the dive list. The legacy "Number of Rounds" dropdown is replaced by a **Round dives** editor: each row is one round, with an autocomplete dive picker (same pattern as the diver portal). Pinning a dive to a row makes it operator-prescribed — every diver in the meet must submit that exact dive in that round, and the diver portal pre-fills + locks the row. Leaving a row blank makes it diver's choice. A "+ Add a new dive…" link inside the picker pops a sub-modal that POSTs straight to `/api/dive-directory` so the operator can add a missing dive without leaving the flow. The Edit Event modal mirrors the same UI — round_rules + round_dives are both fully editable post-create.
 
-Form layout is ordered so the operator's flow reads top-to-bottom: Event Name → Event Type → Gender → **Age Group / Division** (a structured dropdown — Age Group / Junior FINA Group / Open / Other, with sub-selectors for the numeric age ranges or the FINA Group letter A–E) → Board height → Judges → **Round dives** → **Round structure** (sections, sat directly under the dives so the operator pins the dives then groups them) → meet bundle / scheduling / format. A **Suggested templates** strip surfaces World Aquatics-aligned starting points (`src/lib/standard-templates.js`) filtered live by the chosen Gender + Age Group — pick Female + Open and the modal offers Women's 1m/3m/10m and synchro templates that match WA conditions; pick Junior Group A and the Boys/Girls 1m/3m/10m structures load with the right round count + min-distinct-groups rule. Click a template → the form populates, the operator can still tweak any field before submit.
+Form layout is ordered so the operator's flow reads top-to-bottom: Event Name → Event Type → Gender → **Age Group / Division** (a structured dropdown — Age Group / Junior World Aquatics Group / Open / Other, with sub-selectors for the numeric age ranges or the World Aquatics Group letter A–E) → Board height → Judges → **Round dives** → **Round structure** (sections, sat directly under the dives so the operator pins the dives then groups them) → meet bundle / scheduling / format. A **Suggested templates** strip surfaces World Aquatics-aligned starting points (`src/lib/standard-templates.js`) filtered live by the chosen Gender + Age Group — pick Female + Open and the modal offers Women's 1m/3m/10m and synchro templates that match WA conditions; pick Junior Group A and the Boys/Girls 1m/3m/10m structures load with the right round count + min-distinct-groups rule. Click a template → the form populates, the operator can still tweak any field before submit.
 
 ![Meet Manager](./docs/screenshots/meet-manager.png)
 
@@ -154,7 +154,7 @@ When the event has **round rules** configured (e.g. Diving NSW–style "4 dives 
 Phone-deck experience for athletes mid-competition. Lives at `/me/meet/:eventId` — surfaced from the dashboard's Diver tab as a pulsing **Meet day · live now** card the moment any event the diver is entered in flips Live. Three blocks stacked vertically, designed for the two minutes between drying off and walking up to the platform:
 
 - **Your next dive** — code (`201B`), description, board height, DD; round pip in the corner; pulsing cyan **YOU'RE UP** banner when the diver is next, otherwise an "N divers until you're up" countdown.
-- **Current standing** — rank in 56 px italic cyan with `↑` / `↓` movement, total points, gap to leader (or 🥇 for the leader). FINA-style tied-rank sharing.
+- **Current standing** — rank in 56 px italic cyan with `↑` / `↓` movement, total points, gap to leader (or 🥇 for the leader). World Aquatics-style tied-rank sharing.
 - **What you need** — gold/silver/bronze rows colour-coded reachable / achieved / out-of-reach. The per-judge average required (rounded UP to the next 0.5) reuses the same `calc_event_dive_points`-based math the Control Room and audience scoreboard use, so coach + athlete + spectator all see consistent numbers.
 
 Real-time: subscribes to the event-room socket; `score_received` / `state_update` / `score_corrected` trigger a 250 ms-debounced bundle refetch. Endpoint: `GET /api/events/:id/me-meet-day`, gated on `competitor_dive_lists` membership (403s for non-entrants).
@@ -193,7 +193,7 @@ The federation's club registry. Each club has a name + a 3 – 6 char short code
 
 #### Teams
 
-Teams sit alongside clubs as a separate grouping for FINA Team Event entries. A diver can belong to multiple teams over time. Soft-delete preserves the team's history (existing dive lists keep referencing the team via `ON DELETE SET NULL`).
+Teams sit alongside clubs as a separate grouping for World Aquatics Team Event entries. A diver can belong to multiple teams over time. Soft-delete preserves the team's history (existing dive lists keep referencing the team via `ON DELETE SET NULL`).
 
 ![Teams](./docs/screenshots/teams.png)
 
@@ -257,7 +257,7 @@ A small set of PostgreSQL functions does all the scoring so totals are consisten
 
 - `calc_dive_points(scores, num_judges, dd)` — official trim-and-multiply rules across panel sizes (3 / 5 / 7 / 9 / 11 judges); 9- and 11-judge totals are normalised so dive points stay comparable.
 - `calc_synchro_dive_points(judge_numbers, scores, num_judges, dd)` — World Aquatics synchronised rule: judges 1–2 (or 1–3 on an 11-panel) score Diver A execution, the next group score Diver B execution, the rest score sync. Trimmed and multiplied by `× DD × 0.6` to keep magnitude comparable to individual dives.
-- `calc_event_dive_points(...)` — dispatches to the right rule per dive, including the FINA Team Event case where a single event mixes individual and synchro dives.
+- `calc_event_dive_points(...)` — dispatches to the right rule per dive, including the World Aquatics Team Event case where a single event mixes individual and synchro dives.
 
 ### Event configuration
 
@@ -297,7 +297,7 @@ A meet bundles multiple events ("2026 National Open" → 1m M/F, 3m M/F, 10m M/F
   - Medal Counts (gold / silver / bronze / finalist / 9th+)
   - Height Breakdown (avg + best per board height, with bars)
   - Round-by-Round Form (with stamina insight: "you finish strong" / "you fade" / "even pacing")
-  - Score Quality Mix (FINA category distribution)
+  - Score Quality Mix (World Aquatics category distribution)
   - DD Risk Profile (avg / max DD + scoring at top DDs)
   - Go-To Dives (most-attempted with avg / best)
   - Current Streak (consecutive podiums / wins, self-hides when none)
@@ -312,7 +312,7 @@ A meet bundles multiple events ("2026 National Open" → 1m M/F, 3m M/F, 10m M/F
 ### Multi-tenant model
 
 - Two levels of organisational nesting: **organisations** (country federations) → **clubs** (within an org).
-- **Teams** sit alongside clubs as a separate grouping for FINA Team Event entries (a diver can belong to multiple teams over time).
+- **Teams** sit alongside clubs as a separate grouping for World Aquatics Team Event entries (a diver can belong to multiple teams over time).
 - **Coach ↔ Diver links** — a coach can mentor multiple divers; a diver may have multiple coaches over time. Org admins manage the links from the User Manager drawer.
 - Users belong to one org and optionally one club within it.
 - System admins see across all orgs; org admins / meet managers manage their own.

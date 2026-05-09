@@ -2150,7 +2150,7 @@ function setActive(idx) {
     club_code: currentActive.value.club_code || null,
     diveCode: `${currentActive.value.dive_code}${currentActive.value.position}`,
     // description is the dive_directory action ("Forward Dive",
-    // "Back 2½ Somersaults", …); position is the FINA letter
+    // "Back 2½ Somersaults", …); position is the World Aquatics letter
     // (A/B/C/D). Audience views recompose them via
     // diveDescription() — pass null instead of '—' for missing
     // values so the v-if hides the line cleanly when the row is
