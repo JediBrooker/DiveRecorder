@@ -455,6 +455,13 @@ CREATE TABLE public.competitor_dive_lists (
     --     roster endpoint excludes them from the active queue.
     display_order integer,
     withdrawn_at  timestamptz,
+    -- Migration 040: reserves carry forward from a prelim/semi to
+    -- the next stage but don't compete unless the operator
+    -- promotes them via the Control Room (e.g. when a primary
+    -- withdraws). reserve_position preserves rank ordering so
+    -- "Reserve 1" is the next in line to fill a slot.
+    is_reserve       boolean NOT NULL DEFAULT FALSE,
+    reserve_position integer,
     UNIQUE (event_id, competitor_id, round_number),
     CONSTRAINT competitor_dive_lists_round_number_check
         CHECK (round_number > 0)

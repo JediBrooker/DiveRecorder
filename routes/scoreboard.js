@@ -204,6 +204,9 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
              JOIN users u_inner ON u_inner.id = cdl.competitor_id
              WHERE cdl.event_id = $1
                AND cdl.withdrawn_at IS NULL
+               /* Migration 040: reserves don't appear in the
+                  upcoming-dives queue. */
+               AND cdl.is_reserve = FALSE
            )
            SELECT ordered.round_number, ordered.round_order,
                   ordered.competitor_id, ordered.partner_id,

@@ -128,6 +128,10 @@ module.exports = function createControlRoomRouter({
            JOIN users u_inner ON u_inner.id = cdl.competitor_id
            WHERE cdl.event_id = $1
              AND cdl.withdrawn_at IS NULL
+             /* Migration 040: reserves are in the roster but
+                don't compete unless promoted — exclude them
+                from the active queue. */
+             AND cdl.is_reserve = FALSE
          )
          SELECT cdl.id AS dive_list_id,
                 cdl.display_order, cdl.withdrawn_at,
@@ -340,7 +344,11 @@ module.exports = function createControlRoomRouter({
            FROM (
              SELECT DISTINCT competitor_id
              FROM competitor_dive_lists
-             WHERE event_id = $1 AND withdrawn_at IS NULL
+             WHERE event_id = $1
+               AND withdrawn_at IS NULL
+               /* Migration 040: reserves are kept in the roster
+                  but not in the dive-order shuffle. */
+               AND is_reserve = FALSE
            ) u
          )
          UPDATE competitor_dive_lists cdl

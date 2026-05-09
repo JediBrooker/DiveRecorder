@@ -1084,5 +1084,381 @@ module.exports = function createEventsRouter({
     }
   });
 
+  // -------------------------------------------------------------
+  // Stage progression — prelim → semi → final.
+  //
+  //   GET  /api/events/:id/advance/preview
+  //   POST /api/events/:id/advance
+  //
+  // :id is the PARENT event (the prelim or semifinal). The child
+  // event is the one whose `parent_event_id` points at :id.
+  //
+  // Preview returns the WA tie-break ranking of the parent's
+  // divers so the modal can show "who would advance" before the
+  // operator commits.
+  //
+  // POST commits: it copies each chosen diver's per-round dives
+  // into the child event's competitor_dive_lists, sets is_reserve
+  // on the trailing N reserves, and assigns display_order per the
+  // chosen mode:
+  //
+  //   'inherit' — copy the parent's display_order, drop non-
+  //               progressors, re-number 1..N (default for semi).
+  //   'reverse' — top diver dives LAST (default for finals).
+  //   'random'  — randomise the primaries.
+  //
+  // Reserves get is_reserve=true + reserve_position 1..M and no
+  // display_order. The Control Room can later promote a reserve
+  // (flipping the flag + assigning the next open display_order)
+  // when a primary withdraws.
+  // -------------------------------------------------------------
+  async function rankedDiversForAdvance(client, parentEventId) {
+    // Re-uses the same WA tie-break the live scoreboard does
+    // (cumulative_total DESC, dives_so_far_desc DESC). Returns one
+    // row per diver with their final cumulative rank, dive_id by
+    // round, and display_order from the parent event so the
+    // 'inherit' dive-order mode can carry it forward.
+    const r = await client.query(
+      `WITH dive_totals AS (
+         SELECT s.competitor_id, s.round_number,
+                calc_event_dive_points(
+                  array_agg(ej.judge_number ORDER BY ej.judge_number),
+                  array_agg(s.score ORDER BY ej.judge_number),
+                  e.number_of_judges, MAX(d.dd), e.event_type,
+                  BOOL_OR(cdl.partner_id IS NOT NULL)
+                ) AS round_total
+         FROM scores s
+         JOIN events e ON e.id = s.event_id
+         LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+         LEFT JOIN competitor_dive_lists cdl
+           ON cdl.event_id = s.event_id
+          AND cdl.competitor_id = s.competitor_id
+          AND cdl.round_number = s.round_number
+         LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+         WHERE s.event_id = $1
+         GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+       ),
+       cumulative AS (
+         SELECT competitor_id,
+                SUM(round_total) AS total,
+                array_agg(round_total ORDER BY round_total DESC, round_number) AS dives_desc
+         FROM dive_totals
+         GROUP BY competitor_id
+       ),
+       ranked AS (
+         SELECT competitor_id, total,
+                RANK() OVER (ORDER BY total DESC, dives_desc DESC) AS rnk
+         FROM cumulative
+       )
+       SELECT r.competitor_id, r.total, r.rnk,
+              u.full_name, u.username,
+              MIN(cdl.display_order) AS parent_display_order,
+              array_agg(json_build_object(
+                'round_number', cdl.round_number,
+                'dive_id',      cdl.dive_id
+              ) ORDER BY cdl.round_number) FILTER (WHERE cdl.dive_id IS NOT NULL) AS dives
+         FROM ranked r
+         JOIN users u ON u.id = r.competitor_id
+         LEFT JOIN competitor_dive_lists cdl
+           ON cdl.event_id = $1
+          AND cdl.competitor_id = r.competitor_id
+          AND cdl.withdrawn_at IS NULL
+        GROUP BY r.competitor_id, r.total, r.rnk, u.full_name, u.username
+        ORDER BY r.rnk ASC, u.full_name ASC`,
+      [parentEventId],
+    );
+    return r.rows;
+  }
+
+  // Look up the child event of :id — the next stage that points
+  // back at us via parent_event_id. Returns null if none exists.
+  async function childEvent(client, parentEventId) {
+    const r = await client.query(
+      `SELECT id, event_format, total_rounds, status
+         FROM events
+        WHERE parent_event_id = $1
+        ORDER BY created_at ASC
+        LIMIT 1`,
+      [parentEventId],
+    );
+    return r.rows[0] || null;
+  }
+
+  router.get(
+    "/api/events/:id/advance/preview",
+    requireEventManager(),
+    async (req, res) => {
+      const client = await pool.connect();
+      try {
+        const parent = await client.query(
+          "SELECT id, event_format, status, advance_count, total_rounds FROM events WHERE id = $1",
+          [req.params.id],
+        );
+        if (!parent.rows.length) {
+          return res.status(404).json({ error: "Event not found" });
+        }
+        const ev = parent.rows[0];
+        if (!["preliminary", "semifinal"].includes(ev.event_format)) {
+          return res.status(400).json({ error: "Only preliminary or semifinal events advance" });
+        }
+        const child = await childEvent(client, ev.id);
+        const ranked = await rankedDiversForAdvance(client, ev.id);
+        res.json({
+          parent: {
+            id: ev.id,
+            format: ev.event_format,
+            status: ev.status,
+            total_rounds: ev.total_rounds,
+            advance_count: ev.advance_count,
+          },
+          child: child
+            ? { id: child.id, format: child.event_format, total_rounds: child.total_rounds, status: child.status }
+            : null,
+          ranked,
+        });
+      } catch (err) {
+        console.error("[Advance Preview Error]", err.message);
+        res.status(500).json({ error: "Internal server error" });
+      } finally {
+        client.release();
+      }
+    },
+  );
+
+  router.post(
+    "/api/events/:id/advance",
+    requireEventManager(),
+    async (req, res) => {
+      const {
+        top_n,
+        reserves = 0,
+        dive_order, // 'inherit' | 'reverse' | 'random'
+      } = req.body || {};
+      const topN = parseInt(top_n);
+      const resN = parseInt(reserves) || 0;
+      if (!Number.isInteger(topN) || topN < 1) {
+        return res.status(400).json({ error: "top_n must be a positive integer" });
+      }
+      if (resN < 0 || resN > 50) {
+        return res.status(400).json({ error: "reserves must be between 0 and 50" });
+      }
+      const orderMode = ['inherit', 'reverse', 'random'].includes(dive_order)
+        ? dive_order
+        : 'inherit';
+
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const parentRes = await client.query(
+          "SELECT id, event_format, status, total_rounds FROM events WHERE id = $1",
+          [req.params.id],
+        );
+        if (!parentRes.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ error: "Event not found" });
+        }
+        const parent = parentRes.rows[0];
+        if (!['preliminary', 'semifinal'].includes(parent.event_format)) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: "Only preliminary or semifinal events advance" });
+        }
+        if (parent.status !== 'Completed') {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "Parent event must be Completed before advancing divers",
+          });
+        }
+        const child = await childEvent(client, parent.id);
+        if (!child) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "No downstream event linked to this one — create the next stage first",
+          });
+        }
+        if (child.status !== 'Upcoming') {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "Child event must be Upcoming to seed its roster",
+          });
+        }
+        const ranked = await rankedDiversForAdvance(client, parent.id);
+        if (!ranked.length) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "Parent event has no scored divers to advance",
+          });
+        }
+        const primaries = ranked.slice(0, topN);
+        const reserveRows = ranked.slice(topN, topN + resN);
+
+        // Compute display_order for primaries per the chosen mode.
+        // 'inherit' — copy parent_display_order, then re-number 1..N
+        //              so gaps from non-progressors close up.
+        // 'reverse' — top diver dives last → rank 1 gets order topN,
+        //              rank topN gets order 1.
+        // 'random'  — Fisher-Yates a copy of [1..topN] and assign.
+        const primaryOrder = primaries.map((r, i) => ({ idx: i, sort: r.parent_display_order ?? r.rnk }));
+        if (orderMode === 'inherit') {
+          primaryOrder.sort((a, b) =>
+            (a.sort == null ? Infinity : a.sort) - (b.sort == null ? Infinity : b.sort),
+          );
+        } else if (orderMode === 'reverse') {
+          // Already in rank order ascending — reverse so worst dives first, top last.
+          primaryOrder.reverse();
+        } else if (orderMode === 'random') {
+          for (let i = primaryOrder.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [primaryOrder[i], primaryOrder[j]] = [primaryOrder[j], primaryOrder[i]];
+          }
+        }
+        // Build a competitor_id → display_order map (1-indexed).
+        const displayOrderByCompetitor = new Map();
+        primaryOrder.forEach((o, position) => {
+          displayOrderByCompetitor.set(primaries[o.idx].competitor_id, position + 1);
+        });
+
+        // Pre-load any prescribed round dives for the child so we
+        // can override the inherited dive_ids when the operator
+        // pinned specific dives at the child level.
+        const prescribedRes = await client.query(
+          "SELECT round_number, dive_id FROM event_round_dives WHERE event_id = $1 AND dive_id IS NOT NULL",
+          [child.id],
+        );
+        const prescribedByRound = new Map(
+          prescribedRes.rows.map((r) => [r.round_number, r.dive_id]),
+        );
+
+        // Wipe any existing roster on the child — re-running advance
+        // is a "redo" not an append. Score-bearing rows would have
+        // status != Upcoming so we already short-circuited above.
+        await client.query(
+          "DELETE FROM competitor_dive_lists WHERE event_id = $1",
+          [child.id],
+        );
+
+        const childRounds = child.total_rounds;
+        async function insertDiverRows(diver, { isReserve, reservePos, displayOrder }) {
+          const dives = Array.isArray(diver.dives) ? diver.dives : [];
+          const byRound = new Map(dives.map((d) => [d.round_number, d.dive_id]));
+          for (let r = 1; r <= childRounds; r++) {
+            const diveId = prescribedByRound.has(r)
+              ? prescribedByRound.get(r)
+              : (byRound.get(r) || null);
+            await client.query(
+              `INSERT INTO competitor_dive_lists
+                (event_id, competitor_id, dive_id, round_number,
+                 display_order, is_reserve, reserve_position)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+              [
+                child.id,
+                diver.competitor_id,
+                diveId,
+                r,
+                isReserve ? null : displayOrder,
+                isReserve,
+                isReserve ? reservePos : null,
+              ],
+            );
+          }
+        }
+
+        for (const diver of primaries) {
+          await insertDiverRows(diver, {
+            isReserve: false,
+            reservePos: null,
+            displayOrder: displayOrderByCompetitor.get(diver.competitor_id),
+          });
+        }
+        for (let i = 0; i < reserveRows.length; i++) {
+          await insertDiverRows(reserveRows[i], {
+            isReserve: true,
+            reservePos: i + 1,
+            displayOrder: null,
+          });
+        }
+
+        await recordAudit(client, {
+          ...auditFromReq(req),
+          org_id:      req.user.org_id,
+          entity_type: "event",
+          entity_id:   child.id,
+          entity_name: null,
+          action:      "event.advanced",
+          metadata: {
+            parent_event_id: parent.id,
+            top_n: topN,
+            reserves: resN,
+            dive_order: orderMode,
+          },
+        });
+
+        await client.query("COMMIT");
+        res.json({
+          advanced: primaries.length,
+          reserves: reserveRows.length,
+          dive_order: orderMode,
+          child_event_id: child.id,
+        });
+      } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("[Advance Error]", err.message);
+        res.status(500).json({ error: "Internal server error" });
+      } finally {
+        client.release();
+      }
+    },
+  );
+
+  // Promote a reserve to active. Flips is_reserve=false on every
+  // row for that competitor in the event, clears reserve_position,
+  // assigns the next open display_order so they slot into the
+  // back of the queue.
+  router.post(
+    "/api/events/:id/reserves/:competitorId/promote",
+    requireEventManager(),
+    async (req, res) => {
+      const { id: eventId, competitorId } = req.params;
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        // Verify the row exists + is currently a reserve.
+        const r = await client.query(
+          `SELECT 1 FROM competitor_dive_lists
+             WHERE event_id = $1 AND competitor_id = $2 AND is_reserve = TRUE
+             LIMIT 1`,
+          [eventId, competitorId],
+        );
+        if (!r.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ error: "Reserve not found" });
+        }
+        // Find the next open display_order = max active + 1.
+        const next = await client.query(
+          `SELECT COALESCE(MAX(display_order), 0) + 1 AS next
+             FROM competitor_dive_lists
+            WHERE event_id = $1 AND is_reserve = FALSE`,
+          [eventId],
+        );
+        const nextOrder = next.rows[0].next;
+        await client.query(
+          `UPDATE competitor_dive_lists
+              SET is_reserve = FALSE,
+                  reserve_position = NULL,
+                  display_order = $3
+            WHERE event_id = $1 AND competitor_id = $2`,
+          [eventId, competitorId, nextOrder],
+        );
+        await client.query("COMMIT");
+        res.json({ promoted: true, display_order: nextOrder });
+      } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("[Promote Reserve Error]", err.message);
+        res.status(500).json({ error: "Internal server error" });
+      } finally {
+        client.release();
+      }
+    },
+  );
+
   return router;
 };

@@ -487,40 +487,93 @@ async function deleteEventTemplate(t) {
 
 // True if some other event in the visible list points at `ev`
 // as its parent_event_id. Used to decide whether to render the
-// "Advance Top N" button on a feeder stage.
+// Stage-progression modal state. Opens when the operator clicks
+// "Advance to next stage →" on a Completed prelim/semifinal row.
+const advanceModalOpen   = ref(false)
+const advanceParent      = ref(null)
+const advanceChild       = ref(null)
+const advanceRanked      = ref([])
+const advanceTopN        = ref(12)
+const advanceReserves    = ref(2)
+const advanceDiveOrder   = ref('inherit')   // 'inherit' | 'reverse' | 'random'
+const advanceLoading     = ref(false)
+const advanceErr         = ref('')
+
 function eventHasNextStage(ev) {
   return events.value.some(other => other.parent_event_id === ev.id)
 }
 
-async function advanceToNextStage(ev) {
-  // Friendly label for the confirm dialog. Looks up what kind
-  // of event the source feeds into so the operator sees
-  // "advance to semi-final" vs "advance to final" rather than
-  // a generic "next stage."
-  const downstream = events.value.find(other => other.parent_event_id === ev.id)
-  const targetLabel = downstream
-    ? (downstream.event_format === 'semifinal' ? 'semi-final'
-       : downstream.event_format === 'final'   ? 'final'
-       : 'next stage')
-    : 'next stage'
-  if (!await confirmAction({
-    title: `Advance top ${ev.advance_count || 12} to ${targetLabel}?`,
-    body:  `Seeds "${targetLabel}" with the top ${ev.advance_count || 12} divers from "${ev.name}" plus their dive lists.`,
-    consequences: [
-      `Divers can edit their dive lists before the ${targetLabel} goes Live (subject to entries-close)`,
-      'Re-running after a score correction is safe — existing rows for these divers are overwritten (idempotent)',
-    ],
-    confirmLabel: `Advance to ${targetLabel}`,
-    confirmKind:  'primary',
-  })) return
+async function openAdvanceModal(ev) {
+  advanceParent.value    = ev
+  advanceChild.value     = null
+  advanceRanked.value    = []
+  advanceErr.value       = ''
+  advanceTopN.value      = ev.advance_count || 12
+  advanceReserves.value  = 2
+  // Default to 'inherit' for semifinal targets (carry the prelim
+  // start order forward minus non-progressors) and 'reverse' for
+  // final targets (top diver dives last — the showcase ordering).
+  const downstream = events.value.find(o => o.parent_event_id === ev.id)
+  advanceDiveOrder.value = downstream?.event_format === 'final' ? 'reverse' : 'inherit'
+  advanceModalOpen.value = true
+  advanceLoading.value   = true
   try {
-    const result = await auth.apiFetch(`/api/events/${ev.id}/advance`, {
+    const preview = await auth.apiFetch(`/api/events/${ev.id}/advance/preview`)
+    advanceChild.value  = preview.child
+    advanceRanked.value = Array.isArray(preview.ranked) ? preview.ranked : []
+    if (!advanceChild.value) {
+      advanceErr.value = 'No downstream event linked. Create the next stage event first.'
+    }
+  } catch (err) {
+    advanceErr.value = err.message || 'Failed to load preview'
+  } finally {
+    advanceLoading.value = false
+  }
+}
+
+function closeAdvanceModal() {
+  advanceModalOpen.value = false
+  advanceParent.value = null
+  advanceChild.value = null
+  advanceRanked.value = []
+}
+
+async function confirmAdvance() {
+  advanceErr.value = ''
+  const parent = advanceParent.value
+  if (!parent) return
+  const topN = parseInt(advanceTopN.value)
+  const reserves = parseInt(advanceReserves.value) || 0
+  if (!Number.isInteger(topN) || topN < 1) {
+    advanceErr.value = 'Top N must be a positive integer'
+    return
+  }
+  if (topN + reserves > advanceRanked.value.length) {
+    advanceErr.value = `Only ${advanceRanked.value.length} divers were scored — top + reserves can't exceed that`
+    return
+  }
+  advanceLoading.value = true
+  try {
+    const result = await auth.apiFetch(`/api/events/${parent.id}/advance`, {
       method: 'POST',
+      body: JSON.stringify({
+        top_n: topN,
+        reserves,
+        dive_order: advanceDiveOrder.value,
+      }),
     })
-    showSuccess(`Advanced ${result.advanced} diver${result.advanced === 1 ? '' : 's'} to the ${targetLabel}.`)
+    const targetLabel = advanceChild.value?.format === 'final' ? 'final' : 'semi-final'
+    showSuccess(
+      `Advanced ${result.advanced} diver${result.advanced === 1 ? '' : 's'} to the ${targetLabel}` +
+      (result.reserves ? ` (+${result.reserves} reserve${result.reserves === 1 ? '' : 's'})` : '') +
+      '.'
+    )
+    closeAdvanceModal()
     await loadEvents()
   } catch (err) {
-    showError(`Failed to advance: ${err.message}`)
+    advanceErr.value = err.message || 'Failed to advance'
+  } finally {
+    advanceLoading.value = false
   }
 }
 
@@ -2006,11 +2059,13 @@ onUnmounted(() => {
             <button v-if="ev.event_type === 'team'"
                     class="btn btn-ghost btn-sm"
                     @click="openTeamsModal(ev)">Teams</button>
-            <button v-if="(ev.event_format === 'preliminary' || ev.event_format === 'semifinal') && eventHasNextStage(ev)"
-                    class="btn btn-ghost btn-sm advance-btn"
-                    @click="advanceToNextStage(ev)"
-                    title="Pull the top-N divers from this stage into the next stage's roster">
-              Advance Top {{ ev.advance_count || 12 }} →
+            <button v-if="(ev.event_format === 'preliminary' || ev.event_format === 'semifinal')
+                          && eventHasNextStage(ev)
+                          && ev.status === 'Completed'"
+                    class="btn btn-primary btn-sm advance-btn"
+                    @click="openAdvanceModal(ev)"
+                    title="Open the modal to choose top N + reserves + dive order, preview the ranking, and seed the next stage">
+              Advance to next stage →
             </button>
             <!-- Status-aware primary action. Each path deep-
                  links into the screen the operator's most
@@ -2448,6 +2503,94 @@ onUnmounted(() => {
     </div>
   </div>
 
+  <!-- Advance to next stage modal — opens from the prelim/semi
+       row's Completed-state action. Lets the operator pick top
+       N + reserves + dive-order mode, with a live preview of
+       which divers will progress. -->
+  <div v-if="advanceModalOpen" class="modal-backdrop"
+       @click.self="closeAdvanceModal">
+    <div class="modal modal-advance" @click.stop style="max-width:640px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
+        <h2 style="font-size:22px;font-style:italic">Advance to next stage</h2>
+        <button class="btn btn-ghost btn-sm" @click="closeAdvanceModal">Cancel ✕</button>
+      </div>
+
+      <p class="hint" style="margin-bottom:1rem" v-if="advanceParent">
+        Seed
+        <strong>{{
+          advanceChild?.format === 'final' ? 'the final'
+          : advanceChild?.format === 'semifinal' ? 'the semi-final'
+          : 'the next stage'
+        }}</strong>
+        from <strong>"{{ advanceParent.name }}"</strong> based on the World Aquatics tie-break ranking.
+      </p>
+
+      <div v-if="advanceErr" class="msg msg-error" style="margin-bottom:0.75rem">{{ advanceErr }}</div>
+      <div v-if="advanceLoading" class="hint" style="margin-bottom:0.75rem">Loading preview…</div>
+
+      <div v-if="!advanceLoading && advanceChild" class="advance-form">
+        <div class="advance-field-row">
+          <label class="advance-field">
+            <span class="label">Top N (primaries)</span>
+            <input class="input" type="number" min="1" max="50" v-model="advanceTopN">
+          </label>
+          <label class="advance-field">
+            <span class="label">Reserves</span>
+            <input class="input" type="number" min="0" max="50" v-model="advanceReserves">
+            <span class="hint" style="margin-top:0.25rem">
+              Reserves carry forward but don't compete unless promoted from Control Room.
+            </span>
+          </label>
+        </div>
+
+        <div class="advance-field" style="margin-top:1rem">
+          <span class="label">Dive order in {{ advanceChild.format === 'final' ? 'the final' : 'the next stage' }}</span>
+          <label class="advance-radio">
+            <input type="radio" value="inherit" v-model="advanceDiveOrder">
+            <span><strong>Inherit</strong> — carry the parent's dive order forward, drop non-progressors. <em>Default for semi-finals.</em></span>
+          </label>
+          <label class="advance-radio">
+            <input type="radio" value="reverse" v-model="advanceDiveOrder">
+            <span><strong>Reverse</strong> — top diver dives last. <em>Default for finals.</em></span>
+          </label>
+          <label class="advance-radio">
+            <input type="radio" value="random" v-model="advanceDiveOrder">
+            <span><strong>Random</strong> — re-randomise primaries.</span>
+          </label>
+        </div>
+
+        <!-- Preview ranking -->
+        <div class="advance-preview" v-if="advanceRanked.length">
+          <div class="advance-preview-head">
+            Preview · {{ advanceRanked.length }} scored diver{{ advanceRanked.length === 1 ? '' : 's' }}
+          </div>
+          <div v-for="(d, i) in advanceRanked" :key="d.competitor_id"
+               :class="['advance-preview-row',
+                        i < parseInt(advanceTopN) ? 'primary'
+                        : i < parseInt(advanceTopN) + parseInt(advanceReserves) ? 'reserve'
+                        : 'cut']">
+            <span class="advance-rank">{{ d.rnk }}</span>
+            <span class="advance-name">{{ d.full_name }}</span>
+            <span class="advance-total">{{ Number(d.total).toFixed(2) }}</span>
+            <span class="advance-tag">
+              {{ i < parseInt(advanceTopN) ? '' :
+                 i < parseInt(advanceTopN) + parseInt(advanceReserves) ? `Reserve ${i - parseInt(advanceTopN) + 1}` :
+                 'cut' }}
+            </span>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:0.5rem;margin-top:1.25rem">
+          <button type="button" class="btn btn-ghost" @click="closeAdvanceModal">Cancel</button>
+          <button type="button" class="btn btn-primary" :disabled="advanceLoading"
+                  @click="confirmAdvance">
+            {{ advanceLoading ? 'Advancing…' : 'Advance' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Team enrolment modal -->
   <div v-if="teamsModalOpen" class="modal-backdrop" @click="closeTeamsModal"></div>
   <div v-if="teamsModalOpen" class="modal teams-modal" @click.stop>
@@ -2684,6 +2827,61 @@ onUnmounted(() => {
   display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; margin-top:0.4rem;
 }
 .rd-bulk { display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; }
+
+/* Advance to next stage — modal layout. The right side surfaces
+   a live preview of the ranked divers split into Primaries /
+   Reserves / Cut so the operator can see exactly who'll
+   progress before clicking the button. */
+.modal-advance .advance-form { display:flex; flex-direction:column; gap:0.75rem; }
+.advance-field-row { display:flex; gap:0.75rem; }
+.advance-field { display:flex; flex-direction:column; flex:1; }
+.advance-field .label { margin-bottom:0.4rem; }
+.advance-radio {
+  display:flex; align-items:flex-start; gap:0.5rem;
+  padding:0.5rem 0.6rem; border:1px solid var(--border); border-radius:var(--radius-sm);
+  margin-top:0.4rem; cursor:pointer; font-size:13px;
+}
+.advance-radio:hover { border-color: var(--cyan); }
+.advance-radio input { margin-top:3px; }
+.advance-radio em { color:var(--text-3); font-style:italic; }
+
+.advance-preview {
+  margin-top:1rem;
+  border:1px solid var(--border); border-radius:var(--radius-sm);
+  max-height:280px; overflow-y:auto;
+  background:var(--bg-3);
+}
+.advance-preview-head {
+  padding:0.5rem 0.75rem;
+  font-family:var(--font-display); font-size:11px; font-weight:700;
+  letter-spacing:0.08em; text-transform:uppercase; color:var(--cyan);
+  border-bottom:1px solid var(--border);
+  position:sticky; top:0; background:var(--bg-3); z-index:1;
+}
+.advance-preview-row {
+  display:grid; grid-template-columns: 38px 1fr 60px 80px;
+  align-items:center; gap:0.5rem;
+  padding:0.4rem 0.75rem;
+  border-top:1px solid var(--border);
+  font-family:var(--font-mono); font-size:12px;
+}
+.advance-preview-row:first-of-type { border-top:none; }
+.advance-preview-row.primary { color:var(--text); }
+.advance-preview-row.primary .advance-rank { color:var(--cyan); font-weight:bold; }
+.advance-preview-row.reserve {
+  color:var(--text-2);
+  background:rgba(255, 200, 87, 0.04);
+}
+.advance-preview-row.reserve .advance-rank { color:#ffc857; }
+.advance-preview-row.cut { color:var(--text-3); opacity:0.6; }
+.advance-rank { text-align:center; }
+.advance-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.advance-total { text-align:right; font-variant-numeric:tabular-nums; }
+.advance-tag {
+  text-align:right; font-size:10px; text-transform:uppercase;
+  letter-spacing:0.06em; color:#ffc857;
+}
+.advance-preview-row.cut .advance-tag { color:var(--text-3); }
 .form-stack{display:flex;flex-direction:column;gap:1rem;}
 .event-item{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.25rem;background:var(--bg-3);border:1px solid var(--border);border-radius:var(--radius);transition:border-color 0.2s;animation:fadeUp 0.25s ease;}
 .event-item:hover{border-color:var(--border-2);}
