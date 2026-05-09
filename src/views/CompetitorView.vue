@@ -66,6 +66,36 @@ const eventOptions = computed(() => {
 
 const isCurrentEventOpen = computed(() => isAcceptingEntries(currentEvent.value))
 
+// Migration 041 — post-advance dive-list lock state. The banner
+// shown above the dive picker reads `dive_list_locks_at` off the
+// event row; `diveListLockExpired` flips the banner from "edit
+// or confirm by [time]" to "locked at [time]".
+const confirmingList = ref(false)
+const confirmStatus  = ref('')   // '' | 'confirmed' | 'failed'
+const diveListLockExpired = computed(() => {
+  const at = currentEvent.value?.dive_list_locks_at
+  if (!at) return false
+  return new Date(at) <= new Date()
+})
+
+async function confirmInheritedList() {
+  if (!currentEvent.value) return
+  confirmingList.value = true
+  confirmStatus.value  = ''
+  try {
+    await auth.apiFetch('/api/competitor/confirm-list', {
+      method: 'POST',
+      body: JSON.stringify({ event_id: currentEvent.value.id }),
+    })
+    confirmStatus.value = 'confirmed'
+  } catch (err) {
+    confirmStatus.value = 'failed'
+    submitErr.value = err.message || 'Failed to confirm dive list'
+  } finally {
+    confirmingList.value = false
+  }
+}
+
 // Synchro support
 const orgDivers = ref([])      // potential partners — fellow divers in your org
 const partnerId = ref('')       // selected partner's user id, '' = none
@@ -568,6 +598,52 @@ watch(currentEvent, async (ev) => {
       <p v-else-if="currentEvent && currentEvent.entries_close_at" class="hint-line" style="margin-top:0.5rem">
         Entries close {{ new Date(currentEvent.entries_close_at).toLocaleString() }}.
       </p>
+
+      <!-- Post-advance lock banner (migration 041, WA DD 7.4 /
+           7.5). Shown when the meet manager has stamped a
+           dive_list_locks_at on this event — typically a final
+           or semi-final right after the prior stage was
+           advanced. Diver carries forward the inherited list by
+           default; clicking Confirm explicitly stamps
+           confirmed_at so the operator can audit who actively
+           responded. Editing rounds via the picker below also
+           counts as confirmation. -->
+      <div v-if="currentEvent && currentEvent.dive_list_locks_at"
+           :class="['advance-banner', diveListLockExpired ? 'locked' : '']">
+        <div class="advance-banner-head">
+          <span class="advance-banner-icon">{{ diveListLockExpired ? '🔒' : '⏱' }}</span>
+          <span class="advance-banner-title">
+            <template v-if="diveListLockExpired">
+              Dive list locked at {{ new Date(currentEvent.dive_list_locks_at).toLocaleString() }}
+            </template>
+            <template v-else>
+              You've advanced to this event — confirm or edit your list by
+              {{ new Date(currentEvent.dive_list_locks_at).toLocaleString() }}
+            </template>
+          </span>
+        </div>
+        <p class="advance-banner-body">
+          <template v-if="diveListLockExpired">
+            The lock window has passed. Contact the meet manager for late changes.
+          </template>
+          <template v-else>
+            Your dives carried forward from the previous stage. If you're happy with
+            them as-is, click <strong>Confirm</strong>. Otherwise edit any round below
+            and submit — that counts as confirmation. After the deadline the
+            inherited list will be used.
+          </template>
+        </p>
+        <div v-if="!diveListLockExpired" style="display:flex;gap:0.5rem;margin-top:0.5rem">
+          <button type="button" class="btn btn-primary btn-sm"
+                  :disabled="confirmingList"
+                  @click="confirmInheritedList">
+            {{ confirmingList ? 'Confirming…' : 'Confirm inherited list' }}
+          </button>
+        </div>
+        <p v-if="confirmStatus === 'confirmed'" class="advance-banner-confirmed">
+          ✓ Confirmed.
+        </p>
+      </div>
     </div>
 
     <!-- Synchro partner picker — autocomplete typeahead. Replaces
@@ -813,6 +889,38 @@ watch(currentEvent, async (ev) => {
 <style scoped>
 .page-header{display:flex;align-items:center;justify-content:space-between;padding:1.5rem 2rem;border-bottom:1px solid var(--border);max-width:900px;margin:0 auto;}
 .main{max-width:900px;margin:0 auto;padding:2rem;display:flex;flex-direction:column;gap:1.5rem;}
+
+/* Post-advance lock banner — surfaces when the meet manager
+   has stamped a dive_list_locks_at on this event (migration 041).
+   Cyan accent while the window is open; muted when expired. */
+.advance-banner {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--cyan);
+  background: rgba(0, 224, 255, 0.06);
+  border-radius: var(--radius);
+}
+.advance-banner.locked {
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-2);
+}
+.advance-banner-head {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-family: var(--font-display); font-size: 14px; font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.advance-banner-icon { font-size: 16px; }
+.advance-banner-title { color: var(--cyan); }
+.advance-banner.locked .advance-banner-title { color: var(--text-2); }
+.advance-banner-body {
+  margin: 0.5rem 0 0; font-size: 13px; color: var(--text-2);
+  line-height: 1.5;
+}
+.advance-banner-confirmed {
+  margin: 0.4rem 0 0; font-size: 12px; color: #34d399;
+  font-family: var(--font-mono);
+}
 
 /* Round-rules summary strip — one row per section, showing
    running DD totals + group-pick progress against the cap. */

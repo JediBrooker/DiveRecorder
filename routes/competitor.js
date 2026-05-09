@@ -236,9 +236,21 @@ module.exports = function createCompetitorRouter({
         }
 
         for (const dive of dives) {
+          // Upsert so a diver can edit their list post-advance
+          // (rows already exist with the inherited dive_ids;
+          // re-submit replaces them). Migration 041: confirmed_at
+          // stamps when the diver actively submitted, so the
+          // operator can audit who responded vs. who let the
+          // inherited list ride past the lock.
           await client.query(
-            `INSERT INTO competitor_dive_lists (competitor_id, partner_id, event_id, dive_id, round_number)
-             VALUES ($1,$2,$3,$4,$5)`,
+            `INSERT INTO competitor_dive_lists
+                (competitor_id, partner_id, event_id, dive_id, round_number, confirmed_at)
+             VALUES ($1, $2, $3, $4, $5, NOW())
+             ON CONFLICT (event_id, competitor_id, round_number)
+             DO UPDATE SET
+                dive_id      = EXCLUDED.dive_id,
+                partner_id   = EXCLUDED.partner_id,
+                confirmed_at = NOW()`,
             [
               req.user.id,
               resolvedPartnerId,
@@ -276,6 +288,44 @@ module.exports = function createCompetitorRouter({
   // event. That implicitly covers host org + every participating
   // org because the entry endpoint already gated on that.
   // -------------------------------------------------------------
+  // -------------------------------------------------------------
+  // POST /api/competitor/confirm-list
+  //
+  // Migration 041 — when a diver advances to a new stage, their
+  // dive list inherits from the parent event. The diver portal
+  // surfaces a "Confirm or edit" prompt; this endpoint is the
+  // "Confirm" path: the diver explicitly says "ride with the
+  // inherited list, don't change anything".
+  //
+  // Stamps confirmed_at = NOW() on every row this diver has in
+  // the event, so the operator can audit who actively responded
+  // before the post-advance lock.
+  //
+  // Idempotent — safe to re-run; just re-stamps the timestamp.
+  // -------------------------------------------------------------
+  router.post("/api/competitor/confirm-list", verifyToken, async (req, res) => {
+    const { event_id } = req.body || {};
+    if (!event_id) {
+      return res.status(400).json({ error: "event_id required" });
+    }
+    try {
+      const r = await pool.query(
+        `UPDATE competitor_dive_lists
+            SET confirmed_at = NOW()
+          WHERE event_id = $1 AND competitor_id = $2
+          RETURNING round_number`,
+        [event_id, req.user.id],
+      );
+      if (!r.rows.length) {
+        return res.status(404).json({ error: "You're not entered in this event" });
+      }
+      res.json({ confirmed: true, rounds: r.rows.length });
+    } catch (err) {
+      console.error("[Confirm List Error]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   router.get("/api/events/:id/me-meet-day", verifyToken, async (req, res) => {
     const eventId = req.params.id;
     const userId = req.user.id;

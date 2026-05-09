@@ -352,6 +352,12 @@ CREATE TABLE public.events (
     -- directory rather than filtering to one height. Used for
     -- mixed-board exhibitions / progression sessions.
     is_mixed_height           boolean NOT NULL DEFAULT FALSE,
+    -- Migration 041: post-advance dive-list lock. Stamped by
+    -- the advance endpoint (NOW() + lock_minutes, default 30
+    -- per WA DD 7.4). Past this moment the dive-list editor
+    -- closes — divers can't change their list, the inherited
+    -- one rides. Meet manager bypass via /roster late-entry.
+    dive_list_locks_at        timestamptz,
     created_at       timestamptz DEFAULT now(),
     CONSTRAINT events_number_of_judges_check
         CHECK (number_of_judges = ANY (ARRAY[3, 5, 7, 9, 11])),
@@ -462,6 +468,12 @@ CREATE TABLE public.competitor_dive_lists (
     -- "Reserve 1" is the next in line to fill a slot.
     is_reserve       boolean NOT NULL DEFAULT FALSE,
     reserve_position integer,
+    -- Migration 041: when the diver explicitly confirmed (or
+    -- re-submitted) the list. NULL = inherited from a parent
+    -- stage and untouched. Lets the operator audit who actively
+    -- responded to the post-advance lock vs. who let the default
+    -- ride.
+    confirmed_at  timestamptz,
     UNIQUE (event_id, competitor_id, round_number),
     CONSTRAINT competitor_dive_lists_round_number_check
         CHECK (round_number > 0)

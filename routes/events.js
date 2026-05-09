@@ -1233,9 +1233,17 @@ module.exports = function createEventsRouter({
         top_n,
         reserves = 0,
         dive_order, // 'inherit' | 'reverse' | 'random'
+        // World Aquatics DD 7.4 / 7.5: divers must submit the
+        // next stage's list within 30 min of the prior stage's
+        // results being announced. Configurable per-advance,
+        // 0 = no auto-lock (operator wants no time pressure).
+        lock_minutes = 30,
       } = req.body || {};
       const topN = parseInt(top_n);
       const resN = parseInt(reserves) || 0;
+      const lockMin = Number.isFinite(parseInt(lock_minutes))
+        ? Math.max(0, Math.min(parseInt(lock_minutes), 24 * 60))
+        : 30;
       if (!Number.isInteger(topN) || topN < 1) {
         return res.status(400).json({ error: "top_n must be a positive integer" });
       }
@@ -1377,6 +1385,30 @@ module.exports = function createEventsRouter({
           });
         }
 
+        // Stamp the dive-list lock on the child event. WA DD 7.4
+        // / 7.5: divers have 30 min after the prior stage's
+        // official results are announced to submit / confirm
+        // the next stage's list. Operator can override the
+        // window (or disable with lock_minutes=0).
+        let lockAtIso = null;
+        if (lockMin > 0) {
+          const lockRes = await client.query(
+            `UPDATE events
+                SET dive_list_locks_at = NOW() + ($2::int || ' minutes')::interval
+              WHERE id = $1
+              RETURNING dive_list_locks_at`,
+            [child.id, lockMin],
+          );
+          lockAtIso = lockRes.rows[0]?.dive_list_locks_at?.toISOString() || null;
+        } else {
+          // Explicit 0 means "no auto-lock" — clear any stale
+          // value left from a prior advance.
+          await client.query(
+            "UPDATE events SET dive_list_locks_at = NULL WHERE id = $1",
+            [child.id],
+          );
+        }
+
         await recordAudit(client, {
           ...auditFromReq(req),
           org_id:      req.user.org_id,
@@ -1389,15 +1421,53 @@ module.exports = function createEventsRouter({
             top_n: topN,
             reserves: resN,
             dive_order: orderMode,
+            lock_minutes: lockMin,
+            dive_list_locks_at: lockAtIso,
           },
         });
 
         await client.query("COMMIT");
+
+        // Push notifications to advanced primaries + reserves so
+        // they see "you've advanced — confirm or edit by [time]"
+        // in the inbox. Best-effort; if the push engine isn't
+        // wired the rows just skip notification.
+        if (push && typeof push.sendNotification === "function") {
+          try {
+            const advancedIds = [
+              ...primaries.map((d) => d.competitor_id),
+              ...reserveRows.map((d) => d.competitor_id),
+            ];
+            const evNameRes = await pool.query(
+              "SELECT name FROM events WHERE id = $1",
+              [child.id],
+            );
+            const childName = evNameRes.rows[0]?.name || "the next stage";
+            const lockHint = lockAtIso
+              ? ` Locks at ${new Date(lockAtIso).toLocaleString()}.`
+              : "";
+            await push.sendNotification(advancedIds, {
+              category:  "dive_list_advanced",
+              title:     `You've advanced to "${childName}"`,
+              body:      `Your dive list carried over from the previous stage.${lockHint} Tap to confirm or edit before then.`,
+              data:      {
+                event_id: child.id,
+                parent_event_id: parent.id,
+                lock_at: lockAtIso,
+              },
+              action_url: `/competitor?event=${child.id}`,
+            });
+          } catch (notifErr) {
+            console.error("[Advance Notification Skipped]", notifErr.message);
+          }
+        }
+
         res.json({
           advanced: primaries.length,
           reserves: reserveRows.length,
           dive_order: orderMode,
           child_event_id: child.id,
+          dive_list_locks_at: lockAtIso,
         });
       } catch (err) {
         await client.query("ROLLBACK");

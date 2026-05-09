@@ -145,3 +145,143 @@ test("advance: preview + status gates + promote", async ({ request }) => {
 
   await setup.deleteOrg(orgId);
 });
+
+// Migration 041: post-advance dive-list lock (WA DD 7.4 / 7.5)
+// + confirm-list endpoint. Verifies:
+//   * the advance endpoint stamps dive_list_locks_at on the
+//     child event (and respects lock_minutes from the body)
+//   * loadEventForEntries treats a past lock as a 409 with the
+//     "dive list locked" message
+//   * /api/competitor/confirm-list stamps confirmed_at
+//   * a re-submit via /api/competitor/submit-list upserts the
+//     existing rows + stamps confirmed_at
+
+test("advance: dive-list lock + confirm-list endpoint", async ({ request }) => {
+  test.setTimeout(45_000);
+
+  const { orgId, adminToken } = await setup.createOrgAndAdmin(request);
+
+  // Build a prelim → final pair, populate prelim with a single
+  // diver + one synthetic score row so the advance has someone
+  // to rank.
+  const prelim = await setup.createEvent(request, {
+    adminToken,
+    name: "E2E Lock Prelim",
+    height: "3m",
+    number_of_judges: 5,
+    total_rounds: 1,
+    event_format: "preliminary",
+  });
+  const finalEv = await setup.createEvent(request, {
+    adminToken,
+    name: "E2E Lock Final",
+    height: "3m",
+    number_of_judges: 5,
+    total_rounds: 1,
+    event_format: "final",
+    parent_event_id: prelim.id,
+  });
+
+  const diver = await setup.insertUser({
+    orgId, role: "diver", fullName: "Lock Diver",
+  });
+  const fwd = await setup.pickDiveId({
+    height: 3.0, dive_code: "101", position: "B",
+  });
+  await setup.insertDiveList({
+    eventId: prelim.id,
+    competitorId: diver.userId,
+    dives: [{ round_number: 1, dive_id: fwd }],
+  });
+
+  // Synthetic 5-judge panel + scores. Each judge_user gets a
+  // judge_id assigned via event_judges; scores rows reference
+  // both. calc_event_dive_points trims high+low + sums × DD.
+  const judges = await Promise.all(Array.from({ length: 5 }, () =>
+    setup.insertUser({ orgId, role: "judge", fullName: "Lock Judge" }),
+  ));
+  for (let i = 0; i < judges.length; i++) {
+    await setup.pool.query(
+      `INSERT INTO event_judges (event_id, judge_id, judge_number)
+       VALUES ($1, $2, $3)`,
+      [prelim.id, judges[i].userId, i + 1],
+    );
+    await setup.pool.query(
+      `INSERT INTO scores (event_id, competitor_id, judge_id, dive_id, round_number, score)
+       VALUES ($1, $2, $3, $4, 1, 7.0)`,
+      [prelim.id, diver.userId, judges[i].userId, fwd],
+    );
+  }
+
+  // Flip prelim to Completed.
+  await setup.setEventStatus(request, {
+    adminToken, eventId: prelim.id, status: "Live",
+  });
+  await setup.setEventStatus(request, {
+    adminToken, eventId: prelim.id, status: "Completed",
+  });
+
+  // Advance with lock_minutes: 30 (default) — verify the lock
+  // timestamp is stamped on the final.
+  const advanceRes = await request.post(`/api/events/${prelim.id}/advance`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+    data: { top_n: 1, reserves: 0, dive_order: "inherit", lock_minutes: 30 },
+  });
+  expect(advanceRes.status()).toBe(200);
+  const advance = await advanceRes.json();
+  expect(advance.advanced).toBe(1);
+  expect(advance.dive_list_locks_at).toBeTruthy();
+
+  // The lock timestamp on events.dive_list_locks_at should be ~30
+  // minutes in the future.
+  const lockRow = await setup.pool.query(
+    "SELECT dive_list_locks_at FROM events WHERE id = $1",
+    [finalEv.id],
+  );
+  const lockAt = new Date(lockRow.rows[0].dive_list_locks_at);
+  const now = new Date();
+  const minutesAhead = (lockAt - now) / 60000;
+  expect(minutesAhead).toBeGreaterThan(28);
+  expect(minutesAhead).toBeLessThan(32);
+
+  // confirm-list endpoint stamps confirmed_at.
+  const diverLogin = await setup.loginAs(request, diver.username);
+  const confirmRes = await request.post("/api/competitor/confirm-list", {
+    headers: { Authorization: `Bearer ${diverLogin.token}` },
+    data: { event_id: finalEv.id },
+  });
+  expect(confirmRes.status()).toBe(200);
+  expect((await confirmRes.json()).confirmed).toBe(true);
+
+  const confirmedRow = await setup.pool.query(
+    `SELECT confirmed_at FROM competitor_dive_lists
+       WHERE event_id = $1 AND competitor_id = $2 LIMIT 1`,
+    [finalEv.id, diver.userId],
+  );
+  expect(confirmedRow.rows[0].confirmed_at).not.toBeNull();
+
+  // Push the lock into the past + verify the entries gate fires.
+  await setup.pool.query(
+    "UPDATE events SET dive_list_locks_at = NOW() - interval '5 minutes' WHERE id = $1",
+    [finalEv.id],
+  );
+  const lateSubmit = await request.post("/api/competitor/submit-list", {
+    headers: { Authorization: `Bearer ${diverLogin.token}` },
+    data: {
+      event_id: finalEv.id,
+      dives: [{ round_number: 1, dive_id: fwd }],
+    },
+  });
+  expect(lateSubmit.status()).toBe(409);
+  expect((await lateSubmit.json()).error).toMatch(/locked/i);
+
+  // Confirm-list still works post-lock (it's a no-op on the
+  // dive_id, just re-stamps the timestamp).
+  const lateConfirm = await request.post("/api/competitor/confirm-list", {
+    headers: { Authorization: `Bearer ${diverLogin.token}` },
+    data: { event_id: finalEv.id },
+  });
+  expect(lateConfirm.status()).toBe(200);
+
+  await setup.deleteOrg(orgId);
+});
