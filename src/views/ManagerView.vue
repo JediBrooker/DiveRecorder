@@ -1356,7 +1356,7 @@ onUnmounted(() => {
          Both forms live in modals below so the inline page can
          use the full width for the events list. -->
     <div class="manager-toolbar">
-      <button type="button" class="btn btn-secondary"
+      <button type="button" class="btn btn-primary"
               @click="showCreateMeetModal = true">
         + New Meet
       </button>

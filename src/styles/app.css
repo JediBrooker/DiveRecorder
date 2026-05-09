@@ -210,18 +210,6 @@ h1, h2, h3, h4 {
 }
 .btn-primary:hover { background: #0891b2; box-shadow: var(--cyan-glow); }
 
-/* Secondary action — same scale as the primary button, outlined
-   instead of solid. Used in toolbars where two prominent CTAs sit
-   side-by-side and one of them is the lower-frequency action
-   (e.g. "+ New Meet" alongside "+ New Event" on /manager). */
-.btn-secondary {
-  background: transparent;
-  color: var(--cyan);
-  border: 1px solid var(--cyan);
-  padding: 0.875rem 1.75rem;
-}
-.btn-secondary:hover { background: rgba(0, 224, 255, 0.08); box-shadow: var(--cyan-glow); }
-
 .btn-primary-lg {
   background: var(--cyan);
   color: var(--bg);
@@ -568,7 +556,6 @@ h1, h2, h3, h4 {
      area stays well over the 44px tap target. */
   .btn-primary    { padding: 0.7rem 1.1rem; font-size: 12px; }
   .btn-primary-lg { padding: 0.95rem 1.25rem; font-size: 14px; }
-  .btn-secondary  { padding: 0.7rem 1.1rem; font-size: 12px; }
   .btn-ghost      { padding: 0.55rem 0.9rem; }
   .btn-danger     { padding: 0.55rem 0.9rem; }
 
