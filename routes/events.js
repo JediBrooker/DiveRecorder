@@ -3214,6 +3214,429 @@ module.exports = function createEventsRouter({
     },
   );
 
+  // -------------------------------------------------------------
+  // SUPER FINAL — Synchro reserve pool (Appendix 3 §5.1).
+  //
+  // If a Top-12 individual diver withdraws after the Team
+  // Leaders Meeting (i.e. once the H2H is seeded), they may be
+  // replaced by a synchro diver from the same meet. Priority is
+  // determined by the synchro events' rankings at the meet, and
+  // a federation that already has 2 individual divers in the
+  // H2H is ineligible.
+  // -------------------------------------------------------------
+
+  // GET /api/events/:id/synchro-reserve-pool — read-only.
+  // :id is the H2H event. Returns the prioritised list of
+  // federations + their eligible synchro divers.
+  router.get(
+    "/api/events/:id/synchro-reserve-pool",
+    requireEventManager(),
+    async (req, res) => {
+      const eventId = req.params.id;
+      const client = await pool.connect();
+      try {
+        const evRes = await client.query(
+          `SELECT id, event_format, meet_id, gender FROM events WHERE id = $1`,
+          [eventId],
+        );
+        if (!evRes.rows.length) {
+          return res.status(404).json({ error: "Event not found" });
+        }
+        const ev = evRes.rows[0];
+        if (ev.event_format !== "super_final_h2h") {
+          return res.status(400).json({
+            error: "Synchro reserve pool only meaningful on super_final_h2h events",
+          });
+        }
+        if (!ev.meet_id) {
+          return res.status(400).json({
+            error: "H2H event has no meet_id — synchro pool requires meet membership",
+          });
+        }
+
+        // 1. Find synchro events at the same meet. Match the H2H
+        //    event's gender + height/board if possible, but
+        //    return all synchro_pair events at the meet — the
+        //    operator filters by event in the UI.
+        const synchroRes = await client.query(
+          `SELECT id, name, gender, height, status, total_rounds
+             FROM events
+            WHERE meet_id = $1 AND event_type = 'synchro_pair'
+            ORDER BY scheduled_at ASC NULLS LAST, name ASC`,
+          [ev.meet_id],
+        );
+        const synchroEvents = synchroRes.rows;
+
+        // 2. Build the rank-by-org table from synchro events.
+        //    For each synchro event, compute the team standings
+        //    (per-pair total) and rank within that event. Then
+        //    associate each pair with its federation (the org of
+        //    the lead diver — synchro pairs are same-federation).
+        // We pick the BEST synchro rank an org has across the
+        // synchro events at the meet.
+        const orgRanks = new Map(); // org_id → { best_synchro_rank, best_synchro_event_id, pair_competitor_ids }
+        for (const sev of synchroEvents) {
+          const standings = await client.query(
+            `WITH per_dive AS (
+               SELECT cdl.competitor_id, cdl.partner_id,
+                      calc_event_dive_points(
+                        array_agg(ej.judge_number ORDER BY ej.judge_number),
+                        array_agg(s.score ORDER BY ej.judge_number),
+                        e.number_of_judges, MAX(d.dd), e.event_type,
+                        BOOL_OR(cdl.partner_id IS NOT NULL)
+                      ) AS dive_points
+               FROM scores s
+               JOIN events e ON e.id = s.event_id
+               LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+               LEFT JOIN competitor_dive_lists cdl
+                 ON cdl.event_id = s.event_id
+                AND cdl.competitor_id = s.competitor_id
+                AND cdl.round_number = s.round_number
+               LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+               WHERE s.event_id = $1
+               GROUP BY cdl.competitor_id, cdl.partner_id, s.round_number, e.number_of_judges, e.event_type
+             ),
+             totals AS (
+               SELECT competitor_id, partner_id,
+                      SUM(dive_points) AS total
+                 FROM per_dive
+                GROUP BY competitor_id, partner_id
+             )
+             SELECT t.competitor_id, t.partner_id, t.total,
+                    u.org_id, u.full_name AS lead_name,
+                    o.country_code, o.name AS org_name,
+                    pu.full_name AS partner_name,
+                    RANK() OVER (ORDER BY t.total DESC) AS rnk
+               FROM totals t
+               JOIN users u ON u.id = t.competitor_id
+               JOIN organisations o ON o.id = u.org_id
+               LEFT JOIN users pu ON pu.id = t.partner_id`,
+            [sev.id],
+          );
+          for (const r of standings.rows) {
+            const orgId = r.org_id;
+            const cur = orgRanks.get(orgId);
+            const candidate = {
+              best_synchro_rank:    Number(r.rnk),
+              best_synchro_event_id: sev.id,
+              best_synchro_total:   Number(r.total),
+              org_name:             r.org_name,
+              country_code:         r.country_code,
+              pair_competitor_ids:  [r.competitor_id, r.partner_id].filter(Boolean),
+              lead_name:            r.lead_name,
+              partner_name:         r.partner_name,
+            };
+            if (!cur || candidate.best_synchro_rank < cur.best_synchro_rank) {
+              orgRanks.set(orgId, candidate);
+            }
+          }
+        }
+
+        // 3. Count each federation's current individuals in the
+        //    H2H roster. Any fed already at 2 is ineligible.
+        const indCountRes = await client.query(
+          `SELECT u.org_id, COUNT(DISTINCT cdl.competitor_id) AS ind_count
+             FROM competitor_dive_lists cdl
+             JOIN users u ON u.id = cdl.competitor_id
+            WHERE cdl.event_id = $1
+              AND cdl.is_reserve = FALSE
+              AND cdl.withdrawn_at IS NULL
+            GROUP BY u.org_id`,
+          [eventId],
+        );
+        const indCountByOrg = new Map(
+          indCountRes.rows.map((r) => [r.org_id, Number(r.ind_count)]),
+        );
+
+        // 4. Eligibility: org must have a synchro rank AND fewer
+        //    than 2 individuals in the H2H.
+        const pool_ = [];
+        for (const [orgId, info] of orgRanks.entries()) {
+          const indCount = indCountByOrg.get(orgId) || 0;
+          if (indCount >= 2) continue; // ineligible
+          pool_.push({
+            org_id:               orgId,
+            org_name:             info.org_name,
+            country_code:         info.country_code,
+            synchro_rank:         info.best_synchro_rank,
+            synchro_event_id:     info.best_synchro_event_id,
+            synchro_total:        info.best_synchro_total,
+            current_individual_count: indCount,
+            eligible_divers: info.pair_competitor_ids.map((cid, i) => ({
+              competitor_id: cid,
+              full_name:     i === 0 ? info.lead_name : info.partner_name,
+            })).filter((d) => d.full_name),
+          });
+        }
+        pool_.sort((a, b) => a.synchro_rank - b.synchro_rank);
+
+        res.json({
+          h2h_event_id:    eventId,
+          meet_id:         ev.meet_id,
+          synchro_events:  synchroEvents.map((s) => ({
+            id: s.id, name: s.name, gender: s.gender, height: s.height,
+            status: s.status,
+          })),
+          reserve_pool:    pool_,
+        });
+      } catch (err) {
+        console.error("[Synchro Reserve Pool Error]", err.message);
+        res.status(500).json({ error: "Internal server error" });
+      } finally {
+        client.release();
+      }
+    },
+  );
+
+  // POST /api/events/:id/replace-from-synchro
+  // :id is the H2H event. Operator swaps a Top-12 diver who
+  // withdrew before H2H begins for a synchro reserve. The
+  // replacement uses their own most recent submitted dive list
+  // (we don't pretend to know the withdrawn diver's list better
+  // than the synchro diver does).
+  //
+  // Body: { withdraw_competitor_id, replacement_competitor_id }
+  //
+  // Validation:
+  //   * H2H must be Upcoming (Appendix 3 §5.1 — replacement
+  //     valid pre-H2H only).
+  //   * Replacement must be in the synchro reserve pool.
+  //   * Replacement's federation must not exceed 2 individuals
+  //     after the swap.
+  router.post(
+    "/api/events/:id/replace-from-synchro",
+    requireEventManager(),
+    async (req, res) => {
+      const eventId = req.params.id;
+      const { withdraw_competitor_id, replacement_competitor_id } = req.body || {};
+      if (!withdraw_competitor_id || !replacement_competitor_id) {
+        return res.status(400).json({
+          error: "withdraw_competitor_id + replacement_competitor_id required",
+        });
+      }
+      if (withdraw_competitor_id === replacement_competitor_id) {
+        return res.status(400).json({
+          error: "withdraw and replacement must be different users",
+        });
+      }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+
+        const evRes = await client.query(
+          `SELECT id, event_format, status, meet_id FROM events WHERE id = $1`,
+          [eventId],
+        );
+        if (!evRes.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ error: "Event not found" });
+        }
+        const ev = evRes.rows[0];
+        if (ev.event_format !== "super_final_h2h") {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "Endpoint expects the H2H event id (event_format=super_final_h2h)",
+          });
+        }
+        if (ev.status !== "Upcoming") {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "H2H must still be Upcoming for synchro replacement (Appendix 3 §5.1)",
+          });
+        }
+
+        // Verify the withdrawn diver is on the roster.
+        const withdrawRowsRes = await client.query(
+          `SELECT round_number, dive_id, group_number, MIN(display_order) OVER () AS first_order,
+                  MIN(display_order) AS d_order
+             FROM competitor_dive_lists
+            WHERE event_id = $1
+              AND competitor_id = $2
+              AND is_reserve = FALSE
+            GROUP BY round_number, dive_id, group_number, display_order
+            ORDER BY round_number`,
+          [eventId, withdraw_competitor_id],
+        );
+        if (!withdrawRowsRes.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({
+            error: "Withdraw competitor not found on H2H roster",
+          });
+        }
+        const withdrawSlot = {
+          group_number:  withdrawRowsRes.rows[0].group_number,
+          display_order: withdrawRowsRes.rows[0].d_order,
+        };
+
+        // Verify the replacement org's individual count + that
+        // the replacement isn't already on the roster.
+        const replOrgRes = await client.query(
+          `SELECT id, org_id FROM users WHERE id = $1`,
+          [replacement_competitor_id],
+        );
+        if (!replOrgRes.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ error: "Replacement user not found" });
+        }
+        const replOrgId = replOrgRes.rows[0].org_id;
+
+        const onRosterRes = await client.query(
+          `SELECT 1 FROM competitor_dive_lists
+            WHERE event_id = $1 AND competitor_id = $2 LIMIT 1`,
+          [eventId, replacement_competitor_id],
+        );
+        if (onRosterRes.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "Replacement is already on the H2H roster",
+          });
+        }
+
+        // Count current individuals from the replacement's org.
+        const indRes = await client.query(
+          `SELECT COUNT(DISTINCT cdl.competitor_id) AS ind_count
+             FROM competitor_dive_lists cdl
+             JOIN users u ON u.id = cdl.competitor_id
+            WHERE cdl.event_id = $1
+              AND cdl.is_reserve = FALSE
+              AND cdl.withdrawn_at IS NULL
+              AND u.org_id = $2`,
+          [eventId, replOrgId],
+        );
+        const indCount = Number(indRes.rows[0].ind_count);
+        // Withdrawn diver counts ABOVE (we haven't withdrawn
+        // yet); but if they're from the same org, the swap-in is
+        // 1-for-1 — net unchanged. If not, we add 1.
+        const withdrawSameOrgRes = await client.query(
+          `SELECT u.org_id FROM users u WHERE u.id = $1`,
+          [withdraw_competitor_id],
+        );
+        const sameOrg = withdrawSameOrgRes.rows[0]?.org_id === replOrgId;
+        const projectedCount = sameOrg ? indCount : indCount + 1;
+        if (projectedCount > 2) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: `Replacement's federation would have ${projectedCount} individuals after the swap — cap is 2 (Appendix 3 §5.1)`,
+          });
+        }
+
+        // Verify replacement is in the meet's synchro pool — we
+        // do this by checking they're on a synchro_pair event
+        // at the same meet.
+        if (!ev.meet_id) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "H2H event has no meet_id — cannot validate synchro pool",
+          });
+        }
+        const synchroCheckRes = await client.query(
+          `SELECT 1
+             FROM competitor_dive_lists cdl
+             JOIN events e ON e.id = cdl.event_id
+            WHERE e.meet_id = $1
+              AND e.event_type = 'synchro_pair'
+              AND cdl.competitor_id = $2
+            LIMIT 1`,
+          [ev.meet_id, replacement_competitor_id],
+        );
+        if (!synchroCheckRes.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            error: "Replacement is not on any synchro_pair event at this meet",
+          });
+        }
+
+        // Mark withdrawn diver's roster rows as withdrawn.
+        await client.query(
+          `UPDATE competitor_dive_lists
+              SET withdrawn_at = NOW()
+            WHERE event_id = $1
+              AND competitor_id = $2`,
+          [eventId, withdraw_competitor_id],
+        );
+
+        // Pull the replacement's most recent dive list (their
+        // own submitted list — we don't try to copy the
+        // withdrawn diver's because the spec is ambiguous and
+        // the simplest interpretation is "diver brings their
+        // own dives"). We look in any event the replacement has
+        // a dive list for, ordered by event created_at desc;
+        // pick the first non-empty 3-round list. Falls back to
+        // NULL dive_ids if nothing is found — diver will need to
+        // submit before the lock.
+        const replListRes = await client.query(
+          `SELECT cdl.round_number, cdl.dive_id
+             FROM competitor_dive_lists cdl
+             JOIN events e ON e.id = cdl.event_id
+            WHERE cdl.competitor_id = $1
+              AND cdl.dive_id IS NOT NULL
+              AND e.id <> $2
+            ORDER BY e.created_at DESC, cdl.round_number ASC
+            LIMIT 12`,
+          [replacement_competitor_id, eventId],
+        );
+        const replByRound = new Map();
+        for (const r of replListRes.rows) {
+          // Only keep the FIRST dive_id we see per round (since
+          // ORDER BY most-recent-event first, that's the most
+          // recent submission).
+          if (!replByRound.has(Number(r.round_number))) {
+            replByRound.set(Number(r.round_number), r.dive_id);
+          }
+        }
+
+        // Insert the replacement's 3 H2H rows in the same slot
+        // (group_number + display_order) as the withdrawn diver.
+        for (let r = 1; r <= 3; r++) {
+          await client.query(
+            `INSERT INTO competitor_dive_lists
+                (event_id, competitor_id, dive_id, round_number,
+                 display_order, group_number, is_reserve)
+              VALUES ($1, $2, $3, $4, $5, $6, FALSE)`,
+            [
+              eventId,
+              replacement_competitor_id,
+              replByRound.get(r) || null,
+              r,
+              withdrawSlot.display_order,
+              withdrawSlot.group_number,
+            ],
+          );
+        }
+
+        await recordAudit(client, {
+          ...auditFromReq(req),
+          org_id:      req.user.org_id,
+          entity_type: "event",
+          entity_id:   eventId,
+          entity_name: null,
+          action:      "event.synchro_replacement",
+          metadata: {
+            withdraw_competitor_id,
+            replacement_competitor_id,
+            replacement_org_id: replOrgId,
+            slot: withdrawSlot,
+          },
+        });
+
+        await client.query("COMMIT");
+
+        res.json({
+          replaced:    true,
+          slot:        withdrawSlot,
+          replacement_competitor_id,
+          withdraw_competitor_id,
+        });
+      } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("[Synchro Replacement Error]", err.message);
+        res.status(500).json({ error: "Internal server error" });
+      } finally {
+        client.release();
+      }
+    },
+  );
+
   // GET /api/events/:id/super-final/rankings — public read.
   //
   // :id is the F event. Returns the merged 1-12 official ranking

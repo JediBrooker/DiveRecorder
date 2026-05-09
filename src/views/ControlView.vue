@@ -2022,6 +2022,62 @@ async function saveDiveOff() {
   }
 }
 
+// Synchro reserve replacement (Appendix 3 §5.1). Visible on
+// Upcoming super_final_h2h events. Loads /synchro-reserve-pool
+// and lets the operator swap a Top-12 diver for a synchro
+// reserve, keeping the same display_order slot so the bracket
+// stays intact.
+const synchroPoolModalOpen = ref(false)
+const synchroPool          = ref(null)
+const synchroPoolErr       = ref('')
+const synchroSwapForm      = ref({
+  withdraw_competitor_id:    '',
+  replacement_competitor_id: '',
+})
+const synchroSwapBusy      = ref(false)
+
+const isH2hUpcoming = computed(() => {
+  const ev = currentEvent.value
+  return ev?.event_format === 'super_final_h2h' && ev.status === 'Upcoming'
+})
+
+async function openSynchroPoolModal() {
+  synchroPool.value = null
+  synchroPoolErr.value = ''
+  synchroSwapForm.value = { withdraw_competitor_id: '', replacement_competitor_id: '' }
+  synchroPoolModalOpen.value = true
+  if (!currentEvent.value) return
+  try {
+    synchroPool.value = await auth.apiFetch(
+      `/api/events/${currentEvent.value.id}/synchro-reserve-pool`)
+  } catch (err) {
+    synchroPoolErr.value = err.message || 'Failed to load synchro pool'
+  }
+}
+function closeSynchroPoolModal() {
+  synchroPoolModalOpen.value = false
+  synchroPool.value = null
+}
+
+async function confirmSynchroReplacement() {
+  if (!currentEvent.value) return
+  synchroSwapBusy.value = true
+  synchroPoolErr.value = ''
+  try {
+    await auth.apiFetch(`/api/events/${currentEvent.value.id}/replace-from-synchro`, {
+      method: 'POST',
+      body: JSON.stringify(synchroSwapForm.value),
+    })
+    showSuccess('Synchro replacement complete.')
+    closeSynchroPoolModal()
+    await onEventChange()
+  } catch (err) {
+    synchroPoolErr.value = err.message || 'Failed to replace from synchro pool'
+  } finally {
+    synchroSwapBusy.value = false
+  }
+}
+
 // Suggest tied pairs for a quick-pick dropdown. For H2H, the
 // h2h-results endpoint already flags tied=true; for SF we surface
 // the within-group standings so the operator can pick.
@@ -3870,6 +3926,22 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- Super Final — Synchro reserve replacement (Appendix 3
+             §5.1). Visible only on Upcoming H2H events — once
+             the event goes Live, the bracket is locked and
+             withdrawals route through the standard reserve flow. -->
+        <div v-if="isH2hUpcoming" class="reserves-panel">
+          <div class="reserves-head" style="cursor:default">
+            <span class="reserves-head-label">🔄 Synchro reserve pool</span>
+            <button class="btn btn-primary btn-sm"
+                    style="margin-left:auto"
+                    @click="openSynchroPoolModal"
+                    v-tip="'Replace a Top-12 individual who withdrew with a synchro reserve from the same meet (Appendix 3 §5.1)'">
+              Replace from synchro pool
+            </button>
+          </div>
+        </div>
+
         <!-- Super Final — Dive-offs panel (Appendix 3 §6).
              Visible on H2H + SF stages. Lists existing dive-offs
              with status (pending / resolved) and a "Create
@@ -4824,6 +4896,67 @@ onUnmounted(() => {
       <div style="display:flex;justify-content:flex-end;gap:0.5rem">
         <button class="btn btn-ghost btn-sm" @click="roundEndPromptOpen = false; cancelAutoAdvance()">Skip</button>
         <button class="btn btn-primary btn-sm" @click="announceRoundEnd">📣 Announce standings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Super Final — Synchro reserve replacement modal
+       (Appendix 3 §5.1). Lists eligible federations + their
+       synchro divers; the operator picks one to swap into a
+       Top-12 slot. -->
+  <div v-if="synchroPoolModalOpen" class="lb-backdrop" @click.self="closeSynchroPoolModal">
+    <div class="lb-modal" style="max-width:680px">
+      <div class="lb-head">
+        <div>
+          <div class="lb-title">🔄 Synchro reserve replacement</div>
+          <div class="lb-event">Appendix 3 §5.1 — pre-H2H replacement only.</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" @click="closeSynchroPoolModal">Close ✕</button>
+      </div>
+      <div class="lb-body">
+        <div v-if="synchroPoolErr" class="msg msg-error" style="margin-bottom:0.75rem">{{ synchroPoolErr }}</div>
+
+        <div v-if="synchroPool && synchroPool.reserve_pool" style="display:grid;gap:0.5rem;margin-bottom:1rem">
+          <p class="hint" style="margin:0">
+            Eligible reserve federations (best synchro rank first;
+            already-2-individuals federations excluded):
+          </p>
+          <div v-for="entry in synchroPool.reserve_pool" :key="entry.org_id"
+               style="border:1px solid var(--border, #333); padding:0.5rem 0.75rem; border-radius:6px">
+            <div style="display:flex;align-items:center;gap:0.5rem">
+              <strong>#{{ entry.synchro_rank }}</strong>
+              <span style="flex:1">
+                {{ entry.org_name }}
+                <span v-if="entry.country_code" class="hint">· {{ entry.country_code }}</span>
+              </span>
+              <span class="hint">currently {{ entry.current_individual_count }} individual{{ entry.current_individual_count === 1 ? '' : 's' }}</span>
+            </div>
+            <div v-for="d in entry.eligible_divers" :key="d.competitor_id"
+                 style="display:flex;align-items:center;gap:0.5rem;padding:0.25rem 0">
+              <input type="radio" :value="d.competitor_id" v-model="synchroSwapForm.replacement_competitor_id">
+              <span>{{ d.full_name }}</span>
+            </div>
+          </div>
+          <div v-if="!synchroPool.reserve_pool.length" class="hint">
+            No eligible synchro reserves at this meet.
+          </div>
+        </div>
+
+        <label style="display:block;margin-bottom:0.75rem">
+          <span class="hint">Withdraw competitor (UUID of the Top-12 diver to remove)</span>
+          <input class="input" type="text" v-model="synchroSwapForm.withdraw_competitor_id">
+        </label>
+
+        <div style="display:flex;justify-content:flex-end;gap:0.5rem">
+          <button class="btn btn-ghost btn-sm" @click="closeSynchroPoolModal">Cancel</button>
+          <button class="btn btn-primary btn-sm"
+                  :disabled="synchroSwapBusy
+                             || !synchroSwapForm.withdraw_competitor_id
+                             || !synchroSwapForm.replacement_competitor_id"
+                  @click="confirmSynchroReplacement">
+            {{ synchroSwapBusy ? 'Swapping…' : 'Confirm swap' }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
