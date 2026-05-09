@@ -322,14 +322,30 @@ CREATE TABLE public.events (
     --   'semifinal'   (top 18 — optional intermediate) →
     --   'final'       (top 12 — the default, also covers
     --                  standalone events with no feeder)
+    --
+    -- Diving World Cup Super Final stages (Migration 043 —
+    -- see docs/2026.03.05-…-Super-Final…pdf Appendix 3):
+    --   'super_final_h2h'    — Head-to-Head, 6 seeded pairs
+    --   'super_final_semi'   — 6 H2H winners, two SF groups
+    --   'super_final_final'  — 4 finalists, scores reset
+    --
     -- Synchro and team events typically skip the semi; the
     -- chain length is operator-defined per event.
     event_format     varchar(20) NOT NULL DEFAULT 'final'
-                       CHECK (event_format IN ('preliminary','semifinal','final')),
-    -- Set on a 'final' event to link back to its 'preliminary'.
-    -- ON DELETE SET NULL so deleting the prelim doesn't cascade
-    -- the final.
+                       CHECK (event_format IN (
+                         'preliminary','semifinal','final',
+                         'super_final_h2h','super_final_semi','super_final_final'
+                       )),
+    -- Set on a child stage to link back to its parent.
+    -- ON DELETE SET NULL so deleting the parent doesn't
+    -- cascade the child.
     parent_event_id  uuid REFERENCES public.events(id) ON DELETE SET NULL,
+    -- When set, the standings + ranking layers SUM scores from
+    -- THIS stage AND the stage referenced here. Default NULL =
+    -- points reset per Article 4.1.13 (the standard behaviour).
+    -- The Super Final's SF stage sets this to the H2H event id;
+    -- F leaves it NULL (reset, per Appendix 3 §3).
+    score_carry_from uuid REFERENCES public.events(id) ON DELETE SET NULL,
     advance_count    integer DEFAULT 12,           -- how many top-N advance from prelim → final
     scheduled_at     timestamptz,                  -- when the event starts (schedules, .ics, notifications)
     -- Registration deadline. Independent of `status`: lets a manager
@@ -477,6 +493,14 @@ CREATE TABLE public.competitor_dive_lists (
     -- "Reserve 1" is the next in line to fill a slot.
     is_reserve       boolean NOT NULL DEFAULT FALSE,
     reserve_position integer,
+    -- Migration 043: Super Final sub-group identifier. 1 or 2
+    -- for super_final_h2h (G1 = pairs 12v1, 9v4, 8v5;
+    -- G2 = pairs 11v2, 10v3, 7v6) and super_final_semi
+    -- (groups carry forward from H2H). NULL for non-super-
+    -- final events. The standings query uses this to compute
+    -- intra-group rankings rather than a global field rank.
+    group_number     integer
+        CHECK (group_number IS NULL OR group_number BETWEEN 1 AND 4),
     -- Migration 041: when the diver explicitly confirmed (or
     -- re-submitted) the list. NULL = inherited from a parent
     -- stage and untouched. Lets the operator audit who actively
@@ -543,6 +567,35 @@ CREATE TABLE public.score_audit_log (
     user_agent      text,
     reason          text,                                            -- free-text "why" for corrections
     created_at      timestamptz DEFAULT now() NOT NULL
+);
+
+-- Migration 043: Diving World Cup Super Final dive-offs.
+-- Appendix 3 §6: a single-dive tie-breaker held at end of
+-- Head-to-Head or Semi Final. Divers each pick one previously
+-- performed dive; higher score wins; doesn't affect official
+-- scores. The row records both choices, both totals, and the
+-- declared winner so the audit trail explains the advancement.
+CREATE TABLE public.tiebreak_dive_offs (
+    id              uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    event_id        uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    competitor_a_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    competitor_b_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    dive_a_id       uuid REFERENCES public.dive_directory(id) ON DELETE SET NULL,
+    dive_b_id       uuid REFERENCES public.dive_directory(id) ON DELETE SET NULL,
+    score_a         numeric(6,2),
+    score_b         numeric(6,2),
+    winner_id       uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    notes           text,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    resolved_at     timestamptz,
+    CONSTRAINT tiebreak_distinct_competitors
+      CHECK (competitor_a_id <> competitor_b_id),
+    CONSTRAINT tiebreak_winner_is_competitor
+      CHECK (
+        winner_id IS NULL
+        OR winner_id = competitor_a_id
+        OR winner_id = competitor_b_id
+      )
 );
 
 -- Saved event configurations. A meet manager builds an event
@@ -989,6 +1042,10 @@ CREATE INDEX idx_score_audit_event_created ON public.score_audit_log (event_id, 
 CREATE INDEX idx_score_audit_competitor    ON public.score_audit_log (competitor_id);
 CREATE INDEX idx_score_audit_judge         ON public.score_audit_log (judge_id);
 CREATE INDEX idx_score_audit_actor         ON public.score_audit_log (actor_user_id, created_at DESC);
+-- Migration 043: dive-off + group_number indexes.
+CREATE INDEX idx_tiebreak_event             ON public.tiebreak_dive_offs (event_id);
+CREATE INDEX idx_cdl_event_group            ON public.competitor_dive_lists (event_id, group_number)
+  WHERE group_number IS NOT NULL;
 CREATE INDEX idx_role_audit_user           ON public.role_audit_log (user_id, created_at DESC);
 CREATE INDEX idx_role_audit_org            ON public.role_audit_log (org_id, created_at DESC);
 CREATE INDEX idx_role_audit_actor          ON public.role_audit_log (actor_id);
@@ -1129,7 +1186,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 42);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 43);
 
 
 -- =============================================================
