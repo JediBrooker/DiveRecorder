@@ -362,6 +362,15 @@ async function onEventChange() {
     selectedDives.value = []
     return
   }
+  // Refresh the events list before computing currentEvent. The
+  // events.value array was loaded once on mount; if the operator
+  // edits the event's round_rules / total_rounds while this page
+  // is open, the cached row is stale. One extra GET per event
+  // pick guarantees the diver sees the operator's latest
+  // conditions without forcing a page reload.
+  try {
+    events.value = await auth.apiFetch('/api/events')
+  } catch { /* fall back to the cached list */ }
   currentEvent.value = events.value.find(e => e.id == selectedEventId.value) || null
   if (!currentEvent.value) return
   selectedDives.value = Array(currentEvent.value.total_rounds || 6).fill(null)
@@ -675,15 +684,18 @@ watch(currentEvent, async (ev) => {
                :class="['rr-summary-row', s.dd_limit != null && s.dd_used > s.dd_limit + 0.001 ? 'rr-over' : '']">
             <div class="rr-summary-head">
               <span class="rr-summary-label">{{ s.label || `Section ${i + 1}` }}</span>
-              <span class="rr-summary-rounds">R{{ s.start_round }}–{{ s.end_round }}</span>
+              <span class="rr-summary-rounds">
+                {{ s.rounds }} dive{{ s.rounds === 1 ? '' : 's' }}
+                <span class="rr-summary-range">(R{{ s.start_round }}–{{ s.end_round }})</span>
+              </span>
             </div>
             <div class="rr-summary-meta">
               <span v-if="s.dd_limit != null">
-                DD {{ s.dd_used.toFixed(1) }} / {{ s.dd_limit.toFixed(1) }}
+                DD <strong>{{ s.dd_used.toFixed(1) }}</strong> / {{ s.dd_limit.toFixed(1) }}
               </span>
-              <span v-else>DD {{ s.dd_used.toFixed(1) }} (no cap)</span>
+              <span v-else>DD <strong>{{ s.dd_used.toFixed(1) }}</strong> (no cap)</span>
               <span v-if="s.min_distinct_groups != null">
-                · {{ s.groups_used.length }} of {{ s.min_distinct_groups }} different groups picked
+                · groups: <strong>{{ s.groups_used.length }}</strong> / {{ s.min_distinct_groups }} required
               </span>
             </div>
           </div>
@@ -828,6 +840,15 @@ watch(currentEvent, async (ev) => {
 }
 .rr-summary-label { color: var(--text); }
 .rr-summary-rounds { color: var(--text-3); }
+.rr-summary-range {
+  margin-left: 0.35rem;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: normal;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  opacity: 0.7;
+}
 .rr-summary-meta { font-size: 11px; }
 
 /* Round-rules violations panel below the dive list — same red
