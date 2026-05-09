@@ -58,9 +58,17 @@ export function validateRoundRules(rr, totalRounds) {
     if (s.label != null && typeof s.label !== 'string') {
       return { valid: false, error: `Section ${i + 1}: label must be a string` }
     }
-    if (s.require_different_groups != null
-        && typeof s.require_different_groups !== 'boolean') {
-      return { valid: false, error: `Section ${i + 1}: require_different_groups must be a boolean` }
+    if (s.min_distinct_groups != null) {
+      const m = Number(s.min_distinct_groups)
+      if (!Number.isInteger(m) || m < 1 || m > 6) {
+        return { valid: false, error: `Section ${i + 1}: min_distinct_groups must be an integer 1–6` }
+      }
+      if (m > s.rounds) {
+        return {
+          valid: false,
+          error: `Section ${i + 1}: min_distinct_groups (${m}) cannot exceed rounds (${s.rounds})`,
+        }
+      }
     }
     total += s.rounds
   }
@@ -123,18 +131,16 @@ export function validateDiveList(rr, dives) {
       }
     }
 
-    if (section.require_different_groups) {
-      const seen = new Map()
+    if (section.min_distinct_groups != null && sectionDives.length) {
+      const groups = new Set()
       for (const d of sectionDives) {
         const g = groupForDiveCode(d.dive_code)
-        if (!g) continue
-        if (seen.has(g)) {
-          errors.push(
-            `${label}: round ${d._round} repeats the ${GROUP_LABELS[g]} group (already used in round ${seen.get(g)})`,
-          )
-        } else {
-          seen.set(g, d._round)
-        }
+        if (g) groups.add(g)
+      }
+      if (groups.size < section.min_distinct_groups) {
+        errors.push(
+          `${label}: needs ${section.min_distinct_groups} different groups, ${groups.size} used so far`,
+        )
       }
     }
   }

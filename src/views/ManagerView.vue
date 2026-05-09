@@ -44,17 +44,23 @@ const createDdLimitValue  = ref('')     // '' = no limit; numeric otherwise
 
 // Round structure (migration 038). Empty array = legacy
 // behaviour (use the dd_limit_* pair above). Populated = a list
-// of sections, each with its own DD cap + group rules. Mirrors
-// real-world youth bulletins — e.g. "4 dives @ 7.6 + 4 dives
-// unlimited" → two sections with rounds=4 each, dd_limit=7.6
-// and null respectively, both require_different_groups=true.
+// of sections, each with its own DD cap + min-distinct-groups
+// rule. Mirrors real-world FINA / Diving Australia bulletins —
+// e.g. "4 dives @ 7.6 from 4 different groups + 4 dives unlimited
+// from 4 different groups" → two sections with rounds=4 each,
+// dd_limit=7.6 and null, min_distinct_groups=4 on both.
+//
+// min_distinct_groups is independent of rounds, so an operator
+// can also express "5 dives drawn from 4 different groups" (one
+// group is allowed to repeat) or "1 dive from any group" (leave
+// min_distinct_groups blank).
 const createRoundSections = ref([])
 function addRoundSection(preset) {
   const next = preset || {
     label: createRoundSections.value.length === 0 ? 'Voluntary' : 'Optional',
     rounds: 4,
     dd_limit: '',                     // '' = unlimited
-    require_different_groups: true,
+    min_distinct_groups: '',          // '' = no group constraint
   }
   createRoundSections.value.push(next)
 }
@@ -75,7 +81,9 @@ function buildRoundRulesPayload() {
       dd_limit: s.dd_limit === '' || s.dd_limit == null
         ? null
         : Number(parseFloat(s.dd_limit).toFixed(1)),
-      require_different_groups: !!s.require_different_groups,
+      min_distinct_groups: s.min_distinct_groups === '' || s.min_distinct_groups == null
+        ? null
+        : parseInt(s.min_distinct_groups) || null,
     })),
   }
 }
@@ -119,7 +127,7 @@ function applyEventTemplate(t) {
       label: s.label || '',
       rounds: s.rounds,
       dd_limit: s.dd_limit == null ? '' : String(s.dd_limit),
-      require_different_groups: !!s.require_different_groups,
+      min_distinct_groups: s.min_distinct_groups == null ? '' : String(s.min_distinct_groups),
     }))
   } else {
     createRoundSections.value = []
@@ -1167,9 +1175,9 @@ onUnmounted(() => {
           </label>
           <p class="hint" v-if="!createRoundSections.length" style="margin-bottom:0.5rem">
             For events that need per-section dive rules — e.g.
-            "4 dives @ 7.6 + 4 dives unlimited", each from a
-            different group. Add a section below; otherwise the
-            flat DD Limit above applies.
+            "4 dives @ 7.6 from 4 different groups, then 4 dives
+            unlimited from 4 groups". Add a section below;
+            otherwise the flat DD Limit above applies.
           </p>
 
           <div v-for="(s, i) in createRoundSections" :key="i" class="rr-section">
@@ -1189,23 +1197,28 @@ onUnmounted(() => {
                        v-model="s.dd_limit"
                        placeholder="Unlimited">
               </label>
+              <label class="rr-cell">
+                <span class="rr-cell-label">Min different groups</span>
+                <input class="input" type="number" min="1" max="6"
+                       v-model="s.min_distinct_groups"
+                       placeholder="—">
+              </label>
             </div>
-            <label class="checkbox-row" style="margin-top:0.4rem">
-              <input type="checkbox" v-model="s.require_different_groups">
-              <span>Require dives from different groups within this section</span>
-            </label>
+            <p class="hint" style="margin-top:0.4rem; margin-bottom:0">
+              <span v-if="s.min_distinct_groups">
+                {{ s.rounds || '?' }} dive{{ parseInt(s.rounds) === 1 ? '' : 's' }} drawn from at least
+                <strong>{{ s.min_distinct_groups }}</strong> different group{{ parseInt(s.min_distinct_groups) === 1 ? '' : 's' }}
+                (forward / back / reverse / inward / twist / armstand).
+              </span>
+              <span v-else style="opacity:0.65">
+                Leave "Min different groups" blank for no group constraint.
+              </span>
+            </p>
           </div>
 
           <div class="rr-actions">
             <button type="button" class="btn btn-ghost btn-sm" @click="addRoundSection()">
               + Add section
-            </button>
-            <button v-if="!createRoundSections.length" type="button" class="btn btn-ghost btn-sm"
-                    @click="addRoundSection({ label: 'Voluntary', rounds: 4, dd_limit: '7.6', require_different_groups: true });
-                            addRoundSection({ label: 'Optional',  rounds: 4, dd_limit: '',    require_different_groups: true });
-                            createRounds = 8"
-                    title="Pre-fill the typical youth bulletin shape">
-              Quick: 4 @ 7.6 + 4 unlimited
             </button>
           </div>
           <p class="hint hint-warn"

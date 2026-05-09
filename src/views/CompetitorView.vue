@@ -318,7 +318,7 @@ const roundRulesSections = computed(() => {
       if (!d) continue
       const dd = parseFloat(d.dd)
       if (Number.isFinite(dd)) ddUsed += dd
-      if (s.require_different_groups && d.dive_code) {
+      if (s.min_distinct_groups != null && d.dive_code) {
         groupsUsed.add(d.dive_code[0])
       }
     }
@@ -615,8 +615,8 @@ watch(currentEvent, async (ev) => {
                 DD {{ s.dd_used.toFixed(1) }} / {{ s.dd_limit.toFixed(1) }}
               </span>
               <span v-else>DD {{ s.dd_used.toFixed(1) }} (no cap)</span>
-              <span v-if="s.require_different_groups">
-                · {{ s.groups_used.length }} of {{ s.rounds }} groups picked
+              <span v-if="s.min_distinct_groups != null">
+                · {{ s.groups_used.length }} of {{ s.min_distinct_groups }} different groups picked
               </span>
             </div>
           </div>

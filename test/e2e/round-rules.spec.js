@@ -1,8 +1,11 @@
 // Round-rules feature (migration 038): operator defines a
-// per-section dive-list structure ("4 dives @ 7.6 from
-// different groups + 4 dives unlimited from different groups",
-// matching real Diving NSW youth bulletins), and the diver's
-// submit endpoint enforces it.
+// per-section dive-list structure ("4 dives @ 7.6 from 4
+// different groups + 4 dives unlimited from 4 different
+// groups", matching real Diving NSW youth bulletins), and the
+// diver's submit endpoint enforces it. min_distinct_groups is a
+// numeric field independent of `rounds` so an operator can
+// also express things like "5 dives drawn from 4 different
+// groups" (one group is allowed to repeat).
 //
 // What this test exercises end-to-end:
 //   1. Org + admin set up via /api/auth/register-org.
@@ -11,7 +14,7 @@
 //   3. GET /api/events round-trips the rules.
 //   4. A diver self-submits — three times:
 //        a) too much DD in section 1 → 400 + violations[]
-//        b) two dives from the same group in section 1 → 400
+//        b) only 3 distinct groups in section 1 (cap is 4) → 400
 //        c) a clean list → 200.
 //   5. Validation is mirrored client-side: the SPA's submit
 //      button stays disabled while violations show on the page.
@@ -20,8 +23,8 @@
 //      validator coverage proves the contract.
 //   6. Headed-mode walk: the spec opens the Manager event form
 //      via the SPA and asserts the Round-structure editor's
-//      "Quick: 4 @ 7.6 + 4 unlimited" preset populates the
-//      section rows. Headed run shows the operator's flow.
+//      "+ Add section" button adds a section row with the new
+//      numeric "Min different groups" field.
 
 const { test, expect } = require("@playwright/test");
 const setup = require("./_setup");
@@ -53,8 +56,8 @@ test("round-rules: 4 @ 7.6 + 4 unlimited blocks bad lists, accepts good ones", a
       height: "1m",
       round_rules: {
         sections: [
-          { label: "Voluntary", rounds: 4, dd_limit: 7.6,  require_different_groups: true },
-          { label: "Optional",  rounds: 4, dd_limit: null, require_different_groups: true },
+          { label: "Voluntary", rounds: 4, dd_limit: 7.6,  min_distinct_groups: 4 },
+          { label: "Optional",  rounds: 4, dd_limit: null, min_distinct_groups: 4 },
         ],
       },
     },
@@ -64,6 +67,7 @@ test("round-rules: 4 @ 7.6 + 4 unlimited blocks bad lists, accepts good ones", a
   expect(event.round_rules).toBeTruthy();
   expect(event.round_rules.sections).toHaveLength(2);
   expect(event.round_rules.sections[0].dd_limit).toBe(7.6);
+  expect(event.round_rules.sections[0].min_distinct_groups).toBe(4);
 
   // ---- Resolve some dive ids to play with --------------------
   // 1m board. Pick one dive per group so we can cleanly assemble
@@ -112,17 +116,19 @@ test("round-rules: 4 @ 7.6 + 4 unlimited blocks bad lists, accepts good ones", a
   expect(badDdBody.violations).toBeTruthy();
   expect(badDdBody.violations.join(" ")).toMatch(/Voluntary.*DD/);
 
-  // ---- Case B: same group repeated within voluntary section ----
+  // ---- Case B: not enough distinct groups in voluntary -----
   // Voluntary picks: 101B + 103B (both forward — group 1) +
-  // 201B + 301B. Total DD now well under 7.6, but two from
-  // group 1 trips the require_different_groups rule.
+  // 201B + 301B. Total DD stays under 7.6, but only 3 distinct
+  // groups (forward / back / reverse) appear — section
+  // requires 4. Server rejects with the
+  // "needs 4 different groups, 3 used so far" violation.
   const badGroupRes = await request.post("/api/competitor/submit-list", {
     headers: { Authorization: `Bearer ${diverLogin.token}` },
     data: {
       event_id: event.id,
       dives: [
         { round_number: 1, dive_id: f },
-        { round_number: 2, dive_id: f2 },     // 2nd forward — illegal
+        { round_number: 2, dive_id: f2 },     // 2nd forward — only 3 distinct groups
         { round_number: 3, dive_id: b },
         { round_number: 4, dive_id: r },
         { round_number: 5, dive_id: i },
@@ -134,7 +140,7 @@ test("round-rules: 4 @ 7.6 + 4 unlimited blocks bad lists, accepts good ones", a
   });
   expect(badGroupRes.status()).toBe(400);
   const badGroupBody = await badGroupRes.json();
-  expect(badGroupBody.violations.join(" ")).toMatch(/Voluntary.*Forward/i);
+  expect(badGroupBody.violations.join(" ")).toMatch(/Voluntary.*4 different groups.*3/i);
 
   // ---- Case C: a fully legal list -----------------------------
   // Voluntary: forward + back + reverse + inward (4 different
@@ -221,10 +227,11 @@ test("round-rules: rule-shape validation rejects bad structures up-front", async
 });
 
 // Headed-mode walkthrough: the operator opens the Manager event
-// form, hits the "Quick: 4 @ 7.6 + 4 unlimited" preset button,
-// and the section rows populate. Useful for visual debugging in
-// `npm run test:e2e:headed`.
-test("round-rules: meet-manager preset populates the section editor", async ({
+// form, clicks "+ Add section", and fills out a section with a
+// numeric "Min different groups" value. Useful for visual
+// debugging in `npm run test:e2e:headed` and a regression guard
+// against the preset button creeping back in.
+test("round-rules: section editor exposes the min-distinct-groups field", async ({
   request, page,
 }) => {
   test.setTimeout(45_000);
@@ -244,19 +251,26 @@ test("round-rules: meet-manager preset populates the section editor", async ({
   await expect(page.getByRole("heading", { name: /Meet Manager/i }))
     .toBeVisible({ timeout: 10_000 });
 
-  // The preset button only renders when the section editor is
-  // empty. Click it.
-  const preset = page.getByRole("button", { name: /Quick: 4 @ 7\.6/ });
-  await expect(preset).toBeVisible();
-  await preset.click();
+  // The Quick preset is gone — make sure it doesn't sneak back in.
+  await expect(page.getByRole("button", { name: /Quick: 4 @ 7\.6/ })).toHaveCount(0);
 
-  // Two section panels visible after the preset click.
-  await expect(page.locator(".rr-section")).toHaveCount(2);
-  // First section labelled "Voluntary"; second "Optional".
-  await expect(page.locator(".rr-section .rr-label").nth(0)).toHaveValue("Voluntary");
-  await expect(page.locator(".rr-section .rr-label").nth(1)).toHaveValue("Optional");
-  // Total rounds got bumped to 8.
-  await expect(page.locator(".rr-total")).toContainText("8 / 8 rounds");
+  // Add a single section via the + Add section button.
+  await page.getByRole("button", { name: /\+ Add section/i }).click();
+  await expect(page.locator(".rr-section")).toHaveCount(1);
+
+  // The section row exposes a numeric "Min different groups"
+  // input alongside Rounds + DD limit. Set it to 5.
+  const section = page.locator(".rr-section").first();
+  await expect(section.locator(".rr-cell-label", { hasText: /Min different groups/i }))
+    .toBeVisible();
+  const minGroupsInput = section.locator(".rr-cell", { hasText: /Min different groups/i }).locator("input");
+  await minGroupsInput.fill("5");
+  await expect(minGroupsInput).toHaveValue("5");
+
+  // The hint underneath updates live to describe the rule in
+  // plain English: "X dives drawn from at least 5 different
+  // groups…".
+  await expect(section.locator(".hint")).toContainText(/different groups/i);
 
   await setup.deleteOrg(orgId);
 });
