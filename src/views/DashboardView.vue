@@ -225,7 +225,15 @@ const pulseChips = computed(() => {
         number:       guestEvents.length,
         label:        'INVITED',
         layout:       'count-first',
-        targetTab:    auth.hasRole('org_admin') ? 'org_admin' : 'diver',
+        // Match the fallback chain used by the other chips —
+        // a user holding only meet_manager (no org_admin, no
+        // diver) would otherwise land on a 'diver' tab they
+        // don't have.
+        targetTab:    auth.hasRole('org_admin')
+          ? 'org_admin'
+          : auth.hasRole('meet_manager')
+            ? 'meet_manager'
+            : 'diver',
         popoverTitle: guestEvents.length === 1
           ? '1 international invitation'
           : `${guestEvents.length} international invitations`,

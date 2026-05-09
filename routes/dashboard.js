@@ -49,7 +49,12 @@ module.exports = function createDashboardRouter({ pool, verifyToken }) {
     // ---- Events (operators + divers + meet managers) ----
     if (has("org_admin") || has("meet_manager") || has("diver")) {
       // Mirrors what /api/events returns. Org admin / meet
-      // manager see their org's events; sysadmin sees all.
+      // manager / diver see their org's events PLUS any event
+      // their org has been invited to via event_participating_orgs
+      // (commit 48fa8d5). Without the EXISTS clause, the
+      // dashboard pulse strip's 🌐 INVITED chip silently never
+      // fires for visiting federations because their bundle
+      // ships zero foreign events.
       tasks.events = pool.query(
         `SELECT e.id, e.name, e.status, e.event_type::text AS event_type,
                 e.gender, e.height, e.age_group,
@@ -62,7 +67,12 @@ module.exports = function createDashboardRouter({ pool, verifyToken }) {
          FROM events e
          LEFT JOIN organisations o ON o.id = e.org_id
          LEFT JOIN meets m ON m.id = e.meet_id
-         WHERE $1::boolean OR e.org_id = $2
+         WHERE $1::boolean
+            OR e.org_id = $2
+            OR EXISTS (
+                 SELECT 1 FROM event_participating_orgs epo
+                  WHERE epo.event_id = e.id AND epo.org_id = $2
+               )
          ORDER BY e.created_at DESC
          LIMIT 100`,
         [isSysAdmin, user.org_id],

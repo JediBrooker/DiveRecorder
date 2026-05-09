@@ -5,6 +5,7 @@ import { useSocket } from '@/composables/useSocket'
 import { annotatedScores, groupedSynchroScoresForDisplay, trimCount } from '@/composables/useScoreCategories'
 import { diveDescription } from '@/composables/useDiveLabel'
 import { cachedFetch } from '@/lib/idbCache'
+import { fmtDate } from '@/lib/format'
 import DiverIdentity from '@/components/DiverIdentity.vue'
 import ScoreHistoryButton from '@/components/ScoreHistoryButton.vue'
 import JargonTip from '@/components/JargonTip.vue'
@@ -401,17 +402,36 @@ const countryMedalTable = computed(() => {
   if (!archiveResults.value) return null
   const standings = archiveResults.value.standings || []
   if (!standings.length) return null
+  // Derive rank from index — the archive endpoint returns
+  // standings already sorted by total descending, but doesn't
+  // include a rank column. Without this the medal table was
+  // rendering 0/0/0 for every country because s.rank was always
+  // undefined. Tied totals share a rank (FINA practice: both
+  // divers on the same total get gold), and subsequent ranks
+  // skip by the size of the tied group (1, 1, 3).
+  let prevTotal = null
+  let prevRank  = 0
   const byCountry = new Map()
-  for (const s of standings) {
+  for (let i = 0; i < standings.length; i++) {
+    const s = standings[i]
+    const total = parseFloat(s.total) || 0
+    let rank
+    if (prevTotal !== null && Math.abs(total - prevTotal) < 1e-9) {
+      rank = prevRank
+    } else {
+      rank = i + 1
+      prevRank  = rank
+      prevTotal = total
+    }
     const code = s.country_code || '—'
     if (!byCountry.has(code)) {
       byCountry.set(code, { code, gold: 0, silver: 0, bronze: 0, total_pts: 0 });
     }
     const row = byCountry.get(code)
-    if (s.rank === 1) row.gold   += 1
-    if (s.rank === 2) row.silver += 1
-    if (s.rank === 3) row.bronze += 1
-    row.total_pts += parseFloat(s.total) || 0
+    if (rank === 1) row.gold   += 1
+    if (rank === 2) row.silver += 1
+    if (rank === 3) row.bronze += 1
+    row.total_pts += total
   }
   if (byCountry.size < 2) return null
   return [...byCountry.values()].sort((a, b) =>
@@ -576,10 +596,7 @@ async function refreshData() {
   }
 }
 
-function fmtDate(iso) {
-  if (!iso) return ''
-  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
+// fmtDate imported from @/lib/format — single source of truth.
 
 
 function movementClass(m) {

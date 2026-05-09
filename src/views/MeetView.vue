@@ -7,6 +7,7 @@
 
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
+import { fmtDate } from '@/lib/format'
 
 const route = useRoute()
 
@@ -43,10 +44,7 @@ const liveEvents = computed(() => events.value.filter(e => e.status === 'Live'))
 const upcomingEvents = computed(() => events.value.filter(e => e.status === 'Upcoming'))
 const completedEvents = computed(() => events.value.filter(e => e.status === 'Completed'))
 
-function fmtDate(iso) {
-  if (!iso) return ''
-  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
+// fmtDate imported from @/lib/format — single source of truth.
 
 const dateRange = computed(() => {
   if (!meet.value) return ''

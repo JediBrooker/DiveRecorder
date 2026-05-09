@@ -23,9 +23,19 @@ const inPanelIds = computed(() => new Set(panel.value.filter(Boolean).map(j => j
 const filteredJudges = computed(() => {
   const term = judgeSearch.value.toLowerCase()
   if (!term) return allJudges.value
-  return allJudges.value.filter(j =>
-    j.full_name.toLowerCase().includes(term) || j.username.toLowerCase().includes(term)
-  )
+  // Match against full_name + org_name + country_code. Username
+  // was removed from the /api/judges + /api/events/:id/eligible-
+  // judges projections (security audit pass 1) so the prior
+  // `j.username.toLowerCase()` would throw TypeError on the
+  // first keypress against the new endpoint shape.
+  return allJudges.value.filter(j => {
+    const haystack = [
+      j.full_name,
+      j.org_name,
+      j.country_code,
+    ].filter(Boolean).join(' ').toLowerCase()
+    return haystack.includes(term)
+  })
 })
 
 async function onEventChange() {

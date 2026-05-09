@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { fmtDate } from '@/lib/format'
 
 // Side-by-side comparison of two divers across ANY organisation.
 // Each side uses an autocomplete typeahead OR a "Browse" modal that
@@ -58,10 +59,7 @@ function selectDiver(side, diver) {
   closeBrowse()
 }
 
-function fmtDate(iso) {
-  if (!iso) return ''
-  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
+// fmtDate imported from @/lib/format — single source of truth.
 
 // Diff helpers — colour the higher value cyan, the other dim.
 // Returns 'a' | 'b' | 'tie'.

@@ -582,11 +582,25 @@ module.exports = function createAuthRouter({
     if (!cleanOrgName)  return res.status(400).json({ error: "Organisation name is required" });
     if (!cleanFullName) return res.status(400).json({ error: "Full name is required" });
     if (!cleanSlug)     return res.status(400).json({ error: "Slug is required" });
+    // Slug shows up in public URLs (organisations.slug). Require
+    // a URL-safe shape so `/`, `..`, percent-bytes, and HTML-ish
+    // payloads can't smuggle through the SPA's escaping in some
+    // future deep-link.
+    if (!/^[a-z0-9-]{2,60}$/.test(cleanSlug)) {
+      return res.status(400).json({
+        error: "slug must be 2-60 chars of lowercase letters, digits, or hyphens",
+      });
+    }
     if (!cleanUsername) return res.status(400).json({ error: "Username is required" });
     if (typeof password !== "string" || password.length < 8) {
       return res.status(400).json({ error: "Password must be at least 8 characters" });
     }
-    if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    // Email max-length: users.email is varchar(254) in init.sql;
+    // exceeding that produces a noisy 500. Cap here so the 400
+    // is returned with a clear error instead.
+    if (typeof email !== "string"
+        || email.length > 254
+        || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ error: "A valid email address is required" });
     }
     if (country_code != null && !/^[A-Z]{2,3}$/.test(country_code)) {
@@ -616,10 +630,29 @@ module.exports = function createAuthRouter({
       );
 
       await client.query("COMMIT");
+
+      // Mint + send the email-verification token, same flow as
+      // /api/auth/register. The previous register-org omitted
+      // this step, which left the founding org_admin permanently
+      // unable to log in (the login gate at line 82-87 refuses
+      // bcrypt-correct credentials when email_verified_at IS
+      // NULL). The operational workaround was for a sysadmin to
+      // UPDATE-stamp email_verified_at directly — bypassing
+      // proof-of-inbox-control on the highest-privilege account
+      // in a fresh tenant.
+      const verifyToken = jwt.sign(
+        { sub: userId, type: "email_verify" },
+        JWT_SECRET,
+        { expiresIn: "7d" },
+      );
+      if (typeof sendVerifyEmailEmail === "function") {
+        sendVerifyEmailEmail(userId, verifyToken).catch(() => {});
+      }
+
       res
         .status(201)
         .json({
-          message: "Organisation registered and pending approval.",
+          message: "Organisation registered. Check your email for a verification link before signing in.",
           org_id: orgId,
         });
     } catch (err) {

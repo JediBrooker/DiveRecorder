@@ -100,7 +100,13 @@ module.exports = function createAuditRouter({ pool, requireOrgAdmin }) {
               e.name AS event_name,
               e.org_id, o.name AS org_name, o.country_code
        FROM score_audit_log a
-       JOIN events e        ON e.id = a.event_id
+       -- LEFT JOIN: migration 035 made score_audit_log.event_id
+       -- nullable so audit rows survive event deletion. INNER
+       -- JOIN here would silently drop them, undoing the whole
+       -- point of the migration. Org-scope filter on e.org_id
+       -- below correctly excludes orphans for non-sysadmin
+       -- callers; sysadmin sees them surface.
+       LEFT JOIN events e   ON e.id = a.event_id
        LEFT JOIN organisations o ON o.id = e.org_id
        LEFT JOIN users comp ON comp.id = a.competitor_id
        LEFT JOIN users jud  ON jud.id  = a.judge_id
@@ -165,7 +171,8 @@ module.exports = function createAuditRouter({ pool, requireOrgAdmin }) {
               actor.username   AS actor_username,
               o.name AS org_name, o.country_code
        FROM role_audit_log a
-       JOIN organisations o ON o.id = a.org_id
+       -- LEFT JOIN per migration 035: org_id became nullable.
+       LEFT JOIN organisations o ON o.id = a.org_id
        LEFT JOIN users target ON target.id = a.user_id
        LEFT JOIN users actor  ON actor.id  = a.actor_id
        ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
@@ -292,7 +299,8 @@ module.exports = function createAuditRouter({ pool, requireOrgAdmin }) {
                   act.full_name AS actor_name, a.reason,
                   a.ip_address::text AS ip_address
            FROM score_audit_log a
-           JOIN events e ON e.id = a.event_id
+           -- LEFT JOIN per migration 035: event_id is now nullable.
+           LEFT JOIN events e ON e.id = a.event_id
            LEFT JOIN organisations o ON o.id = e.org_id
            LEFT JOIN users comp ON comp.id = a.competitor_id
            LEFT JOIN users jud  ON jud.id  = a.judge_id
@@ -318,7 +326,8 @@ module.exports = function createAuditRouter({ pool, requireOrgAdmin }) {
                   target.full_name AS target_name, target.username AS target_username,
                   o.name AS org_name, actor.full_name AS actor_name, a.note
            FROM role_audit_log a
-           JOIN organisations o ON o.id = a.org_id
+           -- LEFT JOIN per migration 035: org_id is now nullable.
+           LEFT JOIN organisations o ON o.id = a.org_id
            LEFT JOIN users target ON target.id = a.user_id
            LEFT JOIN users actor  ON actor.id  = a.actor_id
            WHERE ($1::uuid IS NULL OR a.org_id = $1::uuid)
@@ -393,7 +402,8 @@ module.exports = function createAuditRouter({ pool, requireOrgAdmin }) {
                 a.round_number, a.old_score, a.new_score, a.reason,
                 e.org_id, o.name AS org_name
          FROM score_audit_log a
-         JOIN events e        ON e.id = a.event_id
+         -- LEFT JOIN per migration 035: event_id is now nullable.
+         LEFT JOIN events e   ON e.id = a.event_id
          LEFT JOIN organisations o ON o.id = e.org_id
          LEFT JOIN users comp ON comp.id = a.competitor_id
          LEFT JOIN users jud  ON jud.id  = a.judge_id

@@ -691,6 +691,14 @@ function closePartOrgsModal() {
   partOrgsToAdd.value      = ''
 }
 
+// Patch the participating_orgs_count on a single event row in
+// `events.value` so the 🌐 International (N) chip stays in sync
+// after add/remove without a full loadEvents() refetch.
+function bumpParticipatingCount(eventId, newCount) {
+  const row = events.value.find(e => e.id === eventId)
+  if (row) row.participating_orgs_count = newCount
+}
+
 async function addPartOrg() {
   if (!partOrgsToAdd.value || !partOrgsModalEvent.value) return
   const ev = partOrgsModalEvent.value
@@ -704,6 +712,11 @@ async function addPartOrg() {
     const invitedSet = new Set(partOrgsInEvent.value.map(o => o.org_id))
     partOrgsAvailable.value = partOrgsAvailable.value.filter(o => !invitedSet.has(o.id))
     partOrgsToAdd.value = ''
+    // Patch the event row in-place so the 🌐 International (N)
+    // chip count stays in lockstep with the modal. A full
+    // loadEvents() round-trip would also work, but this is
+    // cheap and doesn't blow away the rest of the events list.
+    bumpParticipatingCount(ev.id, partOrgsInEvent.value.length)
     showSuccess('Federation invited to participate')
   } catch (err) {
     showError(err.message)
@@ -765,6 +778,7 @@ async function removePartOrg(org) {
       ...partOrgsAvailable.value,
       { id: org.org_id, name: org.org_name, country_code: org.country_code },
     ].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+    bumpParticipatingCount(ev.id, partOrgsInEvent.value.length)
     showSuccess(`Removed ${org.org_name}`)
   } catch (err) {
     showError(err.message)

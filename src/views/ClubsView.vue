@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { confirmAction } from '@/composables/useConfirm'
 import { showSuccess, showError } from '@/composables/useNotify'
+import { fmtDate } from '@/lib/format'
 
 const auth = useAuthStore()
 
@@ -165,10 +166,7 @@ async function deleteClub(club) {
   }
 }
 
-function fmtDate(iso) {
-  if (!iso) return ''
-  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
+// fmtDate imported from @/lib/format — single source of truth.
 
 onMounted(async () => {
   await Promise.all([loadClubs(), loadOrgs()])

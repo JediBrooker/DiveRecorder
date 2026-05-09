@@ -4,6 +4,7 @@ import { useRoute, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { cachedFetch, idbDelete } from '@/lib/idbCache'
 import { annotateJudgeRows, scoreCategory } from '@/composables/useScoreTrim.js'
+import { fmtDate } from '@/lib/format'
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -453,10 +454,7 @@ async function loadAnalytics() {
   }
 }
 
-function fmtDate(iso) {
-  if (!iso) return ''
-  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
+// fmtDate imported from @/lib/format — single source of truth.
 
 function placeOrdinal(n) {
   if (n == null) return ''

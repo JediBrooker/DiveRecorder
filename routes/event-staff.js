@@ -121,20 +121,37 @@ module.exports = function createEventStaffRouter({
         req.event.org_id,
         ...partOrgs.rows.map(r => r.org_id),
       ]);
-      // Each judge must belong to either the host org OR a
-      // participating federation. Real international panels are
-      // typically 2 judges per country — without this relaxation
-      // a host couldn't seat a legitimate WA-format panel.
+      // Each judge must (1) hold the `judge` role in their home
+      // org and (2) belong to the host org or a participating
+      // federation. The role-row check was previously missing —
+      // the meet manager could shove any user_id from an
+      // allowed org into event_judges (org_admin, diver,
+      // spectator, …). The socket-layer score-submit handler
+      // re-checks, so this never enabled scoring fraud, but it
+      // breaks panel-completeness checks and audit clarity.
+      //
+      // Single batched query (vs the previous N round-trips)
+      // returns the org_id only for users who actually hold the
+      // judge role.
+      const judgeRows = await client.query(
+        `SELECT u.id, u.org_id
+           FROM users u
+           JOIN user_org_roles r
+             ON r.user_id = u.id AND r.org_id = u.org_id
+            AND r.role IN ('judge','referee')
+          WHERE u.id = ANY($1::uuid[])`,
+        [judgeIds],
+      );
+      const judgeOrgs = new Map(judgeRows.rows.map(r => [r.id, r.org_id]));
       for (const jid of judgeIds) {
-        const u = await client.query(
-          "SELECT org_id FROM users WHERE id = $1",
-          [jid],
-        );
-        if (!u.rows.length) {
+        const orgId = judgeOrgs.get(jid);
+        if (!orgId) {
           await client.query("ROLLBACK");
-          return res.status(400).json({ error: "Judge not found" });
+          return res.status(400).json({
+            error: "Each judge must hold the judge role in their federation",
+          });
         }
-        if (!allowedOrgs.has(u.rows[0].org_id)) {
+        if (!allowedOrgs.has(orgId)) {
           await client.query("ROLLBACK");
           return res.status(400).json({
             error: "Each judge must be from the host org or a participating federation. Add the judge's federation via Federations… first.",

@@ -530,10 +530,41 @@ module.exports = function createEventsRouter({
 
   // Public read — the meet's public landing page wants to render
   // "participating: AUS / NZL / FIJ" badges, so this endpoint is
-  // open to anonymous spectators (consistent with /api/events
-  // listing live + completed publicly).
+  // open to anonymous spectators. Mirrors the privacy contract
+  // of /api/events itself: anonymous callers only see Live or
+  // Completed events. An Upcoming event's participating list is
+  // the host's competitive intelligence and stays private until
+  // the event flips Live (the same moment the public listing
+  // reveals the event itself). Authed callers in the host org
+  // (or sysadmin) bypass the status filter so the Federations
+  // modal works pre-meet.
   router.get("/api/events/:id/participating-orgs", async (req, res) => {
     try {
+      // Inline auth peek — no shared optionalAuth helper here,
+      // and we don't need a full JWT verify for this gate; just
+      // identifying the caller's org is enough.
+      const authHeader = req.headers["authorization"];
+      const token = authHeader && authHeader.split(" ")[1];
+      let callerOrgId = null;
+      let callerIsSys = false;
+      if (token) {
+        try {
+          const decoded = require("jsonwebtoken").verify(token, JWT_SECRET);
+          callerOrgId = decoded.org_id;
+          callerIsSys = !!decoded.is_system_admin;
+        } catch { /* anonymous */ }
+      }
+      const ev = await pool.query(
+        "SELECT org_id, status FROM events WHERE id = $1",
+        [req.params.id],
+      );
+      if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
+      const { org_id: hostOrgId, status } = ev.rows[0];
+      const callerIsHostOrParticipant = callerIsSys
+        || callerOrgId === hostOrgId;
+      if (!callerIsHostOrParticipant && status !== "Live" && status !== "Completed") {
+        return res.json([]);
+      }
       const r = await pool.query(
         `SELECT epo.org_id, epo.added_at,
                 o.name AS org_name, o.country_code, o.slug AS org_slug
@@ -558,7 +589,7 @@ module.exports = function createEventsRouter({
     if (!org_id) return res.status(400).json({ error: "org_id is required" });
     try {
       const ev = await pool.query(
-        "SELECT id, org_id, name FROM events WHERE id = $1",
+        "SELECT id, org_id, name, status FROM events WHERE id = $1",
         [req.params.id],
       );
       if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
@@ -568,6 +599,16 @@ module.exports = function createEventsRouter({
       // host org".
       if (!req.user.is_system_admin && ev.rows[0].org_id !== req.user.org_id) {
         return res.status(403).json({ error: "You don't host this event" });
+      }
+      // Refuse on already-finalised events — inviting a federation
+      // post-Completed sends a stale "your divers can now self-
+      // enter" notification (the entry-gate middleware would
+      // reject every actual submit) AND opens a way to spam
+      // foreign admins by toggling Completed → Upcoming and back.
+      if (ev.rows[0].status === "Completed") {
+        return res.status(409).json({
+          error: "Event is already Completed — re-open it before inviting more federations",
+        });
       }
       // Disallow listing the host's own org — that's the implicit
       // entry path, not a participating-org row.
@@ -618,11 +659,17 @@ module.exports = function createEventsRouter({
       // already-invited org); skip the notification spam.
       if (inserted.rows.length && push && typeof push.sendNotification === "function") {
         try {
+          // Find every user with org_admin in the invited org —
+          // gate on user_org_roles.role alone, NOT on
+          // users.org_id matching. A user can hold org_admin in
+          // an org that isn't their primary; the previous
+          // r.org_id = u.org_id predicate silently dropped those
+          // admins from the fan-out.
           const admins = await pool.query(
-            `SELECT u.id
-               FROM users u
-               JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id
-              WHERE u.org_id = $1 AND r.role = 'org_admin'`,
+            `SELECT DISTINCT u.id
+               FROM user_org_roles r
+               JOIN users u ON u.id = r.user_id
+              WHERE r.org_id = $1 AND r.role = 'org_admin'`,
             [org_id],
           );
           const adminIds = admins.rows.map(r => r.id);
@@ -659,14 +706,26 @@ module.exports = function createEventsRouter({
   // is destabilised.
   router.delete("/api/events/:id/participating-orgs/:org_id", requireOrgAdmin, async (req, res) => {
     try {
+      // Defense-in-depth: lowercase the URL-supplied UUIDs so a
+      // mixed-case path (e.g. uppercase pasted from a copy-out)
+      // doesn't fail the equality check below for a legitimate
+      // self-withdraw, and so the audit row's metadata always
+      // records the canonical lowercase form (audit search-by-
+      // org-id stays consistent).
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const eventId = (req.params.id || "").toLowerCase();
+      const orgId   = (req.params.org_id || "").toLowerCase();
+      if (!UUID_RE.test(eventId) || !UUID_RE.test(orgId)) {
+        return res.status(400).json({ error: "Invalid event_id or org_id (must be UUID)" });
+      }
       const ev = await pool.query(
         "SELECT id, org_id, name FROM events WHERE id = $1",
-        [req.params.id],
+        [eventId],
       );
       if (!ev.rows.length) return res.status(404).json({ error: "Event not found" });
       const isSysAdmin = !!req.user.is_system_admin;
       const isHostAdmin = ev.rows[0].org_id === req.user.org_id;
-      const isSelfWithdraw = req.params.org_id === req.user.org_id;
+      const isSelfWithdraw = orgId === (req.user.org_id || "").toLowerCase();
       if (!isSysAdmin && !isHostAdmin && !isSelfWithdraw) {
         return res.status(403).json({
           error: "Only the host federation can remove other federations, and only the visiting federation can withdraw itself",
@@ -674,7 +733,7 @@ module.exports = function createEventsRouter({
       }
       const r = await pool.query(
         "DELETE FROM event_participating_orgs WHERE event_id = $1 AND org_id = $2 RETURNING org_id",
-        [req.params.id, req.params.org_id],
+        [eventId, orgId],
       );
       if (!r.rows.length) return res.status(404).json({ error: "Not on the participating list" });
       try {
@@ -690,7 +749,7 @@ module.exports = function createEventsRouter({
           entity_name: ev.rows[0].name,
           action:      "event.participating_org.removed",
           metadata: {
-            participating_org_id: req.params.org_id,
+            participating_org_id: orgId,
             removed_by_self: isSelfWithdraw && !isHostAdmin,
           },
         });
@@ -703,24 +762,26 @@ module.exports = function createEventsRouter({
       // initiated it.)
       if (isSelfWithdraw && !isHostAdmin && push && typeof push.sendNotification === "function") {
         try {
+          // Same multi-org-admin fix as the invite-fanout: gate
+          // on r.role alone, not on r.org_id = u.org_id.
           const hostAdmins = await pool.query(
-            `SELECT u.id
-               FROM users u
-               JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id
-              WHERE u.org_id = $1 AND r.role = 'org_admin'`,
+            `SELECT DISTINCT u.id
+               FROM user_org_roles r
+               JOIN users u ON u.id = r.user_id
+              WHERE r.org_id = $1 AND r.role = 'org_admin'`,
             [ev.rows[0].org_id],
           );
           const adminIds = hostAdmins.rows.map(r => r.id);
           if (adminIds.length) {
             const leavingOrg = await pool.query(
               "SELECT name FROM organisations WHERE id = $1",
-              [req.params.org_id],
+              [orgId],
             );
             await push.sendNotification(adminIds, {
               category:  "international_invite",
               title:     `${leavingOrg.rows[0]?.name || "A federation"} withdrew from "${ev.rows[0].name}"`,
               body:      "Their divers will no longer be able to enter new dive lists. Existing entries stay intact.",
-              data:      { event_id: ev.rows[0].id, withdrawing_org_id: req.params.org_id },
+              data:      { event_id: ev.rows[0].id, withdrawing_org_id: orgId },
               action_url: `/manager?event=${ev.rows[0].id}`,
             });
           }
@@ -739,10 +800,43 @@ module.exports = function createEventsRouter({
   // participating org's divers. Used by the synchro-partner
   // picker and the late-entry roster lookup so a meet manager
   // can find foreign divers without hitting the org-scoped
-  // /api/orgs/:id/divers endpoint. Authenticated; org-scoping
-  // happens via the JOIN against event_participating_orgs.
+  // /api/orgs/:id/divers endpoint.
+  //
+  // The previous gate was `verifyToken` only — any signed-in
+  // user (including a freshly-registered spectator in any
+  // federation) could enumerate full diver rosters of every
+  // event in the system. Tightened to require either:
+  //   1. event-staff for THIS event (requireEventManager),
+  //      which covers the meet manager's late-entry use case;
+  //   2. OR a diver/coach whose own org is on the event's
+  //      eligibility list, which covers the synchro-partner
+  //      picker for visiting federations.
   router.get("/api/events/:id/eligible-divers", verifyToken, async (req, res) => {
     try {
+      // Org-eligibility check first (cheap). Sysadmins bypass.
+      const evRow = await pool.query(
+        "SELECT org_id FROM events WHERE id = $1",
+        [req.params.id],
+      );
+      if (!evRow.rows.length) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const eventOrgId = evRow.rows[0].org_id;
+      const isSysAdmin   = !!req.user.is_system_admin;
+      const isHostOrg    = req.user.org_id === eventOrgId;
+      let isEligibleOrg  = isHostOrg;
+      if (!isSysAdmin && !isEligibleOrg) {
+        const part = await pool.query(
+          "SELECT 1 FROM event_participating_orgs WHERE event_id = $1 AND org_id = $2",
+          [req.params.id, req.user.org_id],
+        );
+        isEligibleOrg = part.rows.length > 0;
+      }
+      if (!isSysAdmin && !isEligibleOrg) {
+        return res.status(403).json({
+          error: "Your federation is not eligible for this event",
+        });
+      }
       const r = await pool.query(
         `SELECT u.id, u.full_name,
                 u.org_id, o.name AS org_name, o.country_code,

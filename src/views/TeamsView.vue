@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { confirmAction } from '@/composables/useConfirm'
 import { showSuccess, showError } from '@/composables/useNotify'
+import { fmtDate } from '@/lib/format'
 
 const auth = useAuthStore()
 
@@ -282,10 +283,7 @@ async function removeMember(memberId) {
   }
 }
 
-function fmtDate(iso) {
-  if (!iso) return ''
-  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-}
+// fmtDate imported from @/lib/format — single source of truth.
 
 function onKeyDown(e) {
   if (e.key === 'Escape' && drawerTeam.value) closeMembers()
