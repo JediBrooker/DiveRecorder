@@ -32,7 +32,7 @@ const opsBroadcast = computed(() => route.query.broadcast === '1')
 // Active diver status — auto-derived from real signals so the
 // operator never has to remember to click anything:
 //   READY    — announced & on the board, no scores yet, the
-//              30-second WA shot clock is still running
+//              60-second WA post-warning shot clock is still running
 //   DIVING   — shot clock has expired (per WA the diver MUST
 //              have started by then), still no scores in
 //   JUDGING  — at least one judge has submitted a score for
@@ -47,8 +47,9 @@ const activeStatus = computed(() => {
   // JUDGING wins: even if a single judge has tapped a score,
   // the dive is over and the panel is entering scores.
   if (Object.keys(scoresThisRound.value).length > 0) return 'judging'
-  // Shot clock has hit zero (or was paused at zero) → diver
-  // has begun their dive (WA's 30-second rule guarantees it).
+  // Shot clock has hit zero (or was paused at zero) → the
+  // referee's 60-second post-warning window per WA Article
+  // 8.5.5 has elapsed, so the diver has begun their dive.
   if (shotClockExpired.value) return 'diving'
   return 'ready'
 })
@@ -145,12 +146,17 @@ const nextBtnTitle = computed(() => {
 })
 
 // =============================================================
-// SHOT CLOCK — 30-second WA rule timer.
+// SHOT CLOCK — World Aquatics Article 8.5.5: "If the Athlete
+// does not dive within ONE (1) MINUTE after the Referee has
+// issued a warning [per 8.5.4], the Referee will declare a
+// failed dive". The diver is given "sufficient time for
+// preparation and execution" before that warning per 8.5.4 —
+// that's a Referee judgment call, not a fixed timer — so this
+// clock represents the post-warning 60-second window.
 // Starts when a new active diver is set; operator can pause /
-// reset / extend. Plays an audible alert at 0 (browser allows
-// once we've had a user gesture, which we always do here).
+// reset / extend.
 // =============================================================
-const SHOT_CLOCK_DEFAULT = 30
+const SHOT_CLOCK_DEFAULT = 60
 const shotClock = ref(SHOT_CLOCK_DEFAULT)
 const shotClockRunning = ref(false)
 const shotClockExpired = ref(false)
@@ -196,8 +202,10 @@ function resetShotClock() {
 }
 const shotClockClass = computed(() => {
   if (shotClockExpired.value) return 'shot-clock-expired'
-  if (shotClock.value <= 5) return 'shot-clock-warn'
-  if (shotClock.value <= 10) return 'shot-clock-amber'
+  // Thresholds scaled to the 60-sec total — red at 10s,
+  // amber at 20s.
+  if (shotClock.value <= 10) return 'shot-clock-warn'
+  if (shotClock.value <= 20) return 'shot-clock-amber'
   return ''
 })
 
@@ -695,6 +703,18 @@ function patchCurrentEvent(patch) {
   if (row) Object.assign(row, patch)
 }
 
+// Randomise-animation state. While the shuffle is "running"
+// in the UI, randomiseShuffling=true and the Dive Order rows
+// re-render with names cycling through random permutations
+// every ~120ms. The actual server-side randomisation happens
+// in parallel with the animation; we hold the result back
+// until the animation duration elapses, then settle to the
+// real new order. Demoes well at pre-meet meetings — divers /
+// referees can SEE the random pick happen.
+const randomiseShuffling = ref(false)
+const randomiseShufflePreview = ref([])  // overlay roster while spinning
+let randomiseShuffleTimer = null
+
 async function randomizeStartOrder() {
   if (!currentEvent.value) return
   if (!canReorderQueue.value) {
@@ -704,8 +724,9 @@ async function randomizeStartOrder() {
   const ev = currentEvent.value
   if (!await confirmAction({
     title: 'Randomise dive order?',
-    body:  `Every diver's position in "${ev.name}" will be reshuffled across all rounds.`,
+    body:  `Every diver's position in "${ev.name}" will be reshuffled across all rounds. The shuffle will animate so the room can watch the draw — leave the Dive Order panel open during the pre-meet meeting.`,
     consequences: [
+      'Animation runs for ~3 seconds before the final order locks in',
       'You can re-run randomise as many times as you like before sign-off',
       'Manual reordering after this overrides the random order',
     ],
@@ -713,12 +734,65 @@ async function randomizeStartOrder() {
     confirmKind:  'warn',
   })) return
   orderBusy.value = true
+
+  // Force the Dive Order panel open if it's collapsed — the
+  // animation is the whole point.
+  diveOrderOpen.value = true
+
+  // ---- Start the shuffle animation ----------------------
+  // We rotate through random permutations of the existing
+  // roster every ~120ms. Each tick, the roster renders with
+  // names in a different random order, so the viewer sees a
+  // "spinning" reel effect. The animation overlay is just
+  // randomiseShufflePreview which the template uses in place
+  // of `roster` while randomiseShuffling is true.
+  const ANIM_MS = 2500
+  const TICK_MS = 120
+  randomiseShuffling.value = true
+  // Snapshot the existing roster so each tick can shuffle a
+  // copy without touching the real one.
+  const baseRoster = roster.value.map(r => ({ ...r }))
+  function shuffleTick() {
+    // Fisher-Yates per round_number bucket so spectators see
+    // shuffling within each round (rather than rounds mixing).
+    const byRound = new Map()
+    for (const r of baseRoster) {
+      const key = r.round_number
+      if (!byRound.has(key)) byRound.set(key, [])
+      byRound.get(key).push({ ...r })
+    }
+    const shuffled = []
+    const sortedRounds = [...byRound.keys()].sort((a, b) => a - b)
+    for (const rn of sortedRounds) {
+      const arr = byRound.get(rn)
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[arr[i], arr[j]] = [arr[j], arr[i]]
+      }
+      // Re-stamp display_order so the rendered row numbers
+      // also cycle (1, 2, 3…) — looks like a real reel.
+      arr.forEach((row, idx) => {
+        row.display_order = idx + 1
+        row.round_order = idx + 1
+      })
+      shuffled.push(...arr)
+    }
+    randomiseShufflePreview.value = shuffled
+  }
+  shuffleTick()
+  randomiseShuffleTimer = setInterval(shuffleTick, TICK_MS)
+
   try {
-    await auth.apiFetch(`/api/events/${ev.id}/dive-lists/randomize`, {
-      method: 'POST',
-    })
-    // Re-pull the roster so the new display_order takes effect.
-    const fresh = await auth.apiFetch(`/api/events/${ev.id}/roster`)
+    // Kick off the server-side shuffle in parallel with the
+    // animation so we don't waste real time on cosmetic delay.
+    const [, fresh] = await Promise.all([
+      auth.apiFetch(`/api/events/${ev.id}/dive-lists/randomize`, { method: 'POST' }),
+      // Hold the animation for at least ANIM_MS even if the
+      // server returns faster.
+      new Promise((resolve) => setTimeout(resolve, ANIM_MS)).then(() =>
+        auth.apiFetch(`/api/events/${ev.id}/roster`),
+      ),
+    ])
     roster.value = fresh
     // currentIndex no longer points at a meaningful row; reset it
     // and let the operator re-pick the active diver.
@@ -734,6 +808,12 @@ async function randomizeStartOrder() {
   } catch (err) {
     showError('Randomise failed: ' + err.message)
   } finally {
+    if (randomiseShuffleTimer) {
+      clearInterval(randomiseShuffleTimer)
+      randomiseShuffleTimer = null
+    }
+    randomiseShuffling.value = false
+    randomiseShufflePreview.value = []
     orderBusy.value = false
   }
 }
@@ -1916,6 +1996,15 @@ const queueSearch = ref('')
 const queueRoundFilter = ref(null)   // null = all rounds
 
 const filteredRoster = computed(() => {
+  // While the randomise animation is running, render the
+  // shuffle-preview overlay verbatim — no search/filter
+  // applied (the spectator-facing draw should show every
+  // diver as they cycle through positions).
+  if (randomiseShuffling.value) {
+    return randomiseShufflePreview.value.map((r, originalIdx) =>
+      ({ ...r, originalIdx, _shuffling: true }),
+    )
+  }
   const term = queueSearch.value.trim().toLowerCase()
   return roster.value
     .map((r, originalIdx) => ({ ...r, originalIdx }))
@@ -2317,7 +2406,7 @@ function setActive(idx) {
   })
   resetJudgeTiles()
   updateNextButton(false)
-  // Reset + auto-start the 30-second shot clock for this diver.
+  // Reset + auto-start the 60-second shot clock for this diver.
   // Operator can pause / extend if needed (warm-up, equipment).
   // activeStatus is a computed that derives off scoresThisRound +
   // shotClockExpired — both reset above, so the status falls
@@ -3016,10 +3105,10 @@ onUnmounted(() => {
             <div v-if="currentActive" :class="['shot-clock', shotClockClass]">
               <button class="shot-clock-face" @click="pauseShotClock"
                       :title="shotClockRunning
-                        ? '30-second WA shot clock — click to pause'
+                        ? '60-second WA post-warning shot clock — click to pause'
                         : (shotClockExpired
                           ? 'Shot clock expired — diver should have begun by now'
-                          : '30-second WA shot clock — click to resume')">
+                          : '60-second WA post-warning shot clock — click to resume')">
                 <span class="shot-clock-num">{{ shotClock }}</span>
                 <span class="shot-clock-unit">s</span>
               </button>
@@ -3681,6 +3770,16 @@ onUnmounted(() => {
             </span>
           </button>
           <div v-if="diveOrderOpen" class="dive-order-body">
+            <!-- Randomise-animation banner — shown while the
+                 shuffle is "spinning" the rows so the room can
+                 watch the draw at the pre-meet meeting. -->
+            <div v-if="randomiseShuffling" class="randomise-banner">
+              <span class="randomise-banner-icon">🎲</span>
+              <span class="randomise-banner-text">
+                Drawing dive order…
+                <span class="randomise-banner-sub">Watch the draw — final order locks in shortly</span>
+              </span>
+            </div>
             <!-- Search + jump-to-round chips -->
             <div class="queue-filters">
               <input
@@ -3719,6 +3818,7 @@ onUnmounted(() => {
                 dragRosterIdx === item.originalIdx ? 'is-dragging' : '',
                 dragOverRosterIdx === item.originalIdx ? 'is-drop-target' : '',
                 !canReorderQueue ? 'is-locked' : '',
+                item._shuffling ? 'is-shuffling' : '',
               ]"
               :draggable="canReorderQueue && !item.withdrawn_at"
               @dragstart="onRosterDragStart(item.originalIdx, $event)"
@@ -4806,6 +4906,47 @@ onUnmounted(() => {
 .roster-item { padding: 0.4rem 0.6rem; background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; transition: border-color 0.15s; margin-bottom: 0.3rem; }
 .roster-item:hover { border-color: var(--border-2); }
 .roster-item.active { background: var(--cyan-dim); border-color: var(--cyan); }
+
+/* Randomise-draw animation. Each tick of the shuffle (~120ms)
+   re-renders the rows in a new permutation; this transition
+   smooths the row re-position with a quick translate so the
+   eye perceives a "spinning" reel instead of a snap-cut. The
+   .is-shuffling marker also tints the row so the operator can
+   tell the rows aren't yet final. */
+.roster-item.is-shuffling {
+  border-color: var(--cyan);
+  background: rgba(0, 224, 255, 0.05);
+  animation: rd-row-pulse 0.25s ease-out;
+}
+@keyframes rd-row-pulse {
+  0%   { transform: translateY(-3px); opacity: 0.7; }
+  100% { transform: translateY(0);    opacity: 1;   }
+}
+
+/* Drawing dive order banner — cyan accent, lives at the top
+   of the Dive Order body while randomiseShuffling is true. */
+.randomise-banner {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.55rem 0.75rem; margin-bottom: 0.6rem;
+  border: 1px solid var(--cyan);
+  background: rgba(0, 224, 255, 0.08);
+  border-radius: var(--radius-sm);
+  animation: rd-banner-glow 1.2s ease-in-out infinite alternate;
+}
+.randomise-banner-icon { font-size: 22px; }
+.randomise-banner-text {
+  display: flex; flex-direction: column; gap: 0.1rem;
+  font-family: var(--font-display); font-size: 13px; font-weight: 700;
+  letter-spacing: 0.04em; color: var(--cyan);
+}
+.randomise-banner-sub {
+  font-family: var(--font-mono); font-size: 11px; font-weight: normal;
+  letter-spacing: 0; color: var(--text-2);
+}
+@keyframes rd-banner-glow {
+  from { box-shadow: 0 0 0 rgba(0, 224, 255, 0); }
+  to   { box-shadow: 0 0 12px rgba(0, 224, 255, 0.35); }
+}
 .roster-name { font-family: var(--font-display); font-size: 12px; font-weight: 700; color: var(--text); line-height: 1.2; }
 .roster-order {
   /* Same diving-position chip as the active diver + history
