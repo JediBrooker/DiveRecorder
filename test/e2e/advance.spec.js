@@ -146,7 +146,7 @@ test("advance: preview + status gates + promote", async ({ request }) => {
   await setup.deleteOrg(orgId);
 });
 
-// Migration 041: post-advance dive-list lock (WA DD 7.4 / 7.5)
+// Migration 041: post-advance dive-list lock (WA Rule 2.1.3 (dive-list submission window))
 // + confirm-list endpoint. Verifies:
 //   * the advance endpoint stamps dive_list_locks_at on the
 //     child event (and respects lock_minutes from the body)
@@ -286,21 +286,25 @@ test("advance: dive-list lock + confirm-list endpoint", async ({ request }) => {
   await setup.deleteOrg(orgId);
 });
 
-// Reserve replacement — World Aquatics rule DD 9.1 / 9.2: when
-// a primary withdraws before the event starts, the reserve takes
-// the WITHDRAWN diver's start position so the dive order is
-// preserved (vs. just being slotted at the back of the queue).
+// Reserve replacement in a final — World Aquatics Rule 2.1.3
+// (reverse-rank start order) + Rule 2.1.6 (advancement). The
+// reserve has the worst qualifying rank in the new field, so
+// they always dive FIRST (display_order=1). Every primary
+// qualified worse than the replaced diver — i.e., currently
+// has a smaller display_order than the replaced diver —
+// shifts +1 to make room. Highest qualifier still dives last.
 //
-// Test:
-//   1. Create an event with 2 primaries (display_order 1, 2)
-//      and 1 reserve (reserve_position=1, no display_order).
-//   2. Hit promote with `replaces_competitor_id` = primary 1.
-//   3. Verify primary 1 is now withdrawn (withdrawn_at stamped,
-//      display_order cleared) AND the reserve has primary 1's
-//      original display_order=1.
-//   4. List endpoint should now return 0 reserves + 1 withdrawn.
+// Test setup: 3 primaries at DO 1, 2, 3 + 1 reserve (no DO).
+// Under reverse-rank that means semi rank #3 → DO=1,
+// semi rank #2 → DO=2, semi rank #1 → DO=3.
+//
+// Replace the MIDDLE primary (DO=2, semi rank #2). Expected:
+//   * Reserve gets DO=1 (worst qualifier in new field).
+//   * The diver formerly at DO=1 shifts to DO=2.
+//   * The diver at DO=3 stays at DO=3.
+//   * Replaced primary withdrawn with cleared DO.
 
-test("advance: reserve replaces a withdrawn primary, inherits start order", async ({
+test("advance: reserve replacing a final primary takes DO=1 + shifts others up (Rule 2.1.3)", async ({
   request,
 }) => {
   test.setTimeout(45_000);
@@ -309,18 +313,19 @@ test("advance: reserve replaces a withdrawn primary, inherits start order", asyn
 
   const event = await setup.createEvent(request, {
     adminToken,
-    name: "E2E Reserve Replace",
+    name: "E2E Reserve Replace Final",
     height: "3m",
     number_of_judges: 5,
     total_rounds: 1,
     event_format: "final",
   });
 
-  // Insert two primaries (display_order 1 + 2) and one reserve.
+  // Insert three primaries at DO 1, 2, 3 + one reserve.
   const fwd = await setup.pickDiveId({ height: 3.0, dive_code: "101", position: "B" });
-  const primaryA = await setup.insertUser({ orgId, role: "diver", fullName: "Primary A" });
-  const primaryB = await setup.insertUser({ orgId, role: "diver", fullName: "Primary B" });
-  const reserve  = await setup.insertUser({ orgId, role: "diver", fullName: "Reserve One" });
+  const semiRank3 = await setup.insertUser({ orgId, role: "diver", fullName: "Semi Rank 3" });
+  const semiRank2 = await setup.insertUser({ orgId, role: "diver", fullName: "Semi Rank 2" });
+  const semiRank1 = await setup.insertUser({ orgId, role: "diver", fullName: "Semi Rank 1" });
+  const reserve   = await setup.insertUser({ orgId, role: "diver", fullName: "Reserve One" });
 
   await setup.pool.query(
     `INSERT INTO competitor_dive_lists
@@ -328,79 +333,132 @@ test("advance: reserve replaces a withdrawn primary, inherits start order", asyn
      VALUES
        ($1, $2, $3, 1, 1, FALSE, NULL),
        ($1, $4, $3, 1, 2, FALSE, NULL),
-       ($1, $5, $3, 1, NULL, TRUE, 1)`,
-    [event.id, primaryA.userId, fwd, primaryB.userId, reserve.userId],
+       ($1, $5, $3, 1, 3, FALSE, NULL),
+       ($1, $6, $3, 1, NULL, TRUE, 1)`,
+    [event.id, semiRank3.userId, fwd, semiRank2.userId, semiRank1.userId, reserve.userId],
   );
 
-  // Sanity: reserves list shows 1 reserve + 0 withdrawn + 2 active.
-  const before = await request.get(`/api/events/${event.id}/reserves`, {
-    headers: { Authorization: `Bearer ${adminToken}` },
-  });
-  const beforeBody = await before.json();
-  expect(beforeBody.reserves).toHaveLength(1);
-  expect(beforeBody.withdrawn).toHaveLength(0);
-  expect(beforeBody.active).toHaveLength(2);
-
-  // Replace primary A with the reserve.
+  // Replace the MIDDLE primary (semi rank #2 at DO=2).
   const promoteRes = await request.post(
     `/api/events/${event.id}/reserves/${reserve.userId}/promote`,
     {
       headers: { Authorization: `Bearer ${adminToken}` },
-      data: { replaces_competitor_id: primaryA.userId },
+      data: { replaces_competitor_id: semiRank2.userId },
     },
   );
   expect(promoteRes.status()).toBe(200);
   const promoteBody = await promoteRes.json();
-  expect(promoteBody.promoted).toBe(true);
-  // The reserve takes primary A's display_order, NOT the back
-  // of the queue (which would be 3).
+  // Reserve dives first per Rule 2.1.3.
   expect(promoteBody.display_order).toBe(1);
-  expect(promoteBody.replaced_competitor_id).toBe(primaryA.userId);
-  expect(promoteBody.replaced_name).toBe("Primary A");
+  expect(promoteBody.replaced_name).toBe("Semi Rank 2");
 
-  // Verify the data flipped correctly.
   const verify = await setup.pool.query(
     `SELECT competitor_id, display_order, is_reserve, withdrawn_at
        FROM competitor_dive_lists
-      WHERE event_id = $1
-      ORDER BY display_order NULLS LAST`,
+      WHERE event_id = $1`,
     [event.id],
   );
-  // Reserve now has display_order=1, is_reserve=false.
-  const reserveRow = verify.rows.find(r => r.competitor_id === reserve.userId);
+  const reserveRow   = verify.rows.find(r => r.competitor_id === reserve.userId);
+  const wasDo1Row    = verify.rows.find(r => r.competitor_id === semiRank3.userId);
+  const replacedRow  = verify.rows.find(r => r.competitor_id === semiRank2.userId);
+  const wasDo3Row    = verify.rows.find(r => r.competitor_id === semiRank1.userId);
+
+  // Reserve now competes at DO=1 (dives first).
   expect(Number(reserveRow.display_order)).toBe(1);
   expect(reserveRow.is_reserve).toBe(false);
-  expect(reserveRow.withdrawn_at).toBeNull();
-  // Primary A is now withdrawn with cleared display_order.
-  const aRow = verify.rows.find(r => r.competitor_id === primaryA.userId);
-  expect(aRow.display_order).toBeNull();
-  expect(aRow.withdrawn_at).not.toBeNull();
-  // Primary B unchanged at display_order=2.
-  const bRow = verify.rows.find(r => r.competitor_id === primaryB.userId);
-  expect(Number(bRow.display_order)).toBe(2);
+  // Diver formerly at DO=1 shifted to DO=2 (the replaced
+  // diver was qualified BETTER than them, so when that diver
+  // leaves the field, this diver moves UP one position in the
+  // reverse-rank start order).
+  expect(Number(wasDo1Row.display_order)).toBe(2);
+  // Replaced primary withdrawn.
+  expect(replacedRow.display_order).toBeNull();
+  expect(replacedRow.withdrawn_at).not.toBeNull();
+  // Top qualifier unchanged at DO=3 (still dives last).
+  expect(Number(wasDo3Row.display_order)).toBe(3);
 
-  // Reserves list now shows 0 reserves + 1 withdrawn + 2 active
-  // (primary B + the just-promoted reserve).
+  // Diver-side list-status flips for the promoted reserve.
+  const reserveLogin = await setup.loginAs(request, reserve.username);
+  const status = await request.get(
+    `/api/competitor/list-status?event_id=${event.id}`,
+    { headers: { Authorization: `Bearer ${reserveLogin.token}` } },
+  );
+  const statusBody = await status.json();
+  expect(statusBody.is_reserve).toBe(false);
+
+  // Reserves list now shows 0 reserves + 1 withdrawn + 3 active.
   const after = await request.get(`/api/events/${event.id}/reserves`, {
     headers: { Authorization: `Bearer ${adminToken}` },
   });
   const afterBody = await after.json();
   expect(afterBody.reserves).toHaveLength(0);
   expect(afterBody.withdrawn).toHaveLength(1);
-  expect(afterBody.withdrawn[0].full_name).toBe("Primary A");
-  expect(afterBody.active).toHaveLength(2);
+  expect(afterBody.withdrawn[0].full_name).toBe("Semi Rank 2");
+  expect(afterBody.active).toHaveLength(3);
 
-  // Diver-side list-status: the promoted reserve is now NOT a
-  // reserve.
-  const reserveLogin = await setup.loginAs(request, reserve.username);
-  const status = await request.get(
-    `/api/competitor/list-status?event_id=${event.id}`,
-    { headers: { Authorization: `Bearer ${reserveLogin.token}` } },
+  await setup.deleteOrg(orgId);
+});
+
+// Reserve replacement in a SEMI-FINAL — semis don't follow
+// the reverse-rank rule, so the legacy inherit-the-withdrawn-
+// diver's-slot path applies. Reserve takes the withdrawn
+// primary's display_order verbatim; no shift.
+test("advance: reserve replacing a semi-final primary inherits the slot (no shift)", async ({
+  request,
+}) => {
+  test.setTimeout(45_000);
+
+  const { orgId, adminToken } = await setup.createOrgAndAdmin(request);
+
+  const event = await setup.createEvent(request, {
+    adminToken,
+    name: "E2E Reserve Replace Semi",
+    height: "3m",
+    number_of_judges: 5,
+    total_rounds: 1,
+    event_format: "semifinal",
+  });
+
+  const fwd = await setup.pickDiveId({ height: 3.0, dive_code: "101", position: "B" });
+  const a = await setup.insertUser({ orgId, role: "diver", fullName: "Semi A" });
+  const b = await setup.insertUser({ orgId, role: "diver", fullName: "Semi B" });
+  const c = await setup.insertUser({ orgId, role: "diver", fullName: "Semi C" });
+  const reserve = await setup.insertUser({ orgId, role: "diver", fullName: "Semi Reserve" });
+  await setup.pool.query(
+    `INSERT INTO competitor_dive_lists
+       (event_id, competitor_id, dive_id, round_number, display_order, is_reserve, reserve_position)
+     VALUES
+       ($1, $2, $3, 1, 1, FALSE, NULL),
+       ($1, $4, $3, 1, 2, FALSE, NULL),
+       ($1, $5, $3, 1, 3, FALSE, NULL),
+       ($1, $6, $3, 1, NULL, TRUE, 1)`,
+    [event.id, a.userId, fwd, b.userId, c.userId, reserve.userId],
   );
-  expect(status.status()).toBe(200);
-  const statusBody = await status.json();
-  expect(statusBody.entered).toBe(true);
-  expect(statusBody.is_reserve).toBe(false);
+
+  // Replace middle primary (DO=2). Semi inherits-slot path
+  // means the reserve gets DO=2 directly; the others stay put.
+  const promoteRes = await request.post(
+    `/api/events/${event.id}/reserves/${reserve.userId}/promote`,
+    {
+      headers: { Authorization: `Bearer ${adminToken}` },
+      data: { replaces_competitor_id: b.userId },
+    },
+  );
+  expect(promoteRes.status()).toBe(200);
+  expect((await promoteRes.json()).display_order).toBe(2);
+
+  const verify = await setup.pool.query(
+    `SELECT competitor_id, display_order
+       FROM competitor_dive_lists
+      WHERE event_id = $1 AND withdrawn_at IS NULL AND is_reserve = FALSE`,
+    [event.id],
+  );
+  const orderByName = Object.fromEntries(
+    verify.rows.map(r => [r.competitor_id, Number(r.display_order)]),
+  );
+  expect(orderByName[a.userId]).toBe(1);   // unchanged
+  expect(orderByName[reserve.userId]).toBe(2);
+  expect(orderByName[c.userId]).toBe(3);   // unchanged
 
   await setup.deleteOrg(orgId);
 });

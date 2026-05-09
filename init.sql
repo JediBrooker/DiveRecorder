@@ -354,7 +354,7 @@ CREATE TABLE public.events (
     is_mixed_height           boolean NOT NULL DEFAULT FALSE,
     -- Migration 041: post-advance dive-list lock. Stamped by
     -- the advance endpoint (NOW() + lock_minutes, default 30
-    -- per WA DD 7.4). Past this moment the dive-list editor
+    -- per WA Rule 2.1.3). Past this moment the dive-list editor
     -- closes — divers can't change their list, the inherited
     -- one rides. Meet manager bypass via /roster late-entry.
     dive_list_locks_at        timestamptz,

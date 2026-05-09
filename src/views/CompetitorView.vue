@@ -629,7 +629,7 @@ watch(currentEvent, async (ev) => {
         Entries close {{ new Date(currentEvent.entries_close_at).toLocaleString() }}.
       </p>
 
-      <!-- Reserve banner (migration 040, WA DD 9.1 / 9.2). Shown
+      <!-- Reserve banner (migration 040, WA Rule 2.1.3 / 2.1.6). Shown
            when the diver advanced as a reserve rather than a
            primary. Reserves don't compete unless the meet
            manager promotes them, but they stay editable so
@@ -643,14 +643,16 @@ watch(currentEvent, async (ev) => {
         </div>
         <p class="reserve-banner-body">
           You don't compete unless the meet manager promotes you (e.g. a primary
-          withdraws). Per <strong>World Aquatics rule DD 9.1</strong> a promoted
-          reserve dives in the withdrawn diver's start position. Keep your dive
-          list current — confirm or edit it before the lock and you're ready to
-          compete the moment you're promoted.
+          withdraws — <strong>Rule 2.1.6</strong>). If promoted into a final,
+          you'll dive <strong>first</strong> in the start order — per
+          <strong>Rule 2.1.3</strong> the lowest-ranked qualifier in the field
+          dives first, and as a reserve you're that diver. You can change your
+          dive sheet up to 30 minutes before the event begins, so keep your
+          list current and you're ready the moment you're promoted.
         </p>
       </div>
 
-      <!-- Post-advance lock banner (migration 041, WA DD 7.4 /
+      <!-- Post-advance lock banner (migration 041, WA Rule 2.1.3 /
            7.5). Shown when the meet manager has stamped a
            dive_list_locks_at on this event — typically a final
            or semi-final right after the prior stage was
