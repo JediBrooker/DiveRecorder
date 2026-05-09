@@ -1302,6 +1302,12 @@ module.exports = function createControlRoomRouter({
         return res.status(400).json({ error: "Competitor must belong to this organisation" });
       }
 
+      // xmax=0 on the returning row distinguishes a fresh
+      // INSERT from an ON-CONFLICT UPDATE — the audit row's
+      // action differs (late_entry_added vs dive_edited) so
+      // a referee scrolling the audit log can tell whether
+      // a roster row was added (e.g. walk-up entry) or an
+      // existing diver's dive was changed mid-event.
       const r = await pool.query(
         `INSERT INTO competitor_dive_lists
            (event_id, competitor_id, dive_id, round_number, partner_id, team_id)
@@ -1311,31 +1317,32 @@ module.exports = function createControlRoomRouter({
                        partner_id = EXCLUDED.partner_id,
                        team_id = EXCLUDED.team_id,
                        withdrawn_at = NULL
-         RETURNING id`,
+         RETURNING id, (xmax = 0) AS was_inserted`,
         [req.params.id, competitor_id, dive_id, round_number, partner_id || null, team_id || null],
       );
-      // Audit the late entry. Logged as roster.late_entry_added
-      // because this endpoint is used both for original entry
-      // and after entries close (the "late" override). The
-      // round_number tells the audit reviewer which round is
-      // affected; entity_id points at the new dive_list row.
+      const wasInserted = r.rows[0].was_inserted === true;
       await recordAudit(pool, {
         ...auditFromReq(req),
         org_id:      eventOrgId,
         entity_type: "roster_entry",
         entity_id:   r.rows[0].id,
         entity_name: u.rows[0].full_name,
-        action:      "roster.late_entry_added",
+        action:      wasInserted ? "roster.late_entry_added" : "roster.dive_edited",
         metadata: {
           event_id:      ev.rows[0].id,
           event_name:    ev.rows[0].name,
           competitor_id,
           round_number,
+          dive_id,
           partner_id:    partner_id || null,
           team_id:       team_id || null,
         },
       });
-      res.status(201).json({ ok: true, dive_list_id: r.rows[0].id });
+      res.status(wasInserted ? 201 : 200).json({
+        ok: true,
+        dive_list_id: r.rows[0].id,
+        action: wasInserted ? "added" : "edited",
+      });
     } catch (err) {
       console.error("[Late Entry Error]", err.message);
       res.status(500).json({ error: "Internal server error" });

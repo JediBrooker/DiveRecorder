@@ -1604,6 +1604,93 @@ async function refreshStandingsPreview() {
 // projection logic.
 const standingsTop5 = computed(() => standingsPreview.value.slice(0, 5))
 
+// Edit-Dive modal — meet manager swaps a roster row's dive
+// mid-event (typo recovery, Statement-of-Dives change, etc.).
+// Per WA Article 6.7.4 / 6.8 the operator (acting as the
+// athlete's representative or under Referee oversight) can
+// submit a change-of-dives form. Wired through the existing
+// POST /api/events/:id/roster endpoint, which now audits as
+// `roster.dive_edited` (vs. `late_entry_added` for new rows).
+const diveDirectory = ref([])
+const editDiveOpen   = ref(false)
+const editDiveTarget = ref(null)   // { dive_list_id, competitor_id, full_name, round_number, current_code }
+const editDiveSearch = ref("")
+const editDiveBusy   = ref(false)
+const editDiveErr    = ref("")
+async function loadDiveDirectory() {
+  try {
+    diveDirectory.value = await auth.apiFetch("/api/dive-directory")
+  } catch {
+    diveDirectory.value = []
+  }
+}
+function openEditDive(item) {
+  editDiveTarget.value = {
+    dive_list_id:    item.dive_list_id,
+    competitor_id:   item.competitor_id,
+    full_name:       item.full_name,
+    round_number:    item.round_number,
+    current_code:    item.dive_code ? `${item.dive_code}${item.position || ""}` : null,
+    current_dive_id: item.dive_id || null,
+  }
+  editDiveSearch.value = ""
+  editDiveErr.value    = ""
+  editDiveOpen.value   = true
+}
+function closeEditDive() {
+  editDiveOpen.value = false
+  editDiveTarget.value = null
+  editDiveSearch.value = ""
+  editDiveErr.value = ""
+}
+const editDiveResults = computed(() => {
+  if (!editDiveTarget.value) return []
+  const term = editDiveSearch.value.toLowerCase().trim()
+  // Filter by the event's height when set (non-mixed events).
+  // Mixed events / no-height events show every dive.
+  const evHeight = currentEvent.value?.is_mixed_height
+    ? null
+    : (currentEvent.value?.height ? parseFloat(currentEvent.value.height) : null)
+  return diveDirectory.value
+    .filter((d) => {
+      if (evHeight != null && Number(d.height) !== evHeight) return false
+      if (!term) return true
+      const code = `${d.dive_code}${d.position || ""}`.toLowerCase()
+      return code.includes(term) || (d.description || "").toLowerCase().includes(term)
+    })
+    .slice(0, 25)
+})
+async function submitEditDive(diveId) {
+  if (!editDiveTarget.value || !currentEvent.value) return
+  editDiveBusy.value = true
+  editDiveErr.value  = ""
+  try {
+    const r = await auth.apiFetch(
+      `/api/events/${currentEvent.value.id}/roster`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          competitor_id: editDiveTarget.value.competitor_id,
+          dive_id:       diveId,
+          round_number:  editDiveTarget.value.round_number,
+        }),
+      },
+    )
+    showSuccess(
+      `Updated ${editDiveTarget.value.full_name}'s round ${editDiveTarget.value.round_number} dive.`,
+    )
+    closeEditDive()
+    // Refresh the event-side state so the change shows in the
+    // queue + Up Next + standings immediately.
+    await onEventChange()
+    void r
+  } catch (err) {
+    editDiveErr.value = err.message || "Failed to save"
+  } finally {
+    editDiveBusy.value = false
+  }
+}
+
 // Reserves panel state (migration 040 + Article 4.1.8 / 4.1.10 / 4.1.12 reserve
 // replacement). Loaded from /api/events/:id/reserves on event
 // change + after each promote. Operator picks a withdrawn or
@@ -2528,6 +2615,8 @@ const medals = ['🥇', '🥈', '🥉']
 
 onMounted(async () => {
   events.value = await auth.apiFetch('/api/events')
+  // Dive directory feeds the Edit-Dive modal's picker.
+  loadDiveDirectory()
   // Honour /control?event=<id> so deep-links from Meet Manager
   // (the per-event "Open Control Room" primary button) land on
   // the right event preselected, instead of dumping the
@@ -3685,6 +3774,12 @@ onUnmounted(() => {
                           :disabled="!canReorderQueue || item.originalIdx >= roster.length - 1 || roster[item.originalIdx + 1].round_number !== item.round_number"
                           @click.stop="reorderRosterRow(item.originalIdx, 'down')"
                           :title="canReorderQueue ? 'Move down within round' : 'Order locked — event has started'">▼</button>
+                  <button class="roster-ctrl roster-edit-dive"
+                          :disabled="!!item.withdrawn_at"
+                          @click.stop="openEditDive(item)"
+                          title="Edit this round's dive (mid-event change-of-dives — WA Article 6.7.4)">
+                    ✎
+                  </button>
                   <button :class="['roster-ctrl', item.withdrawn_at ? 'roster-reinstate' : 'roster-withdraw']"
                           @click.stop="withdrawRosterRow(item.originalIdx)"
                           :title="item.withdrawn_at ? 'Reinstate' : 'Withdraw / scratch'">
@@ -3698,6 +3793,54 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Edit Dive modal — meet manager swaps a roster row's
+       dive mid-event. WA Article 6.7.4 / 6.8: changes go via
+       the official change-of-dives form, signed by the athlete
+       or their representative; the operator acts as the
+       representative under Referee oversight. The endpoint
+       audits as `roster.dive_edited`. -->
+  <div v-if="editDiveOpen" class="lb-backdrop" @click="closeEditDive"></div>
+  <div v-if="editDiveOpen" class="lb-modal edit-dive-modal" @click.stop>
+    <div class="lb-header">
+      <div>
+        <div class="lb-title">Edit Dive</div>
+        <div class="lb-event">
+          {{ editDiveTarget?.full_name }}
+          <span class="edit-dive-round">· Round {{ editDiveTarget?.round_number }}</span>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" @click="closeEditDive">Cancel</button>
+    </div>
+    <p class="hint" style="margin: 0.75rem 0 1rem">
+      Currently:
+      <strong v-if="editDiveTarget?.current_code">{{ editDiveTarget.current_code }}</strong>
+      <span v-else style="opacity:0.6">(no dive set)</span>.
+      Pick a replacement below — the audit log records this as a
+      change-of-dives (WA Article 6.7.4).
+    </p>
+    <input
+      class="input"
+      type="text"
+      v-model="editDiveSearch"
+      placeholder="Search code or description (e.g. 109C)…"
+      style="margin-bottom: 0.75rem"
+      autofocus
+    >
+    <div v-if="editDiveErr" class="msg msg-error" style="margin-bottom: 0.5rem">{{ editDiveErr }}</div>
+    <div class="edit-dive-results">
+      <p v-if="!editDiveResults.length" class="hint" style="text-align:center">No dives match.</p>
+      <button v-for="d in editDiveResults" :key="d.id"
+              type="button"
+              class="edit-dive-result"
+              :disabled="editDiveBusy"
+              @click="submitEditDive(d.id)">
+        <span class="edit-dive-code">{{ d.dive_code }}{{ d.position }}</span>
+        <span class="edit-dive-meta">{{ d.height }}m · DD {{ d.dd }}</span>
+        <span class="edit-dive-desc">{{ d.description }}</span>
+      </button>
     </div>
   </div>
 
@@ -5193,6 +5336,43 @@ onUnmounted(() => {
 .roster-withdraw:hover { border-color: var(--red); color: var(--red); }
 .roster-reinstate {
   border-color: rgba(245,158,11,0.4); color: var(--amber);
+}
+.roster-edit-dive:hover:not(:disabled) {
+  border-color: var(--cyan); color: var(--cyan);
+}
+
+/* Edit-Dive modal — sized for the picker. Two-column result
+   row: code + height/DD chip + description. */
+.edit-dive-modal { max-width: 560px; }
+.edit-dive-round { color: var(--cyan); font-weight: 600; }
+.edit-dive-results {
+  display: flex; flex-direction: column; gap: 0.3rem;
+  max-height: 360px; overflow-y: auto;
+  padding-right: 0.25rem;
+}
+.edit-dive-result {
+  display: grid; grid-template-columns: 60px 100px 1fr;
+  align-items: center; gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); cursor: pointer;
+  text-align: left; font: inherit; color: var(--text);
+  width: 100%;
+}
+.edit-dive-result:hover:not(:disabled) {
+  border-color: var(--cyan); background: rgba(0, 224, 255, 0.06);
+}
+.edit-dive-result:disabled { opacity: 0.5; cursor: default; }
+.edit-dive-code {
+  font-family: var(--font-mono); font-weight: bold; color: var(--cyan);
+  font-size: 13px;
+}
+.edit-dive-meta {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
+}
+.edit-dive-desc {
+  font-size: 12px; color: var(--text-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 .roster-item.withdrawn { opacity: 0.45; }

@@ -494,7 +494,10 @@ const advanceParent      = ref(null)
 const advanceChild       = ref(null)
 const advanceRanked      = ref([])
 const advanceTopN        = ref(12)
-const advanceReserves    = ref(2)
+// Default 4 reserves — typical at WA-sanctioned events so the
+// referee has a buffer if multiple primaries withdraw before
+// the next stage begins. Operator can override per advance.
+const advanceReserves    = ref(4)
 const advanceDiveOrder   = ref('inherit')   // 'inherit' | 'reverse' | 'random'
 const advanceLoading     = ref(false)
 const advanceErr         = ref('')
@@ -509,7 +512,7 @@ async function openAdvanceModal(ev) {
   advanceRanked.value    = []
   advanceErr.value       = ''
   advanceTopN.value      = ev.advance_count || 12
-  advanceReserves.value  = 2
+  advanceReserves.value  = 4
   // Default to 'inherit' for semifinal targets (carry the prelim
   // start order forward minus non-progressors) and 'reverse' for
   // final targets (top diver dives last — the showcase ordering).
@@ -2544,7 +2547,8 @@ onUnmounted(() => {
             <span class="label">Reserves</span>
             <input class="input" type="number" min="0" max="50" v-model="advanceReserves">
             <span class="hint" style="margin-top:0.25rem">
-              Reserves carry forward but don't compete unless promoted from Control Room.
+              Default 4 reserves (WA-typical buffer). Reserves carry forward
+              but don't compete unless promoted from Control Room.
             </span>
           </label>
         </div>
