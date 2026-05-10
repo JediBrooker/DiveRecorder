@@ -3123,12 +3123,12 @@ onUnmounted(() => {
         >{{ finaliseBtnText }}</button>
         <!-- Judge Ranking Analysis — only relevant for Completed
              events (the matrix is meaningless until every dive is
-             in). v1 supports individual events only; synchro/team
-             events get a 400 from the endpoint and the modal
-             renders a friendly explanation. -->
+             in). Available on individual / synchro_pair / team
+             alike; the modal's component handles the type
+             differences (pairs render lead & partner; teams
+             render team name; individual is the simple case). -->
         <button
-          v-if="currentEvent?.status === 'Completed'
-                && currentEvent?.event_type === 'individual'"
+          v-if="currentEvent?.status === 'Completed'"
           class="btn-finalise btn-judge-ranking"
           v-tip="'Show how the standings would change if every judge had scored unanimously like one specific judge'"
           @click="judgeRankingOpen = true"

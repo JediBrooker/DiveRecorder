@@ -3,26 +3,25 @@
  * judge had scored unanimously like one specific judge?"
  *
  * For a Completed event, renders a matrix:
- *   rows    = divers, ordered by their ACTUAL panel-trimmed rank
- *   columns = Actual rank + total, followed by one column per judge
- *   cells   = the diver's rank under that judge's hypothetical
- *             unanimous panel
+ *   rows    = competing entities, ordered by their actual rank:
+ *               individual events → divers
+ *               synchro_pair      → pairs (lead + partner)
+ *               team              → teams
+ *   columns = Actual (rank + total) + one column per judge
+ *   cells   = rank under that judge's hypothetical unanimous panel,
+ *             with the hypothetical total on a second line so the
+ *             magnitude is visible without hovering
  *
- * Outliers (a judge whose rank differs from actual by 2+ positions)
- * are highlighted in cyan so a viewer can scan the matrix and spot
- * the column that would have re-shuffled the podium. Hovering a cell
- * shows the underlying judge_total in a v-tip bubble.
+ * Outliers (any judge whose hypothetical rank differs from the
+ * actual rank) are highlighted in cyan so a viewer can scan the
+ * matrix and spot every disagreement at a glance. The v-tip
+ * tooltip carries the same information plus context (delta from
+ * actual + judge identity).
  *
- * Data is loaded lazily on mount via
- * /api/events/:eventId/judge-ranking-analysis. The same payload
- * also carries `per_dive_ranks` which the parent (ScoreboardView)
- * uses for the chip-tooltip enhancement; we expose it via a
- * `loaded` event so the parent doesn't have to hit the endpoint a
- * second time.
- *
- * v1 individual-only. For synchro_pair / team events the API
- * returns 400; we render a friendly explanation instead of the
- * matrix.
+ * The payload is fetched eagerly on mount. The parent
+ * (ScoreboardView) consumes the same payload via the `loaded`
+ * event to feed the chip-tooltip enhancement, so the endpoint
+ * isn't hit twice.
  */
 import { ref, onMounted, computed, watch } from 'vue'
 
@@ -61,25 +60,44 @@ watch(() => props.eventId, load)
 const judges = computed(() => payload.value?.judges || [])
 const divers = computed(() => payload.value?.divers || [])
 
-// Highlight threshold — a judge column whose rank differs from the
-// diver's actual rank by 2+ positions is flagged as an outlier.
-// 1-rank disagreements happen all the time in tight fields; 2+
-// would have meaningfully re-shuffled the standings.
+// Outlier = any judge whose hypothetical rank disagrees with the
+// actual rank. A 1-rank swap is a real signal in this format —
+// every disagreement gets flagged so the viewer can scan the
+// matrix and see exactly where judges disagreed. Use the cell's
+// background tone (light cyan for ±1, deep cyan for ≥2) so the
+// strength of the disagreement is visible at a glance.
 function isOutlier(pj, actualRank) {
   if (pj?.rank == null) return false
-  return Math.abs(pj.rank - actualRank) >= 2
+  return pj.rank !== actualRank
+}
+function outlierStrength(pj, actualRank) {
+  if (pj?.rank == null) return ''
+  const delta = Math.abs(pj.rank - actualRank)
+  if (delta === 0) return ''
+  return delta >= 2 ? 'jra-outlier-strong' : 'jra-outlier-mild'
+}
+
+// Composite label for a row's competing entity — handles all
+// three event types so the table doesn't need branches in the
+// template. Individual → diver name. Synchro pair → "Lead &
+// Partner". Team → team name (already in full_name from the
+// server side).
+function entityLabel(d) {
+  if (d.partner_name) return `${d.full_name} & ${d.partner_name}`
+  return d.full_name
 }
 
 // Tooltip composer for a per-judge cell. v-tip renders \n as
 // newlines (white-space: pre-line in src/styles/app.css).
 function cellTip(diver, judge, pj) {
-  if (!pj || pj.rank == null) return `J${judge.judge_number} — no score for this diver`
+  if (!pj || pj.rank == null) return `J${judge.judge_number} — no score for this entity`
   const parts = []
   parts.push(`J${judge.judge_number}${judge.full_name ? ` — ${judge.full_name}` : ''}`)
-  parts.push(`Would rank ${diver.full_name} ${ordinal(pj.rank)}`)
+  parts.push(`Would rank ${entityLabel(diver)} ${ordinal(pj.rank)}`)
   parts.push(`Hypothetical total: ${Number(pj.judge_total).toFixed(2)}`)
   if (isOutlier(pj, diver.actual_rank)) {
-    parts.push(`(differs from actual rank by ${Math.abs(pj.rank - diver.actual_rank)})`)
+    const delta = Math.abs(pj.rank - diver.actual_rank)
+    parts.push(`(differs from actual by ${delta} position${delta === 1 ? '' : 's'})`)
   }
   return parts.join('\n')
 }
@@ -109,9 +127,13 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
       <div class="jra-title-block">
         <div class="jra-title">Judge Ranking Analysis</div>
         <div class="jra-subtitle">
-          Each column shows the rank each diver would hold if every
-          judge had scored unanimously like that one judge. Cyan
-          cells differ from the actual rank by 2 or more positions.
+          Each column shows the rank each
+          {{ payload?.event?.event_type === 'team' ? 'team' :
+             payload?.event?.event_type === 'synchro_pair' ? 'pair' :
+             'diver' }} would hold if every judge had scored
+          unanimously like that one judge. Cells where a judge
+          disagrees with the actual rank are tinted — pale cyan for
+          a single-position swap, bright cyan for two or more.
         </div>
       </div>
       <div class="jra-actions" v-if="payload && !error">
@@ -150,13 +172,26 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
           </tr>
         </thead>
         <tbody>
-          <tr v-for="d in divers" :key="d.competitor_id" class="jra-row">
+          <tr v-for="d in (divers || [])"
+              :key="d.team_id || d.competitor_id"
+              class="jra-row">
             <td class="jra-td jra-td-diver">
               <div class="jra-diver-name">
-                <RouterLink v-if="d.competitor_id"
+                <!-- Individual or synchro lead diver → /profile link.
+                     Team rows have no individual to link to. -->
+                <RouterLink v-if="d.competitor_id && !d.team_id"
                             :to="`/profile/${d.competitor_id}`"
                             class="jra-diver-link">{{ d.full_name }}</RouterLink>
                 <template v-else>{{ d.full_name }}</template>
+                <!-- Synchro partner — same chip style as the
+                     existing scoreboard. -->
+                <template v-if="d.partner_name">
+                  <span class="jra-diver-amp">&amp;</span>
+                  <RouterLink v-if="d.partner_id"
+                              :to="`/profile/${d.partner_id}`"
+                              class="jra-diver-link">{{ d.partner_name }}</RouterLink>
+                  <template v-else>{{ d.partner_name }}</template>
+                </template>
                 <span v-if="d.country_code" class="jra-diver-cc">{{ d.country_code }}</span>
               </div>
               <div v-if="d.club_name" class="jra-diver-club">{{ d.club_name }}</div>
@@ -168,9 +203,12 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
             <td
               v-for="(pj, idx) in d.per_judge"
               :key="judges[idx]?.judge_id || idx"
-              :class="['jra-td', 'jra-td-cell', isOutlier(pj, d.actual_rank) ? 'jra-outlier' : '']"
+              :class="['jra-td', 'jra-td-cell',
+                       outlierStrength(pj, d.actual_rank)]"
               v-tip="cellTip(d, judges[idx], pj)">
-              {{ pj?.rank ?? '—' }}
+              <span class="jra-cell-rank">{{ pj?.rank ?? '—' }}</span>
+              <span v-if="pj?.judge_total != null"
+                    class="jra-cell-total">{{ Number(pj.judge_total).toFixed(1) }}</span>
             </td>
           </tr>
         </tbody>
@@ -331,12 +369,44 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
   font-weight: 500;
   color: var(--text-2, #cbd5e1);
   cursor: default;
+  /* Two-line layout: rank on top in display font, hypothetical
+     total beneath in a smaller mono font. Centring both vertically
+     keeps the row height predictable across wide events. */
+  line-height: 1.1;
 }
-.jra-outlier {
-  background: rgba(6, 182, 212, 0.15);
+.jra-cell-rank {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: inherit;
+}
+.jra-cell-total {
+  display: block;
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  font-weight: 400;
+  color: var(--text-3, #94a3b8);
+  margin-top: 0.15rem;
+}
+/* Outliers: a pale tint for ±1 (a real-but-routine disagreement)
+   and a brighter cyan for ≥2 (the kind that re-shuffles the
+   podium). Both keep the rank legible — only the background
+   changes weight. */
+.jra-outlier-mild {
+  background: rgba(6, 182, 212, 0.08);
+  color: var(--cyan, #06b6d4);
+}
+.jra-outlier-strong {
+  background: rgba(6, 182, 212, 0.20);
   color: var(--cyan, #06b6d4);
   font-weight: 700;
 }
+.jra-outlier-mild .jra-cell-total,
+.jra-outlier-strong .jra-cell-total {
+  color: rgba(6, 182, 212, 0.65);
+}
+.jra-diver-amp { color: var(--cyan, #06b6d4); margin: 0 0.2em; font-weight: 400; }
 .jra-row:hover .jra-td { background: rgba(148, 163, 184, 0.05); }
-.jra-row:hover .jra-outlier { background: rgba(6, 182, 212, 0.22); }
+.jra-row:hover .jra-outlier-mild { background: rgba(6, 182, 212, 0.14); }
+.jra-row:hover .jra-outlier-strong { background: rgba(6, 182, 212, 0.28); }
 </style>

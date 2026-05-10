@@ -26,12 +26,30 @@
 // no new private data — it just visualises a pattern that was
 // already in plain sight.
 //
-// Synchro / team scope: v1 is INDIVIDUAL events only. The
-// hypothetical "single-judge unanimous panel" doesn't map cleanly
-// to a synchro 9-judge / 11-judge panel split (Exec A / Exec B /
-// Sync) without picking arbitrary sub-panel substitutions. Returns
-// HTTP 400 with a clear message for synchro_pair / team — same
-// precedent as the seed-semi mixed-gender refusal.
+// Event-type handling: all three types (individual / synchro_pair
+// / team) are supported. The math is identical at heart — for
+// each judge J and each "competing entity" E (a diver, a pair, or
+// a team), compute SUM over rounds of J's contribution × DD ×
+// scaling, then rank entities by that total per judge. The
+// scaling factor follows the World Aquatics dive-points formula:
+//
+//   individual    → ×1.0
+//   synchro_pair  → ×0.6  (per Article 13 synchro rule)
+//   team          → ×1.0  (with per-dive partner-bonus folded in
+//                          via the existing has_partner branch
+//                          for synchro dives within team events)
+//
+// Synchro pairs are stored as one cdl row per (event, lead diver,
+// round) with partner_id set — all 9/11 judges score under the
+// lead's competitor_id, role-tagged by judge_number. So the
+// aggregation key for synchro is still competitor_id (the lead);
+// we expose partner_id + partner_name on the row for display.
+//
+// Team events store one cdl row per team member, all sharing the
+// team_id. We aggregate by team_id so a team's hypothetical total
+// = SUM of every team member's J-contribution. Per_dive_ranks
+// remain keyed by competitor_id (chip tooltips on the scoreboard
+// still tag individual divers).
 //
 // SQL discipline (audit-fix bar from commit cde3e40):
 //   * Per-judge per-competitor scores are pre-aggregated in a
@@ -85,12 +103,13 @@ async function buildAnalysis(pool, eventId) {
   if (!evRes.rows.length) return { notFound: true };
   const event = evRes.rows[0];
 
-  if (event.event_type !== "individual") {
-    return {
-      badRequest:
-        "Judge Ranking Analysis is not yet available for synchro_pair or team events",
-    };
-  }
+  // Synchro contributions scale ×0.6 per WA Article 13. Team
+  // events fold the synchro-bonus into has_partner at the
+  // calc_event_dive_points level; the judge-ranking aggregate
+  // applies ×0.6 only when the event itself is a pure synchro
+  // pair (matching how calc_event_dive_points dispatches).
+  const synchroScale = event.event_type === "synchro_pair" ? 0.6 : 1.0;
+  const isTeam = event.event_type === "team";
 
   // Panel for this event — judge_number + identity. Used both as
   // the column headers in the rendered table and to join back onto
@@ -119,14 +138,20 @@ async function buildAnalysis(pool, eventId) {
   // NULL → COALESCE keeps the row alive with a neutral 1.0
   // multiplier rather than zeroing it (same fallback the existing
   // CSV export uses for DD = NULL rows).
+  // Aggregation key: competitor_id for individual + synchro
+  // (synchro pairs hang all 9/11 judges' scores off the lead),
+  // team_id for team events. Pre-aggregate per-(judge, rankee)
+  // before any rank window so a missing-dd row never explodes
+  // into a Cartesian fan-out.
   const totalsRes = await pool.query(
     `WITH per_dive AS (
        SELECT s.competitor_id,
+              cdl.team_id,
               s.judge_id,
               s.round_number,
               s.score,
               COALESCE(d.dd, 1.0) AS dd,
-              (s.score * COALESCE(d.dd, 1.0))::numeric AS judge_dive_points
+              (s.score * COALESCE(d.dd, 1.0) * $2::numeric)::numeric AS judge_dive_points
          FROM scores s
          LEFT JOIN competitor_dive_lists cdl
            ON  cdl.event_id      = s.event_id
@@ -136,17 +161,26 @@ async function buildAnalysis(pool, eventId) {
            ON d.id = COALESCE(s.dive_id, cdl.dive_id)
         WHERE s.event_id = $1
      ),
+     /* Per-judge per-rankee totals. For team events the rankee
+        is team_id; for individual + synchro it's competitor_id. */
      per_judge_total AS (
-       SELECT competitor_id, judge_id,
-              SUM(judge_dive_points)::numeric(10,3) AS judge_total
+       SELECT
+         CASE WHEN $3::boolean THEN NULL ELSE competitor_id END AS competitor_id,
+         CASE WHEN $3::boolean THEN team_id ELSE NULL END        AS team_id,
+         judge_id,
+         SUM(judge_dive_points)::numeric(10,3) AS judge_total
          FROM per_dive
-        GROUP BY competitor_id, judge_id
+        WHERE ($3::boolean = FALSE OR team_id IS NOT NULL)
+        GROUP BY 1, 2, judge_id
      ),
      per_judge_ranked AS (
-       SELECT competitor_id, judge_id, judge_total,
+       SELECT competitor_id, team_id, judge_id, judge_total,
               RANK() OVER (PARTITION BY judge_id ORDER BY judge_total DESC)::int AS rank
          FROM per_judge_total
      ),
+     /* Per-dive ranks stay keyed by competitor_id even on team
+        events — the score-chip tooltip on the scoreboard tags
+        individual divers regardless of how the totals aggregate. */
      per_dive_ranked AS (
        SELECT competitor_id, judge_id, round_number, judge_dive_points,
               RANK() OVER (
@@ -157,7 +191,7 @@ async function buildAnalysis(pool, eventId) {
          FROM per_dive
      )
      SELECT 'judge'::text AS kind,
-            competitor_id, judge_id,
+            competitor_id, team_id, judge_id,
             NULL::int       AS round_number,
             judge_total     AS judge_total_or_points,
             rank,
@@ -165,69 +199,139 @@ async function buildAnalysis(pool, eventId) {
        FROM per_judge_ranked
      UNION ALL
      SELECT 'dive'::text,
-            competitor_id, judge_id,
+            competitor_id, NULL::uuid AS team_id, judge_id,
             round_number,
             judge_dive_points,
             rank,
             total_in_round
        FROM per_dive_ranked`,
-    [eventId],
+    [eventId, synchroScale, isTeam],
   );
 
   // Pre-aggregate the actual standings using the same WA tie-break
   // the scoreboard / archive uses: total DESC, then per-dive
   // descending-sorted array DESC. calc_event_dive_points handles
   // the panel-trim + scaling for the official total.
-  const standingsRes = await pool.query(
-    `WITH per_dive AS (
-       SELECT s.competitor_id, s.round_number,
-              calc_event_dive_points(
-                array_agg(ej.judge_number ORDER BY ej.judge_number),
-                array_agg(s.score        ORDER BY ej.judge_number),
-                e.number_of_judges, MAX(d.dd), e.event_type,
-                BOOL_OR(cdl.partner_id IS NOT NULL)
-              ) AS dive_points
-         FROM scores s
-         JOIN events e ON e.id = s.event_id
-         LEFT JOIN event_judges ej
-           ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
-         LEFT JOIN competitor_dive_lists cdl
-           ON  cdl.event_id      = s.event_id
-           AND cdl.competitor_id = s.competitor_id
-           AND cdl.round_number  = s.round_number
-         LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
-        WHERE s.event_id = $1
-        GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
-     ),
-     totals AS (
-       SELECT competitor_id,
-              SUM(dive_points)::numeric(10,2) AS total,
-              array_agg(dive_points ORDER BY dive_points DESC) AS dives_desc
-         FROM per_dive
-        GROUP BY competitor_id
-     )
-     SELECT u.id AS competitor_id,
-            u.full_name,
-            o.country_code,
-            cl.name AS club_name,
-            t.total AS actual_total,
-            RANK() OVER (ORDER BY t.total DESC, t.dives_desc DESC)::int AS actual_rank
-       FROM totals t
-       JOIN users u ON u.id = t.competitor_id
-       JOIN organisations o ON o.id = u.org_id
-       LEFT JOIN clubs cl ON cl.id = u.club_id
-      ORDER BY actual_rank ASC, u.full_name ASC`,
-    [eventId],
-  );
+  // Actual standings. The WHEN branches keep the row shape stable
+  // across event types: lead competitor (with optional partner)
+  // for individual + synchro, team id with team name for team
+  // events. dives_desc preserves the WA tie-break ordering.
+  const standingsRes = isTeam
+    ? await pool.query(
+        `WITH per_dive AS (
+           SELECT cdl.team_id, s.round_number,
+                  calc_event_dive_points(
+                    array_agg(ej.judge_number ORDER BY ej.judge_number),
+                    array_agg(s.score        ORDER BY ej.judge_number),
+                    e.number_of_judges, MAX(d.dd), e.event_type,
+                    BOOL_OR(cdl.partner_id IS NOT NULL)
+                  ) AS dive_points
+             FROM scores s
+             JOIN events e ON e.id = s.event_id
+             LEFT JOIN event_judges ej
+               ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+             LEFT JOIN competitor_dive_lists cdl
+               ON  cdl.event_id      = s.event_id
+               AND cdl.competitor_id = s.competitor_id
+               AND cdl.round_number  = s.round_number
+             LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+            WHERE s.event_id = $1
+            GROUP BY cdl.team_id, s.competitor_id, s.round_number,
+                     e.number_of_judges, e.event_type
+         ),
+         totals AS (
+           SELECT team_id,
+                  SUM(dive_points)::numeric(10,2) AS total,
+                  array_agg(dive_points ORDER BY dive_points DESC) AS dives_desc
+             FROM per_dive
+            WHERE team_id IS NOT NULL
+            GROUP BY team_id
+         )
+         SELECT NULL::uuid AS competitor_id,
+                t.team_id,
+                tm.name AS full_name,
+                NULL::char(3) AS country_code,
+                tm.short_code AS club_name,
+                NULL::uuid AS partner_id,
+                NULL::varchar AS partner_name,
+                t.total AS actual_total,
+                RANK() OVER (ORDER BY t.total DESC, t.dives_desc DESC)::int AS actual_rank
+           FROM totals t
+           JOIN teams tm ON tm.id = t.team_id
+          ORDER BY actual_rank ASC, tm.name ASC`,
+        [eventId],
+      )
+    : await pool.query(
+        `WITH per_dive AS (
+           SELECT s.competitor_id, s.round_number,
+                  calc_event_dive_points(
+                    array_agg(ej.judge_number ORDER BY ej.judge_number),
+                    array_agg(s.score        ORDER BY ej.judge_number),
+                    e.number_of_judges, MAX(d.dd), e.event_type,
+                    BOOL_OR(cdl.partner_id IS NOT NULL)
+                  ) AS dive_points
+             FROM scores s
+             JOIN events e ON e.id = s.event_id
+             LEFT JOIN event_judges ej
+               ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
+             LEFT JOIN competitor_dive_lists cdl
+               ON  cdl.event_id      = s.event_id
+               AND cdl.competitor_id = s.competitor_id
+               AND cdl.round_number  = s.round_number
+             LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
+            WHERE s.event_id = $1
+            GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+         ),
+         totals AS (
+           SELECT competitor_id,
+                  SUM(dive_points)::numeric(10,2) AS total,
+                  array_agg(dive_points ORDER BY dive_points DESC) AS dives_desc
+             FROM per_dive
+            GROUP BY competitor_id
+         )
+         SELECT u.id AS competitor_id,
+                NULL::uuid AS team_id,
+                u.full_name,
+                o.country_code,
+                cl.name AS club_name,
+                /* Synchro partner — first non-null partner_id across
+                   the diver's rounds (constant for a given pair). */
+                pp.partner_id,
+                pu.full_name AS partner_name,
+                t.total AS actual_total,
+                RANK() OVER (ORDER BY t.total DESC, t.dives_desc DESC)::int AS actual_rank
+           FROM totals t
+           JOIN users u ON u.id = t.competitor_id
+           JOIN organisations o ON o.id = u.org_id
+           LEFT JOIN clubs cl ON cl.id = u.club_id
+           LEFT JOIN LATERAL (
+             SELECT DISTINCT cdl.partner_id
+               FROM competitor_dive_lists cdl
+              WHERE cdl.event_id = $1
+                AND cdl.competitor_id = t.competitor_id
+                AND cdl.partner_id IS NOT NULL
+              LIMIT 1
+           ) pp ON TRUE
+           LEFT JOIN users pu ON pu.id = pp.partner_id
+          ORDER BY actual_rank ASC, u.full_name ASC`,
+        [eventId],
+      );
 
   // Index the per-(judge, competitor) and per-(judge, competitor,
   // round) rows for O(1) lookup while building the per-diver
   // arrays.
-  const judgeTotals = new Map();        // key = `${judge_id}:${competitor_id}`
+  // judgeTotals key: rankee-id (competitor_id for individual +
+  // synchro, team_id for team) prefixed with judge_id. perDiveRanks
+  // always keyed by competitor_id since chip tooltips tag the
+  // individual diver who performed the dive, regardless of event
+  // type.
+  const judgeTotals = new Map();        // key = `${judge_id}:${rankeeId}`
   const perDiveRanks = {};              // key = `${judge_id}:${competitor_id}:${round_number}`
   for (const row of totalsRes.rows) {
     if (row.kind === "judge") {
-      judgeTotals.set(`${row.judge_id}:${row.competitor_id}`, {
+      const rankeeId = isTeam ? row.team_id : row.competitor_id;
+      if (!rankeeId) continue;
+      judgeTotals.set(`${row.judge_id}:${rankeeId}`, {
         judge_total: Number(row.judge_total_or_points),
         rank: row.rank,
       });
@@ -240,23 +344,34 @@ async function buildAnalysis(pool, eventId) {
     }
   }
 
-  const divers = standingsRes.rows.map((row) => ({
-    competitor_id: row.competitor_id,
-    full_name: row.full_name,
-    country_code: row.country_code,
-    club_name: row.club_name,
-    actual_rank: row.actual_rank,
-    actual_total: Number(row.actual_total),
-    per_judge: judges.map((j) => {
-      const hit = judgeTotals.get(`${j.judge_id}:${row.competitor_id}`);
-      return {
-        judge_id: j.judge_id,
-        judge_number: j.judge_number,
-        judge_total: hit ? hit.judge_total : 0,
-        rank: hit ? hit.rank : null,
-      };
-    }),
-  }));
+  // `divers` is kept as the API field name for backward compat
+  // (the frontend already consumes it). Each row is a "competing
+  // entity": diver / pair / team. Extra fields surface the
+  // event-specific identity (partner_name for synchro, team_id
+  // for team).
+  const divers = standingsRes.rows.map((row) => {
+    const rankeeId = isTeam ? row.team_id : row.competitor_id;
+    return {
+      competitor_id: row.competitor_id,
+      team_id: row.team_id,
+      full_name: row.full_name,
+      country_code: row.country_code,
+      club_name: row.club_name,
+      partner_id: row.partner_id || null,
+      partner_name: row.partner_name || null,
+      actual_rank: row.actual_rank,
+      actual_total: Number(row.actual_total),
+      per_judge: judges.map((j) => {
+        const hit = judgeTotals.get(`${j.judge_id}:${rankeeId}`);
+        return {
+          judge_id: j.judge_id,
+          judge_number: j.judge_number,
+          judge_total: hit ? hit.judge_total : 0,
+          rank: hit ? hit.rank : null,
+        };
+      }),
+    };
+  });
 
   return {
     event: {

@@ -35,7 +35,7 @@ const setup = require("./_setup");
 
 test.describe.configure({ mode: "serial" });
 
-test("judge-ranking-analysis: math + CSV + PDF + synchro 400", async ({ request }) => {
+test("judge-ranking-analysis: math + CSV + PDF + synchro pair-shape", async ({ request }) => {
   test.setTimeout(120_000);
 
   const { orgId, adminToken } = await setup.createOrgAndAdmin(request);
@@ -192,21 +192,30 @@ test("judge-ranking-analysis: math + CSV + PDF + synchro 400", async ({ request 
   const pdfBuf = await pdf.body();
   expect(pdfBuf.length).toBeGreaterThan(1024);
 
-  // ---- Synchro refusal ----
+  // ---- Synchro pair-shape ----
+  // The v1-limit "synchro returns 400" was removed — synchro pairs
+  // are now first-class. We don't seed scores here (creating a
+  // realistic synchro panel is heavy and covered by the existing
+  // scoring/synchro specs); we just verify the endpoint accepts
+  // the event and returns the expected event_type + (possibly
+  // empty) divers array. A fully-scored synchro fixture would be
+  // ideal but isn't necessary to lock the contract change.
   const synchroEvent = await setup.createEvent(request, {
     adminToken,
-    name: "E2E Synchro Refusal",
+    name: "E2E Synchro Shape",
     height: "10m",
     number_of_judges: 9,
     total_rounds: 1,
     event_type: "synchro_pair",
   });
-  const refuse = await request.get(
+  const synchroRes = await request.get(
     `/api/events/${synchroEvent.id}/judge-ranking-analysis`,
   );
-  expect(refuse.status()).toBe(400);
-  const refuseBody = await refuse.json();
-  expect(refuseBody.error).toMatch(/synchro_pair|team/i);
+  expect(synchroRes.status()).toBe(200);
+  const synchroBody = await synchroRes.json();
+  expect(synchroBody.event.event_type).toBe("synchro_pair");
+  expect(Array.isArray(synchroBody.divers)).toBe(true);
+  expect(Array.isArray(synchroBody.judges)).toBe(true);
 
   // Cleanup so re-runs are idempotent.
   await setup.deleteOrg(orgId);
@@ -280,17 +289,25 @@ test("Scoreboard recap renders the Judge Ranking Analysis section", async ({
   });
 
   await page.goto(`${baseURL}/scoreboard/${event.id}`);
-  // The toggle button is the col-head of the new recap-card.
+  // Section is expanded by default now (the v1 lazy-load was
+  // dropped — the recap renders the matrix eagerly). The toggle
+  // is still visible so a viewer can collapse the section if
+  // they prefer; we just don't need to click it to see the
+  // table.
   const toggle = page.locator("button.jra-toggle", {
     hasText: "Judge Ranking Analysis",
   });
   await expect(toggle).toBeVisible({ timeout: 20_000 });
-  await toggle.click();
-  // After expanding, the table component renders with the column
-  // headers + diver rows.
+  // Wait for the table to mount + load (the same eager fetch
+  // also feeds the chip-tooltip enhancement elsewhere on the
+  // page).
   await expect(page.locator(".jra-table thead th", { hasText: "Diver" }))
     .toBeVisible({ timeout: 15_000 });
   await expect(page.locator(".jra-table tbody tr")).toHaveCount(3);
+  // And clicking the toggle collapses the section.
+  await toggle.click();
+  await expect(page.locator(".jra-table thead th", { hasText: "Diver" }))
+    .toBeHidden({ timeout: 5_000 });
 
   await setup.deleteOrg(orgId);
 });

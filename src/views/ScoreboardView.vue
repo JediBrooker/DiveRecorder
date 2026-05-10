@@ -368,7 +368,11 @@ const panelByNumber = computed(() => {
 // the event is Live or the section hasn't been expanded yet — the
 // tooltip falls back to its existing identity-only line.
 const judgeRankingPayload = ref(null)
-const judgeRankingExpanded = ref(false)
+// Expanded by default — the section + component mount eagerly on
+// Completed events so spectators see the matrix without needing
+// to expand a panel. The toggle remains so a viewer who wants a
+// tighter view can collapse it; the payload survives the toggle.
+const judgeRankingExpanded = ref(true)
 const judgeRankingLoadFailed = ref(false)
 const perDiveRanks = computed(() => judgeRankingPayload.value?.per_dive_ranks || {})
 
@@ -2114,15 +2118,16 @@ onMounted(async () => {
           </div>
         </div>
 
-        <!-- Judge Ranking Analysis (Completed individual events).
-             Collapsed by default so the recap loads quickly; the
-             JudgeRankingTable component is mounted only when
-             expanded, which is also what fetches the payload. The
-             same payload feeds the chip-tooltip enhancement —
-             once it's loaded, per-judge per-dive ranks appear in
-             the chip tooltips elsewhere on the page. -->
-        <div v-if="isCompleted && currentEvent?.event_type === 'individual'"
-             class="recap-card jra-section">
+        <!-- Judge Ranking Analysis. Mounts eagerly on any
+             Completed event regardless of event_type — the
+             component handles individual / synchro_pair / team in
+             one shape. Mount fires the payload fetch immediately
+             so the table is visible to spectators on first paint
+             (and the same payload feeds the chip-tooltip
+             enhancement elsewhere on the page). The collapsible
+             header stays so a viewer who wants a tighter view can
+             fold it back; data persists across the toggle. -->
+        <div v-if="isCompleted" class="recap-card jra-section">
           <button
             class="col-head jra-toggle"
             type="button"
@@ -2130,7 +2135,7 @@ onMounted(async () => {
             <span>Judge Ranking Analysis</span>
             <span class="jra-caret">{{ judgeRankingExpanded ? '▾' : '▸' }}</span>
           </button>
-          <div v-if="judgeRankingExpanded" class="col-body">
+          <div v-show="judgeRankingExpanded" class="col-body">
             <JudgeRankingTable
               :event-id="currentEventId"
               @loaded="onJudgeRankingLoaded" />
