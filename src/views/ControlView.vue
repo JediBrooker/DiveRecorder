@@ -71,6 +71,31 @@ const lbRows = ref([])
 // (the table is meaningless before every dive has been scored), so
 // the button that flips this is gated on currentEvent.status.
 const judgeRankingOpen = ref(false)
+
+// Broadcast launcher — used to be a single RouterLink that
+// toggled ?broadcast=1 inline. Now it opens a chooser modal so
+// the operator can pick:
+//   1. Operator broadcast (this screen, kiosk layout)
+//   2. Audience broadcast for THIS event → new window
+//      /scoreboard/<id>/broadcast
+//   3. Multi-event audience broadcast for ALL Live events →
+//      new window /broadcast/all
+// The third option supports the venue-with-two-pools case: one
+// projector, two events running concurrently, single URL that
+// auto-grids by event count.
+const broadcastChoiceOpen = ref(false)
+
+function openBroadcastInNewWindow(path) {
+  // Aim for an undecorated popup, with reasonable defaults that
+  // still allow the operator to resize / drag onto the projector.
+  // No noopener so the new window can read the auth session from
+  // the same origin (the broadcast page itself is anonymous-
+  // friendly anyway).
+  const opts = "width=1600,height=900,menubar=no,toolbar=no,location=no";
+  window.open(path, "_blank", opts);
+  broadcastChoiceOpen.value = false;
+  headerMenuOpen.value = false;
+}
 // Connection state lives on the singleton socket itself
 // (`socket.isConnected`, a ref). A parallel `connStatus` ref
 // would just shadow that state — and now that useSocket is a
@@ -3090,12 +3115,11 @@ onUnmounted(() => {
               class="dropdown-item"
               @click="openHoldPrompt(); headerMenuOpen = false"
             >⏸ Hold meet</button>
-            <RouterLink
+            <button
               v-if="currentEvent && !opsBroadcast"
-              to="/control?broadcast=1"
               class="dropdown-item"
-              @click="headerMenuOpen = false"
-            >📺 Broadcast mode</RouterLink>
+              @click="broadcastChoiceOpen = true; headerMenuOpen = false"
+            >📺 Broadcast…</button>
             <!-- Finalise event early — only relevant during a
                  Live meet that hasn't reached its last dive. The
                  prominent header "Finalise Event ✓" button only
@@ -3272,6 +3296,75 @@ onUnmounted(() => {
         </div>
         <div class="lb-body">
           <JudgeRankingTable v-if="currentEvent?.id" :event-id="currentEvent.id" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Broadcast chooser. Three flavours covering the realistic
+         operator scenarios: kiosk this screen, open audience
+         view for THIS event in a new window, or open the
+         all-Live-events grid in a new window for a venue
+         projector that needs to show multiple concurrent
+         events at once. -->
+    <div v-if="broadcastChoiceOpen" class="lb-backdrop"
+         @mousedown.self="broadcastChoiceOpen = false">
+      <div class="lb-modal broadcast-chooser">
+        <div class="lb-header">
+          <div>
+            <div class="lb-title">📺 Broadcast</div>
+            <div class="lb-event">Pick what to broadcast and where</div>
+          </div>
+          <button class="btn btn-ghost btn-sm"
+                  @click="broadcastChoiceOpen = false">Close</button>
+        </div>
+        <div class="lb-body broadcast-chooser-body">
+          <!-- 1. Operator broadcast — inline on this screen. -->
+          <RouterLink
+            to="/control?broadcast=1"
+            class="broadcast-option"
+            @click="broadcastChoiceOpen = false; headerMenuOpen = false">
+            <div class="broadcast-option-glyph">🖥️</div>
+            <div class="broadcast-option-text">
+              <div class="broadcast-option-title">Operator broadcast (this screen)</div>
+              <div class="broadcast-option-desc">
+                Switch this Control Room into kiosk layout. Same window;
+                hits ✕ to exit. Good when the operator's laptop IS the
+                projector.
+              </div>
+            </div>
+          </RouterLink>
+
+          <!-- 2. Audience broadcast for THIS event in a new window. -->
+          <button class="broadcast-option"
+                  type="button"
+                  @click="openBroadcastInNewWindow(`/scoreboard/${currentEvent.id}/broadcast`)">
+            <div class="broadcast-option-glyph">📡</div>
+            <div class="broadcast-option-text">
+              <div class="broadcast-option-title">Audience broadcast — this event</div>
+              <div class="broadcast-option-desc">
+                Opens the spectator view for
+                <strong>{{ currentEvent?.name || 'this event' }}</strong>
+                in a new window. Drag it onto the projector. The
+                operator keeps using the Control Room here.
+              </div>
+            </div>
+          </button>
+
+          <!-- 3. Multi-event audience broadcast in a new window. -->
+          <button class="broadcast-option"
+                  type="button"
+                  @click="openBroadcastInNewWindow('/broadcast/all')">
+            <div class="broadcast-option-glyph">📺</div>
+            <div class="broadcast-option-text">
+              <div class="broadcast-option-title">Audience broadcast — ALL Live events</div>
+              <div class="broadcast-option-desc">
+                One window, every currently-Live event side-by-side
+                in an auto-grid (1 fills the screen, 2 splits 50/50,
+                3-4 form a 2×2…). Use this when the venue has one
+                projector but two pools are running concurrently.
+              </div>
+            </div>
+          </button>
         </div>
       </div>
     </div>
@@ -5688,6 +5781,56 @@ onUnmounted(() => {
    carries one column per judge so an 11-judge event needs more
    horizontal room than the standings recap modal. */
 .jra-modal { max-width: min(96vw, 1100px) !important; }
+
+/* Broadcast chooser modal — three big tappable rows so the
+   operator picks the right destination at a glance. */
+.broadcast-chooser { max-width: min(96vw, 640px) !important; }
+.broadcast-chooser-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem 1rem;
+}
+.broadcast-option {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.85rem 1rem;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: border-color 0.12s, transform 0.05s;
+}
+.broadcast-option:hover {
+  border-color: var(--cyan);
+  background: rgba(6, 182, 212, 0.06);
+}
+.broadcast-option:active { transform: scale(0.995); }
+.broadcast-option-glyph {
+  font-size: 28px;
+  line-height: 1;
+  text-align: center;
+}
+.broadcast-option-title {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: var(--text-1);
+  margin-bottom: 0.2rem;
+}
+.broadcast-option-desc {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-3);
+}
 
 .lb-backdrop { position: fixed; inset: 0; background: rgba(3,7,18,0.95); backdrop-filter: blur(12px); z-index: 300; }
 

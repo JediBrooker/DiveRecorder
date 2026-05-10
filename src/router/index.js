@@ -100,6 +100,15 @@ const routes = [
     component: () => import('@/views/ScoreboardView.vue'),
   },
   {
+    // Multi-event broadcast — one display, every currently-Live
+    // event side by side. Auto-grids by event count (1 fills the
+    // screen, 2 splits horizontally, 3-4 form a 2×2 …). Refreshes
+    // its event list every 30s so newly-Live events join the
+    // grid without an operator action.
+    path: '/broadcast/all',
+    component: () => import('@/views/MultiBroadcastView.vue'),
+  },
+  {
     // Public meet landing page — meet metadata + every event
     // grouped by status. Each event card jumps into /scoreboard.
     path: '/meet/:id',
