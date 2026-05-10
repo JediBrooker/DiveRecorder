@@ -929,6 +929,27 @@ const editAgeGroup   = computed(() => composeAgeGroup({
   masters: editAgeMasters.value,
   other:   editAgeOther.value,
 }))
+// AUDIT FIX (Strong-7): the dropdown rework (commit 5a336a7)
+// auto-decomposes legacy stored values like "11 and under" / "12/13"
+// / "14/15" / "16-18" into their WA Junior Group equivalents
+// (junior:D / junior:C / junior:B / junior:A). When the operator
+// opens such an event in the Edit modal and saves, composeAgeGroup
+// would silently rewrite the column to "Junior Group D" — a quiet
+// data migration that could break any downstream report filtering
+// on the legacy text. Capture the original column value when the
+// modal opens; show a warning if the composed value differs so
+// the operator knows the format is about to change AND can opt
+// to keep the legacy string instead.
+const editAgeOriginal = ref('')   // the events.age_group as stored on open
+const editAgeKeepLegacy = ref(false)  // operator opts to preserve legacy string
+const editAgeWasLegacy = computed(() =>
+  ['11 and under', '12/13', '14/15', '16-18'].includes(editAgeOriginal.value),
+)
+const editAgeWouldRewrite = computed(() =>
+  editAgeWasLegacy.value
+  && !editAgeKeepLegacy.value
+  && editAgeGroup.value !== editAgeOriginal.value,
+)
 // Migration 039: prescribed round dives mirrored into the Edit
 // modal. Same shape as createRoundDives — each entry is
 // { dive_id|null, height|null, _label, _meta }.
@@ -1248,6 +1269,11 @@ async function openEdit(ev) {
   editEnforceSignoff.value = !!ev.enforce_referee_signoff
   editMixedHeight.value    = !!ev.is_mixed_height
   // Decompose stored age_group into the structured dropdown.
+  // Capture the ORIGINAL stored value so a legacy-format event
+  // can show a warning + opt-out before its column gets rewritten
+  // (see editAgeWouldRewrite computed above).
+  editAgeOriginal.value = ev.age_group || ''
+  editAgeKeepLegacy.value = false
   const ageParts = decomposeAgeGroup(ev.age_group)
   editAgeChoice.value  = ageParts.choice
   editAgeMasters.value = ageParts.masters
@@ -1330,7 +1356,14 @@ async function saveEdit() {
         number_of_judges: parseInt(editJudges.value),
         total_rounds: editRoundDives.value.length || null,
         event_type: editType.value,
-        age_group: editAgeGroup.value || null,
+        // When the original column was a legacy numeric string
+        // (e.g. "11 and under") AND the operator chose Keep
+        // legacy text in the warning, send the original string
+        // verbatim so the save is a true no-op on the column.
+        age_group:
+          editAgeKeepLegacy.value && editAgeWasLegacy.value
+            ? editAgeOriginal.value
+            : (editAgeGroup.value || null),
         // Send '' as null so the server clears the deadline; an
         // ISO string sets it. Server treats undefined (absent key)
         // as "leave untouched" — but we always send the field
@@ -2454,8 +2487,35 @@ onUnmounted(() => {
                  placeholder='e.g. "Para Class S1", "Ex-Pat Open"'
                  style="margin-top:0.5rem">
 
-          <p class="hint" v-if="editAgeGroup" style="margin-top:0.4rem">
+          <p class="hint" v-if="editAgeGroup && !editAgeWouldRewrite" style="margin-top:0.4rem">
             Stored as <strong>{{ editAgeGroup }}</strong>.
+          </p>
+          <!-- Legacy-format warning. Surfaces when the event was
+               saved with a pre-rework string ("11 and under" etc.)
+               and saving now would silently rewrite the column to
+               the new canonical "Junior Group X" form. Operator
+               can either accept the migration or tick Keep legacy
+               text to send the original string back verbatim.
+               Hidden once the operator decides — `editAgeWouldRewrite`
+               flips false when Keep legacy is checked. -->
+          <div v-if="editAgeWouldRewrite" class="msg msg-warning age-legacy-warning"
+               style="margin-top:0.5rem">
+            <strong>Heads up — this event's age group is stored as
+              <code>{{ editAgeOriginal }}</code></strong>.
+            Saving as-is will rewrite the column to
+            <code>{{ editAgeGroup }}</code> (same age band, new naming
+            convention from the WA Article 13 rework). That can
+            break any downstream report or saved filter that
+            matches the old text.
+            <label class="checkbox-row" style="margin-top:0.4rem">
+              <input type="checkbox" v-model="editAgeKeepLegacy">
+              Keep legacy text — save as <code>{{ editAgeOriginal }}</code>
+            </label>
+          </div>
+          <p class="hint" v-else-if="editAgeKeepLegacy && editAgeWasLegacy"
+             style="margin-top:0.4rem">
+            Will keep stored as <strong>{{ editAgeOriginal }}</strong>
+            (legacy format preserved).
           </p>
         </div>
 

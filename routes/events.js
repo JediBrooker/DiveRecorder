@@ -451,6 +451,32 @@ module.exports = function createEventsRouter({
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+
+      // AUDIT FIX (Medium-1): when parent_event_id is being set or
+      // changed, confirm the parent is in the caller's org. POST
+      // /api/events already does this (~line 281-288); the PUT
+      // handler had dropped the check. Without it, an org_admin in
+      // Org A could PUT a child event with parent_event_id pointing
+      // at any Org B event whose UUID they know — chaining through
+      // the Super Final seed endpoints would then pull Org B's
+      // ranked divers into Org A's H2H roster and fire push
+      // notifications at Org B divers. Sysadmin bypass intact via
+      // the is_system_admin flag.
+      if (parent_event_id !== undefined && parent_event_id !== null) {
+        const p = await client.query(
+          "SELECT id, org_id FROM events WHERE id = $1",
+          [parent_event_id],
+        );
+        if (
+          !p.rows.length ||
+          (!req.user.is_system_admin && p.rows[0].org_id !== req.user.org_id)
+        ) {
+          await client.query("ROLLBACK");
+          return res
+            .status(400)
+            .json({ error: "Parent event not found in this org" });
+        }
+      }
       // entries_close_at uses tri-state semantics. Pass a boolean
       // sentinel + the actual value so the SQL can express both
       // "leave untouched" and "set to NULL" in one statement.
@@ -3150,6 +3176,45 @@ module.exports = function createEventsRouter({
           });
         }
 
+        // AUDIT FIX (Strong-6): Appendix 3 §6 specifies the
+        // dive-off must use a previously performed dive ("Each
+        // diver picks one of their previously performed dives").
+        // The schema only FKs to dive_directory globally — no
+        // scoping to the event or the diver. Validate at the
+        // route level: each chosen dive_id must appear as that
+        // diver's dive in one of their already-scored rounds on
+        // this event.
+        async function validateDiveOffChoice(competitorId, diveId, side) {
+          if (diveId == null) return null; // optional at create
+          const prior = await client.query(
+            `SELECT 1
+               FROM scores s
+               LEFT JOIN competitor_dive_lists cdl
+                 ON cdl.event_id = s.event_id
+                AND cdl.competitor_id = s.competitor_id
+                AND cdl.round_number = s.round_number
+              WHERE s.event_id = $1
+                AND s.competitor_id = $2
+                AND COALESCE(s.dive_id, cdl.dive_id) = $3
+              LIMIT 1`,
+            [eventId, competitorId, diveId],
+          );
+          if (!prior.rows.length) {
+            return `dive_${side}_id must be a dive the ${side} competitor has already performed in this stage (Appendix 3 §6)`;
+          }
+          return null;
+        }
+        const errA = await validateDiveOffChoice(competitor_a_id, dive_a_id, "a");
+        if (errA) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: errA });
+        }
+        const errB = await validateDiveOffChoice(competitor_b_id, dive_b_id, "b");
+        if (errB) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ error: errB });
+        }
+
         const ins = await client.query(
           `INSERT INTO tiebreak_dive_offs
               (event_id, competitor_a_id, competitor_b_id,
@@ -3242,6 +3307,44 @@ module.exports = function createEventsRouter({
           });
         }
 
+        // AUDIT FIX (Strong-6): dive_a_id / dive_b_id, when set
+        // via PATCH, must be a dive the relevant competitor has
+        // already performed in this stage (Appendix 3 §6).
+        async function validateDiveOffChoice(competitorId, diveId, side) {
+          if (diveId == null) return null;
+          const prior = await client.query(
+            `SELECT 1
+               FROM scores s
+               LEFT JOIN competitor_dive_lists cdl
+                 ON cdl.event_id = s.event_id
+                AND cdl.competitor_id = s.competitor_id
+                AND cdl.round_number = s.round_number
+              WHERE s.event_id = $1
+                AND s.competitor_id = $2
+                AND COALESCE(s.dive_id, cdl.dive_id) = $3
+              LIMIT 1`,
+            [eventId, competitorId, diveId],
+          );
+          if (!prior.rows.length) {
+            return `dive_${side}_id must be a dive the ${side} competitor has already performed in this stage (Appendix 3 §6)`;
+          }
+          return null;
+        }
+        if ("dive_a_id" in updates) {
+          const errA = await validateDiveOffChoice(existing.competitor_a_id, updates.dive_a_id, "a");
+          if (errA) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({ error: errA });
+          }
+        }
+        if ("dive_b_id" in updates) {
+          const errB = await validateDiveOffChoice(existing.competitor_b_id, updates.dive_b_id, "b");
+          if (errB) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({ error: errB });
+          }
+        }
+
         // Auto-stamp resolved_at when winner_id is being set and
         // the caller didn't pass an explicit resolved_at.
         if (updates.winner_id && !("resolved_at" in updates)) {
@@ -3324,16 +3427,30 @@ module.exports = function createEventsRouter({
           });
         }
 
-        // 1. Find synchro events at the same meet. Match the H2H
-        //    event's gender + height/board if possible, but
-        //    return all synchro_pair events at the meet — the
-        //    operator filters by event in the UI.
+        // 1. Find synchro events at the same meet. The H2H
+        //    event's gender carries through — a Female H2H must
+        //    not pull a Male synchro diver, per Appendix 3 §1
+        //    (Super Final is gender-split; M=6 dives, W=5).
+        //
+        //    AUDIT FIX (Strong-5): the previous code commented
+        //    "Match the H2H event's gender + height/board if
+        //    possible" but didn't actually filter — synchroRes
+        //    returned every synchro_pair event at the meet,
+        //    regardless of gender. A Female H2H could pull a
+        //    Male synchro replacement; replace-from-synchro
+        //    further down only checked the diver was on a
+        //    synchro_pair event, not that the event matched the
+        //    H2H's gender. Mixed-gender Super Final is not
+        //    supported anyway (seed-semi 400s on Mixed), so we
+        //    can require an exact gender match here.
         const synchroRes = await client.query(
           `SELECT id, name, gender, height, status, total_rounds
              FROM events
-            WHERE meet_id = $1 AND event_type = 'synchro_pair'
+            WHERE meet_id = $1
+              AND event_type = 'synchro_pair'
+              AND gender    = $2
             ORDER BY scheduled_at ASC NULLS LAST, name ASC`,
-          [ev.meet_id],
+          [ev.meet_id, ev.gender],
         );
         const synchroEvents = synchroRes.rows;
 
@@ -3515,7 +3632,18 @@ module.exports = function createEventsRouter({
           });
         }
 
-        // Verify the withdrawn diver is on the roster.
+        // Verify the withdrawn diver is on the roster AND still
+        // active (withdrawn_at IS NULL).
+        //
+        // AUDIT FIX (Strong-4): the previous lookup omitted
+        // `AND withdrawn_at IS NULL` — if an operator double-
+        // clicked the swap button (or replayed the request by
+        // mistake), the second call would still find the
+        // already-withdrawn rows, re-stamp `withdrawn_at = NOW()`
+        // on them, and insert a SECOND replacement into the same
+        // (group_number, display_order) slot — two divers
+        // occupying one H2H slot. Filtering on withdrawn_at IS
+        // NULL makes the second call a clean 404.
         const withdrawRowsRes = await client.query(
           `SELECT round_number, dive_id, group_number, MIN(display_order) OVER () AS first_order,
                   MIN(display_order) AS d_order
@@ -3523,6 +3651,7 @@ module.exports = function createEventsRouter({
             WHERE event_id = $1
               AND competitor_id = $2
               AND is_reserve = FALSE
+              AND withdrawn_at IS NULL
             GROUP BY round_number, dive_id, group_number, display_order
             ORDER BY round_number`,
           [eventId, withdraw_competitor_id],
@@ -3530,7 +3659,7 @@ module.exports = function createEventsRouter({
         if (!withdrawRowsRes.rows.length) {
           await client.query("ROLLBACK");
           return res.status(404).json({
-            error: "Withdraw competitor not found on H2H roster",
+            error: "Withdraw competitor not found on the active H2H roster (already withdrawn or never on it)",
           });
         }
         const withdrawSlot = {
@@ -3817,10 +3946,29 @@ module.exports = function createEventsRouter({
 
         // Tier 3 (positions 7-12): H2H non-advancers (loser of
         // each pair), ranked by H2H total only.
+        //
+        // AUDIT FIX (Strong-3): if any H2H pair is still tied
+        // when we get here (winner_id is null), refuse with 400
+        // rather than silently skip the pair. The earlier code
+        // dropped tied pairs and returned 11 entries instead of
+        // 12 with no signal — spectators (and the meet manager)
+        // had no way to spot that the rankings were incomplete.
+        // The dive-off endpoint (Appendix 3 §6) exists precisely
+        // to resolve these; the operator must run it before
+        // requesting the merged rankings.
         const h2hPairs = await loadH2hPairResults(client, h2hId);
+        const tiedPairs = h2hPairs.filter((p) => !p.winner_id);
+        if (tiedPairs.length) {
+          return res.status(400).json({
+            error: `Cannot publish 1-12 rankings while ${tiedPairs.length} H2H pair${tiedPairs.length === 1 ? "" : "s"} ${tiedPairs.length === 1 ? "is" : "are"} still tied. Resolve via the dive-off endpoint first (Appendix 3 §6).`,
+            tied_pair_ids: tiedPairs.map((p) => ({
+              competitor_a_id: p.competitor_a.id,
+              competitor_b_id: p.competitor_b.id,
+            })),
+          });
+        }
         const h2hLosers = [];
         for (const p of h2hPairs) {
-          if (!p.winner_id) continue; // dead-tied pair shouldn't reach here
           const loser = p.winner_id === p.competitor_a.id ? p.competitor_b : p.competitor_a;
           h2hLosers.push({
             competitor_id: loser.id,

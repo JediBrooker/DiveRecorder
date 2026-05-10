@@ -725,7 +725,15 @@ app.use(require("./routes/diver-profile")({
 // permission model (judge sees own; org admins / managers /
 // referees see same-org judges; sysadmin sees all).
 // =============================================================
-app.use(require("./routes/judge-analytics")({
+// AUDIT FIX (Medium-2): wrap the public judge-analytics router in
+// searchLimiter. The /api/judges/:id/analytics endpoint fires 14
+// SQL queries per request (each invokes the JUDGE_PER_DIVE CTE
+// that scans scores ⨝ events ⨝ event_judges ⨝ competitor_dive_lists
+// ⨝ dive_directory). The directory endpoint runs ILIKE + a LATERAL
+// COUNT(*) over all scores. Both are public; without a limiter an
+// unauth client can saturate the read pool. searchLimiter (60/min/
+// IP) is well above any legitimate typeahead use of the directory.
+app.use(searchLimiter, require("./routes/judge-analytics")({
   pool,
   readPool,
   verifyToken,
