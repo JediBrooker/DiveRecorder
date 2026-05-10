@@ -23,11 +23,46 @@
  * pointer-leave so the projector stays clean.
  */
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
-const events = ref([])
+const route = useRoute()
+const router = useRouter()
+
+// All Live events as returned by the most recent /api/events
+// poll. The displayed grid is a `computed` derived from this plus
+// the operator's subset filter so that clearing the filter (via
+// the "Show all Live events" rescue) re-renders instantly without
+// waiting for the next 30s poll.
+const liveEvents = ref([])
 const loading = ref(true)
 const error = ref('')
+
+// Optional ?ids=<id1>,<id2>,…  — when present the operator picked
+// a subset from the Control Room's broadcast chooser. We intersect
+// this list with the polled Live events so:
+//   • events outside the picked set never show (even if Live)
+//   • selected events that finish drop out naturally on the next poll
+//   • newly-Live events do NOT auto-join the grid (the operator
+//     made an explicit choice; respect it)
+//
+// A null `selectedIds` means "no subset chosen — show every Live event"
+// (the legacy /broadcast/all behaviour).
+const selectedIds = computed(() => {
+  const raw = route.query.ids
+  if (raw == null || raw === '') return null
+  const ids = String(raw)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  return ids.length ? new Set(ids) : null
+})
+
+// Clear the ?ids= filter and stay on /broadcast/all. Used by the
+// "Show all Live events" rescue button when every selected event
+// has finished.
+function showAllLive() {
+  router.replace({ path: '/broadcast/all' })
+}
 
 // 30 second refresh — slow enough that we're not hammering the API,
 // fast enough that a venue projector picks up newly-Live events
@@ -40,7 +75,7 @@ async function loadEvents() {
     const res = await fetch('/api/events', { credentials: 'same-origin' })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json()
-    events.value = (data || []).filter((e) => e.status === 'Live')
+    liveEvents.value = (data || []).filter((e) => e.status === 'Live')
     error.value = ''
   } catch (err) {
     error.value = err.message || 'Failed to load events'
@@ -48,6 +83,23 @@ async function loadEvents() {
     loading.value = false
   }
 }
+
+// The displayed events: every Live event when no ?ids= filter is
+// set, else the intersection of (polled Live events) ∩ (picked ids).
+// Computed so the rescue button can strip the filter and have the
+// grid re-render against the most recent poll instantly.
+const events = computed(() => {
+  const subset = selectedIds.value
+  if (!subset) return liveEvents.value
+  return liveEvents.value.filter((e) => subset.has(String(e.id)))
+})
+
+// True when the operator picked a subset but every event in that
+// subset has since finished (or otherwise dropped out of the Live
+// list). Drives the "all selected events have finished" rescue UI.
+const subsetExhausted = computed(
+  () => selectedIds.value !== null && events.value.length === 0 && !loading.value,
+)
 
 onMounted(() => {
   loadEvents()
@@ -84,12 +136,22 @@ const gridStyle = computed(() => {
     <div class="mbcast-chrome">
       <div class="mbcast-stat">
         {{ events.length }} LIVE EVENT{{ events.length === 1 ? '' : 'S' }}
+        <span v-if="selectedIds" class="mbcast-stat-sub">· operator-selected subset</span>
       </div>
       <RouterLink to="/scoreboard" class="mbcast-exit" v-tip="'Exit broadcast'">✕</RouterLink>
     </div>
 
     <div v-if="loading && !events.length" class="mbcast-empty">
       Loading live events…
+    </div>
+    <!-- Operator picked a subset but every event in that subset has
+         finished. Offer a one-click rescue back to "all Live events"
+         so the projector picks up whatever else is still running. -->
+    <div v-else-if="subsetExhausted" class="mbcast-empty">
+      All selected events have finished.
+      <button type="button" class="mbcast-link" @click="showAllLive">
+        Show all Live events
+      </button>
     </div>
     <div v-else-if="!events.length" class="mbcast-empty">
       No Live events right now.
@@ -157,6 +219,13 @@ const gridStyle = computed(() => {
   letter-spacing: 0.25em;
   color: var(--cyan, #06b6d4);
 }
+.mbcast-stat-sub {
+  margin-left: 0.4rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  color: var(--text-3, #94a3b8);
+  text-transform: none;
+}
 .mbcast-exit {
   font-size: 18px;
   font-weight: 700;
@@ -189,6 +258,12 @@ const gridStyle = computed(() => {
   border: 1px solid var(--cyan, #06b6d4);
   padding: 0.4rem 1rem;
   border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+.mbcast-link:hover {
+  background: rgba(6, 182, 212, 0.10);
 }
 
 .mbcast-grid {

@@ -78,12 +78,27 @@ const judgeRankingOpen = ref(false)
 //   1. Operator broadcast (this screen, kiosk layout)
 //   2. Audience broadcast for THIS event → new window
 //      /scoreboard/<id>/broadcast
-//   3. Multi-event audience broadcast for ALL Live events →
-//      new window /broadcast/all
+//   3. Multi-event audience broadcast → expands a sub-picker
+//      that lets the operator tick which Live events to project,
+//      then opens /broadcast/all?ids=<comma-list> in a new window.
+//      (With 0 or 1 Live events the picker is skipped and we
+//      open /broadcast/all directly.)
 // The third option supports the venue-with-two-pools case: one
-// projector, two events running concurrently, single URL that
-// auto-grids by event count.
+// projector, multiple events running concurrently, operator
+// picks the subset they want side-by-side.
 const broadcastChoiceOpen = ref(false)
+// Sub-picker state for option 3. When the operator clicks the
+// "ALL Live events" row we fetch the Live-events list and ask
+// them to tick exactly which events should appear in the grid.
+// `broadcastLiveEvents` holds the fetched rows; `broadcastSelection`
+// is a Set<string> of event ids; `broadcastPickerOpen` toggles the
+// inline picker panel inside the same modal so the operator never
+// jumps between dialogs.
+const broadcastPickerOpen = ref(false)
+const broadcastLiveEvents = ref([])
+const broadcastLiveLoading = ref(false)
+const broadcastLiveError = ref('')
+const broadcastSelection = ref(new Set())
 
 function openBroadcastInNewWindow(path) {
   // Aim for an undecorated popup, with reasonable defaults that
@@ -94,7 +109,79 @@ function openBroadcastInNewWindow(path) {
   const opts = "width=1600,height=900,menubar=no,toolbar=no,location=no";
   window.open(path, "_blank", opts);
   broadcastChoiceOpen.value = false;
+  broadcastPickerOpen.value = false;
   headerMenuOpen.value = false;
+}
+
+// Click handler for the third chooser row. Fetches the current
+// Live events, then either:
+//   - skips the picker entirely (0 or 1 Live events — there's no
+//     subset to choose from, so just open the canonical
+//     /broadcast/all URL), or
+//   - opens the in-modal picker with every Live event preselected.
+async function pickBroadcastAll() {
+  broadcastLiveLoading.value = true
+  broadcastLiveError.value = ''
+  try {
+    const res = await fetch('/api/events', { credentials: 'same-origin' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    const live = (data || []).filter((e) => e.status === 'Live')
+    broadcastLiveEvents.value = live
+    if (live.length <= 1) {
+      // Nothing to pick — fall through to the canonical URL.
+      openBroadcastInNewWindow('/broadcast/all')
+      return
+    }
+    // Default: every Live event selected, matching the prior
+    // single-click behaviour. The operator unticks what they
+    // don't want.
+    broadcastSelection.value = new Set(live.map((e) => String(e.id)))
+    broadcastPickerOpen.value = true
+  } catch (err) {
+    broadcastLiveError.value = err?.message || 'Failed to load Live events'
+  } finally {
+    broadcastLiveLoading.value = false
+  }
+}
+
+function toggleBroadcastSelection(id) {
+  const key = String(id)
+  // Re-assign so Vue's reactivity sees the change — mutating a Set
+  // in-place doesn't trigger reactivity on its own.
+  const next = new Set(broadcastSelection.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  broadcastSelection.value = next
+}
+
+function broadcastSelectAll() {
+  broadcastSelection.value = new Set(
+    broadcastLiveEvents.value.map((e) => String(e.id)),
+  )
+}
+function broadcastSelectNone() {
+  broadcastSelection.value = new Set()
+}
+
+const broadcastOpenDisabled = computed(
+  () => broadcastSelection.value.size === 0,
+)
+
+// Confirm-the-picker handler. Builds /broadcast/all?ids=<csv>.
+// If the operator happens to have ticked every Live event, drop
+// the ?ids= param entirely so newly-Live events still auto-join
+// the grid (the "I want everything" intent is well served by
+// the canonical URL).
+function confirmBroadcastPicker() {
+  const allIds = broadcastLiveEvents.value.map((e) => String(e.id))
+  const picked = allIds.filter((id) => broadcastSelection.value.has(id))
+  if (picked.length === 0) return
+  const everyone = picked.length === allIds.length
+  const path = everyone
+    ? '/broadcast/all'
+    : `/broadcast/all?ids=${picked.join(',')}`
+  openBroadcastInNewWindow(path)
 }
 // Connection state lives on the singleton socket itself
 // (`socket.isConnected`, a ref). A parallel `connStatus` ref
@@ -3303,21 +3390,28 @@ onUnmounted(() => {
     <!-- Broadcast chooser. Three flavours covering the realistic
          operator scenarios: kiosk this screen, open audience
          view for THIS event in a new window, or open the
-         all-Live-events grid in a new window for a venue
-         projector that needs to show multiple concurrent
+         multi-event grid (subset-pickable) in a new window for
+         a venue projector that needs to show multiple concurrent
          events at once. -->
     <div v-if="broadcastChoiceOpen" class="lb-backdrop"
-         @mousedown.self="broadcastChoiceOpen = false">
+         @mousedown.self="broadcastChoiceOpen = false; broadcastPickerOpen = false">
       <div class="lb-modal broadcast-chooser">
         <div class="lb-header">
           <div>
             <div class="lb-title">📺 Broadcast</div>
-            <div class="lb-event">Pick what to broadcast and where</div>
+            <div class="lb-event">
+              {{ broadcastPickerOpen
+                  ? 'Tick the events to project, then Open'
+                  : 'Pick what to broadcast and where' }}
+            </div>
           </div>
           <button class="btn btn-ghost btn-sm"
-                  @click="broadcastChoiceOpen = false">Close</button>
+                  @click="broadcastChoiceOpen = false; broadcastPickerOpen = false">Close</button>
         </div>
-        <div class="lb-body broadcast-chooser-body">
+        <!-- Default chooser body. Hidden while the multi-event
+             sub-picker is open so the operator sees one panel
+             at a time. -->
+        <div v-if="!broadcastPickerOpen" class="lb-body broadcast-chooser-body">
           <!-- 1. Operator broadcast — inline on this screen. -->
           <RouterLink
             to="/control?broadcast=1"
@@ -3350,21 +3444,75 @@ onUnmounted(() => {
             </div>
           </button>
 
-          <!-- 3. Multi-event audience broadcast in a new window. -->
+          <!-- 3. Multi-event audience broadcast. Expands an inline
+               sub-picker so the operator can tick the subset of
+               Live events to project. With 0 or 1 Live events the
+               picker is skipped (handled in pickBroadcastAll). -->
           <button class="broadcast-option"
                   type="button"
-                  @click="openBroadcastInNewWindow('/broadcast/all')">
+                  :disabled="broadcastLiveLoading"
+                  @click="pickBroadcastAll">
             <div class="broadcast-option-glyph">📺</div>
             <div class="broadcast-option-text">
-              <div class="broadcast-option-title">Audience broadcast — ALL Live events</div>
+              <div class="broadcast-option-title">
+                Audience broadcast — pick events…
+              </div>
               <div class="broadcast-option-desc">
-                One window, every currently-Live event side-by-side
-                in an auto-grid (1 fills the screen, 2 splits 50/50,
-                3-4 form a 2×2…). Use this when the venue has one
-                projector but two pools are running concurrently.
+                <template v-if="broadcastLiveLoading">Loading Live events…</template>
+                <template v-else>
+                  One window, every chosen Live event side-by-side in
+                  an auto-grid (1 fills the screen, 2 splits 50/50,
+                  3-4 form a 2×2…). Use this when the venue has one
+                  projector but two pools are running concurrently —
+                  pick which events to project on the next step.
+                </template>
+              </div>
+              <div v-if="broadcastLiveError" class="broadcast-picker-error">
+                {{ broadcastLiveError }}
               </div>
             </div>
           </button>
+        </div>
+
+        <!-- Sub-picker: appears when the operator clicks option 3
+             and there are 2+ Live events. Every Live event ticked
+             by default so the operator unticks what they don't
+             want. "Select all / None" affordances at the top. -->
+        <div v-else class="lb-body broadcast-picker">
+          <div class="broadcast-picker-head">
+            <span class="broadcast-picker-count">
+              {{ broadcastSelection.size }} of {{ broadcastLiveEvents.length }} selected
+            </span>
+            <div class="broadcast-picker-bulk">
+              <button class="btn btn-ghost btn-sm" type="button"
+                      :disabled="broadcastSelection.size === broadcastLiveEvents.length"
+                      @click="broadcastSelectAll">All</button>
+              <button class="btn btn-ghost btn-sm" type="button"
+                      :disabled="broadcastSelection.size === 0"
+                      @click="broadcastSelectNone">None</button>
+            </div>
+          </div>
+          <ul class="broadcast-picker-list">
+            <li v-for="ev in broadcastLiveEvents" :key="ev.id">
+              <label class="broadcast-picker-row">
+                <input type="checkbox"
+                       :checked="broadcastSelection.has(String(ev.id))"
+                       @change="toggleBroadcastSelection(ev.id)">
+                <span class="broadcast-picker-name">{{ ev.name }}</span>
+                <span v-if="ev.height" class="broadcast-picker-meta">{{ ev.height }}</span>
+                <span v-if="ev.gender" class="broadcast-picker-meta">{{ ev.gender }}</span>
+              </label>
+            </li>
+          </ul>
+          <div class="broadcast-picker-actions">
+            <button class="btn btn-ghost" type="button"
+                    @click="broadcastPickerOpen = false">← Back</button>
+            <button class="btn btn-primary" type="button"
+                    :disabled="broadcastOpenDisabled"
+                    @click="confirmBroadcastPicker">
+              Open broadcast ({{ broadcastSelection.size }})
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -5830,6 +5978,93 @@ onUnmounted(() => {
   font-size: 11px;
   line-height: 1.4;
   color: var(--text-3);
+}
+.broadcast-option[disabled] {
+  opacity: 0.5;
+  cursor: progress;
+}
+.broadcast-picker-error {
+  margin-top: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--red, #ef4444);
+}
+
+/* Sub-picker inside the broadcast modal — list of Live events
+   with per-row checkboxes. Same modal width as the chooser so
+   the visual frame doesn't jump when the panel swaps. */
+.broadcast-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.75rem 1rem 1rem;
+}
+.broadcast-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.broadcast-picker-count {
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.broadcast-picker-bulk {
+  display: flex;
+  gap: 0.4rem;
+}
+.broadcast-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.broadcast-picker-row {
+  display: grid;
+  grid-template-columns: 24px 1fr auto auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  transition: border-color 0.12s;
+}
+.broadcast-picker-row:hover { border-color: var(--cyan); }
+.broadcast-picker-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--cyan);
+  cursor: pointer;
+}
+.broadcast-picker-name {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.broadcast-picker-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-3);
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+}
+.broadcast-picker-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--border-2);
 }
 
 .lb-backdrop { position: fixed; inset: 0; background: rgba(3,7,18,0.95); backdrop-filter: blur(12px); z-index: 300; }
