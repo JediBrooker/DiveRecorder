@@ -361,20 +361,34 @@ const panelByNumber = computed(() => {
 })
 
 // Per-dive judge-rank map keyed by `${judge_id}:${competitor_id}:
-// ${round_number}`. Populated from /api/events/:id/judge-ranking-
-// analysis when the event is Completed and the analysis section
-// has been opened (the same payload backs the JudgeRankingTable);
-// drives the tooltip enhancement on score chips. Empty {} while
-// the event is Live or the section hasn't been expanded yet — the
-// tooltip falls back to its existing identity-only line.
+// Per-dive ranks: ${judge_id}:${competitor_id}:${round_number}.
+// Populated eagerly from /api/events/:id/judge-ranking-analysis
+// the moment the page loads on a Completed event — so chip
+// tooltips have rank context on the FIRST hover (waiting for the
+// JRA section to expand would mean the first few hovers fall
+// back to identity-only).
+//
+// The full payload is also passed straight through to the
+// JudgeRankingTable component as a prop, so opening the section
+// is a zero-network-call expansion. Section UI stays v-if'd
+// (mounts only on expand) — the parent owns the data lifecycle.
 const judgeRankingPayload = ref(null)
-// Expanded by default — the section + component mount eagerly on
-// Completed events so spectators see the matrix without needing
-// to expand a panel. The toggle remains so a viewer who wants a
-// tighter view can collapse it; the payload survives the toggle.
-const judgeRankingExpanded = ref(true)
+const judgeRankingExpanded = ref(false)
 const judgeRankingLoadFailed = ref(false)
 const perDiveRanks = computed(() => judgeRankingPayload.value?.per_dive_ranks || {})
+
+async function loadJudgeRankingPayload() {
+  if (!currentEventId.value || !isCompleted.value) return
+  judgeRankingLoadFailed.value = false
+  try {
+    const res = await fetch(`/api/events/${currentEventId.value}/judge-ranking-analysis`)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    judgeRankingPayload.value = await res.json()
+  } catch (err) {
+    console.error('[Scoreboard JRA preload]', err.message)
+    judgeRankingLoadFailed.value = true
+  }
+}
 
 // Ordinal helper for the chip-tooltip line (the view already
 // defines a separate `ordinal()` further down for the "Currently
@@ -718,6 +732,12 @@ async function refreshData() {
       leaderboardRounds.value = leaderboard.rounds || []
       // Panel comes from the archive payload for completed events.
       eventPanel.value = archive.panel || []
+      // Eager-fetch the JRA payload so per-chip tooltips have
+      // rank context on first hover. The section UI itself
+      // stays v-if'd (lazy mount) — the data lifecycle lives
+      // on the parent now so opening the section is a zero-
+      // network-call expansion.
+      loadJudgeRankingPayload()
     } else {
       archiveResults.value = null
       // Live events don't have a stable Judge Ranking Analysis —
@@ -2118,15 +2138,14 @@ onMounted(async () => {
           </div>
         </div>
 
-        <!-- Judge Ranking Analysis. Mounts eagerly on any
-             Completed event regardless of event_type — the
-             component handles individual / synchro_pair / team in
-             one shape. Mount fires the payload fetch immediately
-             so the table is visible to spectators on first paint
-             (and the same payload feeds the chip-tooltip
-             enhancement elsewhere on the page). The collapsible
-             header stays so a viewer who wants a tighter view can
-             fold it back; data persists across the toggle. -->
+        <!-- Judge Ranking Analysis. Section is collapsed by
+             default — the data is already in memory (eager-
+             fetched alongside the recap payload so the chip
+             tooltips can use it on first hover), so opening the
+             section is a zero-network-call expansion. The table
+             component takes the payload via prop, no internal
+             fetch. Available on every Completed event type —
+             individual / synchro_pair / team. -->
         <div v-if="isCompleted" class="recap-card jra-section">
           <button
             class="col-head jra-toggle"
@@ -2135,9 +2154,10 @@ onMounted(async () => {
             <span>Judge Ranking Analysis</span>
             <span class="jra-caret">{{ judgeRankingExpanded ? '▾' : '▸' }}</span>
           </button>
-          <div v-show="judgeRankingExpanded" class="col-body">
+          <div v-if="judgeRankingExpanded" class="col-body">
             <JudgeRankingTable
               :event-id="currentEventId"
+              :payload="judgeRankingPayload"
               @loaded="onJudgeRankingLoaded" />
           </div>
         </div>

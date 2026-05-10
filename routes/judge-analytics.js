@@ -75,6 +75,7 @@ const KNOWN_WIDGETS = new Set([
   "recent_meets",
   "score_trend",
   "panel_compare",
+  "panel_deviation",
 ]);
 
 // True when the viewer is allowed to see judge-private fields
@@ -270,6 +271,8 @@ module.exports = function createJudgeAnalyticsRouter({
         recent_meets,
         score_trend,
         panel_compare,
+        panel_deviation_summary,
+        panel_deviation_per_event,
       ] = await Promise.all([
         // ---- bias_summary: a one-row "headline" widget. The
         // bias number tells the judge whether they trend high
@@ -616,6 +619,88 @@ module.exports = function createJudgeAnalyticsRouter({
              AND panel_kept_mean IS NOT NULL`,
           baseParams,
         ),
+
+        // ---- panel_deviation: how often does this judge differ
+        // from the rest of the panel? Two cohorts of "differ":
+        //   * differ_loose — judge's award sits OUTSIDE the
+        //     [min, max] of the kept-trim slice. They were a
+        //     dropped outlier on that dive.
+        //   * differ_tight — judge's award differs from the
+        //     panel kept-mean by >= 1.0 (i.e. 2+ half-point
+        //     increments — a substantive disagreement, not just
+        //     the routine ±0.5 noise WA expects from the panel).
+        // Both metrics scoped to comparable dives (event_type
+        // <> 'synchro_pair' AND panel_kept_mean IS NOT NULL).
+        runQuery("panel_deviation_summary",
+          `WITH per_dive AS (${JUDGE_PER_DIVE}),
+           kept_bounds AS (
+             /* For each comparable dive: lowest + highest score
+                in the post-trim kept slice. The judge "differs
+                from the panel" when their own score sits below
+                the lowest or above the highest of the kept set. */
+             SELECT competitor_id, round_number, event_id, my_score, panel_kept_mean,
+                    panel_scores[(drop_count + 1)]                                       AS kept_low,
+                    panel_scores[(array_length(panel_scores, 1) - drop_count)]           AS kept_high
+               FROM per_dive
+               JOIN LATERAL (
+                 SELECT CASE
+                   WHEN panel_size = 5  THEN 1
+                   WHEN panel_size = 7  THEN 2
+                   WHEN panel_size = 9  THEN 2
+                   WHEN panel_size = 11 THEN 3
+                   ELSE 0
+                 END AS drop_count
+               ) dc ON TRUE
+               WHERE event_type <> 'synchro_pair' AND panel_kept_mean IS NOT NULL
+           )
+           SELECT
+             COUNT(*)::int                                                  AS total,
+             COUNT(*) FILTER (
+               WHERE my_score < kept_low OR my_score > kept_high
+             )::int                                                         AS differ_loose,
+             COUNT(*) FILTER (
+               WHERE ABS(my_score - panel_kept_mean) >= 1.0
+             )::int                                                         AS differ_tight,
+             (
+               COUNT(*) FILTER (WHERE my_score < kept_low OR my_score > kept_high)::numeric
+               / NULLIF(COUNT(*), 0)
+             )::numeric(4,3)                                                AS loose_rate,
+             (
+               COUNT(*) FILTER (WHERE ABS(my_score - panel_kept_mean) >= 1.0)::numeric
+               / NULLIF(COUNT(*), 0)
+             )::numeric(4,3)                                                AS tight_rate
+           FROM kept_bounds`,
+          baseParams,
+        ),
+
+        // ---- panel_deviation_per_event: same idea aggregated
+        // per event so the judge can see whether one specific
+        // meet drove the headline rate. ORDER BY most-recent-
+        // first; cap at 10 to keep the widget compact.
+        runQuery("panel_deviation_per_event",
+          `WITH per_dive AS (${JUDGE_PER_DIVE}),
+           per_event AS (
+             SELECT pd.event_id, e.name AS event_name, e.created_at,
+                    COUNT(*)::int AS dives,
+                    COUNT(*) FILTER (
+                      WHERE ABS(pd.my_score - pd.panel_kept_mean) >= 1.0
+                    )::int AS differ_tight,
+                    (
+                      COUNT(*) FILTER (WHERE ABS(pd.my_score - pd.panel_kept_mean) >= 1.0)::numeric
+                      / NULLIF(COUNT(*), 0)
+                    )::numeric(4,3) AS tight_rate,
+                    AVG(pd.my_score - pd.panel_kept_mean)::numeric(5,3) AS signed_deviation
+               FROM per_dive pd
+               JOIN events e ON e.id = pd.event_id
+              WHERE pd.event_type <> 'synchro_pair' AND pd.panel_kept_mean IS NOT NULL
+              GROUP BY pd.event_id, e.name, e.created_at
+           )
+           SELECT *
+             FROM per_event
+            ORDER BY created_at DESC
+            LIMIT 10`,
+          baseParams,
+        ),
       ]);
 
       res.json({
@@ -633,6 +718,10 @@ module.exports = function createJudgeAnalyticsRouter({
         recent_meets,
         score_trend,
         panel_compare:          panel_compare[0]  || null,
+        panel_deviation: {
+          summary:   panel_deviation_summary[0] || null,
+          per_event: panel_deviation_per_event,
+        },
       });
     } catch (err) {
       console.error("[Judge Analytics Error]", err.message);

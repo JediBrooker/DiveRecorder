@@ -73,6 +73,8 @@ const JUDGE_WIDGET_CATALOG = [
     desc: 'Weekly mean signed deviation — are you drifting or holding steady?' },
   { id: 'panel_compare',          label: 'Panel Comparison',
     desc: 'Your average score vs the average panel-kept mean across all comparable dives.' },
+  { id: 'panel_deviation',        label: 'Panel Deviation',
+    desc: 'How often your scores differ from the rest of the panel — per dive and per event. Two cohorts: dropped outliers (your score fell outside the kept-trim slice) and substantive disagreements (≥1.0 from the panel kept-mean).' },
 ]
 
 // =============================================================
@@ -760,6 +762,73 @@ watch(() => route.params.id, () => { load() })
           Sample: {{ analytics.panel_compare.dives }} comparable dives.
           Range you scored: {{ fmtNum(analytics.panel_compare.my_min, 1) }} – {{ fmtNum(analytics.panel_compare.my_max, 1) }}.
         </p>
+      </div>
+
+      <!-- Panel Deviation — how often this judge differs from
+           the rest of the panel. Headline shows two rates
+           (substantive disagreement ≥1.0 from kept-mean, and
+           dropped-outlier — score sat outside the kept-trim
+           slice on that dive). Per-event table beneath lets
+           the judge see whether one specific meet drove the
+           headline. -->
+      <div v-if="isEnabled('panel_deviation')" class="card"
+           :style="{ order: widgetOrder('panel_deviation') }">
+        <div class="card-head">Panel Deviation</div>
+        <div v-if="!analytics?.panel_deviation?.summary?.total"
+             class="empty-mini">Not enough comparable dives yet.</div>
+        <template v-else>
+          <div class="bias-grid">
+            <div class="bias-cell">
+              <div class="bias-num">{{ fmtPct(analytics.panel_deviation.summary.tight_rate) }}</div>
+              <div class="bias-lbl">≥1.0 from kept-mean</div>
+            </div>
+            <div class="bias-cell">
+              <div class="bias-num">{{ fmtPct(analytics.panel_deviation.summary.loose_rate) }}</div>
+              <div class="bias-lbl">Dropped by trim</div>
+            </div>
+            <div class="bias-cell">
+              <div class="bias-num">{{ analytics.panel_deviation.summary.differ_tight }}</div>
+              <div class="bias-lbl">Substantive disagreements</div>
+            </div>
+            <div class="bias-cell">
+              <div class="bias-num">{{ analytics.panel_deviation.summary.total }}</div>
+              <div class="bias-lbl">Sample size</div>
+            </div>
+          </div>
+          <table v-if="analytics.panel_deviation.per_event?.length"
+                 class="pb-table" style="margin-top: 0.75rem">
+            <thead>
+              <tr>
+                <th>Meet</th>
+                <th>Date</th>
+                <th>Dives</th>
+                <th>≥1.0</th>
+                <th>Differ %</th>
+                <th>Signed</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="e in analytics.panel_deviation.per_event" :key="e.event_id">
+                <td class="strong">{{ e.event_name }}</td>
+                <td class="mono dim">
+                  {{ e.created_at ? new Date(e.created_at).toISOString().slice(0,10) : '—' }}
+                </td>
+                <td class="mono dim">{{ e.dives }}</td>
+                <td class="mono">{{ e.differ_tight }}</td>
+                <td class="mono">{{ fmtPct(e.tight_rate) }}</td>
+                <td class="mono" :class="biasClass(e.signed_deviation)">
+                  {{ fmtSigned(e.signed_deviation, 2) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="widget-hint">
+            Substantive disagreement = your award ≥1.0 from the
+            panel-kept mean. Dropped by trim = your award sat
+            outside the kept-trim slice for that dive (panel
+            size minus the high/low drops).
+          </p>
+        </template>
       </div>
 
     </div><!-- /widget grid -->

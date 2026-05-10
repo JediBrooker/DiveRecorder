@@ -25,17 +25,32 @@
  */
 import { ref, onMounted, computed, watch } from 'vue'
 
+// Two ways the component can get its data:
+//
+//   1. Parent passes `payload` as a prop (preferred — parent has
+//      already fetched eagerly so the chip-tooltip data is
+//      available on first paint of the page, regardless of
+//      whether this section is expanded).
+//   2. Parent omits the prop → fall back to fetching internally
+//      (Control Room modal still works that way).
 const props = defineProps({
   eventId: { type: [String, Number], required: true },
+  payload: { type: Object, default: null },
 })
 
 const emit = defineEmits(['loaded'])
 
 const loading = ref(false)
 const error = ref('')
-const payload = ref(null)
+const localPayload = ref(null)
+const payloadView = computed(() => props.payload || localPayload.value)
 
 async function load() {
+  // Skip the fetch entirely when the parent already supplied data.
+  if (props.payload) {
+    emit('loaded', props.payload)
+    return
+  }
   if (!props.eventId) return
   loading.value = true
   error.value = ''
@@ -45,8 +60,8 @@ async function load() {
       const body = await res.json().catch(() => ({}))
       throw new Error(body.error || `Failed (${res.status})`)
     }
-    payload.value = await res.json()
-    emit('loaded', payload.value)
+    localPayload.value = await res.json()
+    emit('loaded', localPayload.value)
   } catch (err) {
     error.value = err.message || 'Failed to load judge ranking analysis'
   } finally {
@@ -56,9 +71,100 @@ async function load() {
 
 onMounted(load)
 watch(() => props.eventId, load)
+watch(() => props.payload, (v) => { if (v) emit('loaded', v) })
 
-const judges = computed(() => payload.value?.judges || [])
-const divers = computed(() => payload.value?.divers || [])
+const judges = computed(() => payloadView.value?.judges || [])
+const divers = computed(() => payloadView.value?.divers || [])
+const eventType = computed(() => payloadView.value?.event?.event_type || 'individual')
+const numJudges = computed(() => payloadView.value?.event?.number_of_judges || judges.value.length)
+
+// Synchro role assignment per WA Article 13. Mirrors
+// src/composables/useScoreCategories.js synchroJudgeGroups so the
+// table groups judges identically to how the scoreboard already
+// renders synchro chip groups.
+function synchroRoleFor(judgeNumber) {
+  const n = numJudges.value
+  if (eventType.value !== 'synchro_pair') return null
+  if (n === 9) {
+    if (judgeNumber <= 2) return 'a'
+    if (judgeNumber <= 4) return 'b'
+    return 'sync'
+  }
+  if (n === 11) {
+    if (judgeNumber <= 3) return 'a'
+    if (judgeNumber <= 6) return 'b'
+    return 'sync'
+  }
+  return null
+}
+
+// Group judges by synchro role for the segregated sub-tables.
+// Each segment renders its OWN matrix so the "what would the
+// standings be if every judge had scored like J" comparison only
+// pits same-role judges against same-role judges (Exec A judges
+// only see Diver A's execution; the cross-role comparison the
+// previous version surfaced was meaningless).
+const synchroSegments = computed(() => {
+  if (eventType.value !== 'synchro_pair') return null
+  const groups = { a: [], b: [], sync: [] }
+  for (const j of judges.value) {
+    const r = synchroRoleFor(j.judge_number)
+    if (r && groups[r]) groups[r].push(j)
+  }
+  return [
+    { role: 'a',    label: 'Exec A — Diver A execution', judges: groups.a },
+    { role: 'b',    label: 'Exec B — Diver B execution', judges: groups.b },
+    { role: 'sync', label: 'Synchronisation',            judges: groups.sync },
+  ].filter((g) => g.judges.length > 0)
+})
+
+// Per-segment ranking: for each diver row, within a given synchro
+// role, the "actual rank" is recomputed from the trimmed sum of
+// that role's per_judge totals (so Exec A only judges Exec A's
+// view of the pairs). Ranks are stable across re-renders because
+// the JS sort is stable + we tie-break by diver display order.
+function segmentRows(segment) {
+  const segJudges = segment.judges
+  // Build per-diver role total = sum of segment judges' j_total.
+  const withTotals = divers.value.map((d) => {
+    let total = 0
+    for (const sj of segJudges) {
+      const pj = d.per_judge.find((p) => p.judge_id === sj.judge_id)
+      if (pj?.judge_total != null) total += Number(pj.judge_total)
+    }
+    return { diver: d, segment_total: total }
+  })
+  // Rank by segment_total (DESC). Stable: secondary key is the
+  // diver's actual_rank so equal totals fall back to the official
+  // ordering rather than DB row order.
+  const sorted = [...withTotals].sort((a, b) =>
+    b.segment_total - a.segment_total
+    || a.diver.actual_rank - b.diver.actual_rank,
+  )
+  // Assign segment_actual_rank with proper ties (RANK semantics).
+  let prev = null
+  let prevRank = 0
+  sorted.forEach((row, idx) => {
+    if (prev != null && Math.abs(row.segment_total - prev) < 1e-9) {
+      row.segment_actual_rank = prevRank
+    } else {
+      row.segment_actual_rank = idx + 1
+      prevRank = idx + 1
+    }
+    prev = row.segment_total
+  })
+  // Return in actual_rank order (the rows match the table) but
+  // tag each with its segment-actual rank for the Actual column.
+  const bySeg = new Map(sorted.map((r) => [r.diver.competitor_id, r]));
+  return divers.value.map((d) => {
+    const hit = bySeg.get(d.competitor_id)
+    return {
+      diver: d,
+      segment_actual_rank: hit?.segment_actual_rank ?? null,
+      segment_actual_total: hit?.segment_total ?? 0,
+    }
+  })
+}
 
 // Outlier = any judge whose hypothetical rank disagrees with the
 // actual rank. A 1-rank swap is a real signal in this format —
@@ -85,6 +191,15 @@ function outlierStrength(pj, actualRank) {
 function entityLabel(d) {
   if (d.partner_name) return `${d.full_name} & ${d.partner_name}`
   return d.full_name
+}
+
+// Per-judge cell lookup for the synchro sub-tables. The single-
+// matrix branch uses index-aligned per_judge[idx]; the segmented
+// branch picks judges by id (since each segment only includes a
+// subset of the panel).
+function perJudgeOf(diver, judge) {
+  if (!diver || !judge) return null
+  return diver.per_judge.find((p) => p.judge_id === judge.judge_id) || null
 }
 
 // Tooltip composer for a per-judge cell. v-tip renders \n as
@@ -128,15 +243,15 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
         <div class="jra-title">Judge Ranking Analysis</div>
         <div class="jra-subtitle">
           Each column shows the rank each
-          {{ payload?.event?.event_type === 'team' ? 'team' :
-             payload?.event?.event_type === 'synchro_pair' ? 'pair' :
+          {{ eventType === 'team' ? 'team' :
+             eventType === 'synchro_pair' ? 'pair' :
              'diver' }} would hold if every judge had scored
           unanimously like that one judge. Cells where a judge
           disagrees with the actual rank are tinted — pale cyan for
           a single-position swap, bright cyan for two or more.
         </div>
       </div>
-      <div class="jra-actions" v-if="payload && !error">
+      <div class="jra-actions" v-if="payloadView && !error">
         <a class="jra-btn" :href="csvHref" v-tip="'Download CSV'">CSV</a>
         <a class="jra-btn" :href="pdfHref" v-tip="'Download PDF'">PDF</a>
       </div>
@@ -154,11 +269,79 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
       No scored dives to analyse.
     </div>
 
+    <!-- Synchro: three sub-tables, one per WA role group (Exec A
+         / Exec B / Sync). Same-role judges only compared to
+         same-role judges; each sub-table's "Actual" column is
+         the rank derived from that role's totals alone. -->
+    <template v-else-if="synchroSegments && synchroSegments.length">
+      <div v-for="seg in synchroSegments" :key="seg.role"
+           :class="['jra-segment', `jra-segment-${seg.role}`]">
+        <div class="jra-segment-head">{{ seg.label }}</div>
+        <div class="jra-scroll">
+          <table class="jra-table">
+            <thead>
+              <tr>
+                <th class="jra-th jra-th-diver">Pair</th>
+                <th class="jra-th jra-th-actual"
+                    v-tip="`Rank by this sub-panel's trimmed total — ${seg.label}`">Actual</th>
+                <th v-for="j in seg.judges" :key="j.judge_id"
+                    class="jra-th jra-th-judge"
+                    v-tip="`J${j.judge_number} — ${j.full_name || ''}${j.country_code ? ' · ' + j.country_code : ''}`">
+                  <span class="jra-judge-num">J{{ j.judge_number }}</span>
+                  <span class="jra-judge-name">{{ j.full_name || '' }}</span>
+                  <span v-if="j.country_code" class="jra-judge-cc">{{ j.country_code }}</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in segmentRows(seg)"
+                  :key="(row.diver.team_id || row.diver.competitor_id) + '-' + seg.role"
+                  class="jra-row">
+                <td class="jra-td jra-td-diver">
+                  <div class="jra-diver-name">
+                    <RouterLink v-if="row.diver.competitor_id"
+                                :to="`/profile/${row.diver.competitor_id}`"
+                                class="jra-diver-link">{{ row.diver.full_name }}</RouterLink>
+                    <template v-if="row.diver.partner_name">
+                      <span class="jra-diver-amp">&amp;</span>
+                      <RouterLink v-if="row.diver.partner_id"
+                                  :to="`/profile/${row.diver.partner_id}`"
+                                  class="jra-diver-link">{{ row.diver.partner_name }}</RouterLink>
+                      <template v-else>{{ row.diver.partner_name }}</template>
+                    </template>
+                    <span v-if="row.diver.country_code" class="jra-diver-cc">{{ row.diver.country_code }}</span>
+                  </div>
+                  <div v-if="row.diver.club_name" class="jra-diver-club">{{ row.diver.club_name }}</div>
+                </td>
+                <td class="jra-td jra-td-actual">
+                  <span class="jra-actual-rank">{{ row.segment_actual_rank ?? '—' }}</span>
+                  <span class="jra-actual-total">{{ Number(row.segment_actual_total || 0).toFixed(1) }}</span>
+                </td>
+                <td v-for="j in seg.judges" :key="j.judge_id"
+                    :class="['jra-td', 'jra-td-cell',
+                             outlierStrength(perJudgeOf(row.diver, j), row.segment_actual_rank ?? row.diver.actual_rank)]"
+                    v-tip="cellTip(row.diver, j, perJudgeOf(row.diver, j))">
+                  <span class="jra-cell-rank">{{ perJudgeOf(row.diver, j)?.rank ?? '—' }}</span>
+                  <span v-if="perJudgeOf(row.diver, j)?.judge_total != null"
+                        class="jra-cell-total">{{ Number(perJudgeOf(row.diver, j).judge_total).toFixed(1) }}</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </template>
+
+    <!-- Individual / team / synchro-without-recognised-panel —
+         single matrix. -->
     <div v-else class="jra-scroll">
       <table class="jra-table">
         <thead>
           <tr>
-            <th class="jra-th jra-th-diver">Diver</th>
+            <th class="jra-th jra-th-diver">{{
+              eventType === 'team' ? 'Team' :
+              eventType === 'synchro_pair' ? 'Pair' : 'Diver'
+            }}</th>
             <th class="jra-th jra-th-actual" v-tip="'Official panel-trimmed standings'">Actual</th>
             <th
               v-for="j in judges"
@@ -177,14 +360,10 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
               class="jra-row">
             <td class="jra-td jra-td-diver">
               <div class="jra-diver-name">
-                <!-- Individual or synchro lead diver → /profile link.
-                     Team rows have no individual to link to. -->
                 <RouterLink v-if="d.competitor_id && !d.team_id"
                             :to="`/profile/${d.competitor_id}`"
                             class="jra-diver-link">{{ d.full_name }}</RouterLink>
                 <template v-else>{{ d.full_name }}</template>
-                <!-- Synchro partner — same chip style as the
-                     existing scoreboard. -->
                 <template v-if="d.partner_name">
                   <span class="jra-diver-amp">&amp;</span>
                   <RouterLink v-if="d.partner_id"
@@ -369,24 +548,25 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
   font-weight: 500;
   color: var(--text-2, #cbd5e1);
   cursor: default;
-  /* Two-line layout: rank on top in display font, hypothetical
-     total beneath in a smaller mono font. Centring both vertically
-     keeps the row height predictable across wide events. */
-  line-height: 1.1;
+  /* Match the Actual column exactly: rank + total on the SAME
+     baseline, total small + muted. The earlier two-line layout
+     made the matrix feel busier than the standings panel
+     beneath. Now the cells read like compact "rank (total)"
+     pairs identical to the Actual column. */
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.35rem;
 }
 .jra-cell-rank {
-  display: block;
   font-size: 14px;
   font-weight: 700;
   color: inherit;
 }
 .jra-cell-total {
-  display: block;
-  font-family: var(--font-mono, monospace);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 400;
   color: var(--text-3, #94a3b8);
-  margin-top: 0.15rem;
 }
 /* Outliers: a pale tint for ±1 (a real-but-routine disagreement)
    and a brighter cyan for ≥2 (the kind that re-shuffles the
@@ -406,6 +586,30 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
   color: rgba(6, 182, 212, 0.65);
 }
 .jra-diver-amp { color: var(--cyan, #06b6d4); margin: 0 0.2em; font-weight: 400; }
+
+/* Synchro-segmented sub-tables. Each role gets its own card
+   with a coloured heading so the viewer can scan the three
+   sub-panels at a glance. */
+.jra-segment {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.9rem;
+}
+.jra-segment-head {
+  font-family: var(--font-display, inherit);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  padding: 0.4rem 0.6rem;
+  border-left: 3px solid var(--cyan, #06b6d4);
+  background: rgba(6, 182, 212, 0.08);
+  color: var(--text-1, #f1f5f9);
+}
+.jra-segment-a .jra-segment-head    { border-color: #c4b5fd; background: rgba(139, 92, 246, 0.10); color: #ddd6fe; }
+.jra-segment-b .jra-segment-head    { border-color: #fbbf24; background: rgba(245, 158, 11, 0.10); color: #fde68a; }
+.jra-segment-sync .jra-segment-head { border-color: #34d399; background: rgba(16, 185, 129, 0.10); color: #6ee7b7; }
 .jra-row:hover .jra-td { background: rgba(148, 163, 184, 0.05); }
 .jra-row:hover .jra-outlier-mild { background: rgba(6, 182, 212, 0.14); }
 .jra-row:hover .jra-outlier-strong { background: rgba(6, 182, 212, 0.28); }

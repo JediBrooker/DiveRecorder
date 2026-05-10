@@ -289,25 +289,19 @@ test("Scoreboard recap renders the Judge Ranking Analysis section", async ({
   });
 
   await page.goto(`${baseURL}/scoreboard/${event.id}`);
-  // Section is expanded by default now (the v1 lazy-load was
-  // dropped — the recap renders the matrix eagerly). The toggle
-  // is still visible so a viewer can collapse the section if
-  // they prefer; we just don't need to click it to see the
-  // table.
+  // The recap card's header (toggle) is visible immediately;
+  // the matrix itself is mounted lazily so opening the section
+  // is a zero-network-call expansion (the parent has already
+  // eager-fetched the payload to feed chip tooltips). Click to
+  // expand, assert the matrix renders.
   const toggle = page.locator("button.jra-toggle", {
     hasText: "Judge Ranking Analysis",
   });
   await expect(toggle).toBeVisible({ timeout: 20_000 });
-  // Wait for the table to mount + load (the same eager fetch
-  // also feeds the chip-tooltip enhancement elsewhere on the
-  // page).
+  await toggle.click();
   await expect(page.locator(".jra-table thead th", { hasText: "Diver" }))
     .toBeVisible({ timeout: 15_000 });
   await expect(page.locator(".jra-table tbody tr")).toHaveCount(3);
-  // And clicking the toggle collapses the section.
-  await toggle.click();
-  await expect(page.locator(".jra-table thead th", { hasText: "Diver" }))
-    .toBeHidden({ timeout: 5_000 });
 
   await setup.deleteOrg(orgId);
 });
