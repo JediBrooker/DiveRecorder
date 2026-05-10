@@ -815,6 +815,17 @@ app.use(exportLimiter, require("./routes/archive")({ pool, readPool }));
 app.use(exportLimiter, require("./routes/pdf")({ pool }));
 
 // =============================================================
+// JUDGE RANKING ANALYSIS
+// [SECTION: ROUTES — JUDGE RANKING]
+// "What would the standings have been if every judge had scored
+// unanimously like one specific judge?" Powers the in-page table
+// + score-chip tooltip enhancement on Completed events, plus CSV
+// + PDF exports for federation reporting. See routes/judge-
+// ranking.js for the rationale (public read; v1 individual only).
+// =============================================================
+app.use(exportLimiter, require("./routes/judge-ranking")({ pool }));
+
+// =============================================================
 // PUBLIC DIVER PROFILE
 // [SECTION: ROUTES — PUBLIC PROFILE]
 // /api/public/divers/:public_slug (JSON) and /diver/:public_slug
