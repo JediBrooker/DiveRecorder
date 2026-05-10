@@ -9,6 +9,7 @@ import { showSuccess, showError, showInfo } from '@/composables/useNotify'
 import { confirmAction } from '@/composables/useConfirm'
 import DiverIdentity from '@/components/DiverIdentity.vue'
 import StatusPill from '@/components/StatusPill.vue'
+import JudgeRankingTable from '@/components/JudgeRankingTable.vue'
 import {
   annotatedScores,
   annotatedSynchroScores,
@@ -65,6 +66,11 @@ const historyCards = ref([])
 const judgeTiles = ref([])
 const lbShow = ref(false)
 const lbRows = ref([])
+// Judge Ranking Analysis — opens a full-screen modal hosting the
+// JudgeRankingTable component. Only relevant for Completed events
+// (the table is meaningless before every dive has been scored), so
+// the button that flips this is gated on currentEvent.status.
+const judgeRankingOpen = ref(false)
 // Connection state lives on the singleton socket itself
 // (`socket.isConnected`, a ref). A parallel `connStatus` ref
 // would just shadow that state — and now that useSocket is a
@@ -3115,6 +3121,18 @@ onUnmounted(() => {
           v-tip="finaliseBtnTitle"
           @click="currentEvent?.status === 'Completed' ? showLeaderboard() : finaliseEvent()"
         >{{ finaliseBtnText }}</button>
+        <!-- Judge Ranking Analysis — only relevant for Completed
+             events (the matrix is meaningless until every dive is
+             in). v1 supports individual events only; synchro/team
+             events get a 400 from the endpoint and the modal
+             renders a friendly explanation. -->
+        <button
+          v-if="currentEvent?.status === 'Completed'
+                && currentEvent?.event_type === 'individual'"
+          class="btn-finalise btn-judge-ranking"
+          v-tip="'Show how the standings would change if every judge had scored unanimously like one specific judge'"
+          @click="judgeRankingOpen = true"
+        >Judge Ranking Analysis</button>
       </div>
     </div>
 
@@ -3234,6 +3252,26 @@ onUnmounted(() => {
             <div class="lb-name">{{ s.full_name }}</div>
             <div class="lb-score">{{ parseFloat(s.total).toFixed(1) }}</div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Judge Ranking Analysis modal — only mounted when open so
+         the component fetches only on demand. Uses the standard
+         .lb-backdrop + .lb-modal pattern (see AGENTS.md "Modal CSS
+         pattern" gotcha). -->
+    <div v-if="judgeRankingOpen" class="lb-backdrop"
+         @mousedown.self="judgeRankingOpen = false">
+      <div class="lb-modal jra-modal">
+        <div class="lb-header">
+          <div>
+            <div class="lb-title">Judge Ranking Analysis</div>
+            <div class="lb-event">{{ currentEvent?.name || '—' }}</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" @click="judgeRankingOpen = false">Close</button>
+        </div>
+        <div class="lb-body">
+          <JudgeRankingTable v-if="currentEvent?.id" :event-id="currentEvent.id" />
         </div>
       </div>
     </div>
@@ -5636,6 +5674,20 @@ onUnmounted(() => {
 .btn-back:hover { background: var(--bg-3); }
 .btn-finalise { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; padding: 0.5rem 1.1rem; border-radius: var(--radius-sm); border: 1px solid rgba(245,158,11,0.4); background: var(--amber-dim); color: var(--amber); cursor: pointer; transition: all 0.15s; }
 .btn-finalise:hover { background: var(--amber); color: var(--bg); }
+/* Judge Ranking Analysis button reuses the finalise base styling
+   but swaps to cyan — it's a navigation affordance for a Completed
+   event, not an action that mutates anything. */
+.btn-judge-ranking {
+  margin-left: 0.5rem;
+  border-color: rgba(6,182,212,0.4);
+  background: rgba(6,182,212,0.08);
+  color: var(--cyan);
+}
+.btn-judge-ranking:hover { background: var(--cyan); color: var(--bg); }
+/* Wider modal for the Judge Ranking Analysis matrix — the table
+   carries one column per judge so an 11-judge event needs more
+   horizontal room than the standings recap modal. */
+.jra-modal { max-width: min(96vw, 1100px) !important; }
 
 .lb-backdrop { position: fixed; inset: 0; background: rgba(3,7,18,0.95); backdrop-filter: blur(12px); z-index: 300; }
 

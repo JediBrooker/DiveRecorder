@@ -9,6 +9,7 @@ import { fmtDate } from '@/lib/format'
 import DiverIdentity from '@/components/DiverIdentity.vue'
 import ScoreHistoryButton from '@/components/ScoreHistoryButton.vue'
 import JargonTip from '@/components/JargonTip.vue'
+import JudgeRankingTable from '@/components/JudgeRankingTable.vue'
 
 const route  = useRoute()
 const router = useRouter()
@@ -359,9 +360,38 @@ const panelByNumber = computed(() => {
   return map
 })
 
+// Per-dive judge-rank map keyed by `${judge_id}:${competitor_id}:
+// ${round_number}`. Populated from /api/events/:id/judge-ranking-
+// analysis when the event is Completed and the analysis section
+// has been opened (the same payload backs the JudgeRankingTable);
+// drives the tooltip enhancement on score chips. Empty {} while
+// the event is Live or the section hasn't been expanded yet — the
+// tooltip falls back to its existing identity-only line.
+const judgeRankingPayload = ref(null)
+const judgeRankingExpanded = ref(false)
+const judgeRankingLoadFailed = ref(false)
+const perDiveRanks = computed(() => judgeRankingPayload.value?.per_dive_ranks || {})
+
+// Ordinal helper for the chip-tooltip line (the view already
+// defines a separate `ordinal()` further down for the "Currently
+// Nth" line under the active diver; both round to the same
+// answer but live in different scopes — renamed here to avoid
+// the redeclare).
+function ordinalShort(n) {
+  const s = ['th', 'st', 'nd', 'rd']
+  const v = n % 100
+  return n + (s[(v - 20) % 10] || s[v] || s[0])
+}
+
 // Compose the judge tooltip line shown on every score chip.
 // Mentions the click action explicitly so a viewer who's never
 // followed the link knows why the chip is interactive.
+//
+// The optional opts.perDiveRank ({ rank, total_in_round }) adds a
+// line like "Ranked this dive 2nd of 12 in round 1" between the
+// identity line and the dropped/click-to-open lines — surfaced
+// only when the event is Completed and the analysis payload is
+// loaded (Live events don't have a stable rank yet).
 function judgeTooltip(judge, opts = {}) {
   if (!judge) return 'Judge identity not available'
   const parts = []
@@ -372,9 +402,37 @@ function judgeTooltip(judge, opts = {}) {
   else if (judge.club_name) where.push(judge.club_name)
   else if (judge.org_name) where.push(judge.org_name)
   if (where.length) parts[0] += ` · ${where.join(' · ')}`
+  if (opts.perDiveRank && opts.perDiveRank.rank != null) {
+    const round = opts.roundNumber
+    const tail = round ? ` in round ${round}` : ''
+    parts.push(
+      `Ranked this dive ${ordinalShort(opts.perDiveRank.rank)} of `
+      + `${opts.perDiveRank.total_in_round}${tail}`,
+    )
+  }
   if (opts.dropped) parts.push('Dropped by trim rule')
   parts.push('Click to open judge analysis')
   return parts.join('\n')
+}
+
+// Look up the per-dive rank for one chip. Returns null when the
+// analysis data isn't loaded yet (Live event, or recap section
+// not yet expanded) or the chip's judge/competitor/round can't
+// be resolved.
+function judgePerDiveRank(judge, competitorId, roundNumber) {
+  if (!judge || !competitorId || roundNumber == null) return null
+  const map = perDiveRanks.value
+  if (!map) return null
+  return map[`${judge.judge_id}:${competitorId}:${roundNumber}`] || null
+}
+
+// Wire the analysis payload into the parent state when the
+// JudgeRankingTable component emits its `loaded` event. That
+// payload's per_dive_ranks map then enhances every chip tooltip
+// on the recap (without a second round-trip).
+function onJudgeRankingLoaded(payload) {
+  judgeRankingPayload.value = payload
+  judgeRankingLoadFailed.value = false
 }
 
 // Map a chip's position in the rendered list back to its
@@ -608,6 +666,11 @@ function resetToEventPicker({ pushUrl = true } = {}) {
   leaderboardRounds.value = []
   expandedRound.value = null
   archiveResults.value = null
+  // Reset the judge-ranking section so opening a different event
+  // doesn't leak stale ranks into the chip tooltips.
+  judgeRankingPayload.value = null
+  judgeRankingExpanded.value = false
+  judgeRankingLoadFailed.value = false
   if (pushUrl && route.params.eventId) {
     router.push({ path: '/scoreboard' })
   }
@@ -653,6 +716,11 @@ async function refreshData() {
       eventPanel.value = archive.panel || []
     } else {
       archiveResults.value = null
+      // Live events don't have a stable Judge Ranking Analysis —
+      // clear any payload left over from a flip Completed → Live
+      // (rare, but cheap to guard against).
+      judgeRankingPayload.value = null
+      judgeRankingExpanded.value = false
       const [scoreboard, leaderboard] = await Promise.all([
         fetch(`/api/scoreboard/${currentEventId.value}`).then(r => r.json()),
         fetch(`/api/scoreboard/${currentEventId.value}/leaderboard`).then(r => r.json()),
@@ -1976,7 +2044,11 @@ onMounted(async () => {
                           <RouterLink v-if="judgeForIndex(d.judge_numbers, si)"
                                 :to="`/judge-profile/${judgeForIndex(d.judge_numbers, si).judge_id}`"
                                 :class="['j-score', 'j-link', `j-${j.category}`, j.dropped ? 'j-dropped' : '']"
-                                v-tip="judgeTooltip(judgeForIndex(d.judge_numbers, si), { dropped: j.dropped })">
+                                v-tip="judgeTooltip(judgeForIndex(d.judge_numbers, si), {
+                                          dropped: j.dropped,
+                                          perDiveRank: judgePerDiveRank(judgeForIndex(d.judge_numbers, si), d.competitor_id, d.round_number),
+                                          roundNumber: d.round_number,
+                                        })">
                             {{ j.value.toFixed(1) }}
                           </RouterLink>
                           <span v-else
@@ -2039,6 +2111,29 @@ onMounted(async () => {
                 </div>
               </div>
             </template>
+          </div>
+        </div>
+
+        <!-- Judge Ranking Analysis (Completed individual events).
+             Collapsed by default so the recap loads quickly; the
+             JudgeRankingTable component is mounted only when
+             expanded, which is also what fetches the payload. The
+             same payload feeds the chip-tooltip enhancement —
+             once it's loaded, per-judge per-dive ranks appear in
+             the chip tooltips elsewhere on the page. -->
+        <div v-if="isCompleted && currentEvent?.event_type === 'individual'"
+             class="recap-card jra-section">
+          <button
+            class="col-head jra-toggle"
+            type="button"
+            @click="judgeRankingExpanded = !judgeRankingExpanded">
+            <span>Judge Ranking Analysis</span>
+            <span class="jra-caret">{{ judgeRankingExpanded ? '▾' : '▸' }}</span>
+          </button>
+          <div v-if="judgeRankingExpanded" class="col-body">
+            <JudgeRankingTable
+              :event-id="currentEventId"
+              @loaded="onJudgeRankingLoaded" />
           </div>
         </div>
 
@@ -3192,6 +3287,31 @@ onMounted(async () => {
    bronzes. Only shown for international events; collapses to a
    tight grid that scans top-to-bottom like a leaderboard. */
 .recap-card.medal-card { margin-bottom: 1rem; }
+
+/* Judge Ranking Analysis section — collapsed by default, expands
+   to host the JudgeRankingTable component. The toggle uses
+   .col-head styling so it visually matches the other recap card
+   headers (medals, standings); when expanded the caret flips. */
+.recap-card.jra-section { margin: 1rem 0; }
+.jra-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+.jra-toggle:hover { color: var(--cyan); }
+.jra-caret {
+  font-size: 14px;
+  color: var(--cyan);
+  margin-left: 0.5rem;
+}
 .medal-grid {
   display: flex; flex-direction: column;
   font-family: var(--font-mono);

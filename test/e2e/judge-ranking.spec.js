@@ -211,3 +211,86 @@ test("judge-ranking-analysis: math + CSV + PDF + synchro 400", async ({ request 
   // Cleanup so re-runs are idempotent.
   await setup.deleteOrg(orgId);
 });
+
+test("Scoreboard recap renders the Judge Ranking Analysis section", async ({
+  request, page, baseURL,
+}) => {
+  test.setTimeout(120_000);
+  await setup.installClickHighlight(page);
+
+  const { orgId, adminToken } = await setup.createOrgAndAdmin(request);
+  const event = await setup.createEvent(request, {
+    adminToken,
+    name: "E2E Judge Ranking UI",
+    height: "3m",
+    number_of_judges: 5,
+    total_rounds: 1,
+  });
+
+  const { clubId } = await setup.insertClub({
+    orgId, name: "UI Club", shortCode: "UIC",
+  });
+  const divers = [];
+  for (let i = 1; i <= 3; i++) {
+    divers.push(
+      await setup.insertUser({
+        orgId, role: "diver", fullName: `UI Diver ${i}`, clubId,
+      }),
+    );
+  }
+  const judges = [];
+  for (let i = 1; i <= 5; i++) {
+    judges.push(
+      await setup.insertUser({ orgId, role: "judge", fullName: `UI Judge ${i}` }),
+    );
+  }
+  const dive101B = await setup.pickDiveId({
+    height: 3.0, dive_code: "101", position: "B",
+  });
+
+  for (let i = 0; i < judges.length; i++) {
+    await setup.pool.query(
+      `INSERT INTO event_judges (event_id, judge_id, judge_number)
+       VALUES ($1, $2, $3)`,
+      [event.id, judges[i].userId, i + 1],
+    );
+  }
+  for (const d of divers) {
+    await setup.insertDiveList({
+      eventId: event.id, competitorId: d.userId,
+      dives: [{ round_number: 1, dive_id: dive101B }],
+    });
+  }
+  const matrix = [
+    [9.0, 8.0, 9.0, 9.0, 9.0],
+    [8.0, 9.0, 8.0, 8.0, 8.0],
+    [7.0, 7.0, 7.0, 7.0, 7.0],
+  ];
+  for (let di = 0; di < divers.length; di++) {
+    for (let ji = 0; ji < judges.length; ji++) {
+      await setup.pool.query(
+        `INSERT INTO scores (event_id, competitor_id, judge_id, dive_id, round_number, score)
+         VALUES ($1, $2, $3, $4, 1, $5)`,
+        [event.id, divers[di].userId, judges[ji].userId, dive101B, matrix[di][ji]],
+      );
+    }
+  }
+  await setup.setEventStatus(request, {
+    adminToken, eventId: event.id, status: "Completed",
+  });
+
+  await page.goto(`${baseURL}/scoreboard/${event.id}`);
+  // The toggle button is the col-head of the new recap-card.
+  const toggle = page.locator("button.jra-toggle", {
+    hasText: "Judge Ranking Analysis",
+  });
+  await expect(toggle).toBeVisible({ timeout: 20_000 });
+  await toggle.click();
+  // After expanding, the table component renders with the column
+  // headers + diver rows.
+  await expect(page.locator(".jra-table thead th", { hasText: "Diver" }))
+    .toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(".jra-table tbody tr")).toHaveCount(3);
+
+  await setup.deleteOrg(orgId);
+});
