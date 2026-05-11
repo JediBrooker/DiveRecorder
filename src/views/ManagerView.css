@@ -1,0 +1,550 @@
+.page-header { display:flex;align-items:center;justify-content:space-between;padding:1.5rem 2rem;border-bottom:1px solid var(--border);max-width:1400px;margin:0 auto; }
+/* Single-column layout — the New Event form lives in a modal
+   now (migration 039). Inline page hosts the events list + meets
+   list stacked vertically. */
+.main { max-width:1100px;margin:0 auto;padding:2rem;display:grid;grid-template-columns:1fr;gap:2rem;align-items:start; }
+
+.manager-toolbar {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:0.5rem;
+  flex-wrap:wrap;
+}
+
+.modal-create-event { max-width:720px; max-height:calc(100vh - 4rem); overflow-y:auto; }
+.modal-create-dive  { max-width:480px; }
+
+/* Round-dives editor (migration 039) — one row per round, with a
+   click-to-search dive picker, optional per-slot height for
+   mixed-board events, and quick-clear / remove buttons. */
+.rd-editor { display:flex; flex-direction:column; gap:0.5rem; }
+.rd-total {
+  font-size:11px; letter-spacing:0.08em; text-transform:uppercase;
+  color:var(--text-2);
+  background:rgba(0, 224, 255, 0.08); padding:0.2rem 0.6rem; border-radius:999px;
+}
+.rd-row {
+  display:grid;
+  grid-template-columns: 38px 1fr auto auto auto;
+  align-items:center; gap:0.5rem;
+  padding:0.4rem; border:1px solid var(--border); border-radius:var(--radius);
+  background:rgba(255,255,255,0.02);
+}
+.rd-row-num {
+  font-family:var(--font-mono); font-weight:bold; color:var(--cyan);
+  text-align:center;
+  background:rgba(0,224,255,0.06); border-radius:6px; padding:0.4rem 0;
+}
+.rd-row-pick { position:relative; min-width:0; }
+.rd-pick-input { font-size:13px; padding:0.5rem 0.75rem; }
+.rd-pick-popover {
+  position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:10;
+  background:var(--bg-2); border:1px solid var(--border); border-radius:var(--radius);
+  max-height:280px; overflow-y:auto;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+.rd-pick-empty {
+  padding:0.75rem; font-size:13px; color:var(--text-2);
+  display:flex; flex-direction:column; gap:0.5rem;
+}
+.rd-pick-result {
+  padding:0.5rem 0.75rem; font-size:13px;
+  border-top:1px solid var(--border); cursor:pointer;
+  display:grid; grid-template-columns: 60px 90px 1fr; gap:0.5rem; align-items:center;
+}
+.rd-pick-result:first-child { border-top:none; }
+.rd-pick-result:hover { background:rgba(0, 224, 255, 0.06); }
+.rd-pick-code { font-family:var(--font-mono); font-weight:bold; color:var(--cyan); }
+.rd-pick-meta { font-family:var(--font-mono); color:var(--text-2); font-size:12px; }
+.rd-pick-desc { color:var(--text-2); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rd-pick-footer {
+  border-top:1px solid var(--border); padding:0.4rem 0.75rem;
+}
+.rd-pick-create-link {
+  background:none; border:none; padding:0;
+  color:var(--cyan); font-size:12px; cursor:pointer; font-family:var(--font-mono);
+}
+.rd-pick-create-link:hover { text-decoration:underline; }
+.rd-row-height { max-width:120px; font-size:13px; padding:0.5rem 0.75rem; }
+.rd-row-clear, .rd-row-remove { padding:0.3rem 0.55rem; }
+.rd-actions {
+  display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; margin-top:0.4rem;
+}
+.rd-bulk { display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; }
+
+/* Advance to next stage — modal layout. The right side surfaces
+   a live preview of the ranked divers split into Primaries /
+   Reserves / Cut so the operator can see exactly who'll
+   progress before clicking the button. */
+.modal-advance .advance-form { display:flex; flex-direction:column; gap:0.75rem; }
+.advance-field-row { display:flex; gap:0.75rem; }
+.advance-field { display:flex; flex-direction:column; flex:1; }
+.advance-field .label { margin-bottom:0.4rem; }
+.advance-radio {
+  display:flex; align-items:flex-start; gap:0.5rem;
+  padding:0.5rem 0.6rem; border:1px solid var(--border); border-radius:var(--radius-sm);
+  margin-top:0.4rem; cursor:pointer; font-size:13px;
+}
+.advance-radio:hover { border-color: var(--cyan); }
+.advance-radio input { margin-top:3px; }
+.advance-radio em { color:var(--text-3); font-style:italic; }
+
+.advance-preview {
+  margin-top:1rem;
+  border:1px solid var(--border); border-radius:var(--radius-sm);
+  max-height:280px; overflow-y:auto;
+  background:var(--bg-3);
+}
+.advance-preview-head {
+  padding:0.5rem 0.75rem;
+  font-family:var(--font-display); font-size:11px; font-weight:700;
+  letter-spacing:0.08em; text-transform:uppercase; color:var(--cyan);
+  border-bottom:1px solid var(--border);
+  position:sticky; top:0; background:var(--bg-3); z-index:1;
+}
+.advance-preview-row {
+  display:grid; grid-template-columns: 38px 1fr 60px 80px;
+  align-items:center; gap:0.5rem;
+  padding:0.4rem 0.75rem;
+  border-top:1px solid var(--border);
+  font-family:var(--font-mono); font-size:12px;
+}
+.advance-preview-row:first-of-type { border-top:none; }
+.advance-preview-row.primary { color:var(--text); }
+.advance-preview-row.primary .advance-rank { color:var(--cyan); font-weight:bold; }
+.advance-preview-row.reserve {
+  color:var(--text-2);
+  background:rgba(255, 200, 87, 0.04);
+}
+.advance-preview-row.reserve .advance-rank { color:#ffc857; }
+.advance-preview-row.cut { color:var(--text-3); opacity:0.6; }
+.advance-rank { text-align:center; }
+.advance-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.advance-total { text-align:right; font-variant-numeric:tabular-nums; }
+.advance-tag {
+  text-align:right; font-size:10px; text-transform:uppercase;
+  letter-spacing:0.06em; color:#ffc857;
+}
+.advance-preview-row.cut .advance-tag { color:var(--text-3); }
+.form-stack{display:flex;flex-direction:column;gap:1rem;}
+.event-item{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:1.25rem;background:var(--bg-3);border:1px solid var(--border);border-radius:var(--radius);transition:border-color 0.2s;animation:fadeUp 0.25s ease;}
+.event-item:hover{border-color:var(--border-2);}
+.event-name{font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--text);display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;}
+.event-meta{font-size:11px;color:var(--text-3);margin-top:0.25rem;display:flex;gap:0.75rem;flex-wrap:wrap;align-items:center;}
+.org-badge {
+  font-family: var(--font-display); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.15em; text-transform: uppercase;
+  color: #c4b5fd;
+  background: rgba(139,92,246,0.10); border: 1px solid rgba(139,92,246,0.4);
+  border-radius: 3px; padding: 0.15rem 0.5rem;
+}
+.org-badge-ctry {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  color: var(--text-3); margin-left: 0.4rem;
+}
+.events-subcount {
+  font-family: var(--font-mono); font-size: 12px; font-weight: 400;
+  color: var(--text-3); font-style: normal;
+}
+.org-filter {
+  display: flex; align-items: center; gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+.org-filter .label { margin: 0; flex-shrink: 0; }
+.org-filter .select { max-width: 320px; }
+
+/* Event template strip — saved form configurations the manager
+   re-applies with one click. Sits above the form fields. */
+.event-templates {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 0.625rem 0.75rem;
+  margin-bottom: 1rem;
+}
+.event-templates-list { display: flex; flex-direction: column; gap: 0.35rem; }
+.event-template-row {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.event-template-apply {
+  flex: 1; min-width: 0; text-align: left;
+  background: transparent; border: none; padding: 0; cursor: pointer;
+  display: flex; flex-direction: column; gap: 0.1rem;
+}
+.event-template-name {
+  font-family: var(--font-display); font-size: 13px; font-weight: 700;
+  color: var(--text);
+}
+.event-template-apply:hover .event-template-name { color: var(--cyan); }
+.event-template-config {
+  font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3);
+}
+.event-template-del { padding: 0.2rem 0.5rem; min-width: auto; }
+.event-template-del:hover { color: var(--red); border-color: var(--red); }
+.event-template-save {
+  display: flex; gap: 0.5rem; margin-top: 0.5rem;
+}
+.event-template-save .input { flex: 1; font-size: 12px; padding: 0.4rem 0.6rem; }
+
+/* Suggested templates — collapsible. Closed = a single compact
+   line so the strip doesn't dominate the top of the modal.
+   Open = expands the list of clickable templates inline. */
+.std-templates {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 1rem;
+  background: rgba(0, 224, 255, 0.03);
+}
+.std-templates.open { background: rgba(0, 224, 255, 0.05); }
+
+.std-templates-toggle {
+  display: flex; align-items: center; gap: 0.5rem;
+  width: 100%; padding: 0.5rem 0.75rem;
+  background: transparent; border: none; cursor: pointer;
+  text-align: left; font: inherit; color: var(--text);
+}
+.std-templates-toggle:hover { color: var(--cyan); }
+.std-templates-icon { font-size: 14px; }
+.std-templates-summary {
+  flex: 1; font-family: var(--font-display); font-size: 12px; font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.std-templates-context {
+  font-family: var(--font-mono); font-size: 11px; font-weight: normal;
+  letter-spacing: 0; color: var(--text-3); margin-left: 0.4rem;
+}
+.std-templates-chevron {
+  font-size: 13px; color: var(--text-3);
+}
+
+.std-templates-list {
+  display: flex; flex-direction: column; gap: 0.35rem;
+  padding: 0 0.6rem 0.6rem;
+}
+.std-template {
+  display: flex; flex-direction: column; gap: 0.15rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); cursor: pointer;
+  text-align: left; font: inherit; color: var(--text);
+  width: 100%;
+}
+.std-template:hover { border-color: var(--cyan); background: rgba(0, 224, 255, 0.06); }
+.std-template:hover .event-template-name { color: var(--cyan); }
+
+/* Advance-to-final action — green to suggest "promote".
+   Visible only on preliminary rows whose final exists. */
+.advance-btn {
+  color: var(--green) !important;
+  border-color: rgba(16,185,129,0.4) !important;
+  background: var(--green-dim) !important;
+}
+.advance-btn:hover {
+  background: var(--green) !important;
+  color: var(--bg) !important;
+}
+.actions{display:flex;gap:0.5rem;flex-shrink:0;align-items:center;}
+
+/* "🔴 LIVE — Open" — Live primary action. Same dimensions as
+   the other btn-sm pills, but red-tinted so the operator can
+   spot a running event at a glance from the Meet Manager
+   list. The pulse is subtle (opacity only — no movement) so
+   it doesn't compete with the audience-facing scoreboard's
+   own LIVE badge. */
+.btn-live {
+  background: rgba(239, 68, 68, 0.16);
+  color: var(--red);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  font-family: var(--font-display); font-weight: 700;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 0.45rem 0.95rem; border-radius: var(--radius-sm);
+  text-decoration: none;
+  animation: pulse-live 2.4s ease-in-out infinite;
+}
+.btn-live:hover {
+  background: rgba(239, 68, 68, 0.26);
+  border-color: var(--red);
+}
+@keyframes pulse-live {
+  0%, 100% { opacity: 0.95; }
+  50%      { opacity: 0.7; }
+}
+
+/* ⋯ overflow menu on the event row. Same visual language as
+   the dropdown menus in the Control Room (header overflow,
+   Adjust ▾, Auto-next ▾) — small popover anchored under the
+   trigger, items as full-width buttons with hover tint. The
+   "delete" item gets the red:hover treatment so a destructive
+   action is colour-coded but doesn't dominate the list. */
+.btn-icon {
+  font-weight: 700; font-size: 16px; line-height: 1;
+  padding: 0.4rem 0.7rem;
+}
+.dropdown-host { position: relative; }
+.event-overflow-menu {
+  position: absolute; z-index: 50;
+  top: calc(100% + 0.4rem); right: 0;
+  min-width: 200px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 0.3rem;
+  display: flex; flex-direction: column;
+  font-family: var(--font-display); font-size: 12px;
+}
+.event-overflow-menu .dropdown-item {
+  background: transparent; border: 0; cursor: pointer;
+  padding: 0.55rem 0.7rem; border-radius: 4px;
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  letter-spacing: 0.04em; color: var(--text-2);
+  text-align: left; text-decoration: none;
+  transition: background 0.12s, color 0.12s;
+}
+.event-overflow-menu .dropdown-item:hover {
+  background: var(--bg-3); color: var(--text);
+}
+.event-overflow-menu .dropdown-item-danger:hover {
+  background: rgba(239, 68, 68, 0.12); color: var(--red);
+}
+/* Static label inside the overflow menu — used for the "Hosted by
+   X" hint a visiting federation sees. Not interactive. */
+.event-overflow-menu .dropdown-item-static {
+  padding: 0.55rem 0.7rem;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.25rem;
+}
+.events-list{display:flex;flex-direction:column;gap:0.75rem;}
+.empty{
+  color:var(--text-3);font-size:12px;text-align:center;padding:2rem;
+  display:flex;flex-direction:column;align-items:center;gap:0.6rem;
+}
+.link-btn {
+  background: transparent; border: 0;
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--cyan); cursor: pointer;
+  padding: 0.3rem 0.5rem; border-radius: var(--radius-sm);
+  text-decoration: underline; text-underline-offset: 3px;
+  transition: color 0.12s, background 0.12s;
+}
+.link-btn:hover { color: var(--text); background: rgba(6,182,212,0.08); }
+
+/* Search + status-chip toolbar above the events list. Search
+   takes the available width; chips align to the right at wide
+   widths and wrap to a second row on narrow viewports so the
+   list never has to fight the toolbar for space. */
+.events-toolbar {
+  display: flex; align-items: center; gap: 0.85rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.events-search {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.events-status-chips {
+  display: inline-flex; gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.status-chip {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: var(--font-display);
+  font-size: 11px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.status-chip:hover { color: var(--text-2); border-color: var(--border-2); }
+.status-chip.active {
+  background: var(--cyan-dim);
+  color: var(--cyan);
+  border-color: var(--cyan);
+}
+.status-chip-count {
+  font-family: var(--font-mono);
+  font-size: 10px; font-weight: 700;
+  letter-spacing: 0;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+}
+.status-chip.active .status-chip-count {
+  background: rgba(6, 182, 212, 0.18);
+}
+.event-type-pill {
+  font-family: var(--font-display); font-size: 9px; font-weight: 900;
+  letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--cyan); background: var(--cyan-dim);
+  border: 1px solid rgba(6,182,212,0.4); border-radius: 3px;
+  padding: 0.1rem 0.4rem; margin-right: 0.2rem;
+}
+.event-type-pill.team { color: var(--amber); background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.4); }
+.event-type-pill.prelim {
+  color: var(--text-2); background: var(--bg-2); border-color: var(--border-2);
+}
+.event-type-pill.semi-pill {
+  color: var(--amber); background: var(--amber-dim); border-color: rgba(245,158,11,0.4);
+}
+.event-type-pill.final-pill {
+  color: var(--green); background: var(--green-dim); border-color: rgba(16,185,129,0.4);
+}
+.event-type-pill.age {
+  color: #c4b5fd; background: rgba(139,92,246,0.08); border-color: rgba(139,92,246,0.4);
+}
+/* International chip: clickable button styled like the other
+   pills. Lights up cyan on hover so it reads as actionable. */
+.event-type-pill.intl-pill {
+  color: #67e8f9; background: rgba(34,211,238,0.12); border-color: rgba(34,211,238,0.45);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.event-type-pill.intl-pill:hover {
+  background: rgba(34,211,238,0.22);
+  border-color: var(--cyan);
+  color: var(--text);
+}
+.hint {
+  font-size: 11px; color: var(--text-3); line-height: 1.5;
+  padding: 0.6rem 0.75rem; margin-top: 0.4rem;
+  background: var(--bg-3); border-left: 3px solid var(--cyan); border-radius: 3px;
+}
+.hint-line { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-top: 0.5rem; }
+.hint-warn  {
+  border-left-color: var(--amber);
+  background: rgba(245,158,11,0.08);
+  color: var(--amber);
+}
+
+/* Round-rules editor (migration 038). Each section is a small
+   panel inside the event-create form: label + rounds + DD-sum
+   cap + groups checkbox + remove button. */
+.rr-editor { margin-top: 0.5rem; }
+.rr-total {
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--text-3); letter-spacing: 0.04em;
+}
+.rr-total-mismatch { color: var(--amber); }
+.rr-section {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.65rem;
+  margin-bottom: 0.5rem;
+  display: flex; flex-direction: column; gap: 0.35rem;
+}
+.rr-section-row {
+  display: flex; gap: 0.5rem; align-items: flex-end;
+}
+.rr-section-row .input { font-size: 12px; padding: 0.45rem 0.6rem; }
+.rr-label { flex: 1 1 auto; }
+.rr-cell { flex: 1 1 0; display: flex; flex-direction: column; gap: 0.2rem; }
+.rr-cell-label {
+  font-family: var(--font-display); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-3);
+}
+.rr-remove { color: var(--text-3); flex-shrink: 0; }
+.rr-remove:hover { color: var(--red); }
+.rr-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+.meet-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.meet-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.6rem 0.85rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.meet-row-id   { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+.meet-row-name {
+  font-family: var(--font-display); font-size: 14px; font-weight: 700;
+  font-style: italic; color: var(--text); text-decoration: none;
+}
+.meet-row-name:hover { color: var(--cyan); }
+.meet-row-meta {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+}
+.meet-live { color: var(--red); font-weight: 700; margin-left: 0.4rem; }
+
+.roster-modal { max-width: 720px; }
+.roster-modal .mono { font-family: var(--font-mono); }
+.roster-modal textarea { resize: vertical; min-height: 180px; }
+.roster-modal .hint code {
+  font-family: var(--font-mono); font-size: 10.5px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  padding: 0.05rem 0.3rem; border-radius: 3px;
+  color: var(--cyan);
+}
+
+.roster-result { margin-top: 0.75rem; }
+.roster-errors {
+  margin-top: 0.4rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-left: 3px solid var(--amber); border-radius: 3px;
+  padding: 0.6rem 0.8rem;
+}
+.roster-error-list {
+  list-style: disc; padding-left: 1.25rem; margin: 0;
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--text-2);
+  max-height: 200px; overflow-y: auto;
+}
+.roster-error-list li { margin: 0.15rem 0; }
+
+.teams-modal { max-width: 560px; }
+.teams-section-label {
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.25em; text-transform: uppercase; color: var(--text-3);
+  margin-bottom: 0.6rem;
+}
+.enrolled-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.enrolled-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-3); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.enrolled-name { font-family: var(--font-display); font-size: 13px; font-weight: 700; color: var(--text); }
+.enrolled-code {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.05em; color: var(--cyan);
+  background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.3);
+  border-radius: 3px; padding: 0.1rem 0.4rem; margin-left: 0.5rem;
+}
+.enrolled-empty { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); padding: 0.4rem 0; font-style: italic; }
+.add-team-row { display: flex; gap: 0.5rem; align-items: center; }
+.add-team-row .select { flex: 1; }
+
+/* Field-bottom checkbox row + a small help pill that toggles a
+   nearby explainer block. Used by the Migration 031 sign-off
+   policy + mixed-board flags. */
+.checkbox-row {
+  display: flex; align-items: center; gap: 0.5rem;
+  margin-top: 0.5rem; font-size: 13px;
+  cursor: pointer; user-select: none;
+}
+.checkbox-row input[type="checkbox"] { margin: 0; }
+.help-pill {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--bg-3); border: 1px solid var(--border);
+  color: var(--text-3); font-size: 11px; font-weight: 700;
+  cursor: pointer; padding: 0;
+}
+.help-pill:hover { color: var(--text); border-color: var(--cyan); }
+.help-popover {
+  margin-top: 0.5rem; padding: 0.7rem 0.9rem;
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-left: 3px solid var(--amber);
+  border-radius: 4px; font-size: 12.5px; line-height: 1.55;
+  color: var(--text-2);
+}
+.help-popover strong { display: block; margin-top: 0.4rem; color: var(--text); }
+.help-popover strong:first-child { margin-top: 0; }
+.help-popover p { margin: 0.2rem 0 0.5rem; }
