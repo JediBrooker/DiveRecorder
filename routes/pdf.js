@@ -1,8 +1,13 @@
 // PDF + CSV exports — printable artefacts for officials and
-// federations. Five public endpoints (data is already exposed via
+// federations. Six public endpoints (data is already exposed via
 // the live scoreboard / archive, no auth gate):
 //
-//   GET /api/meets/:id/program.pdf                       meet program
+//   GET /api/meets/:id/program.pdf                       meet program (PDF)
+//   GET /api/meets/:id/program.csv                       meet program (CSV)
+//                                                        Both accept ?include=
+//                                                        (dive_lists / judges /
+//                                                        timing) + ?seconds_per_dive=
+//                                                        (30 / 45 / 60).
 //   GET /api/events/:id/start-list.pdf                   pin-to-deck pre-meet
 //   GET /api/events/:id/divers/:diverId/score-sheet.pdf  per-diver recap
 //   GET /api/events/:id/results.csv                      one row per dive
@@ -47,14 +52,223 @@ module.exports = function createPdfRouter({ pool }) {
   if (!pool) throw new Error("createPdfRouter requires { pool }");
   const router = express.Router();
 
+  // ===============================================================
+  // Meet program export options — parse the ?include= + ?seconds_per_dive
+  // query params and pre-fetch the enrichment payloads each event needs.
+  // Shared by program.pdf and program.csv so the two surfaces are
+  // guaranteed to render the same data.
+  //
+  // Recognised include tokens:
+  //   • dive_lists   — per-event roster + every diver's per-round
+  //                    dive list (code, position, dd, height for
+  //                    mixed-board events).
+  //   • judges       — panel for each event (number, name, country,
+  //                    role-tag for synchro panels).
+  //   • timing       — estimated event duration. Pairs with
+  //                    seconds_per_dive (30 / 45 / 60 default 45).
+  //                    Computed as competitor_count * total_rounds *
+  //                    seconds_per_dive (synchro doubles the per-row
+  //                    pair into a single dive).
+  //
+  // Unknown tokens are silently dropped — same posture as the rest
+  // of the public read endpoints. The default (no include= param)
+  // is the legacy schedule-only program.
+  // ===============================================================
+  const VALID_INCLUDE_TOKENS = new Set(["dive_lists", "judges", "timing"]);
+  const VALID_TIMING_SECONDS = new Set([30, 45, 60]);
+
+  function parseProgramOptions(query) {
+    const raw = String(query.include || "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    const include = new Set(raw.filter((t) => VALID_INCLUDE_TOKENS.has(t)));
+    let secondsPerDive = parseInt(query.seconds_per_dive, 10);
+    if (!VALID_TIMING_SECONDS.has(secondsPerDive)) secondsPerDive = 45;
+    return { include, secondsPerDive };
+  }
+
+  // Load every per-event enrichment payload the operator asked for.
+  // Returns a map keyed by event_id so the renderer can look up the
+  // right slice when it walks the schedule. Each slice is null when
+  // its include token wasn't requested, so the renderer can do a
+  // simple presence check before printing the section.
+  async function loadProgramEnrichments(meetId, events, include) {
+    const eventIds = events.map((e) => e.id);
+    const empty = { diveLists: null, judges: null };
+    if (!eventIds.length || (!include.has("dive_lists") && !include.has("judges"))) {
+      return new Map(eventIds.map((id) => [id, empty]));
+    }
+
+    const tasks = [];
+    if (include.has("dive_lists")) {
+      tasks.push(pool.query(
+        `SELECT cdl.event_id,
+                u.id AS competitor_id, u.full_name,
+                o.country_code,
+                cl.short_code AS club_code, cl.name AS club_name,
+                pu.full_name  AS partner_name,
+                tm.name       AS team_name,
+                cdl.round_number, cdl.display_order, cdl.withdrawn_at,
+                cdl.is_reserve, cdl.reserve_position,
+                d.dive_code, d.position, d.dd, d.description,
+                d.height AS dive_height
+           FROM competitor_dive_lists cdl
+           JOIN users u ON u.id = cdl.competitor_id
+           JOIN organisations o ON o.id = u.org_id
+           LEFT JOIN clubs cl ON cl.id = u.club_id
+           LEFT JOIN users pu ON pu.id = cdl.partner_id
+           LEFT JOIN teams tm ON tm.id = cdl.team_id
+           LEFT JOIN dive_directory d ON d.id = cdl.dive_id
+          WHERE cdl.event_id = ANY($1::uuid[])
+          ORDER BY cdl.event_id,
+                   cdl.is_reserve ASC,
+                   cdl.display_order ASC NULLS LAST,
+                   u.full_name ASC,
+                   cdl.round_number ASC`,
+        [eventIds],
+      ));
+    } else { tasks.push(null); }
+
+    if (include.has("judges")) {
+      tasks.push(pool.query(
+        `SELECT ej.event_id, ej.judge_number,
+                u.full_name, o.country_code,
+                cl.short_code AS club_code, cl.name AS club_name
+           FROM event_judges ej
+           JOIN users u ON u.id = ej.judge_id
+           JOIN organisations o ON o.id = u.org_id
+           LEFT JOIN clubs cl ON cl.id = u.club_id
+          WHERE ej.event_id = ANY($1::uuid[])
+          ORDER BY ej.event_id, ej.judge_number ASC NULLS LAST`,
+        [eventIds],
+      ));
+    } else { tasks.push(null); }
+
+    const [diveListsRes, judgesRes] = await Promise.all(
+      tasks.map((t) => t || Promise.resolve(null)),
+    );
+
+    // Group dive-list rows into { competitor_id → { meta, divesByRound } }
+    // per event. The grouped shape is what both PDF + CSV renderers
+    // consume — flatten happens at render time.
+    const byEvent = new Map();
+    for (const id of eventIds) byEvent.set(id, { diveLists: null, judges: null });
+
+    if (diveListsRes) {
+      for (const row of diveListsRes.rows) {
+        const slot = byEvent.get(row.event_id);
+        if (!slot.diveLists) slot.diveLists = new Map();
+        if (!slot.diveLists.has(row.competitor_id)) {
+          slot.diveLists.set(row.competitor_id, {
+            competitor_id:    row.competitor_id,
+            full_name:        row.full_name,
+            country_code:     row.country_code,
+            club_code:        row.club_code,
+            club_name:        row.club_name,
+            partner_name:     row.partner_name,
+            team_name:        row.team_name,
+            display_order:    row.display_order,
+            withdrawn:        row.withdrawn_at != null,
+            is_reserve:       row.is_reserve,
+            reserve_position: row.reserve_position,
+            dives:            [],
+          });
+        }
+        slot.diveLists.get(row.competitor_id).dives.push({
+          round_number: row.round_number,
+          dive_code:    row.dive_code,
+          position:     row.position,
+          dd:           row.dd,
+          description:  row.description,
+          // dive_height comes from dive_directory — useful when the
+          // event spans multiple boards (e.g. 1m + 3m), null for
+          // single-board events where height is implied by the event.
+          height:       row.dive_height
+            ? `${Number(row.dive_height).toFixed(0)}m`
+            : null,
+        });
+      }
+      // Convert Maps → ordered arrays for the renderer.
+      for (const ev of events) {
+        const slot = byEvent.get(ev.id);
+        if (slot.diveLists) {
+          slot.diveLists = [...slot.diveLists.values()]
+            .sort((a, b) => {
+              // Active divers first, in display order; reserves at
+              // the back ordered by reserve_position.
+              if (a.is_reserve !== b.is_reserve) return a.is_reserve ? 1 : -1;
+              if (a.is_reserve) {
+                return (a.reserve_position ?? 999) - (b.reserve_position ?? 999);
+              }
+              return (a.display_order ?? Infinity) - (b.display_order ?? Infinity);
+            });
+        }
+      }
+    }
+    if (judgesRes) {
+      for (const row of judgesRes.rows) {
+        const slot = byEvent.get(row.event_id);
+        if (!slot.judges) slot.judges = [];
+        slot.judges.push({
+          judge_number: row.judge_number,
+          full_name:    row.full_name,
+          country_code: row.country_code,
+          club_code:    row.club_code,
+          club_name:    row.club_name,
+        });
+      }
+    }
+    return byEvent;
+  }
+
+  // Compute the timing estimate for a single event. The unit cost
+  // covers one "dive event" — for individuals that's one diver
+  // performing one dive; for synchro a pair performs one combined
+  // dive; for team events each team-member's per-round dive is
+  // counted (their roster shape is one row per member per round).
+  // The result is { minutes, seconds, totalDives, label } so the
+  // renderer can pick whichever format fits its line budget.
+  function estimateEventDuration(event, secondsPerDive) {
+    const competitors = event.competitor_count || 0;
+    const rounds      = event.total_rounds || 0;
+    let totalDives = competitors * rounds;
+    if (event.event_type === "synchro_pair") {
+      // Synchro: each pair is 2 rows on the roster but performs
+      // one dive together. Halve the count to avoid double-billing
+      // the panel/diver time. round to nearest integer in case
+      // an odd row count slipped in (would mean an unpaired diver).
+      totalDives = Math.round(totalDives / 2);
+    }
+    const totalSeconds = totalDives * secondsPerDive;
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    const hh = Math.floor(minutes / 60);
+    const mm = minutes % 60;
+    let label;
+    if (totalDives === 0) {
+      label = "—";
+    } else if (hh > 0) {
+      label = `${hh}h ${mm.toString().padStart(2, "0")}m`;
+    } else {
+      label = `${mm}m ${seconds.toString().padStart(2, "0")}s`;
+    }
+    return { totalDives, totalSeconds, minutes, seconds, label };
+  }
+
   // -------------------------------------------------------------
   // Public meet program PDF — full schedule, every event in the
   // bundle, competitor count per event, sponsor strip on the
   // cover. No auth required (public meet pages already expose
   // this data via /meet/:id).
+  //
+  // Optional query params:
+  //   ?include=dive_lists,judges,timing   — extra per-event sections
+  //   ?seconds_per_dive=30|45|60          — paired with timing
   // -------------------------------------------------------------
   router.get("/api/meets/:id/program.pdf", async (req, res) => {
     try {
+      const { include, secondsPerDive } = parseProgramOptions(req.query);
       const [meetRes, eventsRes] = await Promise.all([
         pool.query(
           `SELECT m.*, o.name AS org_name, o.country_code
@@ -89,6 +303,12 @@ module.exports = function createPdfRouter({ pool }) {
       }
       const meet = meetRes.rows[0];
       const events = eventsRes.rows;
+
+      // Pre-fetch every per-event enrichment the operator asked
+      // for so the schedule loop can stream sections inline. The
+      // single batched query per enrichment is cheaper than
+      // running one-per-event inside the loop.
+      const enrichments = await loadProgramEnrichments(meet.id, events, include);
 
       const slug = (meet.name || "meet")
         .toLowerCase()
@@ -156,6 +376,7 @@ module.exports = function createPdfRouter({ pool }) {
           .text("No events scheduled for this meet yet.");
       }
 
+      let meetTotalSeconds = 0;
       for (const ev of events) {
         // Page break if we're running off the page
         if (doc.y > 720) doc.addPage();
@@ -193,11 +414,102 @@ module.exports = function createPdfRouter({ pool }) {
           meta.push(`${ev.competitor_count} ${ev.competitor_count === 1 ? "diver" : "divers"}`);
         }
         meta.push(ev.status);
+        // Timing estimate sits in the meta line so it reads next to
+        // the diver count — the natural place for "X divers · ~Y min".
+        if (include.has("timing")) {
+          const est = estimateEventDuration(ev, secondsPerDive);
+          meetTotalSeconds += est.totalSeconds;
+          if (est.totalDives > 0) {
+            meta.push(`~${est.label} @ ${secondsPerDive}s/dive`);
+          }
+        }
         doc.text(meta.join("  ·  "));
+
+        const ext = enrichments.get(ev.id) || { diveLists: null, judges: null };
+
+        // Judge panel block — public-facing, so we omit clubs (only
+        // the chip-tap on the live scoreboard surfaces them). Name +
+        // country code per row is enough for a printed program.
+        if (include.has("judges") && ext.judges && ext.judges.length) {
+          doc.moveDown(0.5);
+          doc.font("Helvetica-Bold").fontSize(9).fillColor("#06b6d4")
+            .text("JUDGE PANEL", { characterSpacing: 2 });
+          doc.font("Helvetica").fontSize(9).fillColor("#334155");
+          for (const j of ext.judges) {
+            if (doc.y > 760) doc.addPage();
+            const num = j.judge_number != null ? `J${j.judge_number}` : "J?";
+            const country = j.country_code ? `  ${j.country_code}` : "";
+            doc.text(`  ${num}   ${j.full_name || "(unnamed)"}${country}`);
+          }
+        }
+
+        // Dive lists — every diver in start-order, their dives by
+        // round. Withdrawn divers are marked but still listed so a
+        // printed program matches the live scoreboard's start list.
+        // Reserves print last under a "RESERVES" sub-header.
+        if (include.has("dive_lists") && ext.diveLists && ext.diveLists.length) {
+          doc.moveDown(0.5);
+          doc.font("Helvetica-Bold").fontSize(9).fillColor("#06b6d4")
+            .text("DIVE LISTS", { characterSpacing: 2 });
+          let inReserves = false;
+          for (const diver of ext.diveLists) {
+            if (doc.y > 740) doc.addPage();
+            if (diver.is_reserve && !inReserves) {
+              doc.moveDown(0.3);
+              doc.font("Helvetica-Bold").fontSize(8).fillColor("#94a3b8")
+                .text("RESERVES", { characterSpacing: 2 });
+              inReserves = true;
+            }
+            doc.font("Helvetica-Bold").fontSize(10).fillColor("#0f172a");
+            const orderTag = !diver.is_reserve && diver.display_order != null
+              ? `  ${diver.display_order}.  `
+              : (diver.is_reserve && diver.reserve_position != null
+                  ? `  R${diver.reserve_position}.  `
+                  : "  ");
+            let header = `${orderTag}${diver.full_name || "(unnamed)"}`;
+            if (diver.partner_name) header += `  &  ${diver.partner_name}`;
+            if (diver.team_name)    header += `  ·  ${diver.team_name}`;
+            if (diver.club_code)    header += `  ·  ${diver.club_code}`;
+            if (diver.country_code) header += `  ·  ${diver.country_code}`;
+            if (diver.withdrawn)    header += "  ·  WITHDRAWN";
+            doc.text(header);
+            doc.font("Helvetica").fontSize(9).fillColor("#475569");
+            for (const dv of diver.dives) {
+              if (!dv.dive_code) continue;
+              const ddText = dv.dd != null ? `DD ${Number(dv.dd).toFixed(1)}` : "DD —";
+              const heightText = dv.height ? `  (${dv.height})` : "";
+              const desc = dv.description ? `  ·  ${dv.description}` : "";
+              doc.text(
+                `      R${dv.round_number}  ${dv.dive_code} ${dv.position || ""}  ${ddText}${heightText}${desc}`,
+                { width: 495 },
+              );
+            }
+            doc.moveDown(0.15);
+          }
+        }
 
         doc.moveDown(0.7);
         doc.lineWidth(0.3).strokeColor("#e2e8f0")
           .moveTo(50, doc.y - 4).lineTo(545, doc.y - 4).stroke();
+      }
+
+      // Total meet-duration summary — only when timing was requested
+      // and the meet has at least one event with divers loaded.
+      if (include.has("timing") && meetTotalSeconds > 0) {
+        if (doc.y > 720) doc.addPage();
+        doc.moveDown(0.5);
+        const totalMinutes = Math.floor(meetTotalSeconds / 60);
+        const hh = Math.floor(totalMinutes / 60);
+        const mm = totalMinutes % 60;
+        const label = hh > 0
+          ? `${hh}h ${mm.toString().padStart(2, "0")}m`
+          : `${mm} min`;
+        doc.font("Helvetica-Bold").fontSize(11).fillColor("#06b6d4")
+          .text("ESTIMATED TOTAL MEET DURATION", { characterSpacing: 3 });
+        doc.font("Helvetica-Bold").fontSize(16).fillColor("#0f172a")
+          .text(label);
+        doc.font("Helvetica-Oblique").fontSize(9).fillColor("#64748b")
+          .text(`Calculated at ${secondsPerDive} seconds per dive. Excludes warm-ups, between-event resets, and ceremonies.`);
       }
 
       doc.moveDown(1);
@@ -210,6 +522,166 @@ module.exports = function createPdfRouter({ pool }) {
       doc.end();
     } catch (err) {
       console.error("[Meet Program PDF Error]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // Meet program CSV — same data as the PDF, in a flat shape
+  // friendly to spreadsheets. One row per event when no extras
+  // are requested; one row per event-judge / per-diver-dive when
+  // the corresponding include token is set. The `section` column
+  // tells consumers which kind of row they're looking at.
+  //
+  // Optional query params (same as the PDF):
+  //   ?include=dive_lists,judges,timing
+  //   ?seconds_per_dive=30|45|60
+  // -------------------------------------------------------------
+  router.get("/api/meets/:id/program.csv", async (req, res) => {
+    try {
+      const { include, secondsPerDive } = parseProgramOptions(req.query);
+      const [meetRes, eventsRes] = await Promise.all([
+        pool.query(
+          `SELECT m.id, m.name, o.name AS org_name, o.country_code
+             FROM meets m
+             JOIN organisations o ON o.id = m.org_id
+            WHERE m.id = $1`,
+          [req.params.id],
+        ),
+        pool.query(
+          `SELECT e.id, e.name, e.gender, e.age_group, e.height,
+                  e.total_rounds, e.number_of_judges, e.event_type,
+                  e.event_format, e.parent_event_id, e.scheduled_at,
+                  e.dd_limit_rounds, e.dd_limit_value, e.status,
+                  COALESCE(stat.competitor_count, 0)::int AS competitor_count
+             FROM events e
+             LEFT JOIN LATERAL (
+               SELECT COUNT(DISTINCT cdl.competitor_id) AS competitor_count
+                 FROM competitor_dive_lists cdl
+                WHERE cdl.event_id = e.id AND cdl.withdrawn_at IS NULL
+             ) stat ON true
+            WHERE e.meet_id = $1
+            ORDER BY
+              e.scheduled_at NULLS LAST,
+              CASE e.event_format WHEN 'preliminary' THEN 0 ELSE 1 END,
+              e.created_at ASC`,
+          [req.params.id],
+        ),
+      ]);
+      if (!meetRes.rows.length) {
+        return res.status(404).json({ error: "Meet not found" });
+      }
+      const meet = meetRes.rows[0];
+      const events = eventsRes.rows;
+      const enrichments = await loadProgramEnrichments(meet.id, events, include);
+
+      const slug = (meet.name || "meet")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${slug}_program.csv"`,
+      );
+
+      // Column header — superset across all section types so a
+      // spreadsheet user can sort/filter by `section` and see the
+      // rows that matter to them. Empty cells are left blank.
+      const header = [
+        "section",
+        "event_name", "event_format", "event_type",
+        "age_group", "gender", "height",
+        "total_rounds", "number_of_judges", "scheduled_at",
+        "competitor_count", "status",
+        "estimated_duration_seconds", "estimated_duration_label",
+        // judge-row columns
+        "judge_number", "judge_name", "judge_country",
+        // diver/dive-row columns
+        "diver_name", "diver_country", "diver_club",
+        "diver_partner", "diver_team",
+        "start_order", "is_reserve", "reserve_position", "withdrawn",
+        "round_number", "dive_code", "dive_position", "dive_dd",
+        "dive_height", "dive_description",
+      ];
+      res.write(csvRow(header));
+
+      for (const ev of events) {
+        const ext = enrichments.get(ev.id) || { diveLists: null, judges: null };
+        const est = include.has("timing")
+          ? estimateEventDuration(ev, secondsPerDive)
+          : null;
+        // Event-summary row — always written so a consumer can
+        // pivot on (section='event'). Repeats event metadata so
+        // the dive-list / judge rows below don't have to.
+        res.write(csvRow([
+          "event",
+          ev.name, ev.event_format || "", ev.event_type || "individual",
+          ev.age_group || "", ev.gender || "", ev.height || "",
+          ev.total_rounds, ev.number_of_judges,
+          ev.scheduled_at ? new Date(ev.scheduled_at).toISOString() : "",
+          ev.competitor_count, ev.status || "",
+          est ? est.totalSeconds : "", est ? est.label : "",
+          "", "", "",
+          "", "", "", "", "", "", "", "", "",
+          "", "", "", "", "", "",
+        ]));
+
+        if (include.has("judges") && ext.judges) {
+          for (const j of ext.judges) {
+            res.write(csvRow([
+              "judge",
+              ev.name, ev.event_format || "", ev.event_type || "individual",
+              ev.age_group || "", ev.gender || "", ev.height || "",
+              ev.total_rounds, ev.number_of_judges,
+              ev.scheduled_at ? new Date(ev.scheduled_at).toISOString() : "",
+              ev.competitor_count, ev.status || "",
+              "", "",
+              j.judge_number ?? "",
+              j.full_name || "",
+              j.country_code || "",
+              "", "", "", "", "", "", "", "", "",
+              "", "", "", "", "", "",
+            ]));
+          }
+        }
+
+        if (include.has("dive_lists") && ext.diveLists) {
+          for (const diver of ext.diveLists) {
+            for (const dv of diver.dives) {
+              res.write(csvRow([
+                "dive",
+                ev.name, ev.event_format || "", ev.event_type || "individual",
+                ev.age_group || "", ev.gender || "", ev.height || "",
+                ev.total_rounds, ev.number_of_judges,
+                ev.scheduled_at ? new Date(ev.scheduled_at).toISOString() : "",
+                ev.competitor_count, ev.status || "",
+                "", "",
+                "", "", "",
+                diver.full_name || "",
+                diver.country_code || "",
+                diver.club_code || diver.club_name || "",
+                diver.partner_name || "",
+                diver.team_name || "",
+                diver.display_order ?? "",
+                diver.is_reserve ? "true" : "false",
+                diver.reserve_position ?? "",
+                diver.withdrawn ? "true" : "false",
+                dv.round_number ?? "",
+                dv.dive_code || "",
+                dv.position || "",
+                dv.dd != null ? Number(dv.dd).toFixed(1) : "",
+                dv.height || "",
+                dv.description || "",
+              ]));
+            }
+          }
+        }
+      }
+
+      res.end();
+    } catch (err) {
+      console.error("[Meet Program CSV Error]", err.message);
       res.status(500).json({ error: "Internal server error" });
     }
   });

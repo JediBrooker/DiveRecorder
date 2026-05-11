@@ -71,7 +71,7 @@ The first-time path for a country federation or club to register an organisation
 
 #### Public Meet Landing Page
 
-The public hub for a multi-event meet. Federation hero + dates + venue at the top, status counters (`N Live` / `N Upcoming` / `N Completed`), and an event grid grouped by status. Each card jumps to that event's scoreboard or recap. The **Program PDF** button at the top exports the full schedule with judges, age groups, and dive lists.
+The public hub for a multi-event meet. Federation hero + dates + venue at the top, status counters (`N Live` / `N Upcoming` / `N Completed`), and an event grid grouped by status. Each card jumps to that event's scoreboard or recap. The **📄 Program export…** button at the top opens a chooser to build a printable program: tick which sections to include (event schedule is always on; **Dive lists**, **Judge panels**, and **Estimated event duration** are optional) and pick the per-dive cadence (30 / 45 / 60 seconds) when timing is on. Download as **PDF** for a printed program or **CSV** for spreadsheet ingestion — the CSV uses a `section` column (`event` / `judge` / `dive`) so a federation can filter rows by what they care about.
 
 ![Public Meet Landing Page](./docs/screenshots/meet.png)
 
