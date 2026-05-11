@@ -3,8 +3,26 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { cachedFetch, idbDelete } from '@/lib/idbCache'
-import { annotateJudgeRows, scoreCategory } from '@/composables/useScoreTrim.js'
-import { fmtDate } from '@/lib/format'
+
+// Per-widget components — see src/components/profile-widgets/.
+// Each takes a `data` prop (the relevant analytics / profile
+// slice) and renders its own .card block. Two of them also need
+// auxiliary props: RecentFormWidget wants targetId for the
+// score-sheet link, and ComparePeersWidget wants the org name
+// for its header. `widgetProps()` below routes those through.
+import ScoreTrendWidget       from '@/components/profile-widgets/ScoreTrendWidget.vue'
+import PersonalBestsWidget    from '@/components/profile-widgets/PersonalBestsWidget.vue'
+import RecentFormWidget       from '@/components/profile-widgets/RecentFormWidget.vue'
+import PlacingsWidget         from '@/components/profile-widgets/PlacingsWidget.vue'
+import HeightBreakdownWidget  from '@/components/profile-widgets/HeightBreakdownWidget.vue'
+import RoundStaminaWidget     from '@/components/profile-widgets/RoundStaminaWidget.vue'
+import QualityMixWidget       from '@/components/profile-widgets/QualityMixWidget.vue'
+import DdRiskWidget           from '@/components/profile-widgets/DdRiskWidget.vue'
+import FrequentDivesWidget    from '@/components/profile-widgets/FrequentDivesWidget.vue'
+import StreakWidget           from '@/components/profile-widgets/StreakWidget.vue'
+import ComparePeersWidget     from '@/components/profile-widgets/ComparePeersWidget.vue'
+import EventTypeSplitsWidget  from '@/components/profile-widgets/EventTypeSplitsWidget.vue'
+import YearOverYearWidget     from '@/components/profile-widgets/YearOverYearWidget.vue'
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -368,24 +386,6 @@ async function savePassword() {
   }
 }
 
-const trendChart = computed(() => {
-  if (!profile.value?.score_trend?.length) return null
-  const points = profile.value.score_trend.map(t => Number(t.total_score))
-  const max = Math.max(...points, 1)
-  const min = Math.min(...points, 0)
-  const range = max - min || 1
-  const w = 600
-  const h = 120
-  const stepX = points.length > 1 ? w / (points.length - 1) : 0
-  const coords = points.map((p, i) => {
-    const x = i * stepX
-    const y = h - ((p - min) / range) * (h - 16) - 8
-    return { x, y, value: p }
-  })
-  const path = coords.map((c, i) => (i === 0 ? `M ${c.x} ${c.y}` : `L ${c.x} ${c.y}`)).join(' ')
-  return { path, coords, w, h, max, min }
-})
-
 async function load() {
   if (!targetId.value) return
   const url = `/api/divers/${targetId.value}/profile${dateQS()}`
@@ -454,14 +454,6 @@ async function loadAnalytics() {
   }
 }
 
-// fmtDate imported from @/lib/format — single source of truth.
-
-function placeOrdinal(n) {
-  if (n == null) return ''
-  const s = ['th','st','nd','rd'], v = n % 100
-  return n + (s[(v - 20) % 10] || s[v] || s[0])
-}
-
 async function openClubEditor() {
   saveError.value = ''
   editing.value = true
@@ -509,99 +501,44 @@ async function saveClub() {
   }
 }
 
-// Bar-width helper for the height-breakdown + round-stamina
-// widgets. Scales each row to the max value in the same set so
-// the visual emphasises *relative* performance (10m being lower
-// than 1m on average is fine — the chart shows the difference).
-function barWidth(value, list, key) {
-  if (!list?.length) return 0
-  const max = Math.max(...list.map(r => Number(r[key]) || 0))
-  if (!max) return 0
-  return Math.max(4, (Number(value) / max) * 100)
-}
-
-// World Aquatics category buckets in display order. Mirrors the colour
-// classes used by the live scoreboard chips. Driven from the
-// analytics payload so the legend stays consistent.
-const qualityBuckets = computed(() => {
-  const q = analytics.value?.quality_mix || {}
-  return [
-    { id: 'failed',         label: 'Failed (0)',           count: q.failed         || 0 },
-    { id: 'deficient',      label: 'Deficient (≤2.0)',     count: q.deficient      || 0 },
-    { id: 'unsatisfactory', label: 'Unsat. (≤4.5)',        count: q.unsatisfactory || 0 },
-    { id: 'satisfactory',   label: 'Satisfactory (≤6.0)',  count: q.satisfactory   || 0 },
-    { id: 'good',           label: 'Good (≤8.0)',          count: q.good           || 0 },
-    { id: 'very_good',      label: 'Very Good (≤9.5)',     count: q.very_good      || 0 },
-    { id: 'excellent',      label: 'Excellent (10)',       count: q.excellent      || 0 },
-  ]
-})
-
-// One-line insight derived from round_stamina — flag if scores
-// drop in later rounds (a common diver question).
-const staminaInsight = computed(() => {
-  const r = analytics.value?.round_stamina || []
-  if (r.length < 2) return ''
-  const first = Number(r[0].avg_score) || 0
-  const last  = Number(r[r.length - 1].avg_score) || 0
-  if (first === 0) return ''
-  const delta = ((last - first) / first) * 100
-  if (delta > 5)  return `📈 You finish strong: round ${r[r.length - 1].round_number} averages ${delta.toFixed(0)}% higher than round 1.`
-  if (delta < -5) return `📉 You fade in later rounds: round ${r[r.length - 1].round_number} averages ${Math.abs(delta).toFixed(0)}% below round 1.`
-  return `Even pacing across rounds (Δ ${delta.toFixed(1)}% from R1 to R${r[r.length - 1].round_number}).`
-})
-
-function placeColor(n) {
-  if (n === 1) return 'place-gold'
-  if (n === 2) return 'place-silver'
-  if (n === 3) return 'place-bronze'
-  return ''
-}
-
 // =========================================================
-// Recent Form expansion — click a meet row to see each dive
-// with the per-judge raw scores. The trim algorithm (drop k
-// highest + k lowest) is reproduced client-side for display
-// only; the actual dive_total comes from the SQL function so
-// the chip strikethroughs and the printed total agree.
+// Widget registry — maps each dashboard widget id to its Vue
+// component, plus how to look up the data slice + extra props
+// each component needs. The v-for in the template renders one
+// `<component :is>` per enabled id; this object is the routing
+// layer so the template doesn't carry per-widget branches.
 // =========================================================
-const expandedMeet = ref(null)
-function toggleMeet(eventId) {
-  expandedMeet.value = expandedMeet.value === eventId ? null : eventId
+const widgets = {
+  score_trend:       ScoreTrendWidget,
+  personal_bests:    PersonalBestsWidget,
+  recent_form:       RecentFormWidget,
+  placings:          PlacingsWidget,
+  height_breakdown:  HeightBreakdownWidget,
+  round_stamina:     RoundStaminaWidget,
+  quality_mix:       QualityMixWidget,
+  dd_risk:           DdRiskWidget,
+  frequent_dives:    FrequentDivesWidget,
+  streak:            StreakWidget,
+  compare_peers:     ComparePeersWidget,
+  event_type_splits: EventTypeSplitsWidget,
+  year_over_year:    YearOverYearWidget,
 }
-
-// Trim algorithm + score-category lookup live in
-// src/composables/useScoreTrim.js (which itself wraps
-// useScoreCategories) — single source so the live scoreboard,
-// archive, and this profile widget all agree on dropped/kept.
-// Wrap with the chip-class prefix the template's CSS expects.
-function annotateJudges(judges, numJudges, eventType) {
-  return annotateJudgeRows(judges, numJudges, eventType)
+// score_trend + personal_bests are baked into the /profile
+// response (heavy aggregates that already live on the row).
+// Everything else comes from /analytics, which loads in parallel.
+function widgetData(id) {
+  if (id === 'score_trend')    return profile.value?.score_trend
+  if (id === 'personal_bests') return profile.value?.personal_bests
+  return analytics.value?.[id]
 }
-function scoreClass(s) {
-  const cat = scoreCategory(Number(s))
-  return cat ? `qs-${cat}` : ''
-}
-
-// Year-over-year delta — compares row[i] to row[i+1] (since the
-// list is sorted newest first). Returns "+12.3%" / "-4.5%" / "—".
-function yoyDelta(list, i) {
-  const cur  = Number(list[i]?.avg_meet_total)
-  const prev = Number(list[i + 1]?.avg_meet_total)
-  if (!cur || !prev) return null
-  return ((cur - prev) / prev) * 100
-}
-function yoyDeltaText(list, i) {
-  const d = yoyDelta(list, i)
-  if (d == null) return '—'
-  const sign = d >= 0 ? '+' : ''
-  return `${sign}${d.toFixed(1)}%`
-}
-function yoyDeltaClass(list, i) {
-  const d = yoyDelta(list, i)
-  if (d == null) return 'dim'
-  if (d > 1) return 'yoy-up'
-  if (d < -1) return 'yoy-down'
-  return ''
+function widgetExtraProps(id) {
+  if (id === 'recent_form') {
+    return { targetId: targetId.value, loading: analyticsLoading.value }
+  }
+  if (id === 'compare_peers') {
+    return { orgName: profile.value?.diver?.org_name || '' }
+  }
+  return {}
 }
 
 onMounted(load)
@@ -698,456 +635,22 @@ watch(targetId, load)
         </div>
       </div>
 
-      <!-- Score trend -->
-      <div v-if="isEnabled('score_trend')" class="card" :style="{ order: widgetOrder('score_trend') }">
-        <div class="card-head">Score Trend</div>
-        <div v-if="!profile.score_trend?.length" class="empty-mini">No completed meets yet.</div>
-        <template v-else>
-          <svg
-            v-if="trendChart"
-            :viewBox="`0 0 ${trendChart.w} ${trendChart.h}`"
-            preserveAspectRatio="none"
-            class="trend-chart"
-          >
-            <path :d="trendChart.path" fill="none" stroke="var(--cyan)" stroke-width="2" />
-            <circle
-              v-for="(c, i) in trendChart.coords"
-              :key="i"
-              :cx="c.x" :cy="c.y" r="3"
-              fill="var(--cyan)"
-            >
-              <title>{{ profile.score_trend[i].event_name }} — {{ Number(c.value).toFixed(1) }}</title>
-            </circle>
-          </svg>
-          <div class="trend-list">
-            <div v-for="t in profile.score_trend" :key="t.event_id" class="trend-row">
-              <span class="trend-date">{{ fmtDate(t.created_at) }}</span>
-              <span class="trend-name">
-                {{ t.event_name }}
-                <span v-if="t.event_type === 'synchro_pair'" class="trend-synchro">SYNCHRO</span>
-                <span v-else-if="t.event_type === 'team'" class="trend-team-badge">TEAM</span>
-                <span v-if="t.partner_name" class="trend-partner">with {{ t.partner_name }}</span>
-                <span v-if="t.team_name" class="trend-partner">on {{ t.team_name }}</span>
-              </span>
-              <span :class="['trend-place', placeColor(t.final_rank)]">{{ placeOrdinal(t.final_rank) }}</span>
-              <span class="trend-total">{{ Number(t.total_score).toFixed(2) }}</span>
-            </div>
-          </div>
-        </template>
-      </div>
-
-      <!-- Personal bests -->
-      <div v-if="isEnabled('personal_bests')" class="card" :style="{ order: widgetOrder('personal_bests') }">
-        <div class="card-head">Personal Bests by Dive</div>
-        <div v-if="!profile.personal_bests?.length" class="empty-mini">No dives recorded yet.</div>
-        <table v-else class="pb-table">
-          <thead>
-            <tr>
-              <th>Dive</th>
-              <th>Pos</th>
-              <th>Height</th>
-              <th>DD</th>
-              <th>Best</th>
-              <th>Attempts</th>
-              <th>At Meet</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="pb in profile.personal_bests" :key="pb.dive_code + pb.position + pb.height">
-              <td class="mono strong">{{ pb.dive_code }}</td>
-              <td class="mono">{{ pb.position }}</td>
-              <td class="mono">{{ pb.height }}m</td>
-              <td class="mono cyan">{{ Number(pb.dd).toFixed(1) }}</td>
-              <td class="mono strong">{{ Number(pb.best_total).toFixed(1) }}</td>
-              <td class="mono dim">{{ pb.attempts }}</td>
-              <td class="dim">{{ pb.event_name }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- Recent form — last 5 meets with rank inline. Click any
-           row to expand a per-dive breakdown showing the judges'
-           individual marks (dropped scores struck through). The
-           field_size suffix gives context ("3rd of 18" reads
-           differently than "3rd of 4"). -->
-      <div v-if="isEnabled('recent_form')" class="card" :style="{ order: widgetOrder('recent_form') }">
-        <div class="card-head">Recent Form</div>
-        <div v-if="analyticsLoading && !analytics" class="empty-mini">Loading…</div>
-        <div v-else-if="!analytics?.recent_form?.length" class="empty-mini">No completed meets yet.</div>
-        <div v-else class="trend-list">
-          <template v-for="r in analytics.recent_form" :key="r.event_id">
-            <div
-              class="trend-row trend-row-clickable"
-              :class="{ 'is-expanded': expandedMeet === r.event_id }"
-              @click="toggleMeet(r.event_id)"
-            >
-              <span class="trend-chevron">
-                {{ expandedMeet === r.event_id ? '▾' : '▸' }}
-              </span>
-              <span class="trend-date">{{ fmtDate(r.created_at) }}</span>
-              <span class="trend-name">{{ r.event_name }}</span>
-              <span :class="['trend-place', placeColor(r.rank)]">
-                {{ placeOrdinal(r.rank) }} <span class="dim">/ {{ r.field_size }}</span>
-              </span>
-              <span class="trend-total">{{ Number(r.total).toFixed(1) }}</span>
-            </div>
-            <div v-if="expandedMeet === r.event_id" class="dive-breakdown">
-              <div v-if="!r.dives?.length" class="empty-mini">No dives recorded.</div>
-              <table v-else class="dive-table">
-                <thead>
-                  <tr>
-                    <th>Rd</th>
-                    <th>Dive</th>
-                    <th>Pos</th>
-                    <th>Ht</th>
-                    <th>DD</th>
-                    <th>Judges</th>
-                    <th>Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="d in r.dives" :key="d.round_number">
-                    <td class="mono dim">{{ d.round_number }}</td>
-                    <td class="mono strong">{{ d.dive_code || '—' }}</td>
-                    <td class="mono">{{ d.position || '—' }}</td>
-                    <td class="mono">{{ d.height ? d.height + 'm' : '—' }}</td>
-                    <td class="mono cyan">{{ d.dd != null ? Number(d.dd).toFixed(1) : '—' }}</td>
-                    <td class="judge-strip">
-                      <span
-                        v-for="j in annotateJudges(d.judges, d.number_of_judges, d.event_type)"
-                        :key="j.judge_number"
-                        :class="['j-chip', scoreClass(j.score), { 'j-dropped': j.dropped }]"
-                        v-tip="`Judge ${j.judge_number}` + (j.dropped ? ' (dropped)' : '')"
-                      >
-                        {{ Number(j.score).toFixed(1) }}
-                      </span>
-                    </td>
-                    <td class="mono strong cyan">{{ Number(d.dive_total).toFixed(2) }}</td>
-                  </tr>
-                </tbody>
-              </table>
-              <div class="dive-breakdown-actions">
-                <a :href="`/api/events/${r.event_id}/divers/${targetId}/score-sheet.pdf`"
-                   target="_blank" rel="noopener"
-                   class="btn btn-ghost btn-sm">📄 Download score sheet</a>
-              </div>
-            </div>
-          </template>
-        </div>
-      </div>
-
-      <!-- Medal counts -->
-      <div v-if="isEnabled('placings')" class="card" :style="{ order: widgetOrder('placings') }">
-        <div class="card-head">Medals &amp; Placings</div>
-        <div v-if="!analytics" class="empty-mini">Loading…</div>
-        <div v-else class="placings-row">
-          <div class="placing-cell place-gold">
-            <div class="placing-num">{{ analytics.placings.gold }}</div>
-            <div class="placing-lbl">🥇 Gold</div>
-          </div>
-          <div class="placing-cell place-silver">
-            <div class="placing-num">{{ analytics.placings.silver }}</div>
-            <div class="placing-lbl">🥈 Silver</div>
-          </div>
-          <div class="placing-cell place-bronze">
-            <div class="placing-num">{{ analytics.placings.bronze }}</div>
-            <div class="placing-lbl">🥉 Bronze</div>
-          </div>
-          <div class="placing-cell">
-            <div class="placing-num">{{ analytics.placings.finalist }}</div>
-            <div class="placing-lbl">Finalist (4–8)</div>
-          </div>
-          <div class="placing-cell">
-            <div class="placing-num">{{ analytics.placings.further }}</div>
-            <div class="placing-lbl">9th+</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Height breakdown — average + best dive total per board.
-           Bar widths normalised to the highest avg in the set. -->
-      <div v-if="isEnabled('height_breakdown')" class="card" :style="{ order: widgetOrder('height_breakdown') }">
-        <div class="card-head">Height Breakdown</div>
-        <div v-if="!analytics" class="empty-mini">Loading…</div>
-        <div v-else-if="!analytics.height_breakdown.length" class="empty-mini">No dives by height yet.</div>
-        <div v-else class="bar-list">
-          <div v-for="h in analytics.height_breakdown" :key="h.height" class="bar-row">
-            <span class="bar-label">{{ h.height }}m</span>
-            <div class="bar-track">
-              <div class="bar-fill" :style="{
-                width: barWidth(h.avg_score, analytics.height_breakdown, 'avg_score') + '%',
-              }"></div>
-            </div>
-            <span class="bar-value">avg {{ Number(h.avg_score).toFixed(1) }}</span>
-            <span class="bar-meta">best {{ Number(h.best_score).toFixed(1) }} · {{ h.dive_count }} dives</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Round-by-round form -->
-      <div v-if="isEnabled('round_stamina')" class="card" :style="{ order: widgetOrder('round_stamina') }">
-        <div class="card-head">Round-by-Round Form</div>
-        <div v-if="!analytics" class="empty-mini">Loading…</div>
-        <div v-else-if="!analytics.round_stamina.length" class="empty-mini">No rounds completed yet.</div>
-        <div v-else class="bar-list">
-          <div v-for="r in analytics.round_stamina" :key="r.round_number" class="bar-row">
-            <span class="bar-label">Round {{ r.round_number }}</span>
-            <div class="bar-track">
-              <div class="bar-fill" :style="{
-                width: barWidth(r.avg_score, analytics.round_stamina, 'avg_score') + '%',
-              }"></div>
-            </div>
-            <span class="bar-value">{{ Number(r.avg_score).toFixed(1) }}</span>
-            <span class="bar-meta">{{ r.dive_count }} dives</span>
-          </div>
-        </div>
-        <p v-if="analytics?.round_stamina.length > 1" class="widget-hint">
-          {{ staminaInsight }}
-        </p>
-      </div>
-
-      <!-- Score quality mix — distribution across World Aquatics categories,
-           rendered as a horizontal stacked bar with category
-           colours matching the live scoreboard chips. -->
-      <div v-if="isEnabled('quality_mix')" class="card" :style="{ order: widgetOrder('quality_mix') }">
-        <div class="card-head">Score Quality Mix</div>
-        <div v-if="!analytics || !analytics.quality_mix.total" class="empty-mini">No judge scores yet.</div>
-        <template v-else>
-          <div class="quality-bar">
-            <div v-for="b in qualityBuckets" :key="b.id"
-                 :class="['quality-seg', `quality-${b.id}`]"
-                 :style="{ width: (b.count / analytics.quality_mix.total * 100) + '%' }"
-                 v-tip="`${b.label}: ${b.count} (${(b.count / analytics.quality_mix.total * 100).toFixed(1)}%)`"></div>
-          </div>
-          <div class="quality-legend">
-            <div v-for="b in qualityBuckets" :key="b.id" class="quality-legend-row">
-              <span :class="['quality-dot', `quality-${b.id}`]"></span>
-              <span class="quality-name">{{ b.label }}</span>
-              <span class="quality-count">{{ b.count }}</span>
-              <span class="quality-pct">{{ analytics.quality_mix.total ? (b.count / analytics.quality_mix.total * 100).toFixed(1) : 0 }}%</span>
-            </div>
-          </div>
-        </template>
-      </div>
-
-      <!-- DD risk profile -->
-      <div v-if="isEnabled('dd_risk')" class="card" :style="{ order: widgetOrder('dd_risk') }">
-        <div class="card-head">DD Risk Profile</div>
-        <div v-if="!analytics?.dd_risk?.avg_dd" class="empty-mini">Not enough data yet.</div>
-        <div v-else class="dd-risk-row">
-          <div class="dd-cell">
-            <div class="dd-num">{{ Number(analytics.dd_risk.avg_dd).toFixed(2) }}</div>
-            <div class="dd-lbl">Avg DD attempted</div>
-          </div>
-          <div class="dd-cell">
-            <div class="dd-num cyan">{{ Number(analytics.dd_risk.max_dd).toFixed(1) }}</div>
-            <div class="dd-lbl">Max DD attempted</div>
-          </div>
-          <div class="dd-cell">
-            <div class="dd-num">
-              {{ analytics.dd_risk.avg_score_at_highest_dd != null
-                 ? Number(analytics.dd_risk.avg_score_at_highest_dd).toFixed(1)
-                 : '—' }}
-            </div>
-            <div class="dd-lbl">Avg score at top DDs</div>
-            <div class="dd-meta" v-if="analytics.dd_risk.attempts_at_highest_dd">
-              {{ analytics.dd_risk.attempts_at_highest_dd }} attempts ≥ {{ Number(analytics.dd_risk.max_dd - 0.3).toFixed(1) }}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Frequent (go-to) dives -->
-      <div v-if="isEnabled('frequent_dives')" class="card" :style="{ order: widgetOrder('frequent_dives') }">
-        <div class="card-head">Go-To Dives</div>
-        <div v-if="!analytics?.frequent_dives?.length" class="empty-mini">No dives recorded yet.</div>
-        <table v-else class="pb-table">
-          <thead>
-            <tr>
-              <th>Dive</th>
-              <th>Pos</th>
-              <th>Height</th>
-              <th>Attempts</th>
-              <th>Avg</th>
-              <th>Best</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="f in analytics.frequent_dives" :key="f.dive_code + f.position + f.height">
-              <td class="mono strong">{{ f.dive_code }}</td>
-              <td class="mono">{{ f.position }}</td>
-              <td class="mono">{{ f.height }}m</td>
-              <td class="mono dim">{{ f.attempts }}</td>
-              <td class="mono">{{ Number(f.avg_score).toFixed(1) }}</td>
-              <td class="mono strong cyan">{{ Number(f.best_score).toFixed(1) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- Current streak — only renders when there's an active
-           podium / win run. Otherwise hides itself to avoid
-           a "no streak" pity widget. -->
-      <div v-if="isEnabled('streak') && analytics?.streak?.length" class="card streak-card" :style="{ order: widgetOrder('streak') }">
-        <div class="card-head">Current Streak</div>
-        <div class="streak-body">
-          <div class="streak-num">{{ analytics.streak.length }}</div>
-          <div class="streak-meta">
-            <div class="streak-kind">
-              {{ analytics.streak.kind === 'win' ? '🥇 Consecutive wins' : '🥉 Consecutive podiums' }}
-            </div>
-            <div class="streak-hint">From your most recent meet backwards.</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Compare to peers — diver vs. org averages. The bars are
-           normalised to the larger of (me, peer) so a glance shows
-           who's higher. Hidden when there are no peer dives in the
-           current date window. -->
-      <div v-if="isEnabled('compare_peers') && analytics?.compare_peers" class="card" :style="{ order: widgetOrder('compare_peers') }">
-        <div class="card-head">Compare to Peers ({{ profile.diver.org_name }})</div>
-        <div v-if="!analytics.compare_peers.peer_dives" class="empty-mini">
-          No peer dives in this date range yet.
-        </div>
-        <div v-else class="compare-grid">
-          <div class="compare-row">
-            <span class="compare-lbl">Avg DD attempted</span>
-            <div class="compare-bars">
-              <div class="compare-bar compare-me"
-                   :style="{ width: barWidth(analytics.compare_peers.my_avg_dd, [
-                     { v: analytics.compare_peers.my_avg_dd },
-                     { v: analytics.compare_peers.peer_avg_dd }
-                   ], 'v') + '%' }"></div>
-              <div class="compare-bar compare-peer"
-                   :style="{ width: barWidth(analytics.compare_peers.peer_avg_dd, [
-                     { v: analytics.compare_peers.my_avg_dd },
-                     { v: analytics.compare_peers.peer_avg_dd }
-                   ], 'v') + '%' }"></div>
-            </div>
-            <span class="compare-vals">
-              <span class="compare-me-text">You {{ analytics.compare_peers.my_avg_dd != null ? Number(analytics.compare_peers.my_avg_dd).toFixed(2) : '—' }}</span>
-              <span class="compare-peer-text">Peers {{ analytics.compare_peers.peer_avg_dd != null ? Number(analytics.compare_peers.peer_avg_dd).toFixed(2) : '—' }}</span>
-            </span>
-          </div>
-          <div class="compare-row">
-            <span class="compare-lbl">Avg dive total</span>
-            <div class="compare-bars">
-              <div class="compare-bar compare-me"
-                   :style="{ width: barWidth(analytics.compare_peers.my_avg_score, [
-                     { v: analytics.compare_peers.my_avg_score },
-                     { v: analytics.compare_peers.peer_avg_score }
-                   ], 'v') + '%' }"></div>
-              <div class="compare-bar compare-peer"
-                   :style="{ width: barWidth(analytics.compare_peers.peer_avg_score, [
-                     { v: analytics.compare_peers.my_avg_score },
-                     { v: analytics.compare_peers.peer_avg_score }
-                   ], 'v') + '%' }"></div>
-            </div>
-            <span class="compare-vals">
-              <span class="compare-me-text">You {{ analytics.compare_peers.my_avg_score != null ? Number(analytics.compare_peers.my_avg_score).toFixed(1) : '—' }}</span>
-              <span class="compare-peer-text">Peers {{ analytics.compare_peers.peer_avg_score != null ? Number(analytics.compare_peers.peer_avg_score).toFixed(1) : '—' }}</span>
-            </span>
-          </div>
-          <div class="compare-row">
-            <span class="compare-lbl">Max DD attempted</span>
-            <div class="compare-bars">
-              <div class="compare-bar compare-me"
-                   :style="{ width: barWidth(analytics.compare_peers.my_max_dd, [
-                     { v: analytics.compare_peers.my_max_dd },
-                     { v: analytics.compare_peers.peer_max_dd }
-                   ], 'v') + '%' }"></div>
-              <div class="compare-bar compare-peer"
-                   :style="{ width: barWidth(analytics.compare_peers.peer_max_dd, [
-                     { v: analytics.compare_peers.my_max_dd },
-                     { v: analytics.compare_peers.peer_max_dd }
-                   ], 'v') + '%' }"></div>
-            </div>
-            <span class="compare-vals">
-              <span class="compare-me-text">You {{ analytics.compare_peers.my_max_dd != null ? Number(analytics.compare_peers.my_max_dd).toFixed(1) : '—' }}</span>
-              <span class="compare-peer-text">Peers {{ analytics.compare_peers.peer_max_dd != null ? Number(analytics.compare_peers.peer_max_dd).toFixed(1) : '—' }}</span>
-            </span>
-          </div>
-        </div>
-        <p class="widget-hint">
-          Sample: {{ analytics.compare_peers.my_dives }} of your dives vs. {{ analytics.compare_peers.peer_dives }} peer dives.
-        </p>
-      </div>
-
-      <!-- Event-type splits — synchro vs individual vs team. Each
-           row is one event_type with meets, dive count, averages.
-           The label maps the SQL enum to a human-friendly name. -->
-      <div v-if="isEnabled('event_type_splits')" class="card" :style="{ order: widgetOrder('event_type_splits') }">
-        <div class="card-head">Synchro vs Individual</div>
-        <div v-if="!analytics?.event_type_splits?.length" class="empty-mini">
-          No events to compare yet.
-        </div>
-        <table v-else class="pb-table">
-          <thead>
-            <tr>
-              <th>Event type</th>
-              <th>Meets</th>
-              <th>Dives</th>
-              <th>Avg dive</th>
-              <th>Best dive</th>
-              <th>Avg meet</th>
-              <th>Best meet</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in analytics.event_type_splits" :key="r.event_type">
-              <td class="strong">
-                {{ r.event_type === 'synchro_pair' ? 'Synchro'
-                 : r.event_type === 'team' ? 'Team'
-                 : r.event_type === 'individual' ? 'Individual'
-                 : r.event_type }}
-              </td>
-              <td class="mono dim">{{ r.meets }}</td>
-              <td class="mono dim">{{ r.dives }}</td>
-              <td class="mono">{{ r.avg_dive_score != null ? Number(r.avg_dive_score).toFixed(1) : '—' }}</td>
-              <td class="mono cyan strong">{{ r.best_single_dive != null ? Number(r.best_single_dive).toFixed(1) : '—' }}</td>
-              <td class="mono">{{ r.avg_meet_total != null ? Number(r.avg_meet_total).toFixed(1) : '—' }}</td>
-              <td class="mono cyan strong">{{ r.best_meet_total != null ? Number(r.best_meet_total).toFixed(1) : '—' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- Year-over-year — one row per calendar year with the
-           headline numbers. Sorted newest first; the "Δ" column
-           is the year-on-year change in average meet total. -->
-      <div v-if="isEnabled('year_over_year')" class="card" :style="{ order: widgetOrder('year_over_year') }">
-        <div class="card-head">Year-over-Year</div>
-        <div v-if="!analytics?.year_over_year?.length" class="empty-mini">
-          Need at least one completed meet.
-        </div>
-        <table v-else class="pb-table">
-          <thead>
-            <tr>
-              <th>Year</th>
-              <th>Meets</th>
-              <th>Avg meet</th>
-              <th>Best meet</th>
-              <th>Wins</th>
-              <th>Podiums</th>
-              <th>Δ vs prev</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(y, i) in analytics.year_over_year" :key="y.year">
-              <td class="mono strong">{{ y.year }}</td>
-              <td class="mono dim">{{ y.meets }}</td>
-              <td class="mono">{{ y.avg_meet_total != null ? Number(y.avg_meet_total).toFixed(1) : '—' }}</td>
-              <td class="mono cyan strong">{{ y.best_meet_total != null ? Number(y.best_meet_total).toFixed(1) : '—' }}</td>
-              <td class="mono">{{ y.wins }}</td>
-              <td class="mono">{{ y.podiums }}</td>
-              <td class="mono" :class="yoyDeltaClass(analytics.year_over_year, i)">
-                {{ yoyDeltaText(analytics.year_over_year, i) }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <!-- Dashboard widgets — one component per id, in saved
+           order. The wrapper carries the CSS `order` so drag-
+           reorder still works without forcing every widget root
+           to re-declare `:style`. Empty wrappers (e.g. StreakWidget
+           with no active streak) get hidden via `.widget-slot:empty`. -->
+      <div
+        v-for="id in orderedEnabled"
+        :key="id"
+        class="widget-slot"
+        :style="{ order: widgetOrder(id) }"
+      >
+        <component
+          :is="widgets[id]"
+          :data="widgetData(id)"
+          v-bind="widgetExtraProps(id)"
+        />
       </div>
     </div>
   </div>
