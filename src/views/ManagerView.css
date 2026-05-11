@@ -15,63 +15,9 @@
 .modal-create-event { max-width:720px; max-height:calc(100vh - 4rem); overflow-y:auto; }
 .modal-create-dive  { max-width:480px; }
 
-/* Round-dives editor (migration 039) — one row per round, with a
-   click-to-search dive picker, optional per-slot height for
-   mixed-board events, and quick-clear / remove buttons. */
-.rd-editor { display:flex; flex-direction:column; gap:0.5rem; }
-.rd-total {
-  font-size:11px; letter-spacing:0.08em; text-transform:uppercase;
-  color:var(--text-2);
-  background:rgba(0, 224, 255, 0.08); padding:0.2rem 0.6rem; border-radius:999px;
-}
-.rd-row {
-  display:grid;
-  grid-template-columns: 38px 1fr auto auto auto;
-  align-items:center; gap:0.5rem;
-  padding:0.4rem; border:1px solid var(--border); border-radius:var(--radius);
-  background:rgba(255,255,255,0.02);
-}
-.rd-row-num {
-  font-family:var(--font-mono); font-weight:bold; color:var(--cyan);
-  text-align:center;
-  background:rgba(0,224,255,0.06); border-radius:6px; padding:0.4rem 0;
-}
-.rd-row-pick { position:relative; min-width:0; }
-.rd-pick-input { font-size:13px; padding:0.5rem 0.75rem; }
-.rd-pick-popover {
-  position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:10;
-  background:var(--bg-2); border:1px solid var(--border); border-radius:var(--radius);
-  max-height:280px; overflow-y:auto;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-}
-.rd-pick-empty {
-  padding:0.75rem; font-size:13px; color:var(--text-2);
-  display:flex; flex-direction:column; gap:0.5rem;
-}
-.rd-pick-result {
-  padding:0.5rem 0.75rem; font-size:13px;
-  border-top:1px solid var(--border); cursor:pointer;
-  display:grid; grid-template-columns: 60px 90px 1fr; gap:0.5rem; align-items:center;
-}
-.rd-pick-result:first-child { border-top:none; }
-.rd-pick-result:hover { background:rgba(0, 224, 255, 0.06); }
-.rd-pick-code { font-family:var(--font-mono); font-weight:bold; color:var(--cyan); }
-.rd-pick-meta { font-family:var(--font-mono); color:var(--text-2); font-size:12px; }
-.rd-pick-desc { color:var(--text-2); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.rd-pick-footer {
-  border-top:1px solid var(--border); padding:0.4rem 0.75rem;
-}
-.rd-pick-create-link {
-  background:none; border:none; padding:0;
-  color:var(--cyan); font-size:12px; cursor:pointer; font-family:var(--font-mono);
-}
-.rd-pick-create-link:hover { text-decoration:underline; }
-.rd-row-height { max-width:120px; font-size:13px; padding:0.5rem 0.75rem; }
-.rd-row-clear, .rd-row-remove { padding:0.3rem 0.55rem; }
-.rd-actions {
-  display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; margin-top:0.4rem;
-}
-.rd-bulk { display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap; }
+/* Round-dives editor — the .rd-* styles moved into
+   src/components/manager/RoundDivesEditor.vue (scoped) when the
+   editor was extracted from this view. */
 
 /* Advance to next stage — modal layout. The right side surfaces
    a live preview of the ranked divers split into Primaries /

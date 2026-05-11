@@ -6,6 +6,7 @@ import { confirmAction } from '@/composables/useConfirm'
 import { showSuccess, showError } from '@/composables/useNotify'
 import StatusPill from '@/components/StatusPill.vue'
 import SuperFinalModals from '@/components/manager/SuperFinalModals.vue'
+import RoundDivesEditor from '@/components/manager/RoundDivesEditor.vue'
 import { filterStandardTemplates } from '@/lib/standard-templates'
 
 const auth = useAuthStore()
@@ -29,26 +30,21 @@ const createMeetId = ref('')           // optional — bundle this event into a 
 // Migration 039: operator-prescribed round dives. The "Number of
 // Rounds" dropdown is gone; total rounds is derived from this
 // array's length. Each entry: { dive_id|null, height|null }.
-// Push a row via "+ Add Dive" or "Add N rounds" quick-add.
+// The full editor (add/remove rows, dive-picker autocomplete,
+// per-slot height override) lives in <RoundDivesEditor>; the
+// array itself stays here so submit-time code paths and template
+// hydration keep working untouched.
 const createRoundDives = ref([])
-function addRoundDive(slot) {
-  const next = slot || { dive_id: null, height: null, _label: '' }
-  createRoundDives.value.push(next)
-}
-function removeRoundDive(idx) {
-  createRoundDives.value.splice(idx, 1)
-}
 // Derived total rounds. Existing template/code referencing
 // `createRounds` keeps working without churn.
 const createRounds = computed(() => createRoundDives.value.length)
 
-// Dive directory + per-row autocomplete. Loaded once on mount;
-// `divePickerOpenIdx` is the index of the round-row whose
-// search popover is currently visible (-1 = none).
-const diveDirectory     = ref([])
-const divePickerOpenIdx = ref(-1)
-const divePickerCtx     = ref(null)   // 'create' | 'edit'
-const divePickerQuery   = ref('')
+// Dive directory — loaded once on mount and passed into BOTH
+// <RoundDivesEditor> instances (Create + Edit modals) as a prop.
+// The editor owns the per-row autocomplete UI; this view just
+// hands it the data and forwards "new dive" requests to the
+// sub-modal below.
+const diveDirectory = ref([])
 
 async function loadDiveDirectory() {
   try {
@@ -58,89 +54,23 @@ async function loadDiveDirectory() {
   }
 }
 
-function openDivePicker(idx, ctx) {
-  divePickerOpenIdx.value = idx
-  divePickerCtx.value     = ctx
-  divePickerQuery.value   = ''
-}
-function closeDivePicker() {
-  divePickerOpenIdx.value = -1
-  divePickerCtx.value     = null
-}
-
-// Delayed close for @blur on the search input — gives a click on
-// a result row time to fire its @mousedown.prevent first.
-function onPickerBlur(idx, ctx) {
-  setTimeout(() => {
-    if (divePickerOpenIdx.value === idx && divePickerCtx.value === ctx) {
-      closeDivePicker()
-    }
-  }, 150)
-}
-
-// Filter the dive directory to rows matching the picker's query
-// AND, when the event has a fixed height, that height. Returns
-// at most 25 rows so the dropdown stays usable.
-const divePickerResults = computed(() => {
-  const q = divePickerQuery.value.toLowerCase().trim()
-  const isMixed = divePickerCtx.value === 'edit' ? !!editMixedHeight.value : !!createMixedHeight.value
-  const fixedHeight = divePickerCtx.value === 'edit' ? editHeight.value : createHeight.value
-  const slot = divePickerCtx.value === 'edit'
-    ? editRoundDives.value[divePickerOpenIdx.value]
-    : createRoundDives.value[divePickerOpenIdx.value]
-  // For mixed-board events with a per-slot height override, only
-  // dives at that height appear.
-  const slotHeight = slot && slot.height != null && slot.height !== ''
-    ? Number(slot.height)
-    : null
-  const heightMatch = (d) => {
-    if (slotHeight != null) return Number(d.height) === slotHeight
-    if (isMixed) return true
-    if (!fixedHeight) return true
-    const fh = parseFloat(fixedHeight)
-    return Number(d.height) === fh
-  }
-  return diveDirectory.value
-    .filter((d) => {
-      if (!heightMatch(d)) return false
-      if (!q) return true
-      const combined = (d.dive_code + (d.position || '')).toLowerCase()
-      return combined.includes(q)
-        || (d.description || '').toLowerCase().includes(q)
-    })
-    .slice(0, 25)
-})
-
-function selectDiveForRow(dive) {
-  const idx = divePickerOpenIdx.value
-  if (idx < 0) return
-  const target = divePickerCtx.value === 'edit'
-    ? editRoundDives.value
-    : createRoundDives.value
-  target[idx].dive_id = dive.id
-  target[idx]._label  = `${dive.dive_code}${dive.position || ''} · DD ${dive.dd}`
-  target[idx]._meta   = {
-    dive_code: dive.dive_code,
-    position:  dive.position,
-    dd:        dive.dd,
-    height:    Number(dive.height),
-    description: dive.description,
-  }
-  closeDivePicker()
-}
-
-function clearDiveForRow(idx, ctx) {
-  const target = ctx === 'edit' ? editRoundDives.value : createRoundDives.value
-  target[idx].dive_id = null
-  target[idx]._label  = ''
-  target[idx]._meta   = null
-}
+// Template refs into the two editor instances so the
+// Create-Dive sub-modal can call `applyDiveAtRow` after a
+// successful POST. That keeps the editor responsible for
+// formatting the picker label / metadata while the sub-modal
+// stays a parent-owned affordance (also reachable from the
+// dive-directory page).
+const createRoundDivesEditor = ref(null)
+const editRoundDivesEditor   = ref(null)
 
 // "Add new dive" sub-modal — POSTs to /api/dive-directory and,
 // on success, drops the new dive into the row that opened the
-// picker.
+// picker. The editor emits `request-new-dive` ({ rowIdx }); we
+// stash which editor asked + which row, open the modal, and on
+// submit replay back into the editor via its exposed
+// `applyDiveAtRow`.
 const showCreateDiveModal = ref(false)
-const newDiveCtx          = ref(null)   // remembers which row to fill on success
+const newDiveCtx          = ref(null)   // 'create' | 'edit' — which editor asked
 const newDiveRowIdx       = ref(-1)
 const newDiveCode = ref('')
 const newDiveHeight = ref('1m')
@@ -150,9 +80,9 @@ const newDiveDescription = ref('')
 const newDiveErr = ref('')
 const newDiveBusy = ref(false)
 
-function openCreateDiveModal(ctx, idx) {
+function onRequestNewDive(ctx, { rowIdx }) {
   newDiveCtx.value    = ctx
-  newDiveRowIdx.value = idx
+  newDiveRowIdx.value = rowIdx
   newDiveCode.value = ''
   // Seed height from the event's chosen height when available so
   // the operator doesn't have to re-pick it.
@@ -190,10 +120,12 @@ async function submitCreateDive() {
     // Append to the local cache so the picker sees it without
     // a full reload.
     diveDirectory.value = [...diveDirectory.value, created]
-    // Drop it into the opener row.
-    divePickerOpenIdx.value = newDiveRowIdx.value
-    divePickerCtx.value     = newDiveCtx.value
-    selectDiveForRow(created)
+    // Drop it into the opener row via the editor's exposed
+    // `applyDiveAtRow` so label/meta formatting stays in one place.
+    const editor = newDiveCtx.value === 'edit'
+      ? editRoundDivesEditor.value
+      : createRoundDivesEditor.value
+    editor?.applyDiveAtRow(newDiveRowIdx.value, created)
     showCreateDiveModal.value = false
   } catch (err) {
     newDiveErr.value = err.message || 'Failed to create dive'
@@ -813,14 +745,6 @@ function buildEditRoundRulesPayload() {
     })),
   }
 }
-function addEditRoundDive(slot) {
-  const next = slot || { dive_id: null, height: null, _label: '', _meta: null }
-  editRoundDives.value.push(next)
-}
-function removeEditRoundDive(idx) {
-  editRoundDives.value.splice(idx, 1)
-}
-
 // Team enrolment modal — open when "Teams" clicked on a team-event row
 const teamsModalOpen = ref(false)
 const teamsModalEvent = ref(null)
@@ -1672,88 +1596,18 @@ onUnmounted(() => {
              the event. Pinning a dive to a row makes it a
              "prescribed" dive — the diver must submit exactly that
              dive in that round. Leaving the dive blank lets the
-             diver pick freely. The count of rows == total_rounds. -->
-        <div class="field rd-editor">
-          <label class="label" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
-            <span>Round dives</span>
-            <span class="rd-total">{{ createRoundDives.length }} round{{ createRoundDives.length === 1 ? '' : 's' }}</span>
-          </label>
-          <p class="hint" v-if="!createRoundDives.length" style="margin:0 0 0.5rem">
-            Click <strong>+ Add Dive</strong> for each round. Pin a specific
-            dive (operator-prescribed), or leave it blank for the diver
-            to pick. <strong>Quick add</strong> stamps several free rounds
-            in one go.
-          </p>
-
-          <div v-for="(slot, idx) in createRoundDives" :key="idx" class="rd-row">
-            <div class="rd-row-num">R{{ idx + 1 }}</div>
-            <div class="rd-row-pick">
-              <input v-if="divePickerOpenIdx !== idx || divePickerCtx !== 'create'"
-                     class="input rd-pick-input"
-                     :value="slot._label || (slot.dive_id ? '(loading…)' : '')"
-                     :placeholder="slot.dive_id ? '' : 'Diver picks · click to pin a dive'"
-                     readonly
-                     @click="openDivePicker(idx, 'create')">
-              <input v-else
-                     class="input rd-pick-input"
-                     v-model="divePickerQuery"
-                     placeholder="Search dive code, position, or description…"
-                     autofocus
-                     @blur="onPickerBlur(idx, 'create')">
-
-              <div v-if="divePickerOpenIdx === idx && divePickerCtx === 'create'"
-                   class="rd-pick-popover">
-                <div v-if="!divePickerResults.length" class="rd-pick-empty">
-                  No dives match. Adjust the search or
-                  <button type="button" class="rd-pick-create-link"
-                          @mousedown.prevent="openCreateDiveModal('create', idx)">
-                    add a new dive →
-                  </button>
-                </div>
-                <div v-for="d in divePickerResults" :key="d.id"
-                     class="rd-pick-result"
-                     @mousedown.prevent="selectDiveForRow(d)">
-                  <span class="rd-pick-code">{{ d.dive_code }}{{ d.position }}</span>
-                  <span class="rd-pick-meta">{{ d.height }}m · DD {{ d.dd }}</span>
-                  <span class="rd-pick-desc">{{ d.description }}</span>
-                </div>
-                <div v-if="divePickerResults.length" class="rd-pick-footer">
-                  <button type="button" class="rd-pick-create-link"
-                          @mousedown.prevent="openCreateDiveModal('create', idx)">
-                    + Add a new dive…
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Mixed-board events expose a per-slot height
-                 selector: an operator can leave the dive free
-                 but pin the round to a particular board. Hidden
-                 when the event uses a single fixed height. -->
-            <select v-if="createMixedHeight" class="select rd-row-height" v-model="slot.height">
-              <option :value="null">— Any board —</option>
-              <option value="0">0m</option>
-              <option value="1">1m</option>
-              <option value="3">3m</option>
-              <option value="5">5m</option>
-              <option value="7.5">7.5m</option>
-              <option value="10">10m</option>
-            </select>
-
-            <button type="button" class="btn btn-ghost btn-sm rd-row-clear"
-                    v-if="slot.dive_id"
-                    @click="clearDiveForRow(idx, 'create')"
-                    v-tip="'Unpin this dive (slot becomes free)'">↺</button>
-            <button type="button" class="btn btn-ghost btn-sm rd-row-remove"
-                    @click="removeRoundDive(idx)" v-tip="'Remove this round'">✕</button>
-          </div>
-
-          <div class="rd-actions">
-            <button type="button" class="btn btn-primary btn-sm" @click="addRoundDive()">
-              + Add Dive
-            </button>
-          </div>
-        </div>
+             diver pick freely. The count of rows == total_rounds.
+             The editor (rows, dive-picker, per-slot height) lives
+             in <RoundDivesEditor>; new-dive requests bubble back
+             up so the shared Create-Dive sub-modal stays here. -->
+        <RoundDivesEditor
+          ref="createRoundDivesEditor"
+          v-model="createRoundDives"
+          :height="createHeight"
+          :mixed-height="createMixedHeight"
+          :dive-directory="diveDirectory"
+          @request-new-dive="onRequestNewDive('create', $event)"
+        />
 
         <!-- Round structure (migration 038). Sections of rounds
              with their own DD-sum cap and min-distinct-groups
@@ -2385,77 +2239,14 @@ onUnmounted(() => {
              pre-populated from /api/events/:id/round-dives so the
              operator can re-pin or unpin dives, add/remove rounds,
              or override per-slot board heights for mixed events. -->
-        <div class="field rd-editor">
-          <label class="label" style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem">
-            <span>Round dives</span>
-            <span class="rd-total">{{ editRoundDives.length }} round{{ editRoundDives.length === 1 ? '' : 's' }}</span>
-          </label>
-
-          <div v-for="(slot, idx) in editRoundDives" :key="idx" class="rd-row">
-            <div class="rd-row-num">R{{ idx + 1 }}</div>
-            <div class="rd-row-pick">
-              <input v-if="divePickerOpenIdx !== idx || divePickerCtx !== 'edit'"
-                     class="input rd-pick-input"
-                     :value="slot._label || (slot.dive_id ? '(loading…)' : '')"
-                     :placeholder="slot.dive_id ? '' : 'Diver picks · click to pin a dive'"
-                     readonly
-                     @click="openDivePicker(idx, 'edit')">
-              <input v-else
-                     class="input rd-pick-input"
-                     v-model="divePickerQuery"
-                     placeholder="Search dive code, position, or description…"
-                     autofocus
-                     @blur="onPickerBlur(idx, 'edit')">
-
-              <div v-if="divePickerOpenIdx === idx && divePickerCtx === 'edit'"
-                   class="rd-pick-popover">
-                <div v-if="!divePickerResults.length" class="rd-pick-empty">
-                  No dives match. Adjust the search or
-                  <button type="button" class="rd-pick-create-link"
-                          @mousedown.prevent="openCreateDiveModal('edit', idx)">
-                    add a new dive →
-                  </button>
-                </div>
-                <div v-for="d in divePickerResults" :key="d.id"
-                     class="rd-pick-result"
-                     @mousedown.prevent="selectDiveForRow(d)">
-                  <span class="rd-pick-code">{{ d.dive_code }}{{ d.position }}</span>
-                  <span class="rd-pick-meta">{{ d.height }}m · DD {{ d.dd }}</span>
-                  <span class="rd-pick-desc">{{ d.description }}</span>
-                </div>
-                <div v-if="divePickerResults.length" class="rd-pick-footer">
-                  <button type="button" class="rd-pick-create-link"
-                          @mousedown.prevent="openCreateDiveModal('edit', idx)">
-                    + Add a new dive…
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <select v-if="editMixedHeight" class="select rd-row-height" v-model="slot.height">
-              <option :value="null">— Any board —</option>
-              <option value="0">0m</option>
-              <option value="1">1m</option>
-              <option value="3">3m</option>
-              <option value="5">5m</option>
-              <option value="7.5">7.5m</option>
-              <option value="10">10m</option>
-            </select>
-
-            <button type="button" class="btn btn-ghost btn-sm rd-row-clear"
-                    v-if="slot.dive_id"
-                    @click="clearDiveForRow(idx, 'edit')"
-                    v-tip="'Unpin (slot becomes free)'">↺</button>
-            <button type="button" class="btn btn-ghost btn-sm rd-row-remove"
-                    @click="removeEditRoundDive(idx)" v-tip="'Remove this round'">✕</button>
-          </div>
-
-          <div class="rd-actions">
-            <button type="button" class="btn btn-primary btn-sm" @click="addEditRoundDive()">
-              + Add Dive
-            </button>
-          </div>
-        </div>
+        <RoundDivesEditor
+          ref="editRoundDivesEditor"
+          v-model="editRoundDives"
+          :height="editHeight"
+          :mixed-height="editMixedHeight"
+          :dive-directory="diveDirectory"
+          @request-new-dive="onRequestNewDive('edit', $event)"
+        />
 
         <!-- Round structure (sections) — was missing from the
              Edit modal entirely; added in migration 039 alongside
