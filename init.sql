@@ -200,8 +200,21 @@ CREATE TABLE public.users (
     -- the four most universally useful widgets so a fresh judge
     -- sees something meaningful on first visit.
     judge_dashboard_widgets jsonb DEFAULT '["bias_summary","deviation_distribution","height_breakdown","recent_meets"]'::jsonb,
+    -- Self-service email change (Migration 044). When a signed-in
+    -- user requests a new email, the new address is parked in
+    -- pending_email and a sha256-hashed verification token in
+    -- pending_email_token_hash; both clear on confirm. A new request
+    -- overwrites all three, invalidating any older in-flight token.
+    -- 30-min expiry mirrors the password-reset window.
+    pending_email             varchar(254),
+    pending_email_token_hash  varchar(64),
+    pending_email_expires_at  timestamptz,
     created_at      timestamptz DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS idx_users_pending_email_token
+  ON public.users(pending_email_token_hash)
+  WHERE pending_email_token_hash IS NOT NULL;
 
 
 -- =============================================================
@@ -1186,7 +1199,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 43);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 44);
 
 
 -- =============================================================

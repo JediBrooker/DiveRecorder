@@ -12,6 +12,7 @@
 const express = require("express");
 const bcrypt  = require("bcryptjs");
 const jwt     = require("jsonwebtoken");
+const crypto  = require("node:crypto");
 const totp    = require("../lib/totp");
 
 // Pre-computed dummy bcrypt hash used by the login flow to keep
@@ -43,6 +44,8 @@ module.exports = function createAuthRouter({
   sendNewRoleRequestEmail,
   sendPasswordChangedEmail,
   sendPasswordResetEmail,
+  sendEmailChangeVerify,
+  sendEmailChangedNotice,
   bumpTokenVersion,
   JWT_SECRET,
   JWT_EXPIRY,
@@ -717,6 +720,217 @@ module.exports = function createAuthRouter({
       await client.query("ROLLBACK").catch(() => {});
       console.error("[Change Password Error]", err.message);
       res.status(500).json({ error: "Password change failed" });
+    } finally {
+      client.release();
+    }
+  });
+
+  // -------------------------------------------------------------
+  // SELF-SERVICE EMAIL CHANGE (Migration 044)
+  //
+  // Two-step flow:
+  //   1. POST /api/users/me/email/change-request
+  //        Body: { new_email, current_password }
+  //        Auth: verifyToken (signed-in user only)
+  //        Effect: parks new_email + sha256(token) + 30-min expiry
+  //                on the user row, emails the plaintext link to
+  //                the NEW address.
+  //
+  //   2. POST /api/auth/confirm-email-change
+  //        Body: { token }
+  //        Auth: none — the token IS the credential
+  //        Effect: swaps users.email = pending_email, clears the
+  //                pending_* columns, bumps token_version (forces
+  //                re-login on every other session), sends a
+  //                hygiene notice to the OLD address.
+  //
+  // Why DB-backed token (and not the JWT-fingerprint pattern
+  // /forgot-password uses): we need to carry the new address
+  // between request and confirm without baking it into a JWT
+  // payload that would land in mailer transcripts. The DB
+  // overwrite also gives us "re-issuing supersedes" for free —
+  // the new row write invalidates any earlier in-flight token
+  // without a separate revocation column.
+  //
+  // Tokens are random 32-byte hex (256 bits of entropy). Only
+  // sha256(token) is persisted, so a DB dump doesn't hand an
+  // attacker every pending link.
+  // -------------------------------------------------------------
+  router.post("/api/users/me/email/change-request", authLimiter, verifyToken, async (req, res) => {
+    const { new_email, current_password } = req.body || {};
+    // Format checks mirror /api/auth/register so a payload that
+    // passes here is the same shape registrations enforce.
+    if (typeof new_email !== "string"
+        || new_email.length > 254
+        || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(new_email)) {
+      return res.status(400).json({ error: "A valid new email address is required" });
+    }
+    if (typeof current_password !== "string" || !current_password) {
+      return res.status(400).json({ error: "Current password is required" });
+    }
+    const normalisedNew = new_email.trim().toLowerCase();
+    try {
+      const u = await pool.query(
+        "SELECT id, password, email FROM users WHERE id = $1",
+        [req.user.id],
+      );
+      const user = u.rows[0];
+      if (!user) return res.status(404).json({ error: "User not found" });
+
+      const passwordOk = await bcrypt.compare(current_password, user.password);
+      if (!passwordOk) {
+        return res.status(401).json({ error: "Current password is incorrect" });
+      }
+
+      // Reject no-op changes early so we don't email the user a
+      // link to confirm an address they already use.
+      if (user.email && user.email.trim().toLowerCase() === normalisedNew) {
+        return res.status(400).json({ error: "That's already your current email address" });
+      }
+
+      // Uniqueness check — soft, racy by design. The DB constraint
+      // (if any) would catch a true race at confirm time, but a
+      // pre-check here gives a clean 409 instead of a 500. Compare
+      // case-insensitively because email addresses are case-folded
+      // in practice and we don't want two accounts to differ only
+      // by capitalisation.
+      const dup = await pool.query(
+        "SELECT 1 FROM users WHERE lower(email) = $1 AND id <> $2",
+        [normalisedNew, req.user.id],
+      );
+      if (dup.rows.length) {
+        return res.status(409).json({ error: "That email address is already in use" });
+      }
+
+      // 32 bytes = 256 bits of entropy, hex-encoded into 64 chars
+      // for the link. The DB only ever sees sha256(token).
+      const token = crypto.randomBytes(32).toString("hex");
+      const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+      await pool.query(
+        `UPDATE users
+         SET pending_email = $1,
+             pending_email_token_hash = $2,
+             pending_email_expires_at = now() + interval '30 minutes'
+         WHERE id = $3`,
+        [normalisedNew, tokenHash, req.user.id],
+      );
+
+      // Fire-and-forget the send so a stuck SMTP host can't hold
+      // the request open. The user sees an immediate "check your
+      // inbox" response either way.
+      if (typeof sendEmailChangeVerify === "function") {
+        setImmediate(() => {
+          sendEmailChangeVerify(req.user.id, normalisedNew, token).catch(() => {});
+        });
+      }
+
+      res.json({
+        ok: true,
+        message: "Check your new email inbox for a confirmation link. It expires in 30 minutes.",
+      });
+    } catch (err) {
+      console.error("[Email Change Request Error]", err.message);
+      res.status(500).json({ error: "Email change request failed" });
+    }
+  });
+
+  router.post("/api/auth/confirm-email-change", authLimiter, async (req, res) => {
+    const { token } = req.body || {};
+    if (typeof token !== "string" || !/^[0-9a-f]{64}$/i.test(token)) {
+      return res.status(400).json({ error: "Confirmation token is invalid" });
+    }
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Lock the row so a racing second confirm can't claim the
+      // same token. The partial index on pending_email_token_hash
+      // (Migration 044) makes this lookup O(log n) over the small
+      // set of users with an in-flight change.
+      const u = await client.query(
+        `SELECT id, email, pending_email, pending_email_expires_at
+         FROM users
+         WHERE pending_email_token_hash = $1
+         FOR UPDATE`,
+        [tokenHash],
+      );
+      const user = u.rows[0];
+      if (!user) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Confirmation link is invalid or has already been used" });
+      }
+      if (!user.pending_email
+          || !user.pending_email_expires_at
+          || new Date(user.pending_email_expires_at) < new Date()) {
+        // Clear the stale row so further confirms hit the "invalid"
+        // branch above instead of slipping past the expiry check.
+        await client.query(
+          `UPDATE users
+           SET pending_email = NULL,
+               pending_email_token_hash = NULL,
+               pending_email_expires_at = NULL
+           WHERE id = $1`,
+          [user.id],
+        );
+        await client.query("COMMIT");
+        return res.status(400).json({ error: "Confirmation link has expired. Request a new one." });
+      }
+
+      // Final-mile uniqueness check inside the transaction. Catches
+      // the rare race where someone else's confirm landed on the
+      // same address between our request-time check and now.
+      const dup = await client.query(
+        "SELECT 1 FROM users WHERE lower(email) = lower($1) AND id <> $2",
+        [user.pending_email, user.id],
+      );
+      if (dup.rows.length) {
+        await client.query(
+          `UPDATE users
+           SET pending_email = NULL,
+               pending_email_token_hash = NULL,
+               pending_email_expires_at = NULL
+           WHERE id = $1`,
+          [user.id],
+        );
+        await client.query("COMMIT");
+        return res.status(409).json({ error: "That email address was just claimed by another account. Request a different one." });
+      }
+
+      const oldEmail = user.email;
+      const newEmail = user.pending_email;
+
+      await client.query(
+        `UPDATE users
+         SET email = $1,
+             email_verified_at = COALESCE(email_verified_at, now()),
+             pending_email = NULL,
+             pending_email_token_hash = NULL,
+             pending_email_expires_at = NULL
+         WHERE id = $2`,
+        [newEmail, user.id],
+      );
+      // Force re-login on every device. Same posture as password
+      // change / 2FA toggle — a session that's been resting on the
+      // old email shouldn't keep going on the new one without an
+      // explicit sign-in.
+      if (typeof bumpTokenVersion === "function") {
+        await bumpTokenVersion(client, user.id);
+      }
+      await client.query("COMMIT");
+
+      // Hygiene notice goes to the OLD address — if someone hijacked
+      // the session and rotated the email, this is the original
+      // owner's signal to lock down their account.
+      if (typeof sendEmailChangedNotice === "function" && oldEmail) {
+        sendEmailChangedNotice(user.id, oldEmail, newEmail).catch(() => {});
+      }
+
+      res.json({ ok: true, message: "Email address updated. Please sign in again." });
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error("[Confirm Email Change Error]", err.message);
+      res.status(500).json({ error: "Email change confirmation failed" });
     } finally {
       client.release();
     }

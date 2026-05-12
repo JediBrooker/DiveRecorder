@@ -29,6 +29,15 @@ const routes = [
     component: () => import('@/views/ResetPasswordView.vue'),
   },
   {
+    // Step 2 of the self-service email change (Migration 044).
+    // Public route — the token in the query string is the
+    // credential. The view auto-posts on mount, swaps the user's
+    // email server-side, and bounces them to /login since the
+    // confirm bumps token_version (kills every active session).
+    path: '/confirm-email-change',
+    component: () => import('@/views/ConfirmEmailChangeView.vue'),
+  },
+  {
     path: '/dashboard',
     component: () => import('@/views/DashboardView.vue'),
     meta: { requiresAuth: true },

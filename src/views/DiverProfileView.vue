@@ -237,6 +237,66 @@ function openPasswordEditor() {
 }
 
 // =============================================================
+// Email change — Migration 044.
+//
+// Two-step flow: user confirms password + types a new email, we
+// POST to /api/users/me/email/change-request, server mails a
+// verification link to the NEW address. Clicking the link lands
+// the user on /confirm-email-change (separate view), which posts
+// the token to /api/auth/confirm-email-change and swaps the
+// email server-side. Confirming bumps token_version so every
+// session is forced through re-login.
+// =============================================================
+const emEditing  = ref(false)
+const emNew      = ref('')
+const emPassword = ref('')
+const emSaving   = ref(false)
+const emError    = ref('')
+const emSuccess  = ref('')
+
+function openEmailEditor() {
+  emEditing.value = true
+  emNew.value = ''
+  emPassword.value = ''
+  emError.value = ''
+  emSuccess.value = ''
+}
+function closeEmailEditor() {
+  emEditing.value = false
+  emError.value = ''
+}
+async function saveEmail() {
+  emError.value = ''
+  emSuccess.value = ''
+  const v = (emNew.value || '').trim()
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+    emError.value = 'Enter a valid email address'
+    return
+  }
+  if (!emPassword.value) {
+    emError.value = 'Current password is required to change your email'
+    return
+  }
+  emSaving.value = true
+  try {
+    const body = await auth.apiFetch('/api/users/me/email/change-request', {
+      method: 'POST',
+      body: JSON.stringify({
+        new_email: v,
+        current_password: emPassword.value,
+      }),
+    })
+    emSuccess.value = body?.message
+      || 'Check your new email inbox for a confirmation link. It expires in 30 minutes.'
+    emPassword.value = ''
+  } catch (err) {
+    emError.value = err.message || 'Email change request failed'
+  } finally {
+    emSaving.value = false
+  }
+}
+
+// =============================================================
 // 2FA — Two-Factor Auth setup / disable. Backed by:
 //   GET  /api/auth/2fa/status   { enabled, recovery_codes_remaining }
 //   POST /api/auth/2fa/setup    → { base32, otpauth_url, qr_data_url, recovery_codes[] }
@@ -569,6 +629,9 @@ watch(targetId, load)
         <button v-if="profile && isSelf" class="btn btn-ghost btn-sm" @click="openClubEditor">
           Change Club
         </button>
+        <button v-if="profile && isSelf" class="btn btn-ghost btn-sm" @click="openEmailEditor">
+          Change Email
+        </button>
         <button v-if="profile && isSelf" class="btn btn-ghost btn-sm" @click="openPasswordEditor">
           Change Password
         </button>
@@ -757,6 +820,52 @@ watch(targetId, load)
           <button class="btn btn-ghost btn-sm" @click="closePasswordEditor">Cancel</button>
           <button class="btn btn-primary btn-sm" :disabled="pwSaving" @click="savePassword">
             {{ pwSaving ? 'Saving…' : 'Save Password' }}
+          </button>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- Email change modal — Migration 044. -->
+  <div v-if="emEditing" class="modal-backdrop" @click="closeEmailEditor"></div>
+  <div v-if="emEditing" class="modal" @click.stop>
+    <div class="modal-head">
+      <div class="modal-title">Change Email</div>
+      <button class="btn btn-ghost btn-sm" @click="closeEmailEditor">Close ✕</button>
+    </div>
+    <div class="modal-body">
+      <div v-if="emSuccess" class="msg msg-success">{{ emSuccess }}</div>
+      <template v-else>
+        <p class="modal-hint">
+          We'll send a confirmation link to the new address — your
+          email won't change until you click it. The link expires in
+          30 minutes. Once confirmed you'll be signed out of every
+          device for safety.
+        </p>
+        <div class="field">
+          <label class="label">New email address</label>
+          <input
+            class="input"
+            type="email"
+            autocomplete="email"
+            placeholder="you@example.com"
+            v-model="emNew"
+          >
+        </div>
+        <div class="field">
+          <label class="label">Current password</label>
+          <input
+            class="input"
+            type="password"
+            autocomplete="current-password"
+            v-model="emPassword"
+          >
+        </div>
+        <div v-if="emError" class="msg msg-error">{{ emError }}</div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost btn-sm" @click="closeEmailEditor">Cancel</button>
+          <button class="btn btn-primary btn-sm" :disabled="emSaving" @click="saveEmail">
+            {{ emSaving ? 'Sending…' : 'Send confirmation link' }}
           </button>
         </div>
       </template>
