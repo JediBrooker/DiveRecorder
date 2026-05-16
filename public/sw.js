@@ -32,11 +32,12 @@
  * reaching browsers that had cached the previous app.css).
  */
 
-// Bumped to v5 alongside the DiveRecorder → DivingHQ rebrand
-// (the cache key prefix changed too, so existing PWA shells
-// were technically already invalidated — but bumping the
-// number is the canonical signal to clear).
-const CACHE = "divinghq-shell-v5";
+// v5 → v6: new logo (Option C — arc + dot) replaced the old
+// tucked-diver mark in /icon.svg + the 192/512 PNGs. The PNG
+// filenames are unchanged, so without a cache-version bump
+// returning PWA users would keep seeing the old icon from
+// their shell cache until natural eviction.
+const CACHE = "divinghq-shell-v6";
 const SHELL = [
   "/",
   "/index.html",

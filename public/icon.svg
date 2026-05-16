@@ -1,28 +1,57 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Brand mark: a stylised diver on a dark navy background.
-       The figure is built from simple geometry so it renders
-       cleanly at every favicon / app-icon size without
-       rasterising. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="DivingHQ">
+  <!-- DivingHQ mark — minimalist arc + dot.
+       The path of a dive reduced to its essential form: a
+       parabolic arc with a single dot at apex (take-off) and
+       a smaller dot at water entry. Concentric rings at entry
+       read as a splash without requiring figurative water
+       lines. Scales cleanly from 16px favicon to 512px splash
+       because the geometry has no fine detail that breaks at
+       small sizes.
+
+       Wordmark below uses DivingHQ's brand colour rhythm:
+       "DIVING" in white (text), "HQ" in cyan (accent), set
+       via <tspan> inside a single <text> element so kerning
+       and baseline alignment stay locked. -->
   <rect width="512" height="512" rx="96" fill="#030712"/>
-  <!-- Cyan halo / wave -->
-  <path d="M 80 380 Q 256 460 432 380"
-        stroke="#06b6d4" stroke-width="14" fill="none"
-        stroke-linecap="round" opacity="0.55"/>
-  <path d="M 60 410 Q 256 500 452 410"
-        stroke="#06b6d4" stroke-width="10" fill="none"
-        stroke-linecap="round" opacity="0.3"/>
-  <!-- Diver figure: head + body in a tuck position -->
-  <circle cx="256" cy="138" r="36" fill="#06b6d4"/>
-  <path d="M 220 175
-           C 200 200, 180 220, 180 260
-           C 180 300, 220 320, 260 300
-           C 300 280, 330 250, 330 215
-           C 330 195, 312 178, 290 178
-           Z" fill="#06b6d4"/>
-  <!-- Wordmark below figure -->
-  <text x="256" y="478" text-anchor="middle"
+
+  <!-- Arc — the dive's flight path. Soft cyan halo behind the
+       solid stroke so the mark feels lit, not flat. -->
+  <path d="M 120 380 Q 256 80 392 380"
+        stroke="#06b6d4" stroke-width="22" fill="none"
+        stroke-linecap="round" opacity="0.18"/>
+  <path d="M 120 380 Q 256 80 392 380"
+        stroke="#06b6d4" stroke-width="12" fill="none"
+        stroke-linecap="round"/>
+
+  <!-- Apex dot — the diver at take-off. White matches the
+       "DIVING" wordmark colour below, reinforcing the
+       brand's white-then-cyan reading direction. -->
+  <circle cx="256" cy="138" r="22" fill="#ffffff"/>
+  <!-- Subtle inner highlight — gives the dot a sense of mass
+       at large sizes, harmlessly disappears at favicon scale. -->
+  <circle cx="251" cy="133" r="6" fill="#06b6d4" opacity="0.35"/>
+
+  <!-- Entry dot — water entry. Cyan, matching "HQ". -->
+  <circle cx="392" cy="380" r="10" fill="#06b6d4"/>
+  <!-- Concentric ripples — splash without literal water. -->
+  <circle cx="392" cy="380" r="22" fill="none"
+          stroke="#06b6d4" stroke-width="2" opacity="0.4"/>
+  <circle cx="392" cy="380" r="34" fill="none"
+          stroke="#06b6d4" stroke-width="2" opacity="0.2"/>
+
+  <!-- Wordmark — DIVING in white, HQ in cyan. <tspan> keeps
+       both halves on a single baseline with shared
+       font-family / weight / letter-spacing. -->
+  <text x="120" y="448" text-anchor="start"
         font-family="Helvetica, Arial, sans-serif"
-        font-size="42" font-weight="900" font-style="italic"
-        letter-spacing="6" fill="#06b6d4">DIVE</text>
+        font-size="32" font-weight="900" font-style="italic"
+        letter-spacing="2">
+    <tspan fill="#ffffff">DIVING</tspan><tspan fill="#06b6d4">HQ</tspan>
+  </text>
+  <!-- Sub-tagline — quiet, muted cyan. Anchors visually under
+       the wordmark and reinforces "this is a sports app". -->
+  <text x="120" y="475" text-anchor="start"
+        font-family="Helvetica, Arial, sans-serif"
+        font-size="11" font-weight="600"
+        letter-spacing="5" fill="#67e8f9" opacity="0.6">DIVE · SCORE · STREAM</text>
 </svg>
