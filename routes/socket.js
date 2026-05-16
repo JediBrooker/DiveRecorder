@@ -254,6 +254,21 @@ module.exports = function attachSocket({
         }
       }
       io.to(`event:${data.event_id}`).emit("state_update", data);
+
+      // Fire-and-forget coach alerts. The fan-out helper looks
+      // ahead N=dives_ahead slots from this new active diver and
+      // pushes "your diver is up next" to coaches whose linked
+      // divers land in the window. Per-process in-memory dedupe
+      // prevents double-fires when the operator re-emits state.
+      // Errors logged but never propagate — score path stays clean.
+      if (data.event_id && push) {
+        try {
+          require("../lib/coach-alerts")
+            .maybeNotifyCoachesOfNextDivers({ pool, push }, data.event_id, data);
+        } catch (err) {
+          console.error("[set_active_diver] coach alert hook failed", err.message);
+        }
+      }
     });
 
     socket.on("get_active_diver", (data) => {

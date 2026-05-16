@@ -10,6 +10,8 @@
 //                                                     OR which are open for entry
 //   GET    /api/coach/dive-lists/:event_id            squad rows + current dive lists for one event
 //   POST   /api/coach/dive-lists/:event_id/:diver_id  submit/edit a single diver's list
+//   GET    /api/coach/alert-preferences               coach's push settings (auto-creates default)
+//   POST   /api/coach/alert-preferences               update { enabled, dives_ahead }
 //   GET    /api/orgs/:id/coach-links                  admin link admin view
 //   POST   /api/orgs/:id/coach-links                  grant link
 //   DELETE /api/coach-links/:id                       revoke link
@@ -638,6 +640,57 @@ module.exports = function createCoachRouter({
       }
     },
   );
+
+  // -------------------------------------------------------------
+  // GET /api/coach/alert-preferences — coach's "your diver is up
+  // next" push settings. Auto-creates a default row on first read
+  // so the coach doesn't have to manually opt in.
+  //
+  // POST /api/coach/alert-preferences — update { enabled, dives_ahead }
+  // -------------------------------------------------------------
+  router.get("/api/coach/alert-preferences", verifyToken, async (req, res) => {
+    try {
+      const r = await pool.query(
+        `INSERT INTO coach_alert_preferences (coach_id, enabled, dives_ahead)
+         VALUES ($1, true, 2)
+         ON CONFLICT (coach_id) DO UPDATE
+           SET updated_at = coach_alert_preferences.updated_at
+         RETURNING enabled, dives_ahead, updated_at`,
+        [req.user.id],
+      );
+      res.json(r.rows[0]);
+    } catch (err) {
+      console.error("[Coach Alert Prefs Read Error]", err.message);
+      res.status(500).json({ error: "Failed to load preferences" });
+    }
+  });
+
+  router.post("/api/coach/alert-preferences", verifyToken, async (req, res) => {
+    const { enabled, dives_ahead } = req.body || {};
+    if (typeof enabled !== "boolean") {
+      return res.status(400).json({ error: "enabled (boolean) is required" });
+    }
+    const ahead = Number(dives_ahead);
+    if (!Number.isInteger(ahead) || ahead < 1 || ahead > 10) {
+      return res.status(400).json({ error: "dives_ahead must be an integer 1..10" });
+    }
+    try {
+      const r = await pool.query(
+        `INSERT INTO coach_alert_preferences (coach_id, enabled, dives_ahead, updated_at)
+         VALUES ($1, $2, $3, now())
+         ON CONFLICT (coach_id) DO UPDATE
+           SET enabled = EXCLUDED.enabled,
+               dives_ahead = EXCLUDED.dives_ahead,
+               updated_at = now()
+         RETURNING enabled, dives_ahead, updated_at`,
+        [req.user.id, enabled, ahead],
+      );
+      res.json(r.rows[0]);
+    } catch (err) {
+      console.error("[Coach Alert Prefs Write Error]", err.message);
+      res.status(500).json({ error: "Failed to save preferences" });
+    }
+  });
 
   // -------------------------------------------------------------
   // GET /api/coach/divers — coaches see their own linked divers,

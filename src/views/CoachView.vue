@@ -32,10 +32,22 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
+import { usePush } from '@/composables/usePush'
 import { diveDescription } from '@/composables/useDiveLabel'
+import { showSuccess, showError } from '@/composables/useNotify'
 
 const auth = useAuthStore()
 const { socket } = useSocket()
+const push = usePush({ socket })
+
+// Coach alert preferences — Phase 3 of the coach bundle. The
+// server fans out "your diver is up next" pushes when one of
+// the coach's linked divers lands within `dives_ahead` of the
+// active diver. Defaults: enabled=true, dives_ahead=2 (about
+// 60s of warning at a 30s shot clock).
+const alertPrefs = ref({ enabled: true, dives_ahead: 2 })
+const alertSettingsOpen = ref(false)
+const savingPrefs = ref(false)
 
 const rows = ref([])
 const upNext = ref({ rows: [], seconds_per_dive: 45, max_eta_minutes: 20 })
@@ -99,12 +111,52 @@ function onFinalScoreAnnounced() { scheduleReload() }
 function onMeetHeld()            { scheduleReload() }
 function onMeetResumed()         { scheduleReload() }
 
+async function loadAlertPrefs() {
+  try {
+    const prefs = await auth.apiFetch('/api/coach/alert-preferences')
+    alertPrefs.value = prefs
+  } catch {
+    // Silent fallback — the strip still works without prefs.
+  }
+}
+
+async function saveAlertPrefs() {
+  savingPrefs.value = true
+  try {
+    const saved = await auth.apiFetch('/api/coach/alert-preferences', {
+      method: 'POST',
+      body: JSON.stringify({
+        enabled: alertPrefs.value.enabled,
+        dives_ahead: alertPrefs.value.dives_ahead,
+      }),
+    })
+    alertPrefs.value = saved
+    showSuccess('Alert preferences saved')
+  } catch (err) {
+    showError(err.message || 'Failed to save preferences')
+  } finally {
+    savingPrefs.value = false
+  }
+}
+
+async function enablePushAndPrefs() {
+  // Subscribe to Web Push if we're not already, then toggle prefs on.
+  try {
+    await push.subscribe()
+    alertPrefs.value.enabled = true
+    await saveAlertPrefs()
+  } catch (err) {
+    showError(err.message || 'Push permission denied')
+  }
+}
+
 onMounted(() => {
   socket.on('state_update', onStateUpdate)
   socket.on('final_score_announced', onFinalScoreAnnounced)
   socket.on('meet_held', onMeetHeld)
   socket.on('meet_resumed', onMeetResumed)
   load()
+  loadAlertPrefs()
 })
 onUnmounted(() => {
   clearTimeout(reloadTimer)
@@ -200,10 +252,56 @@ const hasMultipleMeets = computed(() => groupedByMeet.value.length > 1)
         </div>
       </div>
       <div class="header-actions">
+        <button class="btn btn-ghost btn-sm" @click="alertSettingsOpen = !alertSettingsOpen">
+          🔔 {{ alertPrefs.enabled ? 'Alerts on' : 'Alerts off' }}
+        </button>
         <button class="btn btn-ghost btn-sm" @click="load" :disabled="loading">
           {{ loading ? '↻ Refreshing' : '↻ Refresh' }}
         </button>
         <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">← Dashboard</RouterLink>
+      </div>
+    </div>
+
+    <!-- Alert preferences panel — collapsible. Lets the coach
+         opt out of "your diver is up next" pushes or change how
+         far ahead the alert fires. When push permission hasn't
+         been granted yet, surface a one-tap "Enable on this
+         device" button that wraps usePush + the prefs POST. -->
+    <div v-if="alertSettingsOpen" class="alert-settings-panel">
+      <div class="alert-settings-title">⏱ "Your diver is up next" alerts</div>
+      <div class="alert-settings-body">
+        <label class="alert-toggle">
+          <input type="checkbox" v-model="alertPrefs.enabled">
+          <span>Notify me when one of my divers is approaching the board</span>
+        </label>
+        <div class="alert-row">
+          <label>
+            Fire alert
+            <input type="number"
+                   class="input alert-input"
+                   v-model.number="alertPrefs.dives_ahead"
+                   min="1" max="10">
+            dive{{ alertPrefs.dives_ahead === 1 ? '' : 's' }} ahead of active
+          </label>
+        </div>
+        <p class="alert-hint">
+          Approximate warning at a 30s shot-clock: 1 dive ≈ 30s, 2 dives ≈ 1 min,
+          3 dives ≈ 90s. Alerts fan out across every Live event you have a
+          squad member in.
+        </p>
+        <div class="alert-actions">
+          <button v-if="push.permission?.value !== 'granted'"
+                  class="btn btn-primary btn-sm"
+                  @click="enablePushAndPrefs"
+                  :disabled="savingPrefs">
+            Enable push on this device
+          </button>
+          <button class="btn btn-primary btn-sm"
+                  @click="saveAlertPrefs"
+                  :disabled="savingPrefs">
+            {{ savingPrefs ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -418,6 +516,32 @@ const hasMultipleMeets = computed(() => groupedByMeet.value.length > 1)
 .header-actions { display: flex; gap: 0.5rem; align-items: center; }
 
 .empty { color: var(--text-3); padding: 3rem 0; text-align: center; font-family: var(--font-mono); font-size: 13px; }
+
+/* ─── Alert settings panel ────────────────────────────────────── */
+.alert-settings-panel {
+  margin-bottom: 1.25rem; padding: 1rem 1.1rem;
+  border: 1px solid var(--cyan); border-radius: var(--radius-lg);
+  background: var(--cyan-dim);
+}
+.alert-settings-title {
+  font-family: var(--font-display); font-size: 12px; font-weight: 900;
+  letter-spacing: 0.22em; text-transform: uppercase; color: var(--cyan);
+  margin-bottom: 0.65rem;
+}
+.alert-settings-body {
+  display: flex; flex-direction: column; gap: 0.6rem;
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-2);
+}
+.alert-toggle { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+.alert-toggle input[type="checkbox"] {
+  width: 18px; height: 18px; accent-color: var(--cyan); cursor: pointer;
+}
+.alert-row label {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+}
+.alert-input { width: 70px; text-align: center; }
+.alert-hint { font-size: 10.5px; color: var(--text-3); margin: 0; line-height: 1.5; }
+.alert-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
 
 /* ─── Up Next strip ───────────────────────────────────────────── */
 .up-next-section {
