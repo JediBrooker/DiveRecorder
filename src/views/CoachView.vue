@@ -2,36 +2,119 @@
 // Coach dashboard. Lists every diver the logged-in coach is
 // linked to via coach_diver_links. For divers with a Live or
 // Upcoming event, the card shows their NEXT dive (round + code +
-// DD) and current rank in the standings — so a coach with 8
-// divers across 3 events can see at a glance who's where.
+// DD), current rank, and LAST completed dive (round + code +
+// total) — so a coach with 8 divers across 3 events can see at a
+// glance who's where AND what just happened.
 //
-// Data comes from /api/coach/dashboard, which joins
-// coach_diver_links → competitor_dive_lists → events → standings
-// in a single rollup. See server.js [SECTION: ROUTES — COACH].
+// Three surfaces:
+//
+//   1. UP-NEXT STRIP (top) — squad members in the next ~20 min
+//      across every Live event with a current active diver,
+//      sorted by ETA ascending. The killer "look once, know what
+//      to watch" panel. Powered by /api/coach/up-next.
+//
+//   2. PER-MEET SECTIONS — when the coach has divers across more
+//      than one meet (state regionals + local invitational on the
+//      same weekend), each meet gets its own LIVE/UPCOMING/IDLE
+//      sub-grouping so the eye doesn't have to disambiguate.
+//
+//   3. LIVE / UPCOMING / IDLE GROUPING — within each meet, cards
+//      group by event status (LIVE > UPCOMING > IDLE).
+//
+// Live refresh: the view subscribes to socket rooms for every
+// event in the response and reloads (debounced) on state_update +
+// final_score_announced. Coach doesn't have to ↻ Refresh.
+//
+// Data comes from /api/coach/dashboard + /api/coach/up-next; see
+// routes/coach.js.
 
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useSocket } from '@/composables/useSocket'
 import { diveDescription } from '@/composables/useDiveLabel'
 
 const auth = useAuthStore()
+const { socket } = useSocket()
+
 const rows = ref([])
+const upNext = ref({ rows: [], seconds_per_dive: 45, max_eta_minutes: 20 })
 const loading = ref(false)
 const error = ref('')
+
+// Event ids the view is currently subscribed to. We track this
+// so a reload can diff against the new set and join/leave rooms
+// idempotently — re-subscribing every reload would be noisy.
+const subscribedEvents = ref(new Set())
+
+// Debounced reload. A burst of score_received + final_score_
+// announced + state_update events lands inside ~500ms of each
+// other when a dive finalizes; one reload covers the lot.
+let reloadTimer = null
+function scheduleReload() {
+  clearTimeout(reloadTimer)
+  reloadTimer = setTimeout(load, 250)
+}
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const data = await auth.apiFetch('/api/coach/dashboard')
-    rows.value = Array.isArray(data) ? data : []
+    const [dash, next] = await Promise.all([
+      auth.apiFetch('/api/coach/dashboard'),
+      auth.apiFetch('/api/coach/up-next'),
+    ])
+    rows.value = Array.isArray(dash) ? dash : []
+    upNext.value = next && Array.isArray(next.rows) ? next : { rows: [], seconds_per_dive: 45, max_eta_minutes: 20 }
+
+    // Sync socket subscriptions to the events we now care about.
+    const wantedEventIds = new Set(
+      rows.value.filter(r => r.event_id).map(r => r.event_id),
+    )
+    // Join newly-relevant rooms.
+    for (const id of wantedEventIds) {
+      if (!subscribedEvents.value.has(id)) {
+        socket.emit('subscribe_event', { event_id: id })
+        subscribedEvents.value.add(id)
+      }
+    }
+    // Skipping `leave` — Socket.IO has no graceful per-room leave
+    // for an event we still hold the connection to; the rooms will
+    // be discarded on disconnect. Stale memberships are harmless,
+    // just slightly chatty.
   } catch (err) {
     error.value = err.message
     rows.value = []
+    upNext.value = { rows: [], seconds_per_dive: 45, max_eta_minutes: 20 }
   } finally {
     loading.value = false
   }
 }
+
+// Socket listeners — registered once on mount, torn down on
+// unmount. Every listener delegates to scheduleReload() so the
+// view stays simple and the server is the single source of truth.
+function onStateUpdate()         { scheduleReload() }
+function onFinalScoreAnnounced() { scheduleReload() }
+function onMeetHeld()            { scheduleReload() }
+function onMeetResumed()         { scheduleReload() }
+
+onMounted(() => {
+  socket.on('state_update', onStateUpdate)
+  socket.on('final_score_announced', onFinalScoreAnnounced)
+  socket.on('meet_held', onMeetHeld)
+  socket.on('meet_resumed', onMeetResumed)
+  load()
+})
+onUnmounted(() => {
+  clearTimeout(reloadTimer)
+  socket.off('state_update', onStateUpdate)
+  socket.off('final_score_announced', onFinalScoreAnnounced)
+  socket.off('meet_held', onMeetHeld)
+  socket.off('meet_resumed', onMeetResumed)
+})
+
+// ---------- Display helpers ----------
 
 function fmtRank(n) {
   if (n == null) return ''
@@ -44,20 +127,64 @@ function placeColor(n) {
   if (n === 3) return 'place-bronze'
   return ''
 }
+function fmtEta(seconds) {
+  if (seconds == null || seconds < 0) return ''
+  if (seconds < 60) return 'NOW'
+  const mins = Math.round(seconds / 60)
+  return `~${mins}m`
+}
+function etaTier(seconds) {
+  if (seconds == null) return ''
+  if (seconds < 60)  return 'eta-now'
+  if (seconds < 180) return 'eta-soon'
+  if (seconds < 600) return 'eta-watch'
+  return 'eta-later'
+}
 
-// Group rows by event status: live first (most useful), then
-// upcoming, then divers without an active event.
-const grouped = computed(() => {
-  const live = [], upcoming = [], idle = []
+// ---------- Grouping ----------
+
+// First level: group by meet so a coach at a multi-meet weekend
+// gets a section per meet. Independent events (no meet_id) bucket
+// together as "Standalone events". The display order is "meet
+// with the most Live diver cards first" so the section the coach
+// is most likely caring about right now floats to the top.
+const groupedByMeet = computed(() => {
+  const buckets = new Map() // meet_key → { meet_id, meet_name, rows }
   for (const r of rows.value) {
-    if (r.event_status === 'Live')          live.push(r)
-    else if (r.event_status === 'Upcoming') upcoming.push(r)
-    else                                     idle.push(r)
+    const key = r.meet_id || '__standalone__'
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        meet_id: r.meet_id || null,
+        meet_name: r.meet_name || 'Standalone events',
+        rows: [],
+      })
+    }
+    buckets.get(key).rows.push(r)
   }
-  return { live, upcoming, idle }
+  // Within each meet bucket, sort rows into live/upcoming/idle.
+  const out = []
+  for (const bucket of buckets.values()) {
+    const live = [], upcoming = [], idle = []
+    for (const r of bucket.rows) {
+      if (r.event_status === 'Live')          live.push(r)
+      else if (r.event_status === 'Upcoming') upcoming.push(r)
+      else                                     idle.push(r)
+    }
+    out.push({ ...bucket, live, upcoming, idle })
+  }
+  // Order: most Live cards first; ties broken alphabetically.
+  out.sort((a, b) => {
+    if (b.live.length !== a.live.length) return b.live.length - a.live.length
+    return (a.meet_name || '').localeCompare(b.meet_name || '')
+  })
+  return out
 })
 
-onMounted(load)
+// Do we have multiple meets? Only render the per-meet heading
+// when there's more than one — a coach with all their divers in
+// one meet shouldn't see a redundant "Acme Regional →" label
+// above every section.
+const hasMultipleMeets = computed(() => groupedByMeet.value.length > 1)
 </script>
 
 <template>
@@ -67,8 +194,8 @@ onMounted(load)
         <div class="page-label">Coach Dashboard</div>
         <h1 class="page-title">My Divers</h1>
         <div class="page-sub">
-          For each linked diver: their next dive, current rank, and a one-click link
-          to their full profile. Ask your org admin to add or remove links from the
+          For each linked diver: their next dive, current rank, and most-recent
+          completed dive. Ask your org admin to add or remove links from the
           User Manager.
         </div>
       </div>
@@ -94,105 +221,171 @@ onMounted(load)
     </div>
 
     <template v-else>
-      <!-- LIVE — biggest cards, brightest accent -->
-      <section v-if="grouped.live.length" class="diver-section">
-        <div class="section-head">
-          <span class="section-label">🔴 Diving Now</span>
-          <span class="section-count">{{ grouped.live.length }}</span>
+      <!-- UP NEXT STRIP — squad members in the next ~20 min,
+           sorted by ETA. The "look once, know what to watch"
+           panel. Only renders when at least one squad member is
+           in flight; otherwise the coach is between meets and
+           this strip is just noise. -->
+      <section v-if="upNext.rows.length" class="up-next-section">
+        <div class="up-next-head">
+          <span class="up-next-label">⏱ Up next</span>
+          <span class="up-next-sub">your divers in the next {{ upNext.max_eta_minutes }} minutes</span>
         </div>
-        <div class="diver-grid">
-          <RouterLink v-for="r in grouped.live"
-                      :key="r.diver_id + r.event_id"
-                      :to="`/profile/${r.diver_id}`"
-                      class="diver-card live-card">
-            <div class="diver-card-head">
-              <span class="diver-card-name">{{ r.full_name }}</span>
-              <span v-if="r.country_code" class="diver-card-ctry">{{ r.country_code }}</span>
-              <span v-if="r.current_rank" :class="['diver-card-rank', placeColor(r.current_rank)]">
-                {{ fmtRank(r.current_rank) }}<span class="dim"> / {{ r.field_size }}</span>
+        <div class="up-next-strip">
+          <RouterLink v-for="row in upNext.rows"
+                      :key="row.diver_id + ':' + row.event_id + ':' + row.round_number"
+                      :to="`/scoreboard/${row.event_id}`"
+                      :class="['up-next-card', etaTier(row.eta_seconds)]">
+            <div class="up-next-eta">
+              <span class="up-next-eta-value">{{ fmtEta(row.eta_seconds) }}</span>
+              <span class="up-next-eta-detail">
+                {{ row.dives_until }} {{ row.dives_until === 1 ? 'dive' : 'dives' }} away
               </span>
             </div>
-            <div v-if="r.club_name" class="diver-card-club">
-              {{ r.club_name }}<span v-if="r.club_code" class="diver-card-code">{{ r.club_code }}</span>
+            <div class="up-next-diver">
+              <span class="up-next-name">{{ row.full_name }}</span>
+              <span v-if="row.country_code" class="up-next-ctry">{{ row.country_code }}</span>
             </div>
-            <div class="diver-card-event">
-              <span class="event-name">{{ r.event_name }}</span>
-              <span v-if="r.event_type === 'synchro_pair'" class="event-type">SYNCHRO</span>
-              <span v-else-if="r.event_type === 'team'" class="event-type">TEAM</span>
+            <div v-if="row.club_name" class="up-next-club">
+              {{ row.club_code || row.club_name }}
             </div>
-            <div class="diver-card-next">
-              <span class="next-label">Next</span>
-              <span class="next-round">R{{ r.round_number }}</span>
-              <span class="next-code">{{ r.dive_code }}{{ r.position }}</span>
-              <span class="next-dd">DD {{ Number(r.dd).toFixed(1) }}</span>
-            </div>
-            <div v-if="r.description" class="diver-card-desc">{{ diveDescription(r) }}</div>
-            <div class="diver-card-foot">
-              <span v-if="r.current_total != null">Running {{ Number(r.current_total).toFixed(1) }}</span>
-              <span class="diver-card-cta">View profile →</span>
+            <div class="up-next-event">{{ row.event_name }}</div>
+            <div v-if="row.dive_code" class="up-next-dive">
+              <span class="up-next-round">R{{ row.round_number }}</span>
+              <span class="up-next-code">{{ row.dive_code }}{{ row.position }}</span>
+              <span v-if="row.dd" class="up-next-dd">DD {{ Number(row.dd).toFixed(1) }}</span>
             </div>
           </RouterLink>
         </div>
       </section>
 
-      <!-- UPCOMING — same shape, dimmer accent -->
-      <section v-if="grouped.upcoming.length" class="diver-section">
-        <div class="section-head">
-          <span class="section-label">📅 Upcoming</span>
-          <span class="section-count">{{ grouped.upcoming.length }}</span>
-        </div>
-        <div class="diver-grid">
-          <RouterLink v-for="r in grouped.upcoming"
-                      :key="r.diver_id + r.event_id"
-                      :to="`/profile/${r.diver_id}`"
-                      class="diver-card upcoming-card">
-            <div class="diver-card-head">
-              <span class="diver-card-name">{{ r.full_name }}</span>
-              <span v-if="r.country_code" class="diver-card-ctry">{{ r.country_code }}</span>
-            </div>
-            <div v-if="r.club_name" class="diver-card-club">
-              {{ r.club_name }}<span v-if="r.club_code" class="diver-card-code">{{ r.club_code }}</span>
-            </div>
-            <div class="diver-card-event">
-              <span class="event-name">{{ r.event_name }}</span>
-            </div>
-            <div class="diver-card-next">
-              <span class="next-label">Round 1</span>
-              <span class="next-code">{{ r.dive_code }}{{ r.position }}</span>
-              <span class="next-dd">DD {{ Number(r.dd).toFixed(1) }}</span>
-            </div>
-            <div class="diver-card-foot">
-              <span class="diver-card-cta">View profile →</span>
-            </div>
+      <!-- Per-meet sections (when >1 meet) wrap each meet's
+           live / upcoming / idle subgroups. Single-meet coaches
+           render straight through with no meet heading. -->
+      <template v-for="bucket in groupedByMeet" :key="bucket.meet_id || 'standalone'">
+        <div v-if="hasMultipleMeets" class="meet-section-head">
+          <span class="meet-section-label">🏟 {{ bucket.meet_name }}</span>
+          <RouterLink v-if="bucket.meet_id"
+                      :to="`/meet/${bucket.meet_id}`"
+                      class="meet-section-link">
+            Meet page →
           </RouterLink>
         </div>
-      </section>
 
-      <!-- IDLE — divers with no active event -->
-      <section v-if="grouped.idle.length" class="diver-section">
-        <div class="section-head">
-          <span class="section-label">💤 No active event</span>
-          <span class="section-count">{{ grouped.idle.length }}</span>
-        </div>
-        <div class="diver-grid">
-          <RouterLink v-for="r in grouped.idle"
-                      :key="r.diver_id"
-                      :to="`/profile/${r.diver_id}`"
-                      class="diver-card idle-card">
-            <div class="diver-card-head">
-              <span class="diver-card-name">{{ r.full_name }}</span>
-              <span v-if="r.country_code" class="diver-card-ctry">{{ r.country_code }}</span>
-            </div>
-            <div v-if="r.club_name" class="diver-card-club">
-              {{ r.club_name }}<span v-if="r.club_code" class="diver-card-code">{{ r.club_code }}</span>
-            </div>
-            <div v-if="r.note" class="diver-card-note">{{ r.note }}</div>
-            <div class="diver-card-foot">
-              <span class="diver-card-cta">View profile →</span>
-            </div>
-          </RouterLink>
-        </div>
-      </section>
+        <!-- LIVE — biggest cards, brightest accent -->
+        <section v-if="bucket.live.length" class="diver-section">
+          <div class="section-head">
+            <span class="section-label">🔴 Diving Now</span>
+            <span class="section-count">{{ bucket.live.length }}</span>
+          </div>
+          <div class="diver-grid">
+            <RouterLink v-for="r in bucket.live"
+                        :key="r.diver_id + r.event_id"
+                        :to="`/profile/${r.diver_id}`"
+                        class="diver-card live-card">
+              <div class="diver-card-head">
+                <span class="diver-card-name">{{ r.full_name }}</span>
+                <span v-if="r.country_code" class="diver-card-ctry">{{ r.country_code }}</span>
+                <span v-if="r.current_rank" :class="['diver-card-rank', placeColor(r.current_rank)]">
+                  {{ fmtRank(r.current_rank) }}<span class="dim"> / {{ r.field_size }}</span>
+                </span>
+              </div>
+              <div v-if="r.club_name" class="diver-card-club">
+                {{ r.club_name }}<span v-if="r.club_code" class="diver-card-code">{{ r.club_code }}</span>
+              </div>
+              <div class="diver-card-event">
+                <span class="event-name">{{ r.event_name }}</span>
+                <span v-if="r.event_type === 'synchro_pair'" class="event-type">SYNCHRO</span>
+                <span v-else-if="r.event_type === 'team'" class="event-type">TEAM</span>
+              </div>
+              <div class="diver-card-next">
+                <span class="next-label">Next</span>
+                <span class="next-round">R{{ r.round_number }}</span>
+                <span class="next-code">{{ r.dive_code }}{{ r.position }}</span>
+                <span v-if="r.dd" class="next-dd">DD {{ Number(r.dd).toFixed(1) }}</span>
+              </div>
+              <div v-if="r.description" class="diver-card-desc">{{ diveDescription(r) }}</div>
+              <!-- Last completed dive (only when there IS one) —
+                   round, code, and dive total. Surfaces what
+                   just landed without forcing the coach to click
+                   into the diver's profile. -->
+              <div v-if="r.last_dive_round" class="diver-card-last">
+                <span class="last-label">Last</span>
+                <span class="last-round">R{{ r.last_dive_round }}</span>
+                <span class="last-code">{{ r.last_dive_code }}{{ r.last_dive_position }}</span>
+                <span v-if="r.last_dive_points != null" class="last-points">
+                  → {{ Number(r.last_dive_points).toFixed(2) }}
+                </span>
+              </div>
+              <div class="diver-card-foot">
+                <span v-if="r.current_total != null">Running {{ Number(r.current_total).toFixed(1) }}</span>
+                <span class="diver-card-cta">View profile →</span>
+              </div>
+            </RouterLink>
+          </div>
+        </section>
+
+        <!-- UPCOMING — same shape, dimmer accent -->
+        <section v-if="bucket.upcoming.length" class="diver-section">
+          <div class="section-head">
+            <span class="section-label">📅 Upcoming</span>
+            <span class="section-count">{{ bucket.upcoming.length }}</span>
+          </div>
+          <div class="diver-grid">
+            <RouterLink v-for="r in bucket.upcoming"
+                        :key="r.diver_id + r.event_id"
+                        :to="`/profile/${r.diver_id}`"
+                        class="diver-card upcoming-card">
+              <div class="diver-card-head">
+                <span class="diver-card-name">{{ r.full_name }}</span>
+                <span v-if="r.country_code" class="diver-card-ctry">{{ r.country_code }}</span>
+              </div>
+              <div v-if="r.club_name" class="diver-card-club">
+                {{ r.club_name }}<span v-if="r.club_code" class="diver-card-code">{{ r.club_code }}</span>
+              </div>
+              <div class="diver-card-event">
+                <span class="event-name">{{ r.event_name }}</span>
+              </div>
+              <div class="diver-card-next">
+                <span class="next-label">Round 1</span>
+                <span class="next-code">{{ r.dive_code }}{{ r.position }}</span>
+                <span v-if="r.dd" class="next-dd">DD {{ Number(r.dd).toFixed(1) }}</span>
+              </div>
+              <div class="diver-card-foot">
+                <span class="diver-card-cta">View profile →</span>
+              </div>
+            </RouterLink>
+          </div>
+        </section>
+
+        <!-- IDLE — divers with no active event for this meet
+             bucket. Rendered only inside the standalone bucket
+             because divers with no event don't belong to a meet. -->
+        <section v-if="bucket.idle.length && !bucket.meet_id" class="diver-section">
+          <div class="section-head">
+            <span class="section-label">💤 No active event</span>
+            <span class="section-count">{{ bucket.idle.length }}</span>
+          </div>
+          <div class="diver-grid">
+            <RouterLink v-for="r in bucket.idle"
+                        :key="r.diver_id"
+                        :to="`/profile/${r.diver_id}`"
+                        class="diver-card idle-card">
+              <div class="diver-card-head">
+                <span class="diver-card-name">{{ r.full_name }}</span>
+                <span v-if="r.country_code" class="diver-card-ctry">{{ r.country_code }}</span>
+              </div>
+              <div v-if="r.club_name" class="diver-card-club">
+                {{ r.club_name }}<span v-if="r.club_code" class="diver-card-code">{{ r.club_code }}</span>
+              </div>
+              <div v-if="r.note" class="diver-card-note">{{ r.note }}</div>
+              <div class="diver-card-foot">
+                <span class="diver-card-cta">View profile →</span>
+              </div>
+            </RouterLink>
+          </div>
+        </section>
+      </template>
 
       <div class="actions-row">
         <RouterLink to="/compare" class="btn btn-ghost btn-sm">
@@ -218,6 +411,113 @@ onMounted(load)
 
 .empty { color: var(--text-3); padding: 3rem 0; text-align: center; font-family: var(--font-mono); font-size: 13px; }
 
+/* ─── Up Next strip ───────────────────────────────────────────── */
+.up-next-section {
+  margin-bottom: 2rem;
+  padding: 1rem 1.1rem;
+  background: linear-gradient(180deg, rgba(6,182,212,0.06) 0%, rgba(6,182,212,0.02) 100%);
+  border: 1px solid rgba(6,182,212,0.3);
+  border-radius: var(--radius-lg);
+}
+.up-next-head {
+  display: flex; align-items: baseline; gap: 0.75rem; margin-bottom: 0.85rem;
+}
+.up-next-label {
+  font-family: var(--font-display); font-size: 12px; font-weight: 900;
+  letter-spacing: 0.22em; text-transform: uppercase; color: var(--cyan);
+}
+.up-next-sub {
+  font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
+}
+.up-next-strip {
+  display: flex; gap: 0.7rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  padding-bottom: 0.3rem;
+}
+.up-next-card {
+  flex: 0 0 230px;
+  display: flex; flex-direction: column; gap: 0.35rem;
+  padding: 0.85rem 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  text-decoration: none; color: inherit;
+  transition: all 0.15s;
+}
+.up-next-card:hover {
+  border-color: var(--cyan); background: rgba(6,182,212,0.05);
+  transform: translateY(-1px);
+}
+.up-next-card.eta-now    { border-color: #ef4444; background: rgba(239,68,68,0.06); }
+.up-next-card.eta-soon   { border-color: #f59e0b; background: rgba(245,158,11,0.05); }
+.up-next-card.eta-watch  { border-color: rgba(6,182,212,0.5); }
+.up-next-card.eta-later  { opacity: 0.92; }
+
+.up-next-eta {
+  display: flex; align-items: baseline; gap: 0.5rem;
+  padding-bottom: 0.35rem; border-bottom: 1px solid var(--border);
+}
+.up-next-eta-value {
+  font-family: var(--font-display); font-size: 22px; font-weight: 900;
+  font-style: italic; line-height: 1; color: var(--text);
+}
+.up-next-card.eta-now   .up-next-eta-value { color: #ef4444; }
+.up-next-card.eta-soon  .up-next-eta-value { color: #f59e0b; }
+.up-next-card.eta-watch .up-next-eta-value { color: var(--cyan); }
+.up-next-eta-detail {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
+}
+.up-next-diver { display: flex; align-items: baseline; gap: 0.5rem; }
+.up-next-name {
+  font-family: var(--font-display); font-size: 15px; font-weight: 800;
+  font-style: italic; color: var(--text);
+  flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.up-next-ctry {
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.05em; color: var(--text-3);
+  background: var(--bg-3); border: 1px solid var(--border);
+  border-radius: 3px; padding: 0.1rem 0.4rem;
+}
+.up-next-club {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.up-next-event {
+  font-family: var(--font-display); font-size: 11px; font-weight: 700;
+  color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.up-next-dive {
+  display: flex; align-items: baseline; gap: 0.4rem;
+  font-family: var(--font-mono); font-size: 11px;
+  padding: 0.3rem 0.5rem; background: var(--bg-3);
+  border-radius: var(--radius-sm); margin-top: 0.15rem;
+}
+.up-next-round { color: var(--cyan); font-weight: 700; }
+.up-next-code  { color: var(--text); font-weight: 700; }
+.up-next-dd    { color: var(--cyan); margin-left: auto; font-size: 10px; }
+
+/* ─── Meet section heading (only when >1 meet) ────────────────── */
+.meet-section-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-top: 1rem; margin-bottom: 0.5rem;
+  padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);
+}
+.meet-section-label {
+  font-family: var(--font-display); font-size: 14px; font-weight: 900;
+  font-style: italic; color: var(--text); letter-spacing: 0.02em;
+}
+.meet-section-link {
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase; color: var(--cyan);
+  text-decoration: none;
+}
+.meet-section-link:hover { text-decoration: underline; }
+
+/* ─── Diver sections ──────────────────────────────────────────── */
 .diver-section { margin-bottom: 2rem; }
 .section-head {
   display: flex; align-items: center; gap: 0.5rem;
@@ -333,6 +633,21 @@ onMounted(load)
   font-style: italic; line-height: 1.4;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.diver-card-last {
+  display: flex; align-items: center; gap: 0.55rem;
+  font-family: var(--font-mono); font-size: 11px;
+  padding: 0.3rem 0.5rem;
+  background: rgba(34,197,94,0.06); border: 1px solid rgba(34,197,94,0.2);
+  border-radius: var(--radius-sm);
+}
+.last-label {
+  font-family: var(--font-display); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-3);
+}
+.last-round { color: var(--text-2); font-weight: 700; }
+.last-code  { color: var(--text); font-weight: 700; }
+.last-points { color: #22c55e; font-weight: 700; margin-left: auto; }
+
 .diver-card-note { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); font-style: italic; }
 .diver-card-foot {
   display: flex; align-items: center; justify-content: space-between;
@@ -351,5 +666,6 @@ onMounted(load)
 @media (max-width: 720px) {
   .coach-wrap { padding: 1rem; }
   .diver-grid { grid-template-columns: 1fr; }
+  .up-next-card { flex: 0 0 200px; }
 }
 </style>
