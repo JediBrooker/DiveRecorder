@@ -12,6 +12,7 @@ import { useBroadcastChooser } from '@/composables/useBroadcastChooser'
 import DiverIdentity from '@/components/DiverIdentity.vue'
 import StatusPill from '@/components/StatusPill.vue'
 import JudgeRankingTable from '@/components/JudgeRankingTable.vue'
+import SponsorLogosManager from '@/components/manager/SponsorLogosManager.vue'
 import {
   annotatedScores,
   annotatedSynchroScores,
@@ -96,6 +97,14 @@ const {
 } = useBroadcastChooser({
   closeHeaderMenu: () => { headerMenuOpen.value = false },
 })
+
+// Sponsor branding modal — hosts the SponsorLogosManager from
+// Phase 2 so the operator can swap a logo / fix alt text / pause
+// rotation without leaving the Control Room. Gated on the
+// current event having a meet (the sponsor lives at the meet
+// level, not the event); the menu item hides for standalone
+// events.
+const sponsorBrandingOpen = ref(false)
 // Connection state lives on the singleton socket itself
 // (`socket.isConnected`, a ref). A parallel `connStatus` ref
 // would just shadow that state — and now that useSocket is a
@@ -3079,6 +3088,14 @@ onUnmounted(() => {
               class="dropdown-item"
               @click="broadcastChoiceOpen = true; headerMenuOpen = false"
             >📺 Broadcast…</button>
+            <!-- Sponsor branding — only when the current event
+                 lives inside a meet (sponsor is meet-scoped). -->
+            <button
+              v-if="currentEvent && currentEvent.meet_id && !opsBroadcast"
+              class="dropdown-item"
+              @click="sponsorBrandingOpen = true; headerMenuOpen = false"
+              v-tip="'Upload / reorder / rotate sponsor logos for this meet.'"
+            >🎨 Sponsor branding…</button>
             <!-- Finalise event early — only relevant during a
                  Live meet that hasn't reached its last dive. The
                  prominent header "Finalise Event ✓" button only
@@ -3385,6 +3402,29 @@ onUnmounted(() => {
               Open broadcast ({{ broadcastSelection.size }})
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sponsor branding modal — wraps the SponsorLogosManager
+         from Phase 2 in a familiar lb-modal shell so the
+         operator can swap logos mid-meet without leaving the
+         Control Room. Gated above on currentEvent.meet_id so
+         this modal can assume that's set. -->
+    <div v-if="sponsorBrandingOpen && currentEvent && currentEvent.meet_id"
+         class="lb-backdrop"
+         @mousedown.self="sponsorBrandingOpen = false">
+      <div class="lb-modal sponsor-branding-modal">
+        <div class="lb-header">
+          <div>
+            <div class="lb-title">🎨 Sponsor branding</div>
+            <div class="lb-event">{{ currentEvent.name }}</div>
+          </div>
+          <button class="btn btn-ghost btn-sm"
+                  @click="sponsorBrandingOpen = false">Close</button>
+        </div>
+        <div class="lb-body sponsor-branding-body">
+          <SponsorLogosManager :meet-id="currentEvent.meet_id" />
         </div>
       </div>
     </div>

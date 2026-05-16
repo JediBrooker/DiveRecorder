@@ -585,6 +585,12 @@
    horizontal room than the standings recap modal. */
 .jra-modal { max-width: min(96vw, 1100px) !important; }
 
+/* Sponsor branding modal — wraps SponsorLogosManager. Wider
+   than the broadcast chooser because each logo row carries an
+   alt-text + link inputs side-by-side; cramped at <640px. */
+.sponsor-branding-modal { max-width: min(96vw, 720px) !important; }
+.sponsor-branding-body { padding: 0.75rem 1rem 1rem; }
+
 /* Broadcast chooser modal — three big tappable rows so the
    operator picks the right destination at a glance. */
 .broadcast-chooser { max-width: min(96vw, 640px) !important; }
