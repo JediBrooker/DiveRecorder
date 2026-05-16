@@ -466,7 +466,7 @@ onMounted(async () => {
       <div v-else-if="!recentRows.length" class="empty">
         Quiet around here — no audit activity in the selected window.
       </div>
-      <table v-else class="audit-table">
+      <div v-else class="table-wrap"><table class="audit-table">
         <thead>
           <tr>
             <th>Time</th>
@@ -514,7 +514,7 @@ onMounted(async () => {
             <td class="mono">{{ r.actor_name || '—' }}</td>
           </tr>
         </tbody>
-      </table>
+      </table></div>
     </section>
 
     <!-- Score corrections -->
@@ -555,7 +555,7 @@ onMounted(async () => {
       <div v-else-if="!scoreRows.length" class="empty">
         No score audit entries match the current filters.
       </div>
-      <table v-else class="audit-table">
+      <div v-else class="table-wrap"><table class="audit-table">
         <thead>
           <tr>
             <th>Time</th>
@@ -595,7 +595,7 @@ onMounted(async () => {
             <td class="reason-cell" v-tip="r.reason || ''">{{ r.reason || '—' }}</td>
           </tr>
         </tbody>
-      </table>
+      </table></div>
       <div v-if="scoreHasMore" class="more-row">
         <button type="button" class="btn btn-ghost btn-sm"
                 :disabled="scoreBusy"
@@ -643,7 +643,7 @@ onMounted(async () => {
       <div v-else-if="!roleRows.length" class="empty">
         No role audit entries match the current filters.
       </div>
-      <table v-else class="audit-table">
+      <div v-else class="table-wrap"><table class="audit-table">
         <thead>
           <tr>
             <th>Time</th>
@@ -669,7 +669,7 @@ onMounted(async () => {
             <td class="reason-cell" v-tip="r.note || ''">{{ r.note || '—' }}</td>
           </tr>
         </tbody>
-      </table>
+      </table></div>
       <div v-if="roleHasMore" class="more-row">
         <button type="button" class="btn btn-ghost btn-sm"
                 :disabled="roleBusy"
@@ -708,7 +708,7 @@ onMounted(async () => {
       <div v-else-if="!activityRows.length" class="empty">
         No activity audit entries match the current filters.
       </div>
-      <table v-else class="audit-table">
+      <div v-else class="table-wrap"><table class="audit-table">
         <thead>
           <tr>
             <th>Time</th>
@@ -732,7 +732,7 @@ onMounted(async () => {
             <td class="mono">{{ r.actor_name || '—' }}</td>
           </tr>
         </tbody>
-      </table>
+      </table></div>
       <div v-if="activityHasMore" class="more-row">
         <button type="button" class="btn btn-ghost btn-sm"
                 :disabled="activityBusy"

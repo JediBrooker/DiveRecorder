@@ -51,6 +51,26 @@ defineProps({
 }
 .bar-value { color: var(--text); font-weight: 700; }
 .bar-meta  { color: var(--text-3); font-size: 11px; }
+
+/* Phone (≤600px): 250px of fixed columns squeezes the bar to
+   ~80px at 360 viewport. Two-row layout — label + bar on top,
+   value + meta on a second mono line — keeps the bar long
+   enough to read while preserving all the data. */
+@media (max-width: 600px) {
+  .bar-row {
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "label bar"
+      "value meta";
+    column-gap: 0.6rem; row-gap: 0.25rem;
+    font-size: 11.5px;
+  }
+  .bar-label { grid-area: label; }
+  .bar-track { grid-area: bar; }
+  .bar-value { grid-area: value; }
+  .bar-meta  { grid-area: meta; text-align: right; }
+}
+
 @media print {
   .bar-fill { background: #555 !important; }
 }

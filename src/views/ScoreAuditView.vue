@@ -164,7 +164,7 @@ onMounted(load)
     <div v-else-if="!entries.length" class="empty">
       No audit entries yet. Entries are created automatically as scores are submitted.
     </div>
-    <table v-else class="audit-table">
+    <div v-else class="table-wrap"><table class="audit-table">
       <thead>
         <tr>
           <th>Time</th>
@@ -200,7 +200,7 @@ onMounted(load)
           <td class="mono dim" v-tip="e.user_agent || ''">{{ e.ip_address || '—' }}</td>
         </tr>
       </tbody>
-    </table>
+    </table></div>
   </div>
 </template>
 

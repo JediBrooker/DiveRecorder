@@ -59,6 +59,21 @@ defineProps({
   font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
   margin-top: 0.3rem;
 }
+/* Phone (≤600px): 3 cells at 140px each = 420px before gaps,
+   so the grid wraps to 2-1 on most phones. Drop the minimum
+   so all three cells fit side-by-side on 360px, and trim the
+   big 32px numerals so the label doesn't clip. */
+@media (max-width: 600px) {
+  .dd-risk-row {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.4rem;
+  }
+  .dd-cell { padding: 0.65rem 0.45rem; }
+  .dd-num  { font-size: 22px; }
+  .dd-lbl  { font-size: 9px; letter-spacing: 0.12em; margin-top: 0.3rem; }
+  .dd-meta { font-size: 9.5px; }
+}
+
 @media print {
   .dd-num { color: #000 !important; }
   .dd-lbl { color: #555 !important; }

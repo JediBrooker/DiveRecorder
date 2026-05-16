@@ -547,4 +547,53 @@ onMounted(loadDives)
 .dim { color: var(--text-3); }
 .empty-state { text-align: center; color: var(--text-3); padding: 2rem; }
 .error-row td { background: rgba(220, 38, 38, 0.05); }
+
+/* =========================================================
+   Phone — under 600 px. Toolbar filters cram against each
+   other and the data-table overflows the viewport. Stack
+   filter children full-width so each is comfortably tappable,
+   let the table scroll inside a `.table-wrap` (added on the
+   card wrapper below), and shrink the page-header padding so
+   the title doesn't dominate.
+   ========================================================= */
+@media (max-width: 600px) {
+  .page-header { padding: 1rem; }
+  .page-title { font-size: 26px; }
+  .page-sub { padding: 0 1rem; }
+  .stats-strip {
+    gap: 0.4rem;
+    padding: 0.6rem 0;
+    margin-bottom: 0.5rem;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+  }
+  .stats-strip::-webkit-scrollbar { display: none; }
+  .stat { flex-shrink: 0; padding: 0.3rem 0.7rem; }
+  .stat-num { font-size: 20px; }
+
+  .toolbar {
+    gap: 0.5rem;
+    padding: 0.6rem 0;
+  }
+  /* Each filter takes a full row so a thumb can land on it
+     without clipping the neighbour. The button + count are
+     compact and still flex-wrap naturally below. */
+  .toolbar .input,
+  .toolbar .select { flex: 1 1 100%; min-width: 0; }
+  .custom-toggle { flex: 1 1 100%; }
+  .result-count { margin-left: 0; flex: 1 1 100%; }
+
+  /* The dives table is 7 columns; force it to scroll inside
+     its own container rather than pushing the page wider. The
+     card-wrapper already has overflow:hidden so we relax that
+     in favour of horizontal scroll via the .data-table parent. */
+  .card { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+  :deep(.data-table) { min-width: 640px; }
+
+  /* Create form fields stack — the auto-fit minmax(140px,1fr)
+     already collapses but the gap is too generous on a phone. */
+  .create-block { padding: 0.85rem; }
+  .create-fields { gap: 0.55rem; }
+}
 </style>

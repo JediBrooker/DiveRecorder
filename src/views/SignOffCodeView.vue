@@ -169,4 +169,32 @@ onMounted(() => {
   background: rgba(16, 185, 129, 0.08); color: var(--green);
   border: 1px solid rgba(16, 185, 129, 0.4);
 }
+
+/* =========================================================
+   Phone — under 600 px. The 6-digit code is the headline of
+   this page — it has to be huge AND fit comfortably on a
+   320 px phone (older iPhone SE). The desktop 48px + 0.25em
+   spacing overflows at that width, so we trade a bit of
+   spacing for fit and bump the submit button to a 44 px
+   tap target. The form padding shrinks so the input gets
+   maximum width.
+   ========================================================= */
+@media (max-width: 600px) {
+  .page-header { padding: 1rem; }
+  .page-title { font-size: 24px; }
+  .page-sub { padding: 0 1rem; }
+  .code-form { padding: 1.25rem 1rem; gap: 0.85rem; margin-top: 1rem; }
+  .code-input {
+    /* clamp so it scales between 320 and 600 px without
+       crowding the digits or running off the edge. */
+    font-size: clamp(28px, 11vw, 44px);
+    letter-spacing: 0.15em;
+    padding: 0.9rem 0.4rem;
+  }
+  .btn-lg {
+    min-height: 44px;
+    font-size: 14px;
+    padding: 0.85rem 1rem;
+  }
+}
 </style>

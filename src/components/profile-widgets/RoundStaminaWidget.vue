@@ -68,6 +68,24 @@ const staminaInsight = computed(() => {
 }
 .bar-value { color: var(--text); font-weight: 700; }
 .bar-meta  { color: var(--text-3); font-size: 11px; }
+
+/* Phone (≤600px): same two-row layout as HeightBreakdown so
+   the bar keeps a usable width at 360px. */
+@media (max-width: 600px) {
+  .bar-row {
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "label bar"
+      "value meta";
+    column-gap: 0.6rem; row-gap: 0.25rem;
+    font-size: 11.5px;
+  }
+  .bar-label { grid-area: label; }
+  .bar-track { grid-area: bar; }
+  .bar-value { grid-area: value; }
+  .bar-meta  { grid-area: meta; text-align: right; }
+}
+
 @media print {
   .bar-fill { background: #555 !important; }
 }

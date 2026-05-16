@@ -1127,4 +1127,87 @@ watch(() => route.params.id, () => { load() })
   .header-actions, .date-filter-bar, .modal, .modal-backdrop { display: none !important; }
   .card { break-inside: avoid; page-break-inside: avoid; }
 }
+
+/* Phone layout — public spectators tap a score chip on the live
+   scoreboard and land here on a 360–414px screen. The 80/1fr/80/80
+   and 100/1fr/220 grids defined above overflow at that width, so
+   collapse them to a two-line layout. */
+@media (max-width: 600px) {
+  /* Outer padding handled by the global 720px rule in app.css. */
+  .profile-wrap { padding: 0; }
+
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+  }
+  .page-title { font-size: 28px; }
+
+  .header-actions {
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .header-actions .btn {
+    min-height: 36px;
+    flex: 1 1 auto;
+  }
+
+  .card { padding: 1rem; }
+
+  /* Bar rows — collapse the fixed 80/1fr/80/80 grid. Label and
+     numeric value share the top row; the bar gets the full width
+     beneath; the per-row "N dives" meta sits beside the value.
+     Stacked over wrap because the bar needs a full-width track to
+     read at a glance — a wrapped half-width bar is hard to compare
+     across rows. */
+  .bar-row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "label value"
+      "track track"
+      "meta  meta";
+    row-gap: 0.25rem;
+  }
+  .bar-row .bar-label { grid-area: label; }
+  .bar-row .bar-value { grid-area: value; text-align: right; }
+  .bar-row .bar-track { grid-area: track; }
+  .bar-row .bar-meta  { grid-area: meta; }
+
+  /* Compare row — stack label, bars, and values vertically.
+     220px right column was the chief overflow culprit; on phones
+     the You/Panel numbers wrap cleanly below the bars. */
+  .compare-row {
+    grid-template-columns: 1fr;
+    gap: 0.4rem;
+  }
+  .compare-vals {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  /* Stat strip — 140px min was already auto-fit but cap to 2 cols
+     on phones so numbers stay readable. */
+  .stat-strip {
+    grid-template-columns: repeat(2, 1fr);
+    padding: 0.75rem;
+  }
+
+  /* Tables — let the wide diver/recent-meets/per-event tables
+     scroll horizontally rather than crush columns to unreadable
+     widths. */
+  .pb-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+}
+
+/* Make sure the bar fills always have a visible height even if a
+   container collapses the track. Belt-and-braces — the track is
+   10px tall so absolute-positioned fills already show, but if a
+   future change makes the track flex, fills won't vanish. */
+.signed-fill, .hist-fill, .bar-fill { min-height: 4px; }
 </style>

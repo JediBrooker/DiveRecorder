@@ -369,7 +369,7 @@ watch(() => drawerTeam.value, (val) => {
 
     <!-- Teams table -->
     <div class="card" style="padding:0;overflow:hidden">
-      <table class="data-table">
+      <div class="table-wrap"><table class="data-table">
         <thead>
           <tr>
             <th>Team</th>
@@ -449,7 +449,7 @@ watch(() => drawerTeam.value, (val) => {
             </tr>
           </template>
         </tbody>
-      </table>
+      </table></div>
     </div>
   </div>
 

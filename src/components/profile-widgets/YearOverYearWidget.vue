@@ -35,32 +35,34 @@ function yoyDeltaClass(i) {
     <div v-if="!data?.length" class="empty-mini">
       Need at least one completed meet.
     </div>
-    <table v-else class="pb-table">
-      <thead>
-        <tr>
-          <th>Year</th>
-          <th>Meets</th>
-          <th>Avg meet</th>
-          <th>Best meet</th>
-          <th>Wins</th>
-          <th>Podiums</th>
-          <th>Δ vs prev</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="(y, i) in data" :key="y.year">
-          <td class="mono strong">{{ y.year }}</td>
-          <td class="mono dim">{{ y.meets }}</td>
-          <td class="mono">{{ y.avg_meet_total != null ? Number(y.avg_meet_total).toFixed(1) : '—' }}</td>
-          <td class="mono cyan strong">{{ y.best_meet_total != null ? Number(y.best_meet_total).toFixed(1) : '—' }}</td>
-          <td class="mono">{{ y.wins }}</td>
-          <td class="mono">{{ y.podiums }}</td>
-          <td class="mono" :class="yoyDeltaClass(i)">
-            {{ yoyDeltaText(i) }}
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <div v-else class="pb-scroll">
+      <table class="pb-table">
+        <thead>
+          <tr>
+            <th>Year</th>
+            <th>Meets</th>
+            <th>Avg meet</th>
+            <th>Best meet</th>
+            <th>Wins</th>
+            <th>Podiums</th>
+            <th>Δ vs prev</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(y, i) in data" :key="y.year">
+            <td class="mono strong">{{ y.year }}</td>
+            <td class="mono dim">{{ y.meets }}</td>
+            <td class="mono">{{ y.avg_meet_total != null ? Number(y.avg_meet_total).toFixed(1) : '—' }}</td>
+            <td class="mono cyan strong">{{ y.best_meet_total != null ? Number(y.best_meet_total).toFixed(1) : '—' }}</td>
+            <td class="mono">{{ y.wins }}</td>
+            <td class="mono">{{ y.podiums }}</td>
+            <td class="mono" :class="yoyDeltaClass(i)">
+              {{ yoyDeltaText(i) }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>
 
@@ -68,4 +70,12 @@ function yoyDeltaClass(i) {
 <style scoped>
 .yoy-up   { color: #10b981; font-weight: 700; }
 .yoy-down { color: #ef4444; font-weight: 700; }
+
+/* Phone (≤600px): 7 columns can't fit at 360px even after the
+   shared cell-padding shrink, so allow horizontal scroll
+   inside the card rather than truncating the year list. */
+.pb-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+@media (max-width: 600px) {
+  .pb-scroll .pb-table { min-width: 480px; }
+}
 </style>

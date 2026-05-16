@@ -38,6 +38,16 @@ defineProps({
 .streak-hint {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
 }
+/* Phone (≤600px): the 56px streak number eats too much
+   vertical real-estate on a small card. Trim it and bump the
+   text down a touch. */
+@media (max-width: 600px) {
+  .streak-body { gap: 0.75rem; }
+  .streak-num  { font-size: 42px; }
+  .streak-kind { font-size: 13px; }
+  .streak-hint { font-size: 10.5px; }
+}
+
 @media print {
   .streak-num { color: #000 !important; }
 }

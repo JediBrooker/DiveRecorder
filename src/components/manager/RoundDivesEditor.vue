@@ -285,4 +285,40 @@ defineExpose({ applyDiveAtRow })
 .rd-actions {
   display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; margin-top:0.4rem;
 }
+
+/* Mobile — the 5-column row pinches at 360–414px because the
+   picker input + dropdown can't shrink past their content.
+   Re-flow with grid-template-areas: round number pins to the
+   left, the picker spans the full width, and the height select
+   + action buttons sit on a second line beside it. The popover
+   stays position:absolute + left:0/right:0 — its own internal
+   3-col grid (code · meta · desc) is what needs to wrap. */
+@media (max-width: 600px) {
+  .rd-row {
+    grid-template-columns: 38px 1fr auto auto;
+    grid-template-areas:
+      "num pick   pick   pick"
+      "num height clear  remove";
+    row-gap: 0.35rem;
+    column-gap: 0.4rem;
+    padding: 0.5rem;
+  }
+  .rd-row-num    { grid-area: num; align-self: stretch;
+                   display: flex; align-items: center; justify-content: center;
+                   padding: 0; }
+  .rd-row-pick   { grid-area: pick; }
+  .rd-row-height { grid-area: height; max-width: none; width: 100%; }
+  .rd-row-clear  { grid-area: clear;  justify-self: end; }
+  .rd-row-remove { grid-area: remove; justify-self: end; }
+
+  /* Picker result row — code + meta on one line, desc wraps under. */
+  .rd-pick-result {
+    grid-template-columns: auto 1fr;
+    row-gap: 0.1rem;
+  }
+  .rd-pick-desc {
+    grid-column: 1 / -1;
+    white-space: normal;
+  }
+}
 </style>

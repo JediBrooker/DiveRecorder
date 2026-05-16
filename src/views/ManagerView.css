@@ -494,3 +494,65 @@
 .help-popover strong { display: block; margin-top: 0.4rem; color: var(--text); }
 .help-popover strong:first-child { margin-top: 0; }
 .help-popover p { margin: 0.2rem 0 0.5rem; }
+
+/* Mobile layout — collapse fixed multi-column grids to a single
+   column, let modals use the full viewport, and tighten internal
+   padding so the small-screen org admin can still drive a meet
+   from a phone. Outer wrap padding is handled globally by
+   src/styles/app.css. */
+@media (max-width: 600px) {
+  /* Header — shrink the desktop padding so the title + button row
+     doesn't dominate above-the-fold on a phone. */
+  .page-header { padding: 1rem; }
+
+  /* Event row — drop the side-by-side layout so the action cluster
+     can wrap below the event meta instead of squeezing it. */
+  .event-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    padding: 0.9rem;
+  }
+  .actions { flex-wrap: wrap; }
+
+  /* Advance preview rows — 38+60+80 = 178px of fixed cols is too
+     greedy on 360px; let the name eat the row, rank pins to the
+     left and tag/total wrap underneath. */
+  .advance-preview-row {
+    grid-template-columns: 32px 1fr auto;
+    row-gap: 0.15rem;
+    column-gap: 0.4rem;
+    padding: 0.45rem 0.6rem;
+  }
+  .advance-preview { max-height: 220px; }
+
+  /* Modals — full-bleed so the inner grids and forms have the
+     entire viewport to play with. Keep a tiny inset. */
+  .modal,
+  .modal-create-event,
+  .modal-create-dive,
+  .roster-modal,
+  .teams-modal {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  /* Meet row — name + meta stack above the action chips. */
+  .meet-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+    padding: 0.55rem 0.7rem;
+  }
+
+  /* Templates strip — collapse the apply / delete row when the
+     name + config can't fit alongside the chip. */
+  .event-template-row { flex-wrap: wrap; }
+
+  /* Org filter — let the select use the row instead of capping at
+     320px on a 360px viewport. */
+  .org-filter .select { max-width: none; }
+
+  /* Empty-state copy gets a lot of vertical space at 2rem; trim. */
+  .empty { padding: 1.25rem; }
+}

@@ -80,6 +80,20 @@ const qualityBuckets = computed(() => {
 .quality-count { font-weight: 700; color: var(--text); }
 .quality-pct   { color: var(--text-3); width: 48px; text-align: right; }
 
+/* Phone (≤600px): legend rows are already auto-sized after
+   the dot column, but the labels ("Unsat. (≤4.5)") get tight.
+   Shrink the percent column and font so all four cells fit
+   in a single row at 360px. */
+@media (max-width: 600px) {
+  .quality-bar { height: 22px; }
+  .quality-legend-row {
+    grid-template-columns: 12px 1fr auto auto;
+    gap: 0.45rem;
+    font-size: 11px;
+  }
+  .quality-pct { width: 42px; }
+}
+
 @media print {
   .quality-seg.quality-failed         { background: #c0392b !important; }
   .quality-seg.quality-deficient      { background: #e67e22 !important; }

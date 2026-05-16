@@ -248,7 +248,7 @@ onMounted(async () => {
 
     <!-- Clubs table -->
     <div class="card" style="padding:0;overflow:hidden">
-      <table class="data-table">
+      <div class="table-wrap"><table class="data-table">
         <thead>
           <tr>
             <th>Club</th>
@@ -332,7 +332,7 @@ onMounted(async () => {
             </tr>
           </template>
         </tbody>
-      </table>
+      </table></div>
     </div>
   </div>
 </template>

@@ -281,8 +281,7 @@ defineExpose({
             6 pairs · 12 divers (G1 = pairs 12v1, 9v4, 8v5 · G2 = pairs 11v2, 10v3, 7v6)
           </div>
           <div v-for="p in h2hPreview.pairs" :key="p.pair_index"
-               class="advance-preview-row primary"
-               style="grid-template-columns: 36px 1fr 24px 1fr">
+               class="advance-preview-row primary sf-pair-row">
             <span class="advance-rank">G{{ p.group_number }}</span>
             <span class="advance-name">
               <strong>#{{ p.seed_a }}</strong> {{ p.full_name_a }}
@@ -325,8 +324,7 @@ defineExpose({
 
       <div v-if="h2hResults && h2hResults.pairs" class="advance-preview">
         <div v-for="p in h2hResults.pairs" :key="p.pair_index"
-             :class="['advance-preview-row', p.tied ? 'reserve' : 'primary']"
-             style="grid-template-columns: 36px 1fr 60px 1fr 60px">
+             :class="['advance-preview-row', 'sf-pair-result-row', p.tied ? 'reserve' : 'primary']">
           <span class="advance-rank">G{{ p.group_number }}</span>
           <span class="advance-name" :style="{ fontWeight: p.winner_id === p.competitor_a_id ? '700' : '500' }">
             #{{ p.seed_a }} {{ p.full_name_a }}
@@ -418,11 +416,10 @@ defineExpose({
       </div>
       <div v-if="superFinalRankings && superFinalRankings.rankings" class="advance-preview">
         <div v-for="r in superFinalRankings.rankings" :key="r.rank"
-             :class="['advance-preview-row',
+             :class="['advance-preview-row', 'sf-ranking-row',
                       r.source === 'final' ? 'primary'
                       : r.source === 'h2h+semi' ? 'reserve'
-                      : 'cut']"
-             style="grid-template-columns: 36px 1fr 90px 80px">
+                      : 'cut']">
           <span class="advance-rank">#{{ r.rank }}</span>
           <span class="advance-name">
             {{ r.full_name }}
@@ -439,6 +436,39 @@ defineExpose({
   </div>
 </template>
 
-<!-- No scoped styles: all five modals use the shared
-     modal-backdrop / modal-advance / advance-* classes that live
-     in ManagerView.css and are reused by other modals. -->
+<style scoped>
+/* The shared .advance-preview-row class (in ManagerView.css)
+   uses a 4-col grid sized for advance-modal rank/name/total/tag.
+   The H2H + rankings modals need different column profiles, so
+   these per-row variants override grid-template-columns. The
+   inline styles they replaced were:
+     sf-pair-row         → 36px 1fr 24px 1fr
+     sf-pair-result-row  → 36px 1fr 60px 1fr 60px
+     sf-ranking-row      → 36px 1fr 90px 80px
+   Mobile (≤600px) collapses each to a stack so the modal can
+   live inside 360–414px without horizontal scroll. */
+.sf-pair-row        { grid-template-columns: 36px 1fr 24px 1fr; }
+.sf-pair-result-row { grid-template-columns: 36px 1fr 60px 1fr 60px; }
+.sf-ranking-row     { grid-template-columns: 36px 1fr 90px 80px; }
+
+@media (max-width: 600px) {
+  /* G# pins to the left, names + scores stack underneath. The
+     "vs" label is decorative on a stacked layout — keep it
+     centered across the row. */
+  .sf-pair-row {
+    grid-template-columns: 36px 1fr;
+    row-gap: 0.1rem;
+  }
+  .sf-pair-row > :nth-child(3) { grid-column: 1 / -1; text-align: left; }
+
+  .sf-pair-result-row {
+    grid-template-columns: 36px 1fr auto;
+    row-gap: 0.15rem;
+  }
+
+  .sf-ranking-row {
+    grid-template-columns: 36px 1fr auto;
+    row-gap: 0.1rem;
+  }
+}
+</style>

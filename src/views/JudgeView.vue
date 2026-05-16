@@ -891,7 +891,14 @@ const submitLabel = computed(() => {
    ========================================================= */
 @media (max-width: 600px) {
   .judge-header { padding: 0.6rem 0.85rem; }
-  .header-top { margin-bottom: 0.4rem; }
+  .header-top {
+    margin-bottom: 0.4rem;
+    /* Wrap so the right-side links (Analysis / Dashboard /
+       judge-id) drop below the diver banner on narrow phones
+       instead of squeezing the diver name to a 2-char column. */
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
   .keypad {
     /* Stretch to use the available width, full-bleed gutter
        so each key is as wide as possible without spilling. */
@@ -906,6 +913,15 @@ const submitLabel = computed(() => {
   .signal-btn { padding: 0.95rem 0.75rem; font-size: 14px; }
   .submit-footer { padding: 0.6rem 0.6rem 0.85rem; }
   .submit-btn { padding: 1.3rem 1rem; font-size: 18px; }
+  /* Touch-target lift for the small ghost links at the top
+     right — at WCAG 2.5.5's 44 px floor a wet thumb still
+     lands them reliably. */
+  .btn-back-judge {
+    min-height: 32px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0.3rem 0.5rem;
+  }
 }
 
 /* Small-phone safety net — even the 320px-wide screens that

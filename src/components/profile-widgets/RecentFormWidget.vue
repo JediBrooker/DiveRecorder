@@ -184,6 +184,46 @@ function scoreClass(s) {
 .j-chip.qs-very-good      { background: rgba(16,185,129,0.18);  border-color: rgba(16,185,129,0.45);  color: #a7f3d0; }
 .j-chip.qs-excellent      { background: rgba(236,72,153,0.18);  border-color: rgba(236,72,153,0.45);  color: #fbcfe8; }
 
+/* Phone (≤600px): collapse the trend row (chevron + date +
+   name + place + total) onto two rows so the meet name has
+   width to breathe. The expanded dive table gets a horizontal
+   scroll wrap so 7 cols don't overflow the card. */
+@media (max-width: 600px) {
+  .trend-row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "date  place total"
+      "name  name  name";
+    gap: 0.3rem 0.5rem;
+    padding: 0.55rem 0;
+    font-size: 12px;
+  }
+  .trend-row-clickable {
+    grid-template-columns: 14px auto 1fr auto;
+    grid-template-areas:
+      "chev date  place total"
+      "chev name  name  name";
+  }
+  .trend-chevron { grid-area: chev; align-self: center; }
+  .trend-date    { grid-area: date; }
+  .trend-name    { grid-area: name; white-space: normal; }
+  .trend-place   { grid-area: place; justify-self: end; }
+  .trend-total   { grid-area: total; font-size: 13px; }
+
+  /* Expanded breakdown — the inner dive table has 7 columns;
+     allow horizontal scroll instead of squeezing everything
+     into the card width. */
+  .dive-breakdown {
+    padding: 0.5rem 0.4rem 0.6rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .dive-table { font-size: 11px; min-width: 480px; }
+  .dive-table th { font-size: 8.5px; padding: 0.35rem 0.3rem; }
+  .dive-table td { padding: 0.35rem 0.3rem; }
+  .j-chip { font-size: 10px; min-width: 26px; padding: 0.1rem 0.3rem; }
+}
+
 @media print {
   .trend-place, .trend-total { color: #000 !important; }
 }

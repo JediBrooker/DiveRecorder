@@ -1318,4 +1318,81 @@ watch(currentEvent, async (ev) => {
   font-family: var(--font-mono); font-size: 12px; color: var(--text-3);
   padding: 0.7rem 0.8rem; font-style: italic;
 }
+
+/* =========================================================
+   Phone layout (≤600px)
+   The diver portal is used predominantly from phones during
+   warm-ups. Padding for `.main` is set by the global rule in
+   app.css; here we shrink the dive-row chrome, let the
+   template-save form wrap, viewport-clip the partner
+   typeahead, and bring touch targets above ~36px.
+   ========================================================= */
+@media (max-width: 600px) {
+  /* Dive rows: keep the chip-number on the left, let code+desc
+     flex to fill, allow the DD pill to wrap to a new line on the
+     tightest screens rather than crushing the description. */
+  .dive-row {
+    gap: 0.5rem;
+    padding: 0.7rem 0.85rem;
+    flex-wrap: wrap;
+  }
+  .row-num { width: 22px; font-size: 12px; }
+  .row-info { flex: 1 1 auto; min-width: 0; }
+  .row-code { font-size: 15px; }
+  .row-desc { font-size: 11px; line-height: 1.35; }
+  .row-dd { font-size: 12px; }
+  .row-lock-tag {
+    margin-left: 0.35rem;
+    font-size: 9px;
+    padding: 0.08rem 0.35rem;
+  }
+
+  /* Banners: less generous padding so they don't dominate the
+     viewport above the dive list. */
+  .advance-banner,
+  .reserve-banner {
+    padding: 0.65rem 0.8rem;
+    margin-top: 0.75rem;
+  }
+  .advance-banner-head,
+  .reserve-banner-head { font-size: 12px; }
+  .advance-banner-body,
+  .reserve-banner-body { font-size: 12px; }
+
+  /* Round-rules summary — tighter row padding */
+  .rr-summary-row { padding: 0.45rem 0.6rem; }
+
+  /* Template save form: name input + save button stack
+     when the row would otherwise overflow. */
+  .template-save-form { flex-wrap: wrap; }
+  .template-save-form .input,
+  .template-save-form .btn,
+  .template-save-form .btn-primary {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  /* Template list row: actions stay on the right but can wrap
+     under the name+meta when the name is long. */
+  .template-row { flex-wrap: wrap; }
+
+  /* Partner typeahead: dropdown was max-height 280 + bottom-relative
+     which spilled off-screen on phones. Cap to half viewport with
+     scroll, and grow the clear button to a tappable size. */
+  .partner-dropdown {
+    max-height: 50vh;
+    left: 0;
+    right: 0;
+  }
+  .partner-clear {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+  }
+  .partner-typeahead .input { padding-right: 2.75rem; }
+
+  /* Total-bar: shrink the giant 32px score so the label fits */
+  .total-bar { padding: 0.75rem 0.9rem; }
+  .total-value { font-size: 26px; }
+}
 </style>

@@ -61,6 +61,20 @@ defineProps({
   letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-3);
   margin-top: 0.4rem;
 }
+/* Phone (≤600px): with 5 cells at minmax(120px,1fr) the grid
+   wraps to 3-2 or 2-2-1 at typical phone widths. Drop the
+   minimum so we get a clean 3-col or 2-col layout, and shrink
+   the giant placing numbers. */
+@media (max-width: 600px) {
+  .placings-row {
+    grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+    gap: 0.4rem;
+  }
+  .placing-cell { padding: 0.55rem 0.5rem; }
+  .placing-num  { font-size: 22px; }
+  .placing-lbl  { font-size: 9px; letter-spacing: 0.14em; margin-top: 0.3rem; }
+}
+
 @media print {
   .placing-num { color: #000 !important; }
   .placing-lbl { color: #555 !important; }

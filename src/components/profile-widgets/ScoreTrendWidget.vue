@@ -100,6 +100,29 @@ const trendChart = computed(() => {
 .trend-place.place-bronze { color: #92400e; border-color: rgba(180,83,9,0.4); background: rgba(180,83,9,0.06); }
 .trend-total { font-family: var(--font-mono); font-size: 14px; font-weight: 700; color: var(--cyan); }
 
+/* Phone (≤600px): the four fixed-ish columns can't fit at
+   360px (date + name + place + total + gaps ≈ 320px before
+   ellipsis). Collapse to a two-row layout: date+place+total
+   on top, full-width name underneath so synchro/team badges
+   and partner names don't get clipped. */
+@media (max-width: 600px) {
+  .trend-row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "date  place total"
+      "name  name  name";
+    gap: 0.35rem 0.5rem;
+    padding: 0.55rem 0;
+    font-size: 12px;
+  }
+  .trend-date  { grid-area: date; }
+  .trend-place { grid-area: place; justify-self: end; }
+  .trend-total { grid-area: total; font-size: 13px; }
+  .trend-name  { grid-area: name; white-space: normal; }
+  .trend-chart { height: 90px; margin-bottom: 0.6rem; }
+  .trend-partner { display: block; margin-left: 0; margin-top: 0.15rem; }
+}
+
 @media print {
   .trend-place, .trend-total { color: #000 !important; }
 }

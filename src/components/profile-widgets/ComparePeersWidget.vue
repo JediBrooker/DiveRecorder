@@ -109,6 +109,23 @@ defineProps({
 .compare-me-text   { color: var(--cyan); font-weight: 700; }
 .compare-peer-text { color: var(--text-3); }
 
+/* Phone (≤600px): 140px label + 200px values eats 340px of
+   the 360px viewport before bars. Stack to single column
+   with bars full-width and the values inline beneath. */
+@media (max-width: 600px) {
+  .compare-row {
+    grid-template-columns: 1fr;
+    gap: 0.3rem;
+    padding: 0.4rem 0;
+    border-top: 1px solid var(--border);
+  }
+  .compare-row:first-child { border-top: none; padding-top: 0.1rem; }
+  .compare-vals {
+    flex-direction: row; justify-content: space-between;
+    gap: 0.6rem;
+  }
+}
+
 @media print {
   .compare-me-text { color: #000 !important; }
 }

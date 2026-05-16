@@ -767,7 +767,7 @@ onUnmounted(() => {
 
       <!-- Users table -->
       <div class="card" style="padding:0;overflow:hidden">
-        <table class="data-table">
+        <div class="table-wrap"><table class="data-table">
           <thead>
             <tr>
               <th class="select-col">
@@ -885,7 +885,7 @@ onUnmounted(() => {
               </tbody>
             </template>
           </template>
-        </table>
+        </table></div>
       </div>
 
       <!-- Pagination — only meaningful in flat (non-grouped) mode -->
