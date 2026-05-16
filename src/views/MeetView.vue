@@ -8,6 +8,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { fmtDate } from '@/lib/format'
+import SponsorRotation from '@/components/scoreboard/SponsorRotation.vue'
 
 const route = useRoute()
 
@@ -272,16 +273,24 @@ onMounted(() => { if (route.params.id) load(route.params.id) })
           </span>
         </div>
 
-        <!-- Sponsor strip — optional headline sponsor for the meet. -->
-        <a v-if="meet.sponsor_logo_url || meet.sponsor_name"
-           :href="meet.sponsor_link_url || '#'"
-           :target="meet.sponsor_link_url ? '_blank' : '_self'"
-           rel="noopener"
-           class="sponsor-strip">
+        <!-- Sponsor strip — multi-logo when uploads exist
+             (migration 045), legacy single-URL fallback when
+             not. SponsorRotation handles both in one
+             render path. The "Powered by" preface stays so
+             the strip reads consistently with the prior
+             layout. The strip is hidden entirely when the
+             meet has no sponsor name AND no logos. -->
+        <div v-if="meet.sponsor_name || meet.sponsor_logo_url"
+             class="sponsor-strip sponsor-strip-inline">
           <span class="sponsor-prefix">Powered by</span>
-          <img v-if="meet.sponsor_logo_url" :src="meet.sponsor_logo_url" :alt="meet.sponsor_name || 'Sponsor'" class="sponsor-logo">
-          <span v-else class="sponsor-name">{{ meet.sponsor_name }}</span>
-        </a>
+          <SponsorRotation :meet-id="meet.id" placement="inline" />
+          <!-- Fallback: when the rotation has no images (the
+               legacy fallback only carries a name, no URL), the
+               component renders nothing — show the plain name
+               as a final fallback. -->
+          <span v-if="meet.sponsor_name && !meet.sponsor_logo_url"
+                class="sponsor-name">{{ meet.sponsor_name }}</span>
+        </div>
       </div>
 
       <!-- Live events -->

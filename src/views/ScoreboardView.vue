@@ -11,6 +11,7 @@ import ScoreHistoryButton from '@/components/ScoreHistoryButton.vue'
 import JargonTip from '@/components/JargonTip.vue'
 import JudgeRankingTable from '@/components/JudgeRankingTable.vue'
 import MeetsBrowser from '@/components/scoreboard/MeetsBrowser.vue'
+import SponsorRotation from '@/components/scoreboard/SponsorRotation.vue'
 
 const route  = useRoute()
 const router = useRouter()
@@ -974,6 +975,18 @@ onMounted(async () => {
       class="broadcast-exit"
       v-tip="'Exit broadcast mode'"
     >✕</RouterLink>
+    <!-- Sponsor rotation tile. Only rendered when the current
+         event is part of a meet (event.meet_id is set) — the
+         component itself no-ops if the meet has no logos.
+         Suppressed on the recap (isCompleted) since sponsor
+         branding on a results page reads as gauche. The
+         'overlay' placement strips the backplate so OBS chroma
+         keying composites cleanly. -->
+    <SponsorRotation
+      v-if="currentEvent && currentEvent.meet_id && !isCompleted"
+      :meet-id="currentEvent.meet_id"
+      :placement="overlayMode ? 'overlay' : 'corner'"
+    />
     <!-- Connection banner — visible whenever the spectator
          socket has dropped. Live event watchers won't see new
          dives until reconnect, so it's worth surfacing. -->
