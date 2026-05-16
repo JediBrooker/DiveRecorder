@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DivingHQ — Logo Options Preview</title>
+<style>
+  /* Mirror the app's design system so the marks render in their
+     real visual context. */
+  :root {
+    --bg: #030712;
+    --surface: #0f172a;
+    --surface-2: #1e293b;
+    --border: #1f2937;
+    --text: #f1f5f9;
+    --text-2: #cbd5e1;
+    --text-3: #94a3b8;
+    --cyan: #06b6d4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    padding: 3rem 2rem;
+  }
+  h1 {
+    font-size: 32px; font-weight: 900; font-style: italic;
+    margin: 0 0 0.5rem;
+    letter-spacing: 0.02em;
+  }
+  .sub {
+    color: var(--text-3); font-size: 13px;
+    margin-bottom: 2rem; line-height: 1.6;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+    gap: 1.25rem;
+    max-width: 1400px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem;
+  }
+  .card-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 1.25rem;
+  }
+  .card-title {
+    font-size: 18px; font-weight: 800; font-style: italic;
+    color: var(--text); margin: 0;
+  }
+  .card-tag {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--cyan);
+  }
+  .card-blurb {
+    color: var(--text-3); font-size: 12px; line-height: 1.6;
+    margin: 0 0 1rem;
+  }
+  /* Render the SVG at multiple sizes to gut-check legibility */
+  .sizes {
+    display: flex; align-items: flex-end; gap: 1rem;
+    flex-wrap: wrap;
+    background: var(--surface-2);
+    padding: 1.25rem;
+    border-radius: 10px;
+  }
+  .size {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 0.4rem;
+  }
+  .size img {
+    background: #030712;
+    border-radius: 6px;
+    image-rendering: optimizeQuality;
+  }
+  .size-16  img { width: 16px;  height: 16px; }
+  .size-32  img { width: 32px;  height: 32px; }
+  .size-64  img { width: 64px;  height: 64px; }
+  .size-128 img { width: 128px; height: 128px; }
+  .size-label {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.15em;
+    text-transform: uppercase; color: var(--text-3);
+  }
+  /* Big hero render */
+  .hero {
+    background: var(--surface-2);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-top: 0.75rem;
+    display: flex; justify-content: center; align-items: center;
+  }
+  .hero img { width: 256px; height: 256px; }
+
+  /* Mono-on-white test — proves the mark still reads when
+     printed in a federation's monochrome program */
+  .mono-row {
+    margin-top: 0.75rem;
+    display: flex; gap: 1rem; align-items: flex-end;
+  }
+  .mono-card {
+    background: #ffffff;
+    padding: 1rem;
+    border-radius: 8px;
+    display: flex; flex-direction: column; align-items: center;
+    gap: 0.4rem;
+  }
+  .mono-card img {
+    width: 64px; height: 64px;
+    filter: grayscale(100%) brightness(0%) invert(15%);
+  }
+  .mono-card-label {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.15em;
+    text-transform: uppercase; color: #64748b;
+  }
+
+  .legend {
+    margin-top: 2rem; padding-top: 1.25rem;
+    border-top: 1px solid var(--border);
+    font-size: 11px; color: var(--text-3);
+    line-height: 1.6;
+  }
+  .legend kbd {
+    font-family: 'SF Mono', Monaco, monospace;
+    background: var(--surface-2); border: 1px solid var(--border);
+    padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 10px;
+  }
+</style>
+</head>
+<body>
+
+<h1>DivingHQ — logo options</h1>
+<p class="sub">
+  Four directions. Each card shows the mark at the sizes it'll
+  actually live at — favicon (16px), browser tab (32px),
+  PWA home-screen (64-128px), and splash (256px) — plus a
+  monochrome print test on white so you can see how the mark
+  holds up in a federation's printed program.
+</p>
+
+<div class="grid">
+
+  <!-- ──────────────  A  ────────────── -->
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">A — Diver + HQ ring</h2>
+      <span class="card-tag">Institutional</span>
+    </div>
+    <p class="card-blurb">
+      Tucked-position diver inside a circular badge. Reads
+      "federation seal / headquarters" — feels institutional
+      and sport-y. Most literal of the four; instantly
+      readable as "a diving thing."
+    </p>
+    <div class="sizes">
+      <div class="size size-16"><img src="option-a-diver-ring.svg" alt=""><span class="size-label">16px</span></div>
+      <div class="size size-32"><img src="option-a-diver-ring.svg" alt=""><span class="size-label">32px</span></div>
+      <div class="size size-64"><img src="option-a-diver-ring.svg" alt=""><span class="size-label">64px</span></div>
+      <div class="size size-128"><img src="option-a-diver-ring.svg" alt=""><span class="size-label">128px</span></div>
+    </div>
+    <div class="hero"><img src="option-a-diver-ring.svg" alt="Option A"></div>
+    <div class="mono-row">
+      <div class="mono-card"><img src="option-a-diver-ring.svg" alt=""><span class="mono-card-label">Mono / print</span></div>
+    </div>
+  </div>
+
+  <!-- ──────────────  B  ────────────── -->
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">B — HQ monogram</h2>
+      <span class="card-tag">Modernist</span>
+    </div>
+    <p class="card-blurb">
+      Bold italic <code>H Q</code> letterforms with a single
+      dive-board tail off the Q. Modernist / Linear / Stripe
+      sensibility. Best of the four for tiny favicon use —
+      reads as a clear, contrasty mark down to 16px. The
+      diving reference is subtle until you look twice.
+    </p>
+    <div class="sizes">
+      <div class="size size-16"><img src="option-b-hq-monogram.svg" alt=""><span class="size-label">16px</span></div>
+      <div class="size size-32"><img src="option-b-hq-monogram.svg" alt=""><span class="size-label">32px</span></div>
+      <div class="size size-64"><img src="option-b-hq-monogram.svg" alt=""><span class="size-label">64px</span></div>
+      <div class="size size-128"><img src="option-b-hq-monogram.svg" alt=""><span class="size-label">128px</span></div>
+    </div>
+    <div class="hero"><img src="option-b-hq-monogram.svg" alt="Option B"></div>
+    <div class="mono-row">
+      <div class="mono-card"><img src="option-b-hq-monogram.svg" alt=""><span class="mono-card-label">Mono / print</span></div>
+    </div>
+  </div>
+
+  <!-- ──────────────  C  ────────────── -->
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">C — Arc + dot</h2>
+      <span class="card-tag">Minimalist</span>
+    </div>
+    <p class="card-blurb">
+      The path of a dive reduced to its essential form — a
+      parabolic arc with a cyan dot at apex (take-off) and a
+      ripple at entry. Most abstract of the four. Works
+      brilliantly at every scale because the geometry is so
+      simple. Apple SF Symbols / Notion sensibility.
+    </p>
+    <div class="sizes">
+      <div class="size size-16"><img src="option-c-arc-dot.svg" alt=""><span class="size-label">16px</span></div>
+      <div class="size size-32"><img src="option-c-arc-dot.svg" alt=""><span class="size-label">32px</span></div>
+      <div class="size size-64"><img src="option-c-arc-dot.svg" alt=""><span class="size-label">64px</span></div>
+      <div class="size size-128"><img src="option-c-arc-dot.svg" alt=""><span class="size-label">128px</span></div>
+    </div>
+    <div class="hero"><img src="option-c-arc-dot.svg" alt="Option C"></div>
+    <div class="mono-row">
+      <div class="mono-card"><img src="option-c-arc-dot.svg" alt=""><span class="mono-card-label">Mono / print</span></div>
+    </div>
+  </div>
+
+  <!-- ──────────────  D  ────────────── -->
+  <div class="card">
+    <div class="card-head">
+      <h2 class="card-title">D — Perfect 10</h2>
+      <span class="card-tag">Insider</span>
+    </div>
+    <p class="card-blurb">
+      The perfect score baked into the mark. The "1" is a
+      stylised diving platform; the "0" is a circle / splash
+      ripple. Competitive divers, judges, and federations
+      parse the "10.0" reference instantly; spectators see
+      "10" and absorb "scoring / competition" at the gut
+      level. Most brand-specific of the four.
+    </p>
+    <div class="sizes">
+      <div class="size size-16"><img src="option-d-perfect-ten.svg" alt=""><span class="size-label">16px</span></div>
+      <div class="size size-32"><img src="option-d-perfect-ten.svg" alt=""><span class="size-label">32px</span></div>
+      <div class="size size-64"><img src="option-d-perfect-ten.svg" alt=""><span class="size-label">64px</span></div>
+      <div class="size size-128"><img src="option-d-perfect-ten.svg" alt=""><span class="size-label">128px</span></div>
+    </div>
+    <div class="hero"><img src="option-d-perfect-ten.svg" alt="Option D"></div>
+    <div class="mono-row">
+      <div class="mono-card"><img src="option-d-perfect-ten.svg" alt=""><span class="mono-card-label">Mono / print</span></div>
+    </div>
+  </div>
+
+</div>
+
+<p class="legend">
+  To preview locally: <kbd>open docs/logo-options/preview.html</kbd> from the
+  repo root. Each card scales the same SVG to four sizes via CSS — what
+  you see in the 16px column is what a browser tab + macOS dock would
+  render. The monochrome card at the bottom is a federation-program-print
+  test: if the mark can't survive 100% grayscale on white at 64px, it
+  fails for the offline use case.
+</p>
+
+</body>
+</html>

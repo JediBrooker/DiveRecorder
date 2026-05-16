@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="DivingHQ logo — option B">
+  <!-- OPTION B — HQ monogram
+       Bold geometric "HQ" mark with a single diving-board
+       motif underlining the Q. The diving reference is subtle
+       enough that the mark works for any sport at first glance,
+       but the diver's-board form factor is unmistakable once
+       you see it. Best of the four for tiny favicon use —
+       reads as a clear, contrasty mark down to 16px.
+       Modernist / Linear / Stripe vibe. -->
+  <rect width="512" height="512" rx="96" fill="#030712"/>
+
+  <!-- H — left letterform. Two vertical bars + crossbar.
+       Italic by skewing 6° to match the app's Barlow-Condensed
+       feel. -->
+  <g transform="translate(140 140)" fill="#06b6d4">
+    <rect x="0"   y="0"  width="38" height="230" transform="skewX(-6)"/>
+    <rect x="78"  y="0"  width="38" height="230" transform="skewX(-6)"/>
+    <rect x="20"  y="96" width="76" height="34"  transform="skewX(-6)"/>
+  </g>
+
+  <!-- Q — right letterform. Italic. Tail forms the dive board. -->
+  <g transform="translate(290 140)" fill="#06b6d4">
+    <!-- Circle ring -->
+    <path d="M 60 0
+             C 95 0, 124 26, 124 65
+             L 124 165
+             C 124 204, 95 230, 60 230
+             C 25 230, -4 204, -4 165
+             L -4 65
+             C -4 26, 25 0, 60 0
+             Z
+             M 60 36
+             C 40 36, 26 52, 26 70
+             L 26 160
+             C 26 178, 40 194, 60 194
+             C 80 194, 94 178, 94 160
+             L 94 70
+             C 94 52, 80 36, 60 36 Z"
+          transform="skewX(-6)"/>
+  </g>
+
+  <!-- The dive-board tail off the Q — the visual reveal. Reads
+       as the bottom-right serif of the Q at small sizes; at
+       large sizes it clearly extends past the letterform as a
+       diving board with a single bounce-line at the tip. -->
+  <g transform="translate(290 140)">
+    <rect x="92" y="186" width="80" height="14" fill="#06b6d4"
+          transform="skewX(-6)"/>
+    <!-- Tip dot — the dive-launch point -->
+    <circle cx="170" cy="172" r="8" fill="#67e8f9" transform="skewX(-6)"/>
+  </g>
+
+  <!-- Wordmark — small caps below the monogram -->
+  <text x="256" y="430" text-anchor="middle"
+        font-family="Helvetica, Arial, sans-serif"
+        font-size="20" font-weight="700"
+        letter-spacing="12" fill="#06b6d4">DIVINGHQ</text>
+  <line x1="170" y1="448" x2="342" y2="448"
+        stroke="#06b6d4" stroke-width="1" opacity="0.5"/>
+  <text x="256" y="476" text-anchor="middle"
+        font-family="Helvetica, Arial, sans-serif"
+        font-size="11" font-weight="600"
+        letter-spacing="6" fill="#67e8f9" opacity="0.7">COMPETITION PLATFORM</text>
+</svg>

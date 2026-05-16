@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="DivingHQ logo — option D">
+  <!-- OPTION D — Perfect 10
+       The perfect score baked into the mark. The "1" is a
+       stylised diving board (horizontal platform + vertical
+       support); the "0" is a circle that doubles as a splash
+       ripple. Insider-knowledge naming — competitive divers,
+       judges, federations parse the reference instantly;
+       spectators see "10" and absorb "competition / scoring"
+       at the gut level.
+
+       The "10.0" is also the visible score on the scoreboard
+       — the icon is literally what every diver's working
+       toward. -->
+  <rect width="512" height="512" rx="96" fill="#030712"/>
+
+  <!-- "1" — the diving platform.
+       Vertical support beam + horizontal platform top.
+       Reads as a 1 in a numeric pair, as a diving platform
+       when given the context. -->
+  <g fill="#06b6d4">
+    <!-- Vertical support (the tower) -->
+    <rect x="158" y="120" width="22" height="240" rx="3"/>
+    <!-- Platform (the diving board top) -->
+    <rect x="115" y="120" width="100" height="22" rx="3"/>
+    <!-- Edge highlight on the platform — gives the dive-board
+         its visual signature (the tip is where the diver
+         stands). -->
+    <circle cx="125" cy="131" r="6" fill="#67e8f9"/>
+  </g>
+
+  <!-- "0" — the perfect score / splash ripple.
+       Bold ring, with a smaller inner echo for ripple effect. -->
+  <circle cx="332" cy="240" r="100" fill="none"
+          stroke="#06b6d4" stroke-width="22"/>
+  <!-- Inner ripple — adds depth + the "splash" reading -->
+  <circle cx="332" cy="240" r="78" fill="none"
+          stroke="#06b6d4" stroke-width="2" opacity="0.35"/>
+
+  <!-- Decimal point — the dot between "10" and ".0", small but
+       essential to the "10.0 perfect score" read. -->
+  <circle cx="232" cy="345" r="10" fill="#67e8f9"/>
+
+  <!-- Wordmark -->
+  <text x="256" y="430" text-anchor="middle"
+        font-family="Helvetica, Arial, sans-serif"
+        font-size="32" font-weight="900" font-style="italic"
+        letter-spacing="3" fill="#06b6d4">DIVINGHQ</text>
+  <text x="256" y="468" text-anchor="middle"
+        font-family="Helvetica, Arial, sans-serif"
+        font-size="12" font-weight="600"
+        letter-spacing="6" fill="#67e8f9" opacity="0.6">SCORE EVERY DIVE</text>
+</svg>

@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="DivingHQ logo — option A">
+  <!-- OPTION A — Diver + HQ ring
+       Diver figure in a tuck position inside a circular seal,
+       with the wordmark "DIVING HQ" set around the ring like a
+       collegiate / federation crest. Institutional, sport-y,
+       reads "headquarters" without saying it. Single-colour
+       cyan on the dark navy panel so it works for monochrome
+       print + chroma-keys cleanly. -->
+  <rect width="512" height="512" rx="96" fill="#030712"/>
+
+  <!-- Outer ring (the "HQ" seal). 4px stroke at the rendered
+       size, scales cleanly to 16px favicon. -->
+  <circle cx="256" cy="256" r="200" fill="none"
+          stroke="#06b6d4" stroke-width="6" opacity="0.55"/>
+
+  <!-- Inner ring -->
+  <circle cx="256" cy="256" r="174" fill="none"
+          stroke="#06b6d4" stroke-width="2" opacity="0.35"/>
+
+  <!-- Diver in a tuck. Knees-to-chest, head down — the most
+       sport-iconic diver silhouette. -->
+  <g fill="#06b6d4">
+    <!-- Head -->
+    <circle cx="256" cy="160" r="26"/>
+    <!-- Body / tucked torso -->
+    <path d="M 232 192
+             C 215 215, 200 240, 205 270
+             C 210 296, 240 312, 275 308
+             C 312 305, 340 285, 348 252
+             C 354 226, 340 205, 318 196
+             C 296 188, 270 188, 248 192 Z"/>
+    <!-- Tucked arms hugging knees -->
+    <path d="M 230 232
+             C 218 248, 215 268, 225 285
+             C 235 298, 256 300, 270 290
+             C 278 285, 282 275, 280 264
+             C 277 250, 265 238, 250 234 Z"
+          fill="#030712"/>
+  </g>
+
+  <!-- Wave / water line. Subtle horizon under the figure so
+       the diver reads as mid-flight. -->
+  <path d="M 100 360 Q 180 376 256 360 T 412 360"
+        stroke="#06b6d4" stroke-width="3" fill="none"
+        stroke-linecap="round" opacity="0.5"/>
+  <path d="M 130 380 Q 200 392 256 380 T 382 380"
+        stroke="#06b6d4" stroke-width="2" fill="none"
+        stroke-linecap="round" opacity="0.3"/>
+
+  <!-- Wordmark — italic Helvetica-Bold (closest web-safe analog
+       to Barlow Condensed). Split: "DIVING" larger, "HQ" smaller
+       in cyan. -->
+  <text x="256" y="438" text-anchor="middle"
+        font-family="Helvetica, Arial, sans-serif"
+        font-size="32" font-weight="900" font-style="italic"
+        letter-spacing="4" fill="#06b6d4">DIVING</text>
+  <text x="256" y="470" text-anchor="middle"
+        font-family="Helvetica, Arial, sans-serif"
+        font-size="20" font-weight="700"
+        letter-spacing="8" fill="#67e8f9" opacity="0.85">HQ</text>
+</svg>
