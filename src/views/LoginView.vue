@@ -82,6 +82,11 @@ async function handleSubmit() {
       <RouterLink to="/forgot-password">Forgot your password? <span>Reset it</span></RouterLink>
       <RouterLink to="/register">No account? <span>Register here</span></RouterLink>
       <RouterLink to="/register-org">Registering a new federation? <span>Register your org</span></RouterLink>
+      <!-- User guide link — many users land directly on /login
+           and treat it as the home page; the guide link on the
+           actual home (`/`) is invisible to them. Same target
+           as the Home + Dashboard footer links. -->
+      <RouterLink to="/guide">New here? <span>Read the user guide</span></RouterLink>
     </div>
   </div>
 </template>
