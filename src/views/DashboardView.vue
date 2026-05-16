@@ -1188,8 +1188,14 @@ function attachSocketHandlers() {
 /* Dashboard wrapper — clamps horizontal overflow at the page
    level. */
 .dashboard {
-  overflow-x: hidden;
+  overflow-x: clip;
+  /* clip > hidden — hidden creates a new scrolling context
+     and lets descendants with sticky-positioning leak in iOS
+     Safari; clip is the modern recommendation that just stops
+     overflow without creating a scroll container. Universally
+     supported since Safari 16. */
   width: 100%;
+  max-width: 100vw;
   padding-bottom: 4rem;
 }
 
@@ -1696,28 +1702,65 @@ function attachSocketHandlers() {
   .header-inner { padding: 1.75rem 1.25rem 1.5rem; }
   .header-account {
     /* Allow wrapping onto multiple lines so search + buttons
-       can stack on phones. */
+       can stack on phones. Also drop flex-shrink:0 from the
+       desktop rule so the container can compress instead of
+       pushing the header wider than the viewport when the
+       welcome name is long. width:100% on the wrapped block
+       so the buttons can distribute across the row. */
     flex-wrap: wrap;
+    flex-shrink: 1;
+    width: 100%;
+    min-width: 0;
   }
   .find-diver-wrapper {
     /* Take a full row when wrapped — the buttons sit below. */
     flex: 1 1 100%;
     min-width: 0;
   }
+  .header-secondary-nav {
+    /* Buttons themselves can shrink + wrap onto a second line
+       if "SCOREBOARD & RESULTS" + "JUDGE ANALYSIS" can't fit. */
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 0.5rem;
+  }
+  .header-secondary-link {
+    /* Shrink the chunky letter-spacing on phones — the desktop
+       0.18em + 12px makes "SCOREBOARD & RESULTS" ~210px wide on
+       its own. 0.08em + 11px keeps the affordance readable but
+       fits comfortably alongside its sibling at 360px+. */
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    padding: 0.5rem 0.75rem;
+    flex: 1 1 auto;
+    text-align: center;
+    justify-content: center;
+    min-width: 0;
+  }
   .pulse-strip {
-    /* Tighter gaps + less vertical noise. */
+    /* Tighter gaps + less vertical noise. min-width:0 is
+       belt-and-braces against Safari reporting the chip row's
+       min-content width upward. */
     width: calc(100% - 2.5rem);
     max-width: calc(1400px - 2.5rem);
     padding: 0.6rem 0.85rem;
     gap: 0.4rem 0.85rem;
+    min-width: 0;
   }
   .tab-strip {
     padding: 0 1.25rem;
     /* Horizontal scroll instead of wrap — keeps the strip a
-       single visual line on phones, swipeable. */
+       single visual line on phones, swipeable. min-width:0
+       prevents the strip's intrinsic content size from
+       expanding .dashboard wider than the viewport (Safari
+       quirk: flex children with overflow-x:auto still report
+       their min-content width to their parent unless this is
+       set explicitly). */
     flex-wrap: nowrap;
     overflow-x: auto;
     scrollbar-width: none;          /* Firefox */
+    min-width: 0;
+    -webkit-overflow-scrolling: touch;
   }
   .tab-strip::-webkit-scrollbar { display: none; }
   .tab {
@@ -1768,9 +1811,15 @@ function attachSocketHandlers() {
     flex-wrap: nowrap;
     overflow-x: auto;
     scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    min-width: 0;
   }
   .pulse-strip::-webkit-scrollbar { display: none; }
   .pulse-chip { flex-shrink: 0; }
+  /* Slightly smaller chip numerals on phones so a 5-chip row
+     ("LIVE / UPCOMING / INVITED / PENDING / …") fits more of
+     its content on-screen before the scroll kicks in. */
+  .pulse-num { font-size: 13px; padding: 0.1rem 0.45rem; }
   /* On phones, hover popovers don't make sense (no hover);
      :focus-within still works for tap-to-focus, so users
      can tap a chip to see the popover before tapping
