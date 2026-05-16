@@ -549,6 +549,8 @@ app.use(require("./routes/coach")({
   pool,
   verifyToken,
   requireOrgAdmin,
+  bulkWriteLimiter,
+  loadEventForEntries,
 }));
 
 // Cross-org diver search + browse + orgs/all live in routes/

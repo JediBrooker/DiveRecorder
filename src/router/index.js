@@ -76,6 +76,14 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['coach'] },
   },
   {
+    // Coach-on-behalf-of dive list editor — Phase 2 of the coach
+    // feature bundle. Lets a coach submit / edit dive lists for
+    // any of their linked divers for a given event.
+    path: '/coach/dive-lists/:event_id',
+    component: () => import('@/views/CoachDiveListsView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['coach'] },
+  },
+  {
     path: '/control',
     component: () => import('@/views/ControlView.vue'),
     meta: { requiresAuth: true, requiresRole: ['org_admin', 'meet_manager', 'referee'] },

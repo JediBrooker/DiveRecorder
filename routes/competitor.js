@@ -38,232 +38,43 @@ module.exports = function createCompetitorRouter({
       try {
         await client.query("BEGIN");
 
-        // First confirm the event exists, belongs to the diver's own
-        // organisation, AND is still accepting entries (not started,
-        // not past its entries_close_at deadline). Without the org
-        // check a diver could submit against any event ID they can
-        // guess and pollute another org's roster; without the
-        // accepting-entries check a diver could keep editing their
-        // list mid-event or after the manager closed registration.
+        // Confirm the event exists and is still accepting entries.
+        // Without this gate a diver could keep editing post-start
+        // or after the manager closed registration.
         const gate = await loadEventForEntries(client, event_id);
         if (gate.error) {
           await client.query("ROLLBACK");
           return res.status(gate.status).json({ error: gate.error });
         }
-        const evRow = gate.event;
-        // Multi-federation entry gate. The event's host org is
-        // always allowed; a sysadmin can act anywhere; otherwise
-        // the diver's org must be on the participating list (an
-        // explicit opt-in by the host org_admin).
-        if (
-          evRow.org_id !== req.user.org_id
-          && !req.user.is_system_admin
-        ) {
-          const part = await client.query(
-            `SELECT 1 FROM event_participating_orgs
-              WHERE event_id = $1 AND org_id = $2`,
-            [event_id, req.user.org_id],
-          );
-          if (!part.rows.length) {
-            await client.query("ROLLBACK");
-            return res.status(403).json({
-              error: "Your federation isn't on this event's participating list",
-            });
-          }
-        }
-        const eventType = evRow.event_type || "individual";
-        const totalRounds = Number(evRow.total_rounds) || null;
 
-        // Sanity-check the dives array — must be a non-empty list of
-        // {dive_id, round_number} with no duplicate rounds and round
-        // numbers within range.
-        if (!Array.isArray(dives) || !dives.length) {
-          await client.query("ROLLBACK");
-          return res.status(400).json({ error: "dives must be a non-empty array" });
-        }
-        const seenRounds = new Set();
-        for (const d of dives) {
-          const rn = Number(d?.round_number);
-          if (!Number.isInteger(rn) || rn < 1) {
-            await client.query("ROLLBACK");
-            return res.status(400).json({ error: "Each dive needs an integer round_number ≥ 1" });
-          }
-          if (totalRounds && rn > totalRounds) {
-            await client.query("ROLLBACK");
-            return res.status(400).json({ error: `round_number ${rn} exceeds total_rounds ${totalRounds}` });
-          }
-          if (seenRounds.has(rn)) {
-            await client.query("ROLLBACK");
-            return res.status(400).json({ error: `Duplicate round_number ${rn}` });
-          }
-          seenRounds.add(rn);
-          if (!d.dive_id) {
-            await client.query("ROLLBACK");
-            return res.status(400).json({ error: "Each dive needs a dive_id" });
-          }
-        }
+        // All validation + insert lives in lib/dive-list-submit.js
+        // so the coach-on-behalf-of endpoint can reuse it.
+        const submitDiveList = require("../lib/dive-list-submit");
+        await submitDiveList({
+          client,
+          event: gate.event,
+          actor: {
+            id: req.user.id,
+            org_id: req.user.org_id,
+            is_system_admin: req.user.is_system_admin,
+          },
+          competitorId:    req.user.id,
+          competitorOrgId: req.user.org_id,
+          partnerId:       partner_id,
+          dives,
+        });
 
-        // Validate every dive_id against the directory at the
-        // event's height. Without this, a diver could submit
-        // dive_ids that don't exist (or exist for a different
-        // height), polluting standings + history. The directory
-        // check is one round-trip — cheap relative to the per-row
-        // INSERTs below. Also pulls dive_code + dd so the round-
-        // rules validator can compute group + DD-sum below.
-        const ids = dives.map(d => d.dive_id);
-        const heightVal = evRow.height ? parseFloat(evRow.height) : null;
-        const validIds = await client.query(
-          `SELECT id, dive_code, dd, height FROM dive_directory
-           WHERE id = ANY($1::uuid[])
-             AND ($2::numeric IS NULL OR height = $2)`,
-          [ids, heightVal],
-        );
-        const okMap = new Map(validIds.rows.map(r => [r.id, r]));
-        for (const d of dives) {
-          if (!okMap.has(d.dive_id)) {
-            await client.query("ROLLBACK");
-            return res.status(400).json({
-              error: `dive_id ${d.dive_id} is not in the dive directory at this event's height`,
-            });
-          }
-        }
-
-        // Prescribed round dives (migration 039). When the meet
-        // manager has pinned a specific dive to a round, the diver's
-        // pick at that round must be exactly that dive_id. When the
-        // slot is free but the operator pinned a height (mixed-
-        // board events with a prescribed board per round), the
-        // diver's free pick must be at that height. Server-side
-        // enforcement; the client also pre-fills + locks prescribed
-        // slots, but a hostile / out-of-date client could bypass.
-        const prescribed = await client.query(
-          `SELECT round_number, dive_id, height
-             FROM event_round_dives
-            WHERE event_id = $1`,
-          [event_id],
-        );
-        if (prescribed.rows.length) {
-          const byRound = new Map();
-          for (const slot of prescribed.rows) byRound.set(slot.round_number, slot);
-          const violations = [];
-          for (const d of dives) {
-            const slot = byRound.get(d.round_number);
-            if (!slot) continue;
-            if (slot.dive_id && slot.dive_id !== d.dive_id) {
-              violations.push(
-                `Round ${d.round_number} is operator-prescribed; submit the assigned dive only`,
-              );
-              continue;
-            }
-            if (!slot.dive_id && slot.height != null) {
-              const dir = okMap.get(d.dive_id);
-              if (dir && Number(dir.height) !== Number(slot.height)) {
-                violations.push(
-                  `Round ${d.round_number} requires a ${slot.height}m board dive`,
-                );
-              }
-            }
-          }
-          if (violations.length) {
-            await client.query("ROLLBACK");
-            return res.status(400).json({
-              error: "Dive list violates the event's prescribed dives",
-              violations,
-            });
-          }
-        }
-
-        // Round-rules validation (migration 038). When the event
-        // carries a round_rules JSON, hand it + the joined dive
-        // metadata (code + DD) to the validator so per-section
-        // DD-sum + group-distinctness violations are returned as
-        // structured error messages. NULL round_rules → skip;
-        // legacy (dd_limit_rounds, dd_limit_value) is handled by
-        // the existing per-dive checks elsewhere.
-        if (evRow.round_rules) {
-          const { validateDiveList } = require("../lib/round-rules");
-          const enriched = dives.map(d => {
-            const dir = okMap.get(d.dive_id);
-            return {
-              round_number: d.round_number,
-              dive_id:      d.dive_id,
-              dive_code:    dir?.dive_code,
-              dd:           dir?.dd,
-            };
-          });
-          const check = validateDiveList(evRow.round_rules, enriched);
-          if (!check.valid) {
-            await client.query("ROLLBACK");
-            return res.status(400).json({
-              error: "Dive list violates the event's round rules",
-              violations: check.errors,
-            });
-          }
-        }
-
-        // For synchro events, validate the partner exists, isn't
-        // the user themselves, and is a diver in the same org.
-        let resolvedPartnerId = null;
-        if (eventType === "synchro_pair") {
-          if (!partner_id || partner_id === req.user.id) {
-            await client.query("ROLLBACK");
-            return res.status(400).json({
-              error: "A different partner is required for synchronised events",
-            });
-          }
-          // Partner eligibility — for international events the
-          // partner can come from any federation that's been
-          // opted onto the event (host or participating org).
-          // For domestic events this collapses to "same org as
-          // the entrant" which matches the prior behaviour.
-          const p = await client.query(
-            `SELECT u.id FROM users u
-             JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id AND r.role = 'diver'
-             WHERE u.id = $1 AND u.org_id IN (
-                     SELECT org_id FROM events WHERE id = $2
-                     UNION
-                     SELECT org_id FROM event_participating_orgs WHERE event_id = $2
-                   )`,
-            [partner_id, event_id],
-          );
-          if (!p.rows.length) {
-            await client.query("ROLLBACK");
-            return res.status(400).json({
-              error: "Partner must be a diver in a federation that's eligible to enter this event",
-            });
-          }
-          resolvedPartnerId = partner_id;
-        }
-
-        for (const dive of dives) {
-          // Upsert so a diver can edit their list post-advance
-          // (rows already exist with the inherited dive_ids;
-          // re-submit replaces them). Migration 041: confirmed_at
-          // stamps when the diver actively submitted, so the
-          // operator can audit who responded vs. who let the
-          // inherited list ride past the lock.
-          await client.query(
-            `INSERT INTO competitor_dive_lists
-                (competitor_id, partner_id, event_id, dive_id, round_number, confirmed_at)
-             VALUES ($1, $2, $3, $4, $5, NOW())
-             ON CONFLICT (event_id, competitor_id, round_number)
-             DO UPDATE SET
-                dive_id      = EXCLUDED.dive_id,
-                partner_id   = EXCLUDED.partner_id,
-                confirmed_at = NOW()`,
-            [
-              req.user.id,
-              resolvedPartnerId,
-              event_id,
-              dive.dive_id,
-              dive.round_number,
-            ],
-          );
-        }
         await client.query("COMMIT");
         res.json({ message: "Dive list submitted" });
       } catch (err) {
         await client.query("ROLLBACK");
+        if (err.status) {
+          // Validation error from the shared helper — return its
+          // structured shape with optional `violations`.
+          const body = { error: err.message };
+          if (err.violations) body.violations = err.violations;
+          return res.status(err.status).json(body);
+        }
         console.error("[Submit List Error]", err.message);
         res
           .status(500)

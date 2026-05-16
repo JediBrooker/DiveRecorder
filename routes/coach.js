@@ -1,27 +1,54 @@
 // Coach routes — a coach picks up divers via coach_diver_links
 // (created by an org admin in the User Manager). These endpoints
-// power the coach's dashboard.
+// power the coach's dashboard + on-behalf-of dive-list submission.
 //
-//   GET    /api/coach/dashboard            per-diver next-dive + rank + last-dive
-//   GET    /api/coach/up-next              squad members in Live events,
-//                                          sorted by "dives until you're up"
-//   GET    /api/coach/divers               linked-divers tile list
-//   GET    /api/orgs/:id/coach-links       admin link admin view
-//   POST   /api/orgs/:id/coach-links       grant link
-//   DELETE /api/coach-links/:id            revoke link
+//   GET    /api/coach/dashboard                       per-diver next-dive + rank + last-dive
+//   GET    /api/coach/up-next                         squad members in Live events,
+//                                                     sorted by "dives until you're up"
+//   GET    /api/coach/divers                          linked-divers tile list
+//   GET    /api/coach/events                          events where the coach has a squad member entered
+//                                                     OR which are open for entry
+//   GET    /api/coach/dive-lists/:event_id            squad rows + current dive lists for one event
+//   POST   /api/coach/dive-lists/:event_id/:diver_id  submit/edit a single diver's list
+//   GET    /api/orgs/:id/coach-links                  admin link admin view
+//   POST   /api/orgs/:id/coach-links                  grant link
+//   DELETE /api/coach-links/:id                       revoke link
 //
 // Mounted via:
 //   app.use(require('./routes/coach')({ … }))
 
 const express = require("express");
+const { recordAudit } = require("../lib/audit");
+const submitDiveList = require("../lib/dive-list-submit");
 
 module.exports = function createCoachRouter({
   pool,
   verifyToken,
   requireOrgAdmin,
+  bulkWriteLimiter,
+  loadEventForEntries,
 }) {
   if (!pool) throw new Error("createCoachRouter requires { pool, … }");
   const router = express.Router();
+
+  // Helper: assert that the logged-in coach has a coach_diver_links
+  // row for the target diver. Returns the diver row (with org_id)
+  // on success; throws an http-shaped error otherwise.
+  async function requireCoachLink(coachId, diverId) {
+    const r = await pool.query(
+      `SELECT u.id, u.org_id, u.full_name
+         FROM coach_diver_links link
+         JOIN users u ON u.id = link.diver_id
+        WHERE link.coach_id = $1 AND link.diver_id = $2`,
+      [coachId, diverId],
+    );
+    if (!r.rows.length) {
+      const err = new Error("You aren't linked to this diver as a coach");
+      err.status = 403;
+      throw err;
+    }
+    return r.rows[0];
+  }
 
   // -------------------------------------------------------------
   // GET /api/coach/dashboard — for every linked diver, return the
@@ -348,6 +375,269 @@ module.exports = function createCoachRouter({
       res.status(500).json({ seconds_per_dive: secondsPerDive, max_eta_minutes: maxEtaMinutes, rows: [] });
     }
   });
+
+  // -------------------------------------------------------------
+  // GET /api/coach/events — every event where the coach has at
+  // least one linked diver entered, OR which is currently open
+  // for entry within the coach's org (so the coach can pre-emptively
+  // file lists before their divers are formally in the roster).
+  //
+  // Returns one row per event with:
+  //   { event_id, event_name, height, event_type, status, meet_id,
+  //     meet_name, entries_close_at, dive_list_locks_at,
+  //     total_rounds, squad_entered_count }
+  //
+  // The Coach console uses this to drive the meet-day "Dive lists"
+  // sub-page: pick an event → see your squad → edit per-diver list.
+  // -------------------------------------------------------------
+  router.get("/api/coach/events", verifyToken, async (req, res) => {
+    try {
+      const r = await pool.query(
+        `WITH my_divers AS (
+           SELECT diver_id FROM coach_diver_links WHERE coach_id = $1
+         ),
+         entered AS (
+           SELECT DISTINCT e.id AS event_id, COUNT(DISTINCT cdl.competitor_id) AS squad_count
+             FROM events e
+             JOIN competitor_dive_lists cdl ON cdl.event_id = e.id
+            WHERE cdl.competitor_id IN (SELECT diver_id FROM my_divers)
+              AND cdl.withdrawn_at IS NULL
+              AND e.status IN ('Upcoming', 'Live')
+            GROUP BY e.id
+         )
+         SELECT e.id AS event_id, e.name AS event_name,
+                e.height, e.event_type, e.status,
+                e.meet_id, m.name AS meet_name,
+                e.entries_close_at, e.dive_list_locks_at,
+                e.total_rounds,
+                COALESCE(ent.squad_count, 0)::int AS squad_entered_count
+           FROM events e
+           LEFT JOIN meets m ON m.id = e.meet_id
+           LEFT JOIN entered ent ON ent.event_id = e.id
+          WHERE e.id IN (SELECT event_id FROM entered)
+          ORDER BY
+            CASE e.status WHEN 'Live' THEN 0 WHEN 'Upcoming' THEN 1 ELSE 2 END,
+            COALESCE(e.entries_close_at, e.scheduled_at, e.created_at) ASC`,
+        [req.user.id],
+      );
+      res.json(r.rows);
+    } catch (err) {
+      console.error("[Coach Events Error]", err.message);
+      res.status(500).json([]);
+    }
+  });
+
+  // -------------------------------------------------------------
+  // GET /api/coach/dive-lists/:event_id — for one event, return
+  // every linked diver who's entered (or eligible to enter) plus
+  // their current dive list. Powers the bulk dive-list editor:
+  //
+  //   {
+  //     event: { id, name, height, event_type, total_rounds,
+  //              round_rules, entries_close_at, dive_list_locks_at,
+  //              prescribed_rounds: [{ round_number, dive_id, height }] },
+  //     divers: [
+  //       {
+  //         diver_id, full_name, country_code, club_name, club_code,
+  //         partner_id, partner_name,
+  //         confirmed_at, withdrawn_at,
+  //         is_reserve, reserve_position,
+  //         dives: [{ round_number, dive_id, dive_code, position, dd, description }]
+  //       },
+  //       …
+  //     ]
+  //   }
+  //
+  // We pull EVERY linked diver, not just the ones with a dive_list
+  // row, so the coach can see "Emma has nothing entered yet —
+  // build her a list" alongside divers who are already in.
+  // -------------------------------------------------------------
+  router.get("/api/coach/dive-lists/:event_id", verifyToken, async (req, res) => {
+    try {
+      const [evRes, prescribedRes, diverRes] = await Promise.all([
+        pool.query(
+          `SELECT e.id, e.name, e.height, e.event_type, e.status,
+                  e.total_rounds, e.round_rules,
+                  e.entries_close_at, e.dive_list_locks_at,
+                  e.meet_id, m.name AS meet_name
+             FROM events e
+             LEFT JOIN meets m ON m.id = e.meet_id
+            WHERE e.id = $1`,
+          [req.params.event_id],
+        ),
+        pool.query(
+          `SELECT round_number, dive_id, height
+             FROM event_round_dives
+            WHERE event_id = $1
+            ORDER BY round_number`,
+          [req.params.event_id],
+        ),
+        pool.query(
+          `WITH my_divers AS (
+             SELECT u.id, u.full_name, u.org_id,
+                    o.country_code,
+                    cl.name AS club_name, cl.short_code AS club_code
+               FROM coach_diver_links link
+               JOIN users u ON u.id = link.diver_id
+               JOIN organisations o ON o.id = u.org_id
+               LEFT JOIN clubs cl ON cl.id = u.club_id
+              WHERE link.coach_id = $1
+           ),
+           diver_dives AS (
+             SELECT cdl.competitor_id,
+                    cdl.partner_id,
+                    pu.full_name AS partner_name,
+                    cdl.round_number,
+                    cdl.dive_id, cdl.confirmed_at, cdl.withdrawn_at,
+                    cdl.is_reserve, cdl.reserve_position,
+                    d.dive_code, d.position, d.dd, d.description
+               FROM competitor_dive_lists cdl
+               LEFT JOIN dive_directory d ON d.id = cdl.dive_id
+               LEFT JOIN users pu ON pu.id = cdl.partner_id
+              WHERE cdl.event_id = $2
+                AND cdl.competitor_id IN (SELECT id FROM my_divers)
+           )
+           SELECT md.id AS diver_id, md.full_name, md.country_code,
+                  md.club_name, md.club_code, md.org_id,
+                  /* aggregate to one row per diver with their dive_list as a JSON array */
+                  COALESCE(json_agg(
+                    json_build_object(
+                      'round_number', dd.round_number,
+                      'dive_id',      dd.dive_id,
+                      'dive_code',    dd.dive_code,
+                      'position',     dd.position,
+                      'dd',           dd.dd,
+                      'description',  dd.description
+                    ) ORDER BY dd.round_number
+                  ) FILTER (WHERE dd.round_number IS NOT NULL), '[]'::json) AS dives,
+                  MAX(dd.partner_id)   AS partner_id,
+                  MAX(dd.partner_name) AS partner_name,
+                  MAX(dd.confirmed_at) AS confirmed_at,
+                  MAX(dd.withdrawn_at) AS withdrawn_at,
+                  BOOL_OR(dd.is_reserve)         AS is_reserve,
+                  MIN(dd.reserve_position)::int  AS reserve_position
+             FROM my_divers md
+             LEFT JOIN diver_dives dd ON dd.competitor_id = md.id
+            GROUP BY md.id, md.full_name, md.country_code,
+                     md.club_name, md.club_code, md.org_id
+            ORDER BY md.full_name`,
+          [req.user.id, req.params.event_id],
+        ),
+      ]);
+
+      if (!evRes.rows.length) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const event = evRes.rows[0];
+      res.json({
+        event: {
+          id: event.id,
+          name: event.name,
+          height: event.height,
+          event_type: event.event_type,
+          status: event.status,
+          total_rounds: event.total_rounds,
+          round_rules: event.round_rules,
+          entries_close_at: event.entries_close_at,
+          dive_list_locks_at: event.dive_list_locks_at,
+          meet_id: event.meet_id,
+          meet_name: event.meet_name,
+          prescribed_rounds: prescribedRes.rows,
+        },
+        divers: diverRes.rows,
+      });
+    } catch (err) {
+      console.error("[Coach Dive Lists Error]", err.message);
+      res.status(500).json({ error: "Failed to load dive lists" });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // POST /api/coach/dive-lists/:event_id/:diver_id — submit /
+  // edit one of the coach's linked divers' dive list for a given
+  // event. Reuses the same validation + UPSERT as the diver-self
+  // path (POST /api/competitor/submit-list) via the shared
+  // lib/dive-list-submit helper, so prescribed-dive enforcement,
+  // round-rules, and synchro partner checks are identical.
+  //
+  // Audit-logged with the coach + diver ids so the operator can
+  // see "this list was submitted by their coach, not the diver".
+  // -------------------------------------------------------------
+  router.post(
+    "/api/coach/dive-lists/:event_id/:diver_id",
+    bulkWriteLimiter,
+    verifyToken,
+    async (req, res) => {
+      const { event_id, diver_id } = req.params;
+      const { dives, partner_id } = req.body || {};
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+
+        // Coach → diver link gate.
+        let diver;
+        try {
+          diver = await requireCoachLink(req.user.id, diver_id);
+        } catch (err) {
+          await client.query("ROLLBACK");
+          return res.status(err.status || 500).json({ error: err.message });
+        }
+
+        // Event still accepting entries.
+        const gate = await loadEventForEntries(client, event_id);
+        if (gate.error) {
+          await client.query("ROLLBACK");
+          return res.status(gate.status).json({ error: gate.error });
+        }
+
+        await submitDiveList({
+          client,
+          event: gate.event,
+          actor: {
+            id: req.user.id,
+            org_id: req.user.org_id,
+            is_system_admin: req.user.is_system_admin,
+          },
+          competitorId:    diver_id,
+          competitorOrgId: diver.org_id,
+          partnerId:       partner_id,
+          dives,
+        });
+
+        // Audit: a coach acted on a diver's list. Operator visibility.
+        await recordAudit(client, {
+          actor_user_id: req.user.id,
+          action: "coach.submit_dive_list",
+          entity_type: "dive_list",
+          entity_id: diver_id,
+          context: {
+            event_id,
+            coach_id: req.user.id,
+            diver_id,
+            dive_count: Array.isArray(dives) ? dives.length : 0,
+            partner_id: partner_id || null,
+          },
+        });
+
+        await client.query("COMMIT");
+        res.json({
+          message: `Dive list submitted for ${diver.full_name}`,
+          diver_id,
+        });
+      } catch (err) {
+        await client.query("ROLLBACK");
+        if (err.status) {
+          const body = { error: err.message };
+          if (err.violations) body.violations = err.violations;
+          return res.status(err.status).json(body);
+        }
+        console.error("[Coach Submit List Error]", err.message);
+        res.status(500).json({ error: "Failed to submit dive list" });
+      } finally {
+        client.release();
+      }
+    },
+  );
 
   // -------------------------------------------------------------
   // GET /api/coach/divers — coaches see their own linked divers,

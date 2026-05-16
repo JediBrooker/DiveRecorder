@@ -325,36 +325,44 @@ const hasMultipleMeets = computed(() => groupedByMeet.value.length > 1)
           </div>
         </section>
 
-        <!-- UPCOMING — same shape, dimmer accent -->
+        <!-- UPCOMING — same shape, dimmer accent. Each card carries
+             a small "✎ Dive lists" action that deep-links to the
+             coach-on-behalf-of editor for that event. -->
         <section v-if="bucket.upcoming.length" class="diver-section">
           <div class="section-head">
             <span class="section-label">📅 Upcoming</span>
             <span class="section-count">{{ bucket.upcoming.length }}</span>
           </div>
           <div class="diver-grid">
-            <RouterLink v-for="r in bucket.upcoming"
-                        :key="r.diver_id + r.event_id"
-                        :to="`/profile/${r.diver_id}`"
-                        class="diver-card upcoming-card">
-              <div class="diver-card-head">
-                <span class="diver-card-name">{{ r.full_name }}</span>
-                <span v-if="r.country_code" class="diver-card-ctry">{{ r.country_code }}</span>
+            <div v-for="r in bucket.upcoming"
+                 :key="r.diver_id + r.event_id"
+                 class="diver-card upcoming-card">
+              <RouterLink :to="`/profile/${r.diver_id}`" class="diver-card-inner">
+                <div class="diver-card-head">
+                  <span class="diver-card-name">{{ r.full_name }}</span>
+                  <span v-if="r.country_code" class="diver-card-ctry">{{ r.country_code }}</span>
+                </div>
+                <div v-if="r.club_name" class="diver-card-club">
+                  {{ r.club_name }}<span v-if="r.club_code" class="diver-card-code">{{ r.club_code }}</span>
+                </div>
+                <div class="diver-card-event">
+                  <span class="event-name">{{ r.event_name }}</span>
+                </div>
+                <div class="diver-card-next">
+                  <span class="next-label">Round 1</span>
+                  <span class="next-code">{{ r.dive_code }}{{ r.position }}</span>
+                  <span v-if="r.dd" class="next-dd">DD {{ Number(r.dd).toFixed(1) }}</span>
+                </div>
+              </RouterLink>
+              <div class="diver-card-foot diver-card-foot-actions">
+                <RouterLink :to="`/coach/dive-lists/${r.event_id}`"
+                            class="card-action card-action-dive-list">
+                  ✎ Dive lists
+                </RouterLink>
+                <RouterLink :to="`/profile/${r.diver_id}`"
+                            class="diver-card-cta">View profile →</RouterLink>
               </div>
-              <div v-if="r.club_name" class="diver-card-club">
-                {{ r.club_name }}<span v-if="r.club_code" class="diver-card-code">{{ r.club_code }}</span>
-              </div>
-              <div class="diver-card-event">
-                <span class="event-name">{{ r.event_name }}</span>
-              </div>
-              <div class="diver-card-next">
-                <span class="next-label">Round 1</span>
-                <span class="next-code">{{ r.dive_code }}{{ r.position }}</span>
-                <span v-if="r.dd" class="next-dd">DD {{ Number(r.dd).toFixed(1) }}</span>
-              </div>
-              <div class="diver-card-foot">
-                <span class="diver-card-cta">View profile →</span>
-              </div>
-            </RouterLink>
+            </div>
           </div>
         </section>
 
@@ -657,7 +665,31 @@ const hasMultipleMeets = computed(() => groupedByMeet.value.length > 1)
 .diver-card-cta {
   font-family: var(--font-display); font-weight: 700;
   letter-spacing: 0.15em; color: var(--cyan); text-transform: uppercase;
+  text-decoration: none;
 }
+.diver-card-inner {
+  display: flex; flex-direction: column; gap: 0.45rem;
+  text-decoration: none; color: inherit;
+  margin: -1rem -1.1rem -0.5rem -1.1rem;
+  padding: 1rem 1.1rem 0.5rem;
+}
+.diver-card-foot-actions {
+  margin-top: 0.5rem; padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+.card-action {
+  font-family: var(--font-display); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.15em; text-transform: uppercase;
+  text-decoration: none; color: var(--text-2);
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border); border-radius: 3px;
+  transition: all 0.12s;
+}
+.card-action:hover {
+  border-color: var(--cyan); color: var(--cyan);
+  background: var(--cyan-dim);
+}
+.card-action-dive-list { color: var(--text); }
 
 .actions-row {
   display: flex; justify-content: center; margin-top: 1.5rem;
