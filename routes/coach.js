@@ -10,6 +10,8 @@
 //                                                     OR which are open for entry
 //   GET    /api/coach/dive-lists/:event_id            squad rows + current dive lists for one event
 //   POST   /api/coach/dive-lists/:event_id/:diver_id  submit/edit a single diver's list
+//   POST   /api/coach/dive-lists/:event_id/:diver_id/withdraw
+//                                                     scratch a diver from an event
 //   GET    /api/coach/alert-preferences               coach's push settings (auto-creates default)
 //   POST   /api/coach/alert-preferences               update { enabled, dives_ahead }
 //   GET    /api/orgs/:id/coach-links                  admin link admin view
@@ -635,6 +637,125 @@ module.exports = function createCoachRouter({
         }
         console.error("[Coach Submit List Error]", err.message);
         res.status(500).json({ error: "Failed to submit dive list" });
+      } finally {
+        client.release();
+      }
+    },
+  );
+
+  // -------------------------------------------------------------
+  // POST /api/coach/dive-lists/:event_id/:diver_id/withdraw
+  //
+  // Phase 4 — coach scratches one of their linked divers from an
+  // event. Sets withdrawn_at, withdrawn_by_user_id (the coach),
+  // and withdrawn_reason on every competitor_dive_lists row this
+  // diver has in the event. Gated by:
+  //
+  //   1. coach_diver_links — coach must own the diver.
+  //   2. Event must not be Completed (we don't rewrite history).
+  //      Live events ARE permitted — sometimes a diver gets
+  //      injured mid-event and pulls.
+  //
+  // Audit-logged as `coach.withdraw_dive_list` so the operator
+  // can see at a glance "Tom was withdrawn by his coach @ 14:32,
+  // reason: shoulder injury". On the live Control Room the
+  // operator gets a meet_held-style banner so they're not blind-
+  // sided when the diver disappears from the queue.
+  // -------------------------------------------------------------
+  router.post(
+    "/api/coach/dive-lists/:event_id/:diver_id/withdraw",
+    verifyToken,
+    async (req, res) => {
+      const { event_id, diver_id } = req.params;
+      const reason = (req.body?.reason || "").trim().slice(0, 500);
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+
+        // Coach → diver link gate.
+        let diver;
+        try {
+          diver = await requireCoachLink(req.user.id, diver_id);
+        } catch (err) {
+          await client.query("ROLLBACK");
+          return res.status(err.status || 500).json({ error: err.message });
+        }
+
+        // Event-status gate. Completed events are frozen; refuse.
+        const ev = await client.query(
+          `SELECT id, name, status FROM events WHERE id = $1`,
+          [event_id],
+        );
+        if (!ev.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ error: "Event not found" });
+        }
+        if (ev.rows[0].status === "Completed") {
+          await client.query("ROLLBACK");
+          return res.status(409).json({
+            error: "Event is Completed — withdrawing now would rewrite history",
+          });
+        }
+
+        // Mark every (un-withdrawn) row for this diver in this
+        // event as withdrawn. If the diver has no rows at all,
+        // 404. If every row is already withdrawn, 409 — nothing
+        // to do, surface that to the coach.
+        const upd = await client.query(
+          `UPDATE competitor_dive_lists
+              SET withdrawn_at         = NOW(),
+                  withdrawn_by_user_id = $1,
+                  withdrawn_reason     = $2
+            WHERE event_id      = $3
+              AND competitor_id = $4
+              AND withdrawn_at IS NULL
+            RETURNING id`,
+          [req.user.id, reason || null, event_id, diver_id],
+        );
+        if (!upd.rows.length) {
+          // Distinguish "not entered" from "already withdrawn".
+          const any = await client.query(
+            `SELECT 1 FROM competitor_dive_lists
+              WHERE event_id = $1 AND competitor_id = $2 LIMIT 1`,
+            [event_id, diver_id],
+          );
+          await client.query("ROLLBACK");
+          if (!any.rows.length) {
+            return res.status(404).json({
+              error: `${diver.full_name} isn't entered in this event`,
+            });
+          }
+          return res.status(409).json({
+            error: `${diver.full_name} is already withdrawn from this event`,
+          });
+        }
+
+        await recordAudit(client, {
+          actor_user_id: req.user.id,
+          action: "coach.withdraw_dive_list",
+          entity_type: "dive_list",
+          entity_id: diver_id,
+          context: {
+            event_id,
+            event_name: ev.rows[0].name,
+            event_status: ev.rows[0].status,
+            coach_id: req.user.id,
+            diver_id,
+            row_count: upd.rows.length,
+            reason: reason || null,
+          },
+        });
+
+        await client.query("COMMIT");
+        res.json({
+          message: `${diver.full_name} withdrawn from ${ev.rows[0].name}`,
+          diver_id,
+          rows_updated: upd.rows.length,
+        });
+      } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("[Coach Withdraw Error]", err.message);
+        res.status(500).json({ error: "Failed to withdraw" });
       } finally {
         client.release();
       }

@@ -24,6 +24,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { showSuccess, showError } from '@/composables/useNotify'
+import { confirmAction } from '@/composables/useConfirm'
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -169,6 +170,40 @@ function isPrescribedHeight(round_number) {
   return slot && !slot.dive_id && slot.height != null
 }
 
+async function withdrawDiver(diver) {
+  // Two-step confirm — withdrawing is a high-blast-radius action.
+  // Operator AND diver both see the consequence (Control Room
+  // queue + spectator scoreboard), so we want intentional clicks.
+  const reason = window.prompt(
+    `Withdraw ${diver.full_name} from ${event.value?.name || 'this event'}?\n\n` +
+    `Optionally enter a reason (visible in the audit log + Control Room):`,
+    '',
+  )
+  if (reason === null) return // cancelled
+  const proceed = await confirmAction({
+    title: `Withdraw ${diver.full_name}?`,
+    body: `This marks every round in this event as withdrawn for ${diver.full_name}. ` +
+          `The operator will see it in the Control Room and the spectator scoreboard will reflect the change. ` +
+          `Reinstating requires the meet manager.`,
+    confirmLabel: 'Withdraw',
+    confirmKind: 'danger',
+  })
+  if (!proceed) return
+  try {
+    const res = await auth.apiFetch(
+      `/api/coach/dive-lists/${eventId.value}/${diver.diver_id}/withdraw`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason.trim() || undefined }),
+      },
+    )
+    showSuccess(res.message || `${diver.full_name} withdrawn`)
+    await load()
+  } catch (err) {
+    showError(err.message || 'Withdraw failed')
+  }
+}
+
 function prescribedHeightLabel(round_number) {
   const slot = prescribedByRound.value.get(round_number)
   return slot?.height
@@ -240,10 +275,16 @@ onMounted(load)
               <span v-else-if="!diver.confirmed_at && !editing[diver.diver_id]" class="diver-status pending">
                 Not submitted
               </span>
-              <button v-if="!editing[diver.diver_id]"
+              <button v-if="!editing[diver.diver_id] && !diver.withdrawn_at"
                       class="btn btn-primary btn-sm"
                       @click="startEdit(diver)">
                 {{ diver.confirmed_at ? 'Edit list' : 'Submit list' }}
+              </button>
+              <button v-if="!editing[diver.diver_id] && !diver.withdrawn_at && diver.dives.length"
+                      class="btn btn-ghost btn-sm withdraw-btn"
+                      @click="withdrawDiver(diver)"
+                      title="Scratch this diver from the event">
+                Withdraw
               </button>
             </div>
           </div>
@@ -389,7 +430,9 @@ onMounted(load)
   padding: 0.1rem 0.4rem;
 }
 
-.diver-actions { display: flex; align-items: center; gap: 0.6rem; }
+.diver-actions { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.withdraw-btn { color: #ef4444; border-color: rgba(239,68,68,0.4); }
+.withdraw-btn:hover { background: rgba(239,68,68,0.06); border-color: #ef4444; }
 .diver-status {
   font-family: var(--font-mono); font-size: 11px;
 }
