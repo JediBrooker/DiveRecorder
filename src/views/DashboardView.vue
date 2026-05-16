@@ -1236,6 +1236,20 @@ function attachSocketHandlers() {
       v-else-if="activeTab === 'other'"
       :icons="ICONS"
     />
+
+    <!-- Dashboard footer — single muted strip below the active
+         role panel. Pre-fills the GitHub issue title with
+         "Bug:" + a `bug` label so reports land tagged without
+         the reporter having to know the taxonomy. -->
+    <footer class="dashboard-footer">
+      <span class="dashboard-footer-label">Spot a bug?</span>
+      <a
+        href="https://github.com/JediBrooker/DiveRecorder/issues/new?labels=bug&title=Bug%3A%20"
+        target="_blank"
+        rel="noopener"
+        class="dashboard-footer-link"
+      >🐛 Report it on GitHub →</a>
+    </footer>
   </div>
 </template>
 
@@ -1973,6 +1987,52 @@ function attachSocketHandlers() {
     padding: 0.7rem 0.8rem;
     font-size: 12px;
     letter-spacing: 0.06em;
+  }
+}
+
+/* =============================================================
+   Footer — single muted "Spot a bug? Report it on GitHub" strip
+   at the bottom of the page, beneath whichever role panel is
+   active. Intentionally quiet so it doesn't compete with the
+   panel content above; centred so it reads as page-chrome
+   rather than something the user needs to action.
+   ============================================================= */
+.dashboard-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin: 2.5rem auto 0;
+  padding: 1.25rem 1.5rem 0;
+  max-width: 1400px;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.dashboard-footer-label {
+  color: var(--text-3);
+}
+.dashboard-footer-link {
+  color: var(--cyan);
+  text-decoration: none;
+  transition: color 0.12s, transform 0.12s;
+}
+.dashboard-footer-link:hover {
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+@media (max-width: 600px) {
+  .dashboard-footer {
+    margin-top: 1.5rem;
+    padding: 1rem 1rem 0;
+    gap: 0.5rem;
+    font-size: 10px;
+    letter-spacing: 0.12em;
   }
 }
 </style>

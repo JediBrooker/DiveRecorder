@@ -145,6 +145,13 @@ onMounted(() => {
         <RouterLink to="/register">Register</RouterLink>
         <RouterLink to="/register-org">Register Federation</RouterLink>
         <RouterLink to="/scoreboard">Scoreboard &amp; Results</RouterLink>
+        <!-- Public issue tracker. Pre-fills the title with
+             "Bug:" + a bug label so the report lands tagged
+             without the reporter having to know our taxonomy. -->
+        <a href="https://github.com/JediBrooker/DiveRecorder/issues/new?labels=bug&amp;title=Bug%3A%20"
+           target="_blank"
+           rel="noopener"
+           class="footer-bug">🐛 Report a bug</a>
       </div>
     </div>
   </footer>
