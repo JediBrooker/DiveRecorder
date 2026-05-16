@@ -22,6 +22,7 @@ defineProps({
         <RouterLink to="/sign-off-codes" class="goto-tile tile-amber">
           <div class="goto-icon" v-html="icons.signOff"></div>
           <div class="goto-title">Sign-Off Codes</div>
+          <div class="goto-desc">Enter the meet manager's 6-digit handoff code to confirm Cut 3.</div>
         </RouterLink>
       </div>
     </div>

@@ -46,14 +46,17 @@ const props = defineProps({
         <RouterLink to="/manager" class="goto-tile tile-amber">
           <div class="goto-icon" v-html="icons.manager"></div>
           <div class="goto-title">Meet Manager</div>
+          <div class="goto-desc">Create meets and events, set the panel, build rosters.</div>
         </RouterLink>
         <RouterLink to="/control" class="goto-tile tile-cyan">
           <div class="goto-icon" v-html="icons.control"></div>
           <div class="goto-title">Control Room</div>
+          <div class="goto-desc">Drive scoring on the day — active diver, shot clock, holds.</div>
         </RouterLink>
         <RouterLink to="/assign-judges" class="goto-tile tile-cyan">
           <div class="goto-icon" v-html="icons.judges"></div>
           <div class="goto-title">Assign Judges</div>
+          <div class="goto-desc">Seat panels onto events ahead of the meet.</div>
         </RouterLink>
       </div>
     </div>

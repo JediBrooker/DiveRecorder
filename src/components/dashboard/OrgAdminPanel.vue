@@ -68,30 +68,37 @@ const props = defineProps({
         <RouterLink to="/manager" class="goto-tile tile-amber">
           <div class="goto-icon" v-html="icons.manager"></div>
           <div class="goto-title">Meet Manager</div>
+          <div class="goto-desc">Create meets and events, set the panel, build rosters.</div>
         </RouterLink>
         <RouterLink to="/control" class="goto-tile tile-cyan">
           <div class="goto-icon" v-html="icons.control"></div>
           <div class="goto-title">Control Room</div>
+          <div class="goto-desc">Drive scoring on the day — active diver, shot clock, holds.</div>
         </RouterLink>
         <RouterLink to="/users" class="goto-tile tile-purple">
           <div class="goto-icon" v-html="icons.users"></div>
           <div class="goto-title">User Manager</div>
+          <div class="goto-desc">Grant roles, link coaches to divers, manage accounts.</div>
         </RouterLink>
         <RouterLink to="/audit" class="goto-tile tile-amber">
           <div class="goto-icon" v-html="icons.audit"></div>
           <div class="goto-title">Audit Log</div>
+          <div class="goto-desc">Federation-wide activity — scores, role changes, edits.</div>
         </RouterLink>
         <RouterLink to="/clubs" class="goto-tile tile-green">
           <div class="goto-icon" v-html="icons.clubs"></div>
           <div class="goto-title">Clubs</div>
+          <div class="goto-desc">Manage the clubs in your federation.</div>
         </RouterLink>
         <RouterLink to="/teams" class="goto-tile tile-purple">
           <div class="goto-icon" v-html="icons.teams"></div>
           <div class="goto-title">Teams</div>
+          <div class="goto-desc">Set up team-event rosters and per-team dive lists.</div>
         </RouterLink>
         <RouterLink to="/assign-judges" class="goto-tile tile-cyan">
           <div class="goto-icon" v-html="icons.judges"></div>
           <div class="goto-title">Assign Judges</div>
+          <div class="goto-desc">Seat panels onto events ahead of the meet.</div>
         </RouterLink>
       </div>
     </div>

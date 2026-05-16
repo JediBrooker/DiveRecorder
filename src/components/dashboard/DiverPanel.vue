@@ -57,14 +57,17 @@ defineProps({
         <RouterLink to="/competitor" class="goto-tile tile-green">
           <div class="goto-icon" v-html="icons.diver"></div>
           <div class="goto-title">Submit Dive Sheets</div>
+          <div class="goto-desc">Pick your dives per round before each event's entry deadline.</div>
         </RouterLink>
         <RouterLink to="/profile" class="goto-tile tile-cyan">
           <div class="goto-icon" v-html="icons.profile"></div>
           <div class="goto-title">My Profile</div>
+          <div class="goto-desc">Your scores, PBs, and 13-widget analytics dashboard.</div>
         </RouterLink>
         <RouterLink to="/compare" class="goto-tile tile-amber">
           <div class="goto-icon" v-html="icons.compare"></div>
           <div class="goto-title">Compare Divers</div>
+          <div class="goto-desc">Two divers side-by-side — stats and PB diffs.</div>
         </RouterLink>
       </div>
     </div>

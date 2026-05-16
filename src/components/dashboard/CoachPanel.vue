@@ -27,10 +27,12 @@ defineProps({
         <RouterLink to="/coach" class="goto-tile tile-purple">
           <div class="goto-icon" v-html="icons.coach"></div>
           <div class="goto-title">Coach Dashboard</div>
+          <div class="goto-desc">Per-diver analytics, score trends, dive list templates.</div>
         </RouterLink>
         <RouterLink to="/compare" class="goto-tile tile-amber">
           <div class="goto-icon" v-html="icons.compare"></div>
           <div class="goto-title">Compare Divers</div>
+          <div class="goto-desc">Two divers side-by-side — stats and PB diffs.</div>
         </RouterLink>
       </div>
     </div>
