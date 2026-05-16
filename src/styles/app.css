@@ -594,6 +594,58 @@ h1, h2, h3, h4 {
   h1 { font-size: clamp(22px, 6vw, 30px) !important; }
   h2 { font-size: clamp(18px, 5vw, 24px); }
   h3 { font-size: clamp(15px, 4vw, 18px); }
+
+  /* Per-view wrap classes — most views ship a top-level wrapper
+     with `padding: 2rem` and a max-width. That's right for a
+     laptop and crowds the content into ~280px usable width on
+     a 360px phone. Universal trim brings the available room
+     back to ~330px without per-view edits. The list is the set
+     of wrap classes that appeared in the audit; new views
+     should pick from this list.
+
+     `Coach`, `Inbox`, `Audit`, `Compare`, `Profile` etc. all
+     map to a "page padding" idiom; pulling them in here means
+     one rule covers ten files. */
+  .profile-wrap, .audit-wrap, .compare-wrap, .coach-wrap,
+  .inbox-wrap,   .meet-wrap,  .dashboard-wrap,
+  .judge-wrap,   .archive-wrap,
+  .clubs-wrap,   .teams-wrap, .users-wrap,
+  .competitor-wrap, .dive-directory-wrap,
+  .assign-wrap, .setup-wrap, .sign-off-wrap,
+  .meets-mode,
+  .main { padding: 1rem !important; }
+
+  /* Generic wrapper for any wide table that would overflow on
+     a phone. Apply with `<div class="table-wrap"><table>…`.
+     Critical for the four audit-log tables, the User Manager
+     / Clubs / Teams data tables, and the dive-list rows in
+     the Team Dive List view. Cell padding shrinks alongside. */
+  .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Border so the scroll affordance is visible against
+       the surrounding card. */
+    border-radius: var(--radius-sm);
+  }
+
+  /* Touch targets — WCAG 2.1 says any interactive element
+     should be at least 24×24 CSS px; Apple HIG and Google
+     Material both go further (44×44 / 48dp). A handful of
+     buttons in the audit (drag handle, delete chip, partner
+     clear, tab pills) sit below that. Lift them. */
+  .drag-handle,
+  .partner-clear,
+  .event-template-del { min-width: 32px; min-height: 32px; }
+
+  /* Fixed-column grids inside profile widgets — collapse to
+     a more forgiving layout on narrow viewports. Per-widget
+     overrides can still kick in below this with higher
+     specificity, but the default goes from "240px+1fr" type
+     grids to "auto + 1fr" so the labels keep their column
+     and the values can flex. */
+  .widget-card .pb-table,
+  .widget-card .bar-row,
+  .widget-card .compare-row { font-size: 11.5px; }
 }
 
 /* =========================================================
@@ -673,6 +725,17 @@ h1, h2, h3, h4 {
 
   /* Modal padding keeps shrinking with viewport. */
   .modal { padding: 1.25rem 1rem; }
+
+  /* Per-view wrap classes go a notch tighter on iPhone SE
+     class viewports. */
+  .profile-wrap, .audit-wrap, .compare-wrap, .coach-wrap,
+  .inbox-wrap,   .meet-wrap,  .dashboard-wrap,
+  .judge-wrap,   .archive-wrap,
+  .clubs-wrap,   .teams-wrap, .users-wrap,
+  .competitor-wrap, .dive-directory-wrap,
+  .assign-wrap, .setup-wrap, .sign-off-wrap,
+  .meets-mode,
+  .main { padding: 0.75rem !important; }
 }
 
 /* =========================================================
