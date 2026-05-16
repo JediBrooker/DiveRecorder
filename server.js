@@ -84,15 +84,30 @@ app.set("trust proxy", TRUST_PROXY === "false" ? false
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: CORS_ORIGIN } });
 
-// Standard HTTP-security headers. CSP is left at helmet's defaults
-// for the API; the SPA bundle is served via the same origin so
-// the header set is fine for both.
+// Standard HTTP-security headers. The SPA is served via the same
+// origin as the API, so one CSP covers both.
+//
+// We start from helmet's default CSP (default-src 'self', object-src
+// 'none', script-src 'self', style-src 'self' https: 'unsafe-inline',
+// frame-ancestors 'self', etc.) and override the few directives the
+// app actually needs:
+//
+//   * connect-src — adds ws:/wss: so Socket.IO upgrades aren't
+//     blocked (helmet's default-src 'self' only covers HTTP fetches).
+//   * img-src     — adds blob: alongside data: + 'self' for the
+//     sharp-rendered OG cards and QR data URIs.
+//
+// The Vite build emits no inline <script> tags — the only inline
+// element in dist/index.html is a <link rel="stylesheet"> — so
+// strict script-src 'self' works without a nonce or hash list.
 app.use(helmet({
-  // Disable CSP for now — the SPA inlines a small bootstrap and
-  // we'd otherwise have to maintain a hash list. Revisit when the
-  // app shell is fully external. The other helmet defaults
-  // (HSTS, X-Frame-Options, X-Content-Type-Options, etc.) stay on.
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      "connect-src": ["'self'", "ws:", "wss:"],
+      "img-src": ["'self'", "data:", "blob:"],
+    },
+  },
   crossOriginEmbedderPolicy: false,
 }));
 app.use(cors({ origin: CORS_ORIGIN }));
@@ -420,12 +435,40 @@ app.get("/api/health", async (_req, res) => {
 // METRICS — Prometheus scrape target
 // =============================================================
 // `text/plain; version=0.0.4` (the prom-client default) is the
-// content-type Prometheus expects. No auth gate — the payload
-// contains operational counters only (no PII), and access should
-// be restricted at the firewall / reverse proxy if you don't want
-// it public. lib/metrics.js documents the cardinality discipline
-// each metric follows.
-app.get("/metrics", async (_req, res) => {
+// content-type Prometheus expects. The payload contains operational
+// counters only (no PII), but route names and request volume are
+// still operational intel worth not handing out anonymously.
+//
+// Auth model — opt-in, back-compat:
+//   * METRICS_TOKEN unset (default): no auth gate. Same behaviour
+//     as before; relies on firewall / reverse-proxy ACL to keep
+//     /metrics off the public internet. Suitable for single-node
+//     deployments where Prometheus runs on localhost.
+//   * METRICS_TOKEN set: requires `Authorization: Bearer <token>`.
+//     Comparison is constant-time via crypto.timingSafeEqual so
+//     a probing client can't binary-search the token.
+//
+// lib/metrics.js documents the cardinality discipline each metric
+// follows.
+const METRICS_TOKEN = process.env.METRICS_TOKEN || null;
+function metricsAuthOk(req) {
+  if (!METRICS_TOKEN) return true;
+  const header = req.headers["authorization"];
+  if (typeof header !== "string" || !header.startsWith("Bearer ")) return false;
+  const presented = header.slice(7);
+  const a = Buffer.from(presented);
+  const b = Buffer.from(METRICS_TOKEN);
+  // timingSafeEqual requires equal-length buffers; the length
+  // check itself is fine to leak (it's the expected token's length
+  // and an attacker who controls METRICS_TOKEN already knows it).
+  if (a.length !== b.length) return false;
+  return require("node:crypto").timingSafeEqual(a, b);
+}
+app.get("/metrics", async (req, res) => {
+  if (!metricsAuthOk(req)) {
+    res.set("WWW-Authenticate", 'Bearer realm="metrics"');
+    return res.status(401).end();
+  }
   try {
     metrics.collectPoolStats(pool);
     res.set("Content-Type", metrics.registry.contentType);

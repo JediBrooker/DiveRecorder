@@ -46,11 +46,17 @@ done
 
 # ---- Helpers --------------------------------------------------
 step() { echo "[deploy] $(date -u +%FT%TZ) — $*"; }
+# run is called as `run cmd arg1 arg2 …` — each argument is a
+# separate token, no shell-string parsing. Previously this used
+# `eval "$@"` which worked because every call site passed a single
+# pre-split string, but eval-on-arguments is the kind of pattern
+# that quietly turns into a code-injection sink the day someone
+# adds an interpolated variable. Pass tokens, not strings.
 run()  {
   if [[ $DRY_RUN -eq 1 ]]; then
     echo "          DRY: $*"
   else
-    eval "$@"
+    "$@"
   fi
 }
 
@@ -75,7 +81,7 @@ DIRTY="$(git status --porcelain | awk '{print $2}')"
 if [[ -n "$DIRTY" ]]; then
   if [[ "$DIRTY" == "package-lock.json" ]]; then
     step "resetting auto-modified package-lock.json"
-    run "git checkout -- package-lock.json"
+    run git checkout -- package-lock.json
   else
     echo "[deploy] FAILED — local changes to files other than package-lock.json:"
     echo "$DIRTY" | sed 's/^/  /'
@@ -85,8 +91,8 @@ if [[ -n "$DIRTY" ]]; then
 fi
 
 step "git pull --ff-only"
-run "git fetch --quiet"
-run "git pull --ff-only"
+run git fetch --quiet
+run git pull --ff-only
 
 NEW_SHA="$(git rev-parse --short HEAD)"
 # Skip the no-op shortcut on dry-run — the dry-run intentionally
@@ -103,13 +109,13 @@ step "advancing ${PREV_SHA} → ${NEW_SHA}"
 # and package-lock.json drift. We keep dev deps (Vite is a dev
 # dep that the build step needs).
 step "npm ci"
-run "npm ci"
+run npm ci
 
 # ---- 3. Build SPA ---------------------------------------------
 # Build BEFORE migrate so a broken build doesn't leave the DB
 # advanced past code we can't ship.
 step "npm run build"
-run "npm run build"
+run npm run build
 
 # ---- 4. Apply pending migrations ------------------------------
 # --dry first so the deploy log shows exactly what's about to
@@ -124,9 +130,9 @@ run "npm run build"
 # NOT EXISTS, etc.), so the running PM2 process keeps serving
 # correctly against the new schema until restart at step 6.
 step "migrate (preview)"
-run "npm run migrate -- --dry"
+run npm run migrate -- --dry
 step "migrate (apply)"
-run "npm run migrate"
+run npm run migrate
 
 # ---- 5. Tests --------------------------------------------------
 # `test:safe` deliberately excludes test/integration.test.js
@@ -144,7 +150,7 @@ run "npm run migrate"
 # DB_DATABASE at it) — never against the production DB.
 if [[ $SKIP_TESTS -eq 0 ]]; then
   step "npm run test:safe"
-  run "npm run test:safe"
+  run npm run test:safe
 else
   step "tests skipped (--skip-tests)"
 fi
@@ -153,7 +159,7 @@ fi
 # Named process, not "all", so other PM2 processes on this box
 # (cron workers, side services) aren't disturbed.
 step "pm2 restart ${PM2_PROCESS_NAME}"
-run "pm2 restart ${PM2_PROCESS_NAME}"
+run pm2 restart "${PM2_PROCESS_NAME}"
 
 # ---- 7. Health check ------------------------------------------
 # Poll /api/health until it returns 200 or HEALTH_TIMEOUT_S
@@ -166,12 +172,21 @@ if [[ $DRY_RUN -eq 1 ]]; then
   exit 0
 fi
 
+# Hardened temp file: a fixed path under /tmp is a symlink-race
+# target for any local user on the deploy box. mktemp gives us a
+# fresh O_EXCL-style path each run, and the trap cleans up on
+# both the happy path and an aborted exit.
+HEALTH_TMP="$(mktemp -t deploy-health.XXXXXX)" || {
+  echo "[deploy] FAILED — mktemp could not allocate a temp file"
+  exit 1
+}
+trap 'rm -f "$HEALTH_TMP"' EXIT
+
 deadline=$(( $(date +%s) + HEALTH_TIMEOUT_S ))
 while true; do
-  if curl --fail --silent --show-error --max-time 3 "${HEALTH_URL}" > /tmp/deploy-health.json 2>/dev/null; then
-    schema=$(grep -oE '"schema_version":[0-9]+' /tmp/deploy-health.json || echo 'schema_version:?')
+  if curl --fail --silent --show-error --max-time 3 "${HEALTH_URL}" > "$HEALTH_TMP" 2>/dev/null; then
+    schema=$(grep -oE '"schema_version":[0-9]+' "$HEALTH_TMP" || echo 'schema_version:?')
     step "ok — ${schema}"
-    rm -f /tmp/deploy-health.json
     exit 0
   fi
   if (( $(date +%s) >= deadline )); then

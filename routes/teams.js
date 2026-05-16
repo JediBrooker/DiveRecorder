@@ -299,8 +299,8 @@ module.exports = function createTeamsRouter({
         res.json({ message: "Team dive list saved", count: dives.length });
       } catch (err) {
         await client.query("ROLLBACK").catch(() => {});
-        console.error("[Team Dive List Error]", err.message);
-        res.status(500).json({ error: err.detail || err.message });
+        console.error("[Team Dive List Error]", err);
+        res.status(500).json({ error: "Failed to save team dive list" });
       } finally {
         client.release();
       }

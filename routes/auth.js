@@ -32,6 +32,32 @@ const DUMMY_BCRYPT_HASH = bcrypt.hashSync(
   12,
 );
 
+// Centralised password policy — applied to every set-password
+// path (register, register-org, password change, password reset).
+// Returns null on success, or a user-facing error string.
+//
+// Policy:
+//   * minimum 12 characters (NIST SP 800-63B's lower bound for
+//     memorised secrets without complexity rules; the longer
+//     floor more than compensates for not requiring symbols).
+//   * must contain at least one letter AND one digit, to block
+//     the most trivially weak choices (all-digits PINs, single
+//     dictionary words).
+//
+// Deliberately NOT enforced here: symbol classes, max length,
+// breached-password lookups. Those are the next two upgrades —
+// zxcvbn or HIBP k-anonymity — and can layer on top without
+// changing this signature.
+function validatePassword(pw) {
+  if (typeof pw !== "string" || pw.length < 12) {
+    return "Password must be at least 12 characters";
+  }
+  if (!/[A-Za-z]/.test(pw) || !/\d/.test(pw)) {
+    return "Password must contain at least one letter and one digit";
+  }
+  return null;
+}
+
 module.exports = function createAuthRouter({
   pool,
   io,
@@ -422,12 +448,25 @@ module.exports = function createAuthRouter({
 
     const fullName = safeText(req.body?.full_name, 100);
     const cleanClubName = safeText(new_club_name, 80);
+    // Username cap mirrors users.username = varchar(50) in init.sql.
+    // Charset is intentionally narrow — username surfaces in audit
+    // logs, exports, and push notifications, and an unconstrained
+    // string would let a registrant smuggle CR/LF or HTML through
+    // those secondary channels.
+    const cleanUsername = safeText(username, 50);
+    if (!cleanUsername) {
+      return res.status(400).json({ error: "Username is required" });
+    }
+    if (!/^[a-zA-Z0-9._-]{2,50}$/.test(cleanUsername)) {
+      return res.status(400).json({
+        error: "Username must be 2–50 characters of letters, digits, dot, underscore, or hyphen",
+      });
+    }
     if (!fullName) {
       return res.status(400).json({ error: "Full name is required" });
     }
-    if (typeof password !== "string" || password.length < 8) {
-      return res.status(400).json({ error: "Password must be at least 8 characters" });
-    }
+    const pwErr = validatePassword(password);
+    if (pwErr) return res.status(400).json({ error: pwErr });
     if (typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ error: "A valid email address is required for verification" });
     }
@@ -477,7 +516,7 @@ module.exports = function createAuthRouter({
       // the user clicks the verification link.
       const uRes = await client.query(
         "INSERT INTO users (username, password, full_name, email, org_id, club_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
-        [username, hash, fullName, email, org_id, resolvedClubId],
+        [cleanUsername, hash, fullName, email, org_id, resolvedClubId],
       );
       newUserId = uRes.rows[0].id;
 
@@ -595,9 +634,8 @@ module.exports = function createAuthRouter({
       });
     }
     if (!cleanUsername) return res.status(400).json({ error: "Username is required" });
-    if (typeof password !== "string" || password.length < 8) {
-      return res.status(400).json({ error: "Password must be at least 8 characters" });
-    }
+    const pwErr = validatePassword(password);
+    if (pwErr) return res.status(400).json({ error: pwErr });
     // Email max-length: users.email is varchar(254) in init.sql;
     // exceeding that produces a noisy 500. Cap here so the 400
     // is returned with a clear error instead.
@@ -684,9 +722,8 @@ module.exports = function createAuthRouter({
     if (!current_password || !new_password) {
       return res.status(400).json({ error: "Current and new password are required" });
     }
-    if (typeof new_password !== "string" || new_password.length < 8) {
-      return res.status(400).json({ error: "New password must be at least 8 characters" });
-    }
+    const pwErr = validatePassword(new_password);
+    if (pwErr) return res.status(400).json({ error: pwErr });
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -991,9 +1028,8 @@ module.exports = function createAuthRouter({
     if (!token || !new_password) {
       return res.status(400).json({ error: "Token and new password are required" });
     }
-    if (typeof new_password !== "string" || new_password.length < 8) {
-      return res.status(400).json({ error: "New password must be at least 8 characters" });
-    }
+    const pwErr = validatePassword(new_password);
+    if (pwErr) return res.status(400).json({ error: pwErr });
     try {
       let decoded;
       try {

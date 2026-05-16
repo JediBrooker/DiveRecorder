@@ -36,6 +36,12 @@ const OG_CARD_TTL_MS = 60 * 60 * 1000;
 // to a curl probe than fail to unfurl on a real Twitter card.
 const CRAWLER_UA_RE = /(twitterbot|facebookexternalhit|linkedinbot|slackbot|discordbot|whatsapp|telegrambot|googlebot|bingbot|duckduckbot|pinterestbot|redditbot)/i;
 
+// Strict hostname[:port] shape. Used as a fallback validator for
+// the Host: header when APP_BASE_URL is unset — a malicious
+// crawler hit with a wild Host header would otherwise let an
+// attacker steer the meta-refresh redirect at an arbitrary host.
+const HOST_RE = /^[a-z0-9](?:[a-z0-9.-]{0,253}[a-z0-9])?(?::\d{1,5})?$/i;
+
 // HTML-escape a free-text field before splicing it into a meta
 // tag. The values come from the DB (full_name, org_name, club
 // name) which we sanitised on the way in (Migration 021), but
@@ -348,7 +354,19 @@ module.exports = function createPublicProfileRouter({ pool, readPool }) {
       if (!r.rows.length) return next();
       const d = r.rows[0];
 
-      const base = process.env.APP_BASE_URL || `${req.protocol}://${req.get("host")}`;
+      // APP_BASE_URL is preferred; when unset we fall back to the
+      // request's protocol + Host header — but only if Host passes
+      // a strict shape check. An attacker-supplied Host like
+      // `evil.com" content="0;url=javascript:…` is HTML-escaped at
+      // the splice site, but a bare attacker-controlled hostname
+      // would still steer the meta-refresh redirect. If we can't
+      // build a trustworthy canonical URL, fall through to the SPA.
+      let base = process.env.APP_BASE_URL;
+      if (!base) {
+        const host = req.get("host") || "";
+        if (!HOST_RE.test(host)) return next();
+        base = `${req.protocol}://${host}`;
+      }
       const url = `${base}/diver/${slug}`;
       const title = `${d.full_name} — Dive Recorder`;
       const subline = [d.org_name, d.country_code, d.club_name]
