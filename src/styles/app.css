@@ -448,6 +448,16 @@ h1, h2, h3, h4 {
   align-items: center;
   justify-content: center;
   padding: 1.5rem;
+  /* The backdrop is the scrollable container — not the modal.
+     A modal taller than the viewport scrolls the backdrop
+     instead of being clipped to a 90vh box that the user
+     can't reach the edges of. Especially important on iOS
+     Safari where the URL/toolbar overlays the bottom of
+     `100vh`, hiding the bottom of any vh-constrained modal
+     until the toolbar collapses (which it won't, since the
+     modal traps scroll inside itself). */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .modal {
   background: var(--surface);
@@ -456,17 +466,20 @@ h1, h2, h3, h4 {
   padding: 2.5rem;
   width: 100%;
   max-width: 520px;
-  max-height: 90vh;
-  overflow-y: auto;
+  /* No vh cap on the modal itself — its parent .modal-backdrop
+     handles the scroll. The modal flexes to fit its content;
+     short modals stay center-aligned via flex on the backdrop,
+     tall modals overflow the backdrop and the user scrolls.
+     `margin: auto` so a shorter-than-viewport modal still
+     centers vertically inside the flex backdrop. */
+  margin: auto;
   /* CSS spec quirk: when one overflow axis is `auto` and the
      other is `visible`, the visible axis gets promoted to
-     `auto` too. With just `overflow-y: auto` above, every
-     modal silently became horizontally scrollable whenever a
+     `auto` too. Even now that overflow-y lives on the backdrop,
+     keep `overflow-x: clip` on the modal so any wide
      descendant (e.g. a 3-column flex row in the Edit Event
-     form) exceeded the modal width — user reported drag-left/
-     right dropping content off the screen.
-     `overflow-x: clip` stops horizontal overflow without
-     creating a scroll context. Safari 16+ universal. */
+     form) is clipped at the modal boundary rather than
+     creating a horizontal scroll. */
   overflow-x: clip;
   animation: fadeUp 0.2s ease;
 }
@@ -589,10 +602,29 @@ h1, h2, h3, h4 {
   .data-table td       { padding: 0.55rem 0.7rem; }
   .data-table th       { font-size: 9px; letter-spacing: 0.15em; }
 
-  /* Modal — full-bleed-ish on mobile. Backdrop padding goes
-     near zero so the modal can use almost the entire screen. */
-  .modal-backdrop { padding: 0.5rem; }
-  .modal          { padding: 1.5rem 1.25rem; max-height: 95vh; border-radius: var(--radius-lg); }
+  /* Modal — full-bleed-ish on mobile. Backdrop top/bottom
+     padding gives the modal breathing room above and below
+     when the content is taller than the viewport, so the user
+     can scroll past the modal's edges to reach the top + bottom
+     of the form. Extra-generous bottom padding accounts for:
+       • iOS Safari's bottom toolbar (~50-90px when expanded)
+       • the home indicator (env(safe-area-inset-bottom))
+       • a thumb's-width of breathing room
+     so the Save / Cancel buttons at the bottom of a long form
+     are always swipe-reachable.
+     Modal max-height is dropped — backdrop handles the scroll
+     and the modal flexes to fit its content. */
+  .modal-backdrop {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    padding-top: max(1rem, env(safe-area-inset-top, 1rem));
+    padding-bottom: max(5rem, env(safe-area-inset-bottom, 1rem) + 4rem);
+  }
+  .modal {
+    padding: 1.5rem 1.25rem;
+    max-height: none;
+    border-radius: var(--radius-lg);
+  }
 
   /* Status badges nudge a touch smaller so they don't blow
      out narrow chip rows. */
