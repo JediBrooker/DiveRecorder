@@ -368,13 +368,67 @@ const pulseChips = computed(() => {
   return chips
 })
 
-// Click handler — switches to the chip's target tab. Used both
-// for the chip itself and (implicitly) when the user clicks
-// outside a popover item.
+// Which chip's popover is currently open via tap. Mobile-only
+// affordance — desktop uses :hover to reveal the popover so
+// `openChipId` stays null there. Tracked as a single id (only
+// one chip's popover at a time) so opening a second chip
+// implicitly closes the first.
+const openChipId = ref(null)
+
+// True when the device probably doesn't support hover (touch
+// devices). Evaluated lazily because matchMedia isn't available
+// during SSR. On hover-capable devices we keep the legacy
+// "click = navigate" behaviour so a power user with a mouse
+// doesn't get a redundant intermediate state.
+const hasHoverCapability = () => {
+  if (typeof window === 'undefined' || !window.matchMedia) return true
+  return window.matchMedia('(hover: hover)').matches
+}
+
+// Click handler — branches by device:
+//   • Hover-capable (desktop/laptop): tap navigates immediately.
+//     The popover was already visible via :hover.
+//   • Touch-only (phone/tablet): tap opens the popover first
+//     (closing any other open one). A second tap on the same
+//     chip then navigates. A chip with no items (popover empty)
+//     navigates immediately on first tap — no point opening an
+//     empty dropdown.
 function onPulseChipClick(chip) {
   if (!chip || !chip.targetTab) return
+  const touchOnly = !hasHoverCapability()
+  const hasPopover = (chip.items?.length || 0) > 0
+  if (touchOnly && hasPopover && openChipId.value !== chip.id) {
+    openChipId.value = chip.id
+    return
+  }
+  // Hover device, second tap, or no popover → navigate.
+  openChipId.value = null
   setTab(chip.targetTab)
 }
+
+// Tap-outside handler — closes the open popover when the user
+// taps anywhere outside any pulse chip. Attached at document
+// level (and only while a popover is open) so the chip strip's
+// horizontal scroll isn't affected. The .closest() check covers
+// taps on the chip itself, the popover, and any descendant.
+function onDocumentTapOutsidePulse(e) {
+  if (!openChipId.value) return
+  const t = e.target
+  if (t && typeof t.closest === 'function' && t.closest('.pulse-chip')) return
+  openChipId.value = null
+}
+watch(openChipId, (id) => {
+  if (typeof document === 'undefined') return
+  if (id) {
+    document.addEventListener('click', onDocumentTapOutsidePulse, true)
+  } else {
+    document.removeEventListener('click', onDocumentTapOutsidePulse, true)
+  }
+})
+
+// Reset open chip whenever the active tab changes (e.g. via
+// chip second-tap or the tab strip). Belt-and-braces.
+watch(activeTab, () => { openChipId.value = null })
 
 // Flash animation when a chip's count changes (e.g. live
 // polling picks up a new live event). flashingChips is a Set
@@ -1063,6 +1117,7 @@ function attachSocketHandlers() {
             'pulse-chip',
             `pulse-${chip.kind}`,
             flashingChips.has(chip.id) ? 'pulse-flash' : '',
+            openChipId === chip.id ? 'is-open' : '',
           ]"
           :aria-label="`${chip.popoverTitle} — click to view in ${chip.targetTab.replace('_', ' ')} tab`"
           @click="onPulseChipClick(chip)"
@@ -1478,9 +1533,27 @@ function attachSocketHandlers() {
   /* invisible — purely a hover-continuation surface */
 }
 .pulse-chip:hover .pulse-popover,
-.pulse-chip:focus-within .pulse-popover {
+.pulse-chip:focus-within .pulse-popover,
+/* `.is-open` is added by the click handler on tap (touch-only
+   devices) — see onPulseChipClick. Without this rule touch
+   users never see the popover, since :hover never matches and
+   :focus-within loses focus the moment the chip's child is
+   clicked (the click target is the chip itself, not the
+   popover anchor). */
+.pulse-chip.is-open .pulse-popover {
   opacity: 1;
   pointer-events: auto;
+}
+/* Mobile sheet animations — referenced by the .is-open rules
+   inside the @media (max-width: 600px) block below. Declared
+   at module scope so the @keyframes name resolves. */
+@keyframes pulse-sheet-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+@keyframes pulse-sheet-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 .pulse-popover-head {
   font-family: var(--font-display);
@@ -1820,17 +1893,73 @@ function attachSocketHandlers() {
      ("LIVE / UPCOMING / INVITED / PENDING / …") fits more of
      its content on-screen before the scroll kicks in. */
   .pulse-num { font-size: 13px; padding: 0.1rem 0.45rem; }
-  /* On phones, hover popovers don't make sense (no hover);
-     :focus-within still works for tap-to-focus, so users
-     can tap a chip to see the popover before tapping
-     again to navigate. */
-  .pulse-popover {
-    /* Anchor to the chip's left so the popover doesn't
-       fly off the right edge. */
-    left: 0; right: auto;
+  /* On phones the chip's popover can't be anchored below the
+     chip the way it is on desktop — the parent .pulse-strip
+     has overflow-x:auto for horizontal scrolling and clips its
+     descendants in both axes (a CSS spec quirk: setting one
+     overflow axis to anything other than `visible` forces the
+     other axis to clip too). An absolutely-positioned popover
+     inside the strip would be cut off below the chip line.
+
+     Float the popover out as a bottom sheet — slides up from
+     the bottom edge of the screen, fills the lower half. Tap
+     anywhere outside (handled in JS) dismisses it. This is the
+     same pattern Twitter, Linear, and Stripe Dashboard use for
+     phone-width disclosure menus. */
+  .pulse-chip.is-open .pulse-popover {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
     transform: none;
-    min-width: 220px;
-    max-width: calc(100vw - 2rem);
+    margin-top: 0;
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+    max-height: 70vh;
+    overflow-y: auto;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    border-bottom: 0;
+    box-shadow: 0 -16px 36px rgba(0, 0, 0, 0.55);
+    z-index: 200;
+    padding: 0.5rem 0;
+    animation: pulse-sheet-up 0.2s ease-out;
+  }
+  /* Backdrop dimming when a chip popover is open. The pseudo
+     element sits inside .pulse-chip but uses position:fixed so
+     it covers the whole viewport. */
+  .pulse-chip.is-open::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: rgba(3, 7, 18, 0.55);
+    backdrop-filter: blur(4px);
+    z-index: 150;
+    animation: pulse-sheet-fade 0.2s ease-out;
+  }
+  /* The popover-head doubles as a sheet handle on mobile —
+     widen the bottom border so it reads as a drag affordance. */
+  .pulse-chip.is-open .pulse-popover-head {
+    text-align: center;
+    padding: 0.85rem 1rem 0.7rem;
+    position: relative;
+  }
+  .pulse-chip.is-open .pulse-popover-head::before {
+    content: '';
+    position: absolute;
+    top: 0.45rem;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 40px;
+    height: 4px;
+    background: var(--border-2, var(--border));
+    border-radius: 999px;
+  }
+  /* Popover items use bigger tap targets in sheet mode. */
+  .pulse-chip.is-open .pulse-popover-item {
+    padding: 0.85rem 1rem;
+    min-height: 48px;
   }
   .pulse-ticker {
     /* Hide the ticker on phones — it competes with the
