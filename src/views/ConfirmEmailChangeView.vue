@@ -89,11 +89,12 @@ onMounted(confirm)
 .confirm-mark {
   font-family: var(--font-display); font-size: 13px; font-weight: 700;
   letter-spacing: 0.3em; text-transform: uppercase; color: var(--text);
-  margin-bottom: 2.5rem; display: flex; align-items: center; gap: 0.75rem;
+  margin-bottom: 2.5rem; display: flex; align-items: center;
+  /* No `gap` — see LoginView for the rationale. */
 }
 .confirm-mark span { color: var(--cyan); }
 .confirm-mark::before {
-  content: ''; display: block; width: 24px; height: 2px; background: var(--cyan);
+  content: ''; display: block; width: 24px; height: 2px; margin-right: 0.75rem; background: var(--cyan);
 }
 h1 { font-size: 44px; color: var(--text); margin-bottom: 0.25rem; font-style: italic; }
 .subtitle {
