@@ -295,14 +295,46 @@ CREATE TABLE public.meets (
     start_date  date,
     end_date    date,
     description text,
+    -- Legacy single-sponsor fields (kept for backward-compat with
+    -- meets created before the multi-logo table landed in 045).
+    -- When meet_sponsor_logos has no rows for a meet, these are
+    -- the fallback for the public sponsor strip.
     sponsor_name      varchar(255),
     sponsor_logo_url  text,
     sponsor_link_url  text,
+    -- Multi-logo rotation cadence on broadcast / scoreboard. 0
+    -- disables rotation (all logos rendered statically). Default
+    -- 8 — long enough to read a brand, short enough for several
+    -- logos to cycle within one dive. See migration 045.
+    sponsor_rotation_seconds integer NOT NULL DEFAULT 8
+        CHECK (sponsor_rotation_seconds >= 0 AND sponsor_rotation_seconds <= 60),
     created_at  timestamptz DEFAULT now() NOT NULL,
     CONSTRAINT meets_dates_check CHECK (
         start_date IS NULL OR end_date IS NULL OR end_date >= start_date
     )
 );
+
+-- Multi-sponsor logo storage (migration 045). One row per
+-- (meet, slot). Image payload stored inline as BYTEA so backups
+-- stay simple and LAN-deploys don't need a separate uploads
+-- mount. The legacy meets.sponsor_logo_url field falls through
+-- as a single virtual slot when this table has no rows for the
+-- meet — see lib/sponsor-logos.js for the read path.
+CREATE TABLE public.meet_sponsor_logos (
+    id           uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    meet_id      uuid NOT NULL REFERENCES public.meets(id) ON DELETE CASCADE,
+    slot_number  integer NOT NULL,
+    mime_type    text NOT NULL,
+    byte_size    integer NOT NULL,
+    image_bytes  bytea NOT NULL,
+    alt_text     text,
+    link_url     text,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    updated_at   timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (meet_id, slot_number)
+);
+CREATE INDEX idx_meet_sponsor_logos_meet
+    ON public.meet_sponsor_logos (meet_id, slot_number);
 
 
 -- =============================================================
@@ -1199,7 +1231,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 44);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 45);
 
 
 -- =============================================================
