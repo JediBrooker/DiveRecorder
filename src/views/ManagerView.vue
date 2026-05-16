@@ -7,6 +7,7 @@ import { showSuccess, showError } from '@/composables/useNotify'
 import StatusPill from '@/components/StatusPill.vue'
 import SuperFinalModals from '@/components/manager/SuperFinalModals.vue'
 import RoundDivesEditor from '@/components/manager/RoundDivesEditor.vue'
+import SponsorLogosManager from '@/components/manager/SponsorLogosManager.vue'
 import { filterStandardTemplates } from '@/lib/standard-templates'
 
 const auth = useAuthStore()
@@ -886,6 +887,79 @@ async function createMeet() {
     await loadMeets()
   } catch (err) {
     meetFormErr.value = err.message
+  }
+}
+
+// =============================================================
+// Edit Meet — sponsor branding + the meet's core fields.
+// `editMeetForm` mirrors the row shape from /api/meets/:id;
+// `showEditMeetModal` toggles the dialog; `editingMeetId`
+// drives the sponsor-logos manager (which is self-fetching).
+// =============================================================
+const showEditMeetModal = ref(false)
+const editingMeetId = ref(null)
+const editMeetForm = ref({
+  name: '', venue: '', start_date: '', end_date: '',
+  description: '',
+  sponsor_name: '', sponsor_link_url: '',
+})
+const editMeetErr = ref('')
+const editMeetSaving = ref(false)
+
+async function openEditMeet(meet) {
+  editMeetErr.value = ''
+  editingMeetId.value = meet.id
+  // Pull the full meet row so we have the description + sponsor
+  // fields that the org meets list doesn't include.
+  try {
+    const body = await auth.apiFetch(`/api/meets/${meet.id}`)
+    const m = body.meet
+    editMeetForm.value = {
+      name:             m.name || '',
+      venue:            m.venue || '',
+      start_date:       m.start_date ? String(m.start_date).slice(0, 10) : '',
+      end_date:         m.end_date   ? String(m.end_date).slice(0, 10)   : '',
+      description:      m.description || '',
+      sponsor_name:     m.sponsor_name || '',
+      sponsor_link_url: m.sponsor_link_url || '',
+    }
+    showEditMeetModal.value = true
+  } catch (err) {
+    showError(`Failed to load meet: ${err.message || err}`)
+  }
+}
+
+async function saveMeet() {
+  editMeetErr.value = ''
+  if (!editMeetForm.value.name.trim()) {
+    editMeetErr.value = 'Meet name is required'
+    return
+  }
+  editMeetSaving.value = true
+  try {
+    await auth.apiFetch(`/api/meets/${editingMeetId.value}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        name:             editMeetForm.value.name.trim(),
+        venue:            editMeetForm.value.venue.trim() || null,
+        start_date:       editMeetForm.value.start_date || null,
+        end_date:         editMeetForm.value.end_date   || null,
+        description:      editMeetForm.value.description.trim() || null,
+        sponsor_name:     editMeetForm.value.sponsor_name.trim() || null,
+        // The legacy `sponsor_logo_url` field is left untouched —
+        // the new sponsor-logos table is the source of truth.
+        // We keep `sponsor_link_url` on the meet row for the
+        // pre-045 fallback path.
+        sponsor_link_url: editMeetForm.value.sponsor_link_url.trim() || null,
+      }),
+    })
+    showSuccess('Meet updated')
+    showEditMeetModal.value = false
+    await loadMeets()
+  } catch (err) {
+    editMeetErr.value = err.message
+  } finally {
+    editMeetSaving.value = false
   }
 }
 
@@ -1844,7 +1918,12 @@ onUnmounted(() => {
               <span v-if="m.live_count" class="meet-live">· {{ m.live_count }} live</span>
             </div>
           </div>
-          <button class="btn btn-ghost btn-sm" @click="deleteMeet(m)">Delete</button>
+          <div class="meet-row-actions">
+            <button class="btn btn-ghost btn-sm"
+                    v-tip="'Edit name, dates, sponsor branding…'"
+                    @click="openEditMeet(m)">Edit</button>
+            <button class="btn btn-ghost btn-sm" @click="deleteMeet(m)">Delete</button>
+          </div>
         </div>
       </div>
     </div>
@@ -2417,6 +2496,74 @@ onUnmounted(() => {
         </div>
         <div v-if="meetFormErr" class="msg msg-error">{{ meetFormErr }}</div>
         <button type="submit" class="btn btn-primary">Create Meet</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Edit Meet modal — name / dates / venue / description /
+       sponsor branding incl. the new multi-logo manager
+       (migration 045). Opened from the per-meet Edit button in
+       the Meets list. -->
+  <div v-if="showEditMeetModal" class="modal-backdrop"
+       @click.self="showEditMeetModal = false">
+    <div class="modal modal-edit-meet" @click.stop style="max-width:640px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+        <h2 style="font-size:20px;font-style:italic">Edit Meet</h2>
+        <button class="btn btn-ghost btn-sm" @click="showEditMeetModal = false">Cancel ✕</button>
+      </div>
+      <form @submit.prevent="saveMeet" class="form-stack">
+        <div class="field">
+          <label class="label">Meet Name</label>
+          <input class="input" v-model="editMeetForm.name" required>
+        </div>
+        <div class="field">
+          <label class="label">Venue (optional)</label>
+          <input class="input" v-model="editMeetForm.venue">
+        </div>
+        <div class="field" style="display:flex;gap:0.5rem">
+          <div style="flex:1; min-width:0">
+            <label class="label">Start Date</label>
+            <input class="input" type="date" v-model="editMeetForm.start_date">
+          </div>
+          <div style="flex:1; min-width:0">
+            <label class="label">End Date</label>
+            <input class="input" type="date" v-model="editMeetForm.end_date">
+          </div>
+        </div>
+        <div class="field">
+          <label class="label">Description (optional)</label>
+          <textarea class="input" rows="2" v-model="editMeetForm.description"
+                    placeholder="Public meet blurb — shown on the meet landing page."></textarea>
+        </div>
+
+        <hr style="border:0;border-top:1px solid var(--border);margin:0.5rem 0 0">
+
+        <div class="field">
+          <label class="label">Sponsor name (optional)</label>
+          <input class="input" v-model="editMeetForm.sponsor_name"
+                 placeholder='e.g. "Powered by Speedo"'>
+          <p class="hint">Plain text shown on the public meet page when no logo is uploaded.</p>
+        </div>
+        <div class="field">
+          <label class="label">Sponsor link (optional)</label>
+          <input class="input" type="url" v-model="editMeetForm.sponsor_link_url"
+                 placeholder="https://…">
+          <p class="hint">Where the "Powered by" name links to. Per-logo links override this on the new uploads.</p>
+        </div>
+
+        <!-- The multi-logo manager loads its own data from the
+             sponsor-logos endpoints. -->
+        <div class="field" style="margin-top:0.25rem">
+          <SponsorLogosManager v-if="editingMeetId" :meet-id="editingMeetId" />
+        </div>
+
+        <div v-if="editMeetErr" class="msg msg-error">{{ editMeetErr }}</div>
+        <div style="display:flex;justify-content:flex-end;gap:0.5rem">
+          <button type="button" class="btn btn-ghost" @click="showEditMeetModal = false">Cancel</button>
+          <button type="submit" class="btn btn-primary" :disabled="editMeetSaving">
+            {{ editMeetSaving ? 'Saving…' : 'Save Meet' }}
+          </button>
+        </div>
       </form>
     </div>
   </div>

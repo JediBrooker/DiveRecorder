@@ -429,6 +429,7 @@
   font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
 }
 .meet-live { color: var(--red); font-weight: 700; margin-left: 0.4rem; }
+.meet-row-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
 
 .roster-modal { max-width: 720px; }
 .roster-modal .mono { font-family: var(--font-mono); }
