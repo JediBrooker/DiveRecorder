@@ -527,20 +527,39 @@ onMounted(() => { if (route.params.id) load(route.params.id) })
   .meet-wrap { padding: 1rem; }
   .hero { padding: 1.25rem; border-radius: var(--radius-lg); }
   .event-grid { grid-template-columns: 1fr; }
+
+  /* Backdrop padding clears iOS Safari's URL/toolbar so the
+     bottom of the export-options list + the action buttons
+     are reachable. */
+  .export-backdrop {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    padding-top: max(1rem, env(safe-area-inset-top, 1rem));
+    padding-bottom: max(5rem, env(safe-area-inset-bottom, 1rem) + 4rem);
+  }
 }
 
 /* =============================================================
    Program export chooser modal
    ============================================================= */
+/* Backdrop is the scrollable container — not the modal — so
+   the modal can scroll past iOS Safari's URL/toolbar instead
+   of being clipped behind it. */
 .export-backdrop {
   position: fixed; inset: 0; z-index: 300;
   background: rgba(3, 7, 18, 0.85);
   backdrop-filter: blur(8px);
   display: flex; align-items: center; justify-content: center;
   padding: 1rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .export-modal {
-  width: 100%; max-width: 580px; max-height: 90vh; overflow-y: auto;
+  width: 100%; max-width: 580px;
+  margin: auto;
+  /* Clip horizontal overflow — CSS promotes a `visible` axis
+     to `auto` whenever the other is non-visible. */
+  overflow-x: clip;
   background: var(--surface);
   border: 1px solid var(--border-2, var(--border));
   border-top: 4px solid var(--cyan);

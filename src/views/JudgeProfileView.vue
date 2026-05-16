@@ -834,43 +834,44 @@ watch(() => route.params.id, () => { load() })
     </div><!-- /widget grid -->
 
     <!-- Customise modal -->
-    <div v-if="customizing" class="modal-backdrop" @click="customizing = false"></div>
-    <div v-if="customizing" class="modal customize-modal" @click.stop>
-      <div class="modal-head">
-        <div class="modal-title">Customise Judge Analysis</div>
-        <button class="btn btn-ghost btn-sm" @click="customizing = false">Done</button>
-      </div>
-      <div class="modal-body">
-        <p class="modal-hint" style="margin-top:0">
-          Toggle widgets on or off. Drag the ⋮⋮ handle to re-order.
-          Changes save automatically.
-        </p>
-        <div class="widget-toggles" @dragend="onDragEnd">
-          <div
-            v-for="(w, idx) in customizeList"
-            :key="w.id"
-            :class="['widget-toggle',
-                     { 'is-dragging': dragIndex === idx,
-                       'is-drop-target': dragOverIndex === idx && dragIndex !== idx,
-                       'is-disabled': !isEnabled(w.id) }]"
-            :draggable="isSelf"
-            @dragstart="onDragStart(idx, $event)"
-            @dragover="onDragOver(idx, $event)"
-            @dragleave="onDragLeave(idx)"
-            @drop="onDrop(idx, $event)"
-          >
-            <span class="drag-handle" v-tip="isSelf ? 'Drag to re-order' : ''">⋮⋮</span>
-            <input type="checkbox"
-                   :checked="isEnabled(w.id)"
-                   :disabled="customizeSaving || !isSelf"
-                   @change="toggleWidget(w.id)">
-            <div class="widget-toggle-text">
-              <div class="widget-toggle-label">{{ w.label }}</div>
-              <div class="widget-toggle-desc">{{ w.desc }}</div>
+    <div v-if="customizing" class="modal-backdrop" @click.self="customizing = false">
+      <div class="modal customize-modal">
+        <div class="modal-head">
+          <div class="modal-title">Customise Judge Analysis</div>
+          <button class="btn btn-ghost btn-sm" @click="customizing = false">Done</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-hint" style="margin-top:0">
+            Toggle widgets on or off. Drag the ⋮⋮ handle to re-order.
+            Changes save automatically.
+          </p>
+          <div class="widget-toggles" @dragend="onDragEnd">
+            <div
+              v-for="(w, idx) in customizeList"
+              :key="w.id"
+              :class="['widget-toggle',
+                       { 'is-dragging': dragIndex === idx,
+                         'is-drop-target': dragOverIndex === idx && dragIndex !== idx,
+                         'is-disabled': !isEnabled(w.id) }]"
+              :draggable="isSelf"
+              @dragstart="onDragStart(idx, $event)"
+              @dragover="onDragOver(idx, $event)"
+              @dragleave="onDragLeave(idx)"
+              @drop="onDrop(idx, $event)"
+            >
+              <span class="drag-handle" v-tip="isSelf ? 'Drag to re-order' : ''">⋮⋮</span>
+              <input type="checkbox"
+                     :checked="isEnabled(w.id)"
+                     :disabled="customizeSaving || !isSelf"
+                     @change="toggleWidget(w.id)">
+              <div class="widget-toggle-text">
+                <div class="widget-toggle-label">{{ w.label }}</div>
+                <div class="widget-toggle-desc">{{ w.desc }}</div>
+              </div>
             </div>
           </div>
+          <div v-if="customizeErr" class="msg msg-error">{{ customizeErr }}</div>
         </div>
-        <div v-if="customizeErr" class="msg msg-error">{{ customizeErr }}</div>
       </div>
     </div>
   </div>
@@ -1052,20 +1053,37 @@ watch(() => route.params.id, () => { load() })
   line-height: 1.4;
 }
 
-/* Modal — copied / adapted from DiverProfileView. */
+/* =========================================================
+   Modal — copied / adapted from DiverProfileView.
+   Pattern: backdrop is the scrollable container (NOT the
+   modal) so a tall modal scrolls the backdrop instead of
+   being clipped behind iOS Safari's URL/toolbar. DOM is
+   parent-child:
+     <div class="modal-backdrop"> <div class="modal">…</div> </div>
+   ========================================================= */
 .modal-backdrop {
   position: fixed; inset: 0;
   background: rgba(0,0,0,0.55);
   z-index: 300;
+  display: flex; align-items: center; justify-content: center;
+  padding: 1.5rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .modal {
-  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  position: relative;
   z-index: 301;
   background: var(--bg-2);
   border: 1px solid var(--border); border-radius: var(--radius-lg);
-  width: min(560px, 92vw); max-height: 85vh;
+  width: 100%; max-width: 560px;
+  margin: auto;
   display: flex; flex-direction: column;
   box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+  /* Clip horizontal overflow — CSS promotes the `visible`
+     axis to `auto` whenever the other is non-visible, so
+     without this a wide descendant would let the user drag
+     the modal left/right. */
+  overflow-x: clip;
 }
 .modal-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -1076,7 +1094,8 @@ watch(() => route.params.id, () => { load() })
   font-family: var(--font-display); font-size: 14px; font-weight: 900;
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--text);
 }
-.modal-body { padding: 1.1rem 1.25rem; overflow-y: auto; }
+/* Body no longer needs its own scroll — backdrop handles it. */
+.modal-body { padding: 1.1rem 1.25rem; }
 .modal-hint {
   font-family: var(--font-mono); font-size: 12px; color: var(--text-3);
   margin-bottom: 1rem;
@@ -1133,6 +1152,17 @@ watch(() => route.params.id, () => { load() })
    and 100/1fr/220 grids defined above overflow at that width, so
    collapse them to a two-line layout. */
 @media (max-width: 600px) {
+  /* Modal backdrop — generous top/bottom padding so a tall
+     form can scroll past iOS Safari's URL/toolbar (~50-90px)
+     and the home indicator. Without this the bottom of a
+     long form is physically unreachable. */
+  .modal-backdrop {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    padding-top: max(1rem, env(safe-area-inset-top, 1rem));
+    padding-bottom: max(5rem, env(safe-area-inset-bottom, 1rem) + 4rem);
+  }
+
   /* Outer padding handled by the global 720px rule in app.css. */
   .profile-wrap { padding: 0; }
 

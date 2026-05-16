@@ -357,7 +357,12 @@ onBeforeUnmount(() => {
 
 .cmdk-results {
   list-style: none; margin: 0; padding: 0.4rem;
-  max-height: 420px; overflow-y: auto;
+  max-height: 420px;
+  overflow-y: auto;
+  /* `overflow-x: clip` stops CSS's promote-to-auto from
+     making the list silently horizontally scrollable when a
+     long command label exceeds the palette width. */
+  overflow-x: clip;
 }
 .cmdk-row {
   display: flex; align-items: center; gap: 0.85rem;

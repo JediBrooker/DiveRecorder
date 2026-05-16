@@ -722,164 +722,168 @@ watch(targetId, load)
        Order is taken from `customizeList`: enabled widgets first
        (in saved order), then disabled widgets. Dragging a row
        commits a new order through PUT /api/users/me/dashboard. -->
-  <div v-if="customizing" class="modal-backdrop" @click="customizing = false"></div>
-  <div v-if="customizing" class="modal customize-modal" @click.stop>
-    <div class="modal-head">
-      <div class="modal-title">Customize Dashboard</div>
-      <button class="btn btn-ghost btn-sm" @click="customizing = false">Done</button>
-    </div>
-    <div class="modal-body">
-      <p class="modal-hint" style="margin-top:0">
-        Toggle widgets on or off. Drag the ⋮⋮ handle to re-order.
-        Changes save automatically.
-      </p>
-      <div class="widget-toggles" @dragend="onDragEnd">
-        <div
-          v-for="(w, idx) in customizeList"
-          :key="w.id"
-          :class="['widget-toggle',
-                   { 'is-dragging': dragIndex === idx,
-                     'is-drop-target': dragOverIndex === idx && dragIndex !== idx,
-                     'is-disabled': !isEnabled(w.id) }]"
-          :draggable="isSelf"
-          @dragstart="onDragStart(idx, $event)"
-          @dragover="onDragOver(idx, $event)"
-          @dragleave="onDragLeave(idx)"
-          @drop="onDrop(idx, $event)"
-        >
-          <span class="drag-handle" v-tip="isSelf ? 'Drag to re-order' : ''">⋮⋮</span>
-          <input type="checkbox"
-                 :checked="isEnabled(w.id)"
-                 :disabled="customizeSaving || !isSelf"
-                 @change="toggleWidget(w.id)">
-          <div class="widget-toggle-text">
-            <div class="widget-toggle-label">{{ w.label }}</div>
-            <div class="widget-toggle-desc">{{ w.desc }}</div>
+  <div v-if="customizing" class="modal-backdrop" @click.self="customizing = false">
+    <div class="modal customize-modal">
+      <div class="modal-head">
+        <div class="modal-title">Customize Dashboard</div>
+        <button class="btn btn-ghost btn-sm" @click="customizing = false">Done</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-hint" style="margin-top:0">
+          Toggle widgets on or off. Drag the ⋮⋮ handle to re-order.
+          Changes save automatically.
+        </p>
+        <div class="widget-toggles" @dragend="onDragEnd">
+          <div
+            v-for="(w, idx) in customizeList"
+            :key="w.id"
+            :class="['widget-toggle',
+                     { 'is-dragging': dragIndex === idx,
+                       'is-drop-target': dragOverIndex === idx && dragIndex !== idx,
+                       'is-disabled': !isEnabled(w.id) }]"
+            :draggable="isSelf"
+            @dragstart="onDragStart(idx, $event)"
+            @dragover="onDragOver(idx, $event)"
+            @dragleave="onDragLeave(idx)"
+            @drop="onDrop(idx, $event)"
+          >
+            <span class="drag-handle" v-tip="isSelf ? 'Drag to re-order' : ''">⋮⋮</span>
+            <input type="checkbox"
+                   :checked="isEnabled(w.id)"
+                   :disabled="customizeSaving || !isSelf"
+                   @change="toggleWidget(w.id)">
+            <div class="widget-toggle-text">
+              <div class="widget-toggle-label">{{ w.label }}</div>
+              <div class="widget-toggle-desc">{{ w.desc }}</div>
+            </div>
           </div>
         </div>
+        <div v-if="customizeErr" class="msg msg-error">{{ customizeErr }}</div>
       </div>
-      <div v-if="customizeErr" class="msg msg-error">{{ customizeErr }}</div>
     </div>
   </div>
 
   <!-- Club edit modal -->
-  <div v-if="editing" class="modal-backdrop" @click="closeClubEditor"></div>
-  <div v-if="editing" class="modal" @click.stop>
-    <div class="modal-head">
-      <div class="modal-title">Change Club</div>
-      <button class="btn btn-ghost btn-sm" @click="closeClubEditor">Close ✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="field">
-        <label class="label">Club ({{ profile?.diver?.org_name || 'your organisation' }})</label>
-        <select class="select" v-model="clubChoice">
-          <option value="">— No club / independent —</option>
-          <option v-for="c in clubs" :key="c.id" :value="c.id">
-            {{ c.name }}<template v-if="c.short_code"> ({{ c.short_code }})</template>
-          </option>
-        </select>
-        <p v-if="!clubs.length" class="modal-hint">
-          No clubs are registered for your organisation yet. Ask your org admin to create one,
-          or <RouterLink to="/users">manage clubs from the User Manager</RouterLink> if you have access.
-        </p>
+  <div v-if="editing" class="modal-backdrop" @click.self="closeClubEditor">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">Change Club</div>
+        <button class="btn btn-ghost btn-sm" @click="closeClubEditor">Close ✕</button>
       </div>
-      <div v-if="saveError" class="msg msg-error">{{ saveError }}</div>
-      <div class="modal-actions">
-        <button class="btn btn-ghost btn-sm" @click="closeClubEditor">Cancel</button>
-        <button class="btn btn-primary btn-sm" :disabled="savingClub" @click="saveClub">
-          {{ savingClub ? 'Saving…' : 'Save' }}
-        </button>
+      <div class="modal-body">
+        <div class="field">
+          <label class="label">Club ({{ profile?.diver?.org_name || 'your organisation' }})</label>
+          <select class="select" v-model="clubChoice">
+            <option value="">— No club / independent —</option>
+            <option v-for="c in clubs" :key="c.id" :value="c.id">
+              {{ c.name }}<template v-if="c.short_code"> ({{ c.short_code }})</template>
+            </option>
+          </select>
+          <p v-if="!clubs.length" class="modal-hint">
+            No clubs are registered for your organisation yet. Ask your org admin to create one,
+            or <RouterLink to="/users">manage clubs from the User Manager</RouterLink> if you have access.
+          </p>
+        </div>
+        <div v-if="saveError" class="msg msg-error">{{ saveError }}</div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost btn-sm" @click="closeClubEditor">Cancel</button>
+          <button class="btn btn-primary btn-sm" :disabled="savingClub" @click="saveClub">
+            {{ savingClub ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
       </div>
     </div>
   </div>
 
   <!-- Password change modal -->
-  <div v-if="pwEditing" class="modal-backdrop" @click="closePasswordEditor"></div>
-  <div v-if="pwEditing" class="modal" @click.stop>
-    <div class="modal-head">
-      <div class="modal-title">Change Password</div>
-      <button class="btn btn-ghost btn-sm" @click="closePasswordEditor">Close ✕</button>
-    </div>
-    <div class="modal-body">
-      <div v-if="pwSuccess" class="msg msg-success">Password updated</div>
-      <template v-else>
-        <div class="field">
-          <label class="label">Current password</label>
-          <input class="input" type="password" autocomplete="current-password" v-model="pwCurrent">
-        </div>
-        <div class="field">
-          <label class="label">New password</label>
-          <input class="input" type="password" autocomplete="new-password" v-model="pwNew">
-        </div>
-        <div class="field">
-          <label class="label">Confirm new password</label>
-          <input class="input" type="password" autocomplete="new-password" v-model="pwConfirm">
-        </div>
-        <div v-if="pwError" class="msg msg-error">{{ pwError }}</div>
-        <div class="modal-actions">
-          <button class="btn btn-ghost btn-sm" @click="closePasswordEditor">Cancel</button>
-          <button class="btn btn-primary btn-sm" :disabled="pwSaving" @click="savePassword">
-            {{ pwSaving ? 'Saving…' : 'Save Password' }}
-          </button>
-        </div>
-      </template>
+  <div v-if="pwEditing" class="modal-backdrop" @click.self="closePasswordEditor">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">Change Password</div>
+        <button class="btn btn-ghost btn-sm" @click="closePasswordEditor">Close ✕</button>
+      </div>
+      <div class="modal-body">
+        <div v-if="pwSuccess" class="msg msg-success">Password updated</div>
+        <template v-else>
+          <div class="field">
+            <label class="label">Current password</label>
+            <input class="input" type="password" autocomplete="current-password" v-model="pwCurrent">
+          </div>
+          <div class="field">
+            <label class="label">New password</label>
+            <input class="input" type="password" autocomplete="new-password" v-model="pwNew">
+          </div>
+          <div class="field">
+            <label class="label">Confirm new password</label>
+            <input class="input" type="password" autocomplete="new-password" v-model="pwConfirm">
+          </div>
+          <div v-if="pwError" class="msg msg-error">{{ pwError }}</div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost btn-sm" @click="closePasswordEditor">Cancel</button>
+            <button class="btn btn-primary btn-sm" :disabled="pwSaving" @click="savePassword">
+              {{ pwSaving ? 'Saving…' : 'Save Password' }}
+            </button>
+          </div>
+        </template>
+      </div>
     </div>
   </div>
 
   <!-- Email change modal — Migration 044. -->
-  <div v-if="emEditing" class="modal-backdrop" @click="closeEmailEditor"></div>
-  <div v-if="emEditing" class="modal" @click.stop>
-    <div class="modal-head">
-      <div class="modal-title">Change Email</div>
-      <button class="btn btn-ghost btn-sm" @click="closeEmailEditor">Close ✕</button>
-    </div>
-    <div class="modal-body">
-      <div v-if="emSuccess" class="msg msg-success">{{ emSuccess }}</div>
-      <template v-else>
-        <p class="modal-hint">
-          We'll send a confirmation link to the new address — your
-          email won't change until you click it. The link expires in
-          30 minutes. Once confirmed you'll be signed out of every
-          device for safety.
-        </p>
-        <div class="field">
-          <label class="label">New email address</label>
-          <input
-            class="input"
-            type="email"
-            autocomplete="email"
-            placeholder="you@example.com"
-            v-model="emNew"
-          >
-        </div>
-        <div class="field">
-          <label class="label">Current password</label>
-          <input
-            class="input"
-            type="password"
-            autocomplete="current-password"
-            v-model="emPassword"
-          >
-        </div>
-        <div v-if="emError" class="msg msg-error">{{ emError }}</div>
-        <div class="modal-actions">
-          <button class="btn btn-ghost btn-sm" @click="closeEmailEditor">Cancel</button>
-          <button class="btn btn-primary btn-sm" :disabled="emSaving" @click="saveEmail">
-            {{ emSaving ? 'Sending…' : 'Send confirmation link' }}
-          </button>
-        </div>
-      </template>
+  <div v-if="emEditing" class="modal-backdrop" @click.self="closeEmailEditor">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">Change Email</div>
+        <button class="btn btn-ghost btn-sm" @click="closeEmailEditor">Close ✕</button>
+      </div>
+      <div class="modal-body">
+        <div v-if="emSuccess" class="msg msg-success">{{ emSuccess }}</div>
+        <template v-else>
+          <p class="modal-hint">
+            We'll send a confirmation link to the new address — your
+            email won't change until you click it. The link expires in
+            30 minutes. Once confirmed you'll be signed out of every
+            device for safety.
+          </p>
+          <div class="field">
+            <label class="label">New email address</label>
+            <input
+              class="input"
+              type="email"
+              autocomplete="email"
+              placeholder="you@example.com"
+              v-model="emNew"
+            >
+          </div>
+          <div class="field">
+            <label class="label">Current password</label>
+            <input
+              class="input"
+              type="password"
+              autocomplete="current-password"
+              v-model="emPassword"
+            >
+          </div>
+          <div v-if="emError" class="msg msg-error">{{ emError }}</div>
+          <div class="modal-actions">
+            <button class="btn btn-ghost btn-sm" @click="closeEmailEditor">Cancel</button>
+            <button class="btn btn-primary btn-sm" :disabled="emSaving" @click="saveEmail">
+              {{ emSaving ? 'Sending…' : 'Send confirmation link' }}
+            </button>
+          </div>
+        </template>
+      </div>
     </div>
   </div>
 
   <!-- Two-Factor Auth modal — three-stage state machine. -->
-  <div v-if="tfaOpen" class="modal-backdrop" @click="closeTfa"></div>
-  <div v-if="tfaOpen" class="modal tfa-modal" @click.stop>
-    <div class="modal-head">
-      <div class="modal-title">Two-Factor Auth</div>
-      <button class="btn btn-ghost btn-sm" @click="closeTfa">Close ✕</button>
-    </div>
-    <div class="modal-body">
+  <div v-if="tfaOpen" class="modal-backdrop" @click.self="closeTfa">
+    <div class="modal tfa-modal">
+      <div class="modal-head">
+        <div class="modal-title">Two-Factor Auth</div>
+        <button class="btn btn-ghost btn-sm" @click="closeTfa">Close ✕</button>
+      </div>
+      <div class="modal-body">
       <div v-if="tfaToast" class="msg msg-success">{{ tfaToast }}</div>
 
       <!-- Stage: idle (status display + entry point) -->
@@ -993,6 +997,7 @@ watch(targetId, load)
           </button>
         </div>
       </template>
+      </div>
     </div>
   </div>
 </template>

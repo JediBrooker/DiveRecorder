@@ -735,6 +735,8 @@
   z-index: 301;
   width: calc(100% - 3rem); max-width: 560px; max-height: 90vh;
   overflow-y: auto;
+  /* Clip horizontal overflow (see .lb-modal). */
+  overflow-x: clip;
   background: var(--surface);
   border: 1px solid var(--border-2);
   border-top: 4px solid var(--green);
@@ -886,6 +888,12 @@
   background: var(--surface); border: 1px solid var(--border-2); border-radius: 28px;
   width: calc(100% - 3rem); max-width: 560px; max-height: 90vh;
   overflow-y: auto; animation: fadeUp 0.3s ease;
+  /* Clip horizontal overflow — CSS promotes a `visible` axis to
+     `auto` whenever the other axis is non-visible, so without
+     this a wide descendant (e.g. a 3-column flex row in the late-
+     entry modal) would let the user drag the modal left/right and
+     lose content off-screen. */
+  overflow-x: clip;
   box-shadow: 0 30px 60px rgba(0,0,0,0.55);
 }
 .lb-header { padding: 2rem 2rem 1.25rem; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); display: flex; align-items: flex-start; justify-content: space-between; }
@@ -1025,7 +1033,9 @@
    ========================================================= */
 .randomise-modal {
   max-width: 760px;
-  max-height: 92vh;
+  /* `dvh` so the modal shrinks with the iOS Safari toolbar
+     rather than being clipped behind it. */
+  max-height: 92dvh;
   display: flex; flex-direction: column;
 }
 .randomise-head {
@@ -2330,8 +2340,21 @@
   .ref-actions { grid-template-columns: 1fr 1fr; }
   .ref-actions > :nth-child(3) { grid-column: span 2; }
 
-  /* Leaderboard modal */
-  .lb-modal   { max-height: 95vh; border-radius: var(--radius-lg); }
+  /* Leaderboard modal — cap by `dvh` (dynamic viewport height)
+     instead of `vh` so the modal shrinks with the iOS Safari
+     URL/toolbar instead of being clipped behind it. `vh` is the
+     LARGEST viewport (toolbar collapsed), which leaves the Save/
+     Cancel buttons at the bottom physically unreachable when the
+     toolbar is showing. `dvh` tracks the live viewport.
+     Subtract a thumb's-width of breathing room so the rounded
+     corners + actions don't hug the toolbar edge. */
+  .lb-modal,
+  .preflight-modal {
+    max-height: calc(100dvh - 1.5rem);
+    border-radius: var(--radius-lg);
+    /* `calc(100% - 3rem)` was the desktop sizing — keep it
+       horizontal-only, vertical is now dvh-bound. */
+  }
   .lb-header  { padding: 1.25rem 1.25rem 1rem; }
   .lb-event   { font-size: 22px; }
   .lb-body    { padding: 1rem 1.25rem 1.5rem; }

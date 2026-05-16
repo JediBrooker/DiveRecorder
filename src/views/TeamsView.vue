@@ -626,7 +626,16 @@ watch(() => drawerTeam.value, (val) => {
 .drawer-id { min-width: 0; }
 .drawer-name { font-family: var(--font-display); font-size: 22px; font-weight: 900; font-style: italic; color: var(--text); line-height: 1.1; }
 .drawer-meta { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-top: 0.4rem; }
-.drawer-body { padding: 1rem 1.25rem; overflow-y: auto; }
+/* `overflow-x: clip` prevents CSS's promote-to-auto from
+   making the body silently horizontally scrollable. Bottom
+   padding keeps content above iOS Safari's URL/toolbar — the
+   drawer extends to `bottom: 0` but the toolbar overlays the
+   viewport bottom. */
+.drawer-body {
+  padding: 1rem 1.25rem max(1rem, env(safe-area-inset-bottom, 1rem) + 4rem);
+  overflow-y: auto;
+  overflow-x: clip;
+}
 .drawer-section-label { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.25em; text-transform: uppercase; color: var(--text-3); margin-bottom: 0.5rem; }
 
 .member-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.4rem; }

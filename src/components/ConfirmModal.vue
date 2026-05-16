@@ -97,6 +97,10 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
   width: 100%; max-width: 460px;
   padding: 1.5rem 1.6rem 1.25rem;
+  /* Defensive: clip any horizontal overflow from a long
+     consequence line so the modal stays in-frame on narrow
+     phones. */
+  overflow-x: clip;
 }
 .confirm-modal-danger { border-top-color: var(--red); }
 .confirm-modal-warn   { border-top-color: var(--amber); }

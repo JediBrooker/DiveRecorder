@@ -1004,7 +1004,7 @@ watch(currentEvent, async (ev) => {
           @click="setHeightFilter(h)"
         >{{ h }}m</button>
       </div>
-      <div style="max-height:340px;overflow-y:auto">
+      <div style="max-height:340px;overflow-y:auto;overflow-x:clip">
         <p v-if="!searchResults.length" style="color:var(--text-3);font-size:12px;text-align:center;padding:1.5rem">No dives found</p>
         <div
           v-for="d in searchResults"

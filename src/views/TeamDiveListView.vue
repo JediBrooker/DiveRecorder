@@ -288,23 +288,24 @@ onMounted(load)
   </div>
 
   <!-- Dive picker modal -->
-  <div v-if="showDiveModal" class="modal-backdrop" @click="showDiveModal = false"></div>
-  <div v-if="showDiveModal" class="dive-modal" @click.stop>
-    <div class="dive-modal-head">
-      <h3>Pick a dive</h3>
-      <button class="btn btn-ghost btn-sm" @click="showDiveModal = false">Close ✕</button>
-    </div>
-    <input class="input" type="text" v-model="diveSearch" placeholder="Search code or description (e.g. 101C)…">
-    <div class="dive-modal-body">
-      <p v-if="!filteredDives.length" class="empty">No dives match.</p>
-      <div v-for="d in filteredDives" :key="d.id" class="dive-result" @click="pickDive(d)">
-        <div>
-          <div class="dive-code">{{ d.dive_code }}<span class="dive-pos">{{ d.position }}</span></div>
-          <div class="dive-desc">{{ diveDescription(d) }}</div>
-        </div>
-        <div class="dive-result-right">
-          <div class="dive-dd">DD {{ d.dd }}</div>
-          <div class="dive-h">{{ d.height }}m</div>
+  <div v-if="showDiveModal" class="modal-backdrop" @click.self="showDiveModal = false">
+    <div class="dive-modal">
+      <div class="dive-modal-head">
+        <h3>Pick a dive</h3>
+        <button class="btn btn-ghost btn-sm" @click="showDiveModal = false">Close ✕</button>
+      </div>
+      <input class="input" type="text" v-model="diveSearch" placeholder="Search code or description (e.g. 101C)…">
+      <div class="dive-modal-body">
+        <p v-if="!filteredDives.length" class="empty">No dives match.</p>
+        <div v-for="d in filteredDives" :key="d.id" class="dive-result" @click="pickDive(d)">
+          <div>
+            <div class="dive-code">{{ d.dive_code }}<span class="dive-pos">{{ d.position }}</span></div>
+            <div class="dive-desc">{{ diveDescription(d) }}</div>
+          </div>
+          <div class="dive-result-right">
+            <div class="dive-dd">DD {{ d.dd }}</div>
+            <div class="dive-h">{{ d.height }}m</div>
+          </div>
         </div>
       </div>
     </div>
@@ -376,24 +377,47 @@ onMounted(load)
 .dive-dd { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--cyan); margin-top: 0.3rem; }
 .dive-placeholder { font-size: 12px; color: var(--text-3); font-style: italic; }
 
+/* Dive picker modal — backdrop is the scrollable container
+   (not the modal) so the modal can scroll past iOS Safari's
+   URL/toolbar instead of being clipped behind it. Parent-
+   child DOM: <.modal-backdrop> <.dive-modal>…</.dive-modal> </.modal-backdrop> */
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 90;
   background: rgba(3, 7, 18, 0.55); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1.5rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .dive-modal {
-  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  position: relative;
   z-index: 100;
-  width: min(560px, calc(100vw - 2rem));
-  max-height: 80vh;
+  width: 100%;
+  max-width: 560px;
+  margin: auto;
   background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius-lg);
   box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45);
-  display: flex; flex-direction: column; overflow: hidden;
+  display: flex; flex-direction: column;
+  /* `overflow-x: clip` clips horizontal without creating a
+     scroll context; vertical is handled by the backdrop. */
+  overflow-x: clip;
   padding: 1rem 1.25rem; gap: 0.75rem;
 }
 .dive-modal-head { display: flex; align-items: center; justify-content: space-between; }
 .dive-modal-head h3 { font-family: var(--font-display); font-size: 18px; font-style: italic; }
-.dive-modal-body { overflow-y: auto; }
+.dive-modal-body { overflow-x: clip; }
+
+@media (max-width: 720px) {
+  /* Backdrop padding clears iOS Safari's URL/toolbar so the
+     bottom rows of the dive list are reachable. */
+  .modal-backdrop {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    padding-top: max(1rem, env(safe-area-inset-top, 1rem));
+    padding-bottom: max(5rem, env(safe-area-inset-bottom, 1rem) + 4rem);
+  }
+}
 .dive-result {
   display: flex; align-items: center; justify-content: space-between;
   padding: 0.6rem 0.75rem; gap: 0.75rem;

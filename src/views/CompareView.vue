@@ -666,7 +666,11 @@ onMounted(async () => {
   position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
   z-index: 100;
   width: min(900px, calc(100vw - 2rem));
-  height: min(640px, calc(100vh - 2rem));
+  /* `dvh` not `vh` so the modal shrinks with the iOS Safari
+     URL/toolbar rather than being clipped behind it — otherwise
+     the bottom rows of the dive-browse table can sit physically
+     under the toolbar and be unreachable. */
+  height: min(640px, calc(100dvh - 2rem));
   background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius-lg);
   box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45);
@@ -690,7 +694,10 @@ onMounted(async () => {
   gap: 0.6rem; padding: 0.875rem 1.25rem;
   border-bottom: 1px solid var(--border);
 }
-.browse-body { flex: 1; overflow-y: auto; padding: 0; }
+/* `overflow-x: clip` prevents the spec's promote-to-auto from
+   making the body silently horizontally scrollable whenever a
+   wide table cell exceeds the modal's width. */
+.browse-body { flex: 1; overflow-y: auto; overflow-x: clip; padding: 0; }
 .browse-table {
   width: 100%; border-collapse: collapse;
 }
@@ -730,6 +737,6 @@ onMounted(async () => {
 
   .picker-clear { right: 5rem; }
   .browse-filters { grid-template-columns: 1fr; }
-  .browse-modal { height: 92vh; }
+  .browse-modal { height: 92dvh; }
 }
 </style>

@@ -1329,7 +1329,17 @@ onUnmounted(() => {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
   margin-top: 0.4rem; word-break: break-word;
 }
-.drawer-body { padding: 1rem 1.25rem; overflow-y: auto; }
+/* `overflow-x: clip` prevents CSS's promote-to-auto from
+   making the body silently horizontally scrollable whenever
+   a wide descendant exceeds the drawer's width. Bottom padding
+   keeps drawer content above iOS Safari's URL/toolbar — the
+   drawer itself extends to `bottom: 0` but the toolbar overlays
+   the bottom of the viewport. */
+.drawer-body {
+  padding: 1rem 1.25rem max(1rem, env(safe-area-inset-bottom, 1rem) + 4rem);
+  overflow-y: auto;
+  overflow-x: clip;
+}
 .drawer-section-label {
   font-family: var(--font-display); font-size: 10px; font-weight: 700;
   letter-spacing: 0.25em; text-transform: uppercase; color: var(--text-3);

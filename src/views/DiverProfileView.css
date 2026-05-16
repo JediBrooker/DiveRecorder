@@ -54,20 +54,42 @@
    active streak) collapse so the flex gap doesn't leave a hole. */
 .widget-slot:empty { display: none; }
 
-/* Club edit modal */
+/* =========================================================
+   Modals — Club edit, password, email, 2FA, customize.
+   Pattern: backdrop is the scrollable container (NOT the
+   modal). A modal taller than the viewport scrolls the
+   backdrop instead of being clipped to a vh-bound box that
+   the user can't reach the edges of. Especially important on
+   iOS Safari where the URL/toolbar overlays the bottom of
+   `100vh`, hiding the bottom of any vh-constrained modal
+   until the toolbar collapses (which it won't, since the
+   modal traps scroll inside itself). DOM is parent-child:
+   <div class="modal-backdrop"> <div class="modal">…</div> </div>
+   ========================================================= */
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 90;
   background: rgba(3, 7, 18, 0.55);
   backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1.5rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .modal {
-  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  position: relative;
   z-index: 100;
-  width: min(440px, calc(100vw - 2rem));
+  width: 100%;
+  max-width: 440px;
+  margin: auto;
   background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius-lg);
   box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45);
-  display: flex; flex-direction: column; overflow: hidden;
+  display: flex; flex-direction: column;
+  /* `overflow: hidden` (formerly) clipped horizontally already
+     — but it also blocks box-shadow nicety on nested elements.
+     `overflow-x: clip` clips horizontal without creating a
+     scroll context; vertical handled by the backdrop. */
+  overflow-x: clip;
 }
 .modal-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -88,7 +110,7 @@
 /* =========================================================
    2FA modal — three-stage state machine (idle / setup / disable)
    ========================================================= */
-.tfa-modal { width: min(520px, calc(100vw - 2rem)); }
+.tfa-modal { max-width: 520px; }
 .tfa-status {
   padding: 0.75rem 1rem;
   border-radius: var(--radius-sm);
@@ -162,7 +184,7 @@
 /* =========================================================
    Customize-dashboard modal — list of toggleable widgets
    ========================================================= */
-.customize-modal { width: min(560px, calc(100vw - 2rem)); }
+.customize-modal { max-width: 560px; }
 .widget-toggles {
   display: flex; flex-direction: column; gap: 0.4rem;
   max-height: 480px; overflow-y: auto;
@@ -274,10 +296,21 @@
   .tfa-qr { flex-direction: column; align-items: flex-start; gap: 0.6rem; }
   .tfa-secret-value { font-size: 11px; }
 
+  /* Modal backdrop — extra-generous bottom padding so the
+     modal's Save/Cancel buttons clear iOS Safari's URL/toolbar
+     (~50–90px) + the home indicator. Without this, the bottom
+     of a long form is physically hidden behind the toolbar. */
+  .modal-backdrop {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    padding-top: max(1rem, env(safe-area-inset-top, 1rem));
+    padding-bottom: max(5rem, env(safe-area-inset-bottom, 1rem) + 4rem);
+  }
+
   /* Customize-dashboard modal — bigger tap targets, more
      comfortable drag handle. Keeps the list scrollable but
      uses the available height when nothing else is on screen. */
-  .customize-modal { width: min(560px, calc(100vw - 1rem)); }
+  .customize-modal { max-width: none; }
   .widget-toggles { max-height: 65vh; gap: 0.5rem; }
   .widget-toggle {
     padding: 0.75rem 0.8rem; gap: 0.7rem;
