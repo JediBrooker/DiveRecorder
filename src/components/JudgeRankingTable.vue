@@ -613,4 +613,99 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
 .jra-row:hover .jra-td { background: rgba(148, 163, 184, 0.05); }
 .jra-row:hover .jra-outlier-mild { background: rgba(6, 182, 212, 0.14); }
 .jra-row:hover .jra-outlier-strong { background: rgba(6, 182, 212, 0.28); }
+
+/* =========================================================
+   Mobile — sticky pair column + tighter cells.
+
+   The matrix has one column per judge (typically 5, 7, 9, or
+   11), which can't all fit on a phone. With overflow-x: auto
+   already in place, the table is horizontally scrollable —
+   but if the user can't see the row label (pair / diver) while
+   they scroll judges, the data is meaningless.
+
+   Stick the first two columns (PAIR + ACTUAL) to the left
+   edge so they stay visible while the user swipes through the
+   judge columns. Same pattern Google Sheets / Numbers uses for
+   wide spreadsheets on phones.
+   ========================================================= */
+@media (max-width: 720px) {
+  .jra-scroll {
+    /* Hint at scrollable content with a subtle shadow on the
+       right edge that fades as the user scrolls. */
+    background-image:
+      linear-gradient(to right, var(--surface, #0f172a) 30%, rgba(15, 23, 42, 0)),
+      linear-gradient(to left,  var(--surface, #0f172a) 30%, rgba(15, 23, 42, 0)),
+      linear-gradient(to right, rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0)),
+      linear-gradient(to left,  rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0));
+    background-position: left center, right center, left center, right center;
+    background-repeat: no-repeat;
+    background-color: var(--surface, #0f172a);
+    background-size: 20px 100%, 20px 100%, 8px 100%, 8px 100%;
+    background-attachment: local, local, scroll, scroll;
+    -webkit-overflow-scrolling: touch;
+  }
+  .jra-table { font-size: 11px; }
+  .jra-th, .jra-td { padding: 0.4rem 0.45rem; }
+
+  /* Pair / diver column — pinned to the left edge so the row
+     label is always visible during horizontal scroll. */
+  .jra-th-diver,
+  .jra-td-diver {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--surface, #0f172a);
+    min-width: 130px;
+    max-width: 140px;
+    box-shadow: 2px 0 6px rgba(0, 0, 0, 0.35);
+  }
+  /* Header row is also vertically sticky already; combine both
+     sticky positions on the corner cell. */
+  thead .jra-th-diver { z-index: 3; }
+
+  /* ACTUAL column — pinned right after PAIR so the user sees
+     both "who" and "official rank" before the per-judge cells.
+     left value matches PAIR's min-width above. */
+  .jra-th-actual,
+  .jra-td-actual {
+    position: sticky;
+    left: 130px;
+    z-index: 2;
+    background: var(--surface, #0f172a);
+    min-width: 54px;
+    box-shadow: 2px 0 6px rgba(0, 0, 0, 0.35);
+  }
+  thead .jra-th-actual { z-index: 3; }
+
+  /* Judge columns — give back some space taken by the wider
+     pair column. */
+  .jra-th-judge { min-width: 48px; }
+  .jra-judge-name { font-size: 8px; max-width: 8ch; }
+  .jra-judge-cc   { font-size: 8px; }
+  .jra-judge-num  { font-size: 10px; }
+  .jra-actual-rank { font-size: 12px; }
+  .jra-actual-total,
+  .jra-cell-total { font-size: 9px; }
+
+  /* Tighten the pair name so it stays inside the 140px column.
+     Names wrap rather than truncate — the user needs the full
+     name visible to read the row. */
+  .jra-diver-name {
+    flex-wrap: wrap;
+    gap: 0.2rem;
+    font-size: 11px;
+    line-height: 1.2;
+  }
+  .jra-diver-club { display: none; }
+  .jra-diver-cc   { font-size: 9px; }
+}
+
+/* Even tighter on iPhone-SE class viewports — drop the pair
+   column to 110px and pull ACTUAL in alongside. */
+@media (max-width: 400px) {
+  .jra-th-diver,
+  .jra-td-diver { min-width: 110px; max-width: 120px; }
+  .jra-th-actual,
+  .jra-td-actual { left: 110px; min-width: 46px; }
+}
 </style>
