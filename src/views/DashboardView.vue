@@ -1238,10 +1238,15 @@ function attachSocketHandlers() {
     />
 
     <!-- Dashboard footer — single muted strip below the active
-         role panel. Pre-fills the GitHub issue title with
-         "Bug:" + a `bug` label so reports land tagged without
-         the reporter having to know the taxonomy. -->
+         role panel. Two affordances: the plain-English user
+         guide for orientation, and a GitHub issue link for bug
+         reports (pre-filled with title + bug label so reports
+         land tagged without the reporter knowing the taxonomy). -->
     <footer class="dashboard-footer">
+      <RouterLink to="/guide" class="dashboard-footer-link">
+        📖 User Guide
+      </RouterLink>
+      <span class="dashboard-footer-sep" aria-hidden="true">·</span>
       <span class="dashboard-footer-label">Spot a bug?</span>
       <a
         href="https://github.com/JediBrooker/DiveRecorder/issues/new?labels=bug&title=Bug%3A%20"
@@ -2015,6 +2020,10 @@ function attachSocketHandlers() {
 }
 .dashboard-footer-label {
   color: var(--text-3);
+}
+.dashboard-footer-sep {
+  color: var(--text-3);
+  opacity: 0.5;
 }
 .dashboard-footer-link {
   color: var(--cyan);

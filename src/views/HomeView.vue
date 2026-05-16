@@ -24,6 +24,12 @@ onMounted(() => {
       <RouterLink to="/scoreboard" class="hero-btn-ghost">Scoreboard &amp; Results</RouterLink>
       <RouterLink to="/judges" class="hero-btn-ghost">Judge Analysis</RouterLink>
     </div>
+    <!-- New-user primer link. Quiet by design — pitched to
+         someone who's never seen the app and isn't sure where
+         to start, without competing with the primary CTAs. -->
+    <RouterLink to="/guide" class="hero-guide-link">
+      New here? Read the 5-minute user guide →
+    </RouterLink>
   </section>
 
   <!-- Live strip -->
@@ -145,6 +151,10 @@ onMounted(() => {
         <RouterLink to="/register">Register</RouterLink>
         <RouterLink to="/register-org">Register Federation</RouterLink>
         <RouterLink to="/scoreboard">Scoreboard &amp; Results</RouterLink>
+        <!-- Plain-English new-user primer. Linked from both
+             footer slots (home + dashboard) so a confused user
+             always has the same entry point. -->
+        <RouterLink to="/guide">📖 User Guide</RouterLink>
         <!-- Public issue tracker. Pre-fills the title with
              "Bug:" + a bug label so the report lands tagged
              without the reporter having to know our taxonomy. -->
@@ -227,6 +237,21 @@ onMounted(() => {
   flex-wrap: wrap;
   justify-content: center;
   animation: fadeUp 0.5s 0.15s ease both;
+}
+.hero-guide-link {
+  display: inline-block;
+  margin-top: 1.25rem;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-3);
+  text-decoration: none;
+  border-bottom: 1px dashed transparent;
+  transition: color 0.15s, border-color 0.15s;
+  animation: fadeUp 0.5s 0.2s ease both;
+}
+.hero-guide-link:hover {
+  color: var(--cyan);
+  border-bottom-color: var(--cyan);
 }
 .hero-btn-primary {
   display: inline-flex;
