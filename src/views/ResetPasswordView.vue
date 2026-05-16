@@ -58,7 +58,7 @@ async function submit() {
 
 <template>
   <div class="reset-wrap">
-    <div class="reset-mark">DivingHQ</div>
+    <div class="reset-mark">DIVING<span>HQ</span></div>
     <h1>New Password</h1>
     <p class="subtitle">Pick something memorable</p>
 
@@ -100,9 +100,10 @@ async function submit() {
 .reset-wrap { width: 100%; max-width: 420px; animation: fadeUp 0.4s ease; }
 .reset-mark {
   font-family: var(--font-display); font-size: 13px; font-weight: 700;
-  letter-spacing: 0.3em; text-transform: uppercase; color: var(--cyan);
+  letter-spacing: 0.3em; text-transform: uppercase; color: var(--text);
   margin-bottom: 2.5rem; display: flex; align-items: center; gap: 0.75rem;
 }
+.reset-mark span { color: var(--cyan); }
 .reset-mark::before {
   content: ''; display: block; width: 24px; height: 2px; background: var(--cyan);
 }

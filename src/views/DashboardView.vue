@@ -1017,7 +1017,7 @@ function attachSocketHandlers() {
   <div class="dashboard">
     <div class="header-inner">
       <div class="header-welcome">
-        <div class="welcome-label">DivingHQ</div>
+        <div class="welcome-label">DIVING<span>HQ</span></div>
         <div class="welcome-name">{{ welcomeName }}</div>
         <div class="role-line">{{ roleLine }}</div>
       </div>
@@ -1288,7 +1288,8 @@ function attachSocketHandlers() {
   min-width: 0;
   flex: 1 1 auto;
 }
-.welcome-label { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: var(--cyan); margin-bottom: 0.5rem; }
+.welcome-label { font-family: var(--font-display); font-size: 11px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: var(--text); margin-bottom: 0.5rem; }
+.welcome-label span { color: var(--cyan); }
 .welcome-name  {
   font-family: var(--font-display); font-weight: 900; font-style: italic;
   line-height: 1; color: var(--text);

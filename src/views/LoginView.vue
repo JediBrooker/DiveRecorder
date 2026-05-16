@@ -59,7 +59,7 @@ async function handleSubmit() {
 
 <template>
   <div class="login-wrap">
-    <div class="login-mark">DivingHQ</div>
+    <div class="login-mark">DIVING<span>HQ</span></div>
     <h1>Sign In</h1>
     <p class="subtitle">Official competition portal</p>
 
@@ -117,12 +117,17 @@ async function handleSubmit() {
   font-weight: 700;
   letter-spacing: 0.3em;
   text-transform: uppercase;
-  color: var(--cyan);
+  /* DIVING white, HQ cyan — match the public home page hero
+     mark's colour rhythm. The cyan accent on HQ keeps the
+     brand recognisable at a glance while the white DIVING
+     reads cleanly against the dark page. */
+  color: var(--text);
   margin-bottom: 2.5rem;
   display: flex;
   align-items: center;
   gap: 0.75rem;
 }
+.login-mark span { color: var(--cyan); }
 .login-mark::before {
   content: '';
   display: block;

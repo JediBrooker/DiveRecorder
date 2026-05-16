@@ -150,13 +150,17 @@ h1, h2, h3, h4 {
   font-size: 22px;
   font-weight: 900;
   font-style: italic;
-  color: var(--cyan);
+  /* DIVING white, HQ cyan — same colour rhythm as the public
+     home page hero so the brand reads identically across the
+     surface (the operator just sees a smaller version of the
+     mark they saw on the landing page). */
+  color: var(--text);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   text-decoration: none;
 }
 
-.app-logo span { color: var(--text-3); }
+.app-logo span { color: var(--cyan); }
 
 .app-main { padding: 2.5rem 2rem; }
 

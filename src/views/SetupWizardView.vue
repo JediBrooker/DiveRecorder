@@ -327,10 +327,11 @@ onMounted(() => {
   font-family: var(--font-display);
   font-size: 16px; font-weight: 800; font-style: italic;
   letter-spacing: 0.04em;
-  color: var(--cyan);
+  /* DIVING white, HQ cyan — match the home-page hero. */
+  color: var(--text);
   text-decoration: none;
 }
-.wizard-logo span { color: var(--text); }
+.wizard-logo span { color: var(--cyan); }
 .wizard-skip-link {
   background: transparent; border: 0;
   font-family: var(--font-display);

@@ -39,7 +39,7 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
     <!-- Hero -->
     <section class="guide-hero">
       <div class="guide-eyebrow">User Guide</div>
-      <h1 class="guide-title">Welcome to DivingHQ</h1>
+      <h1 class="guide-title">Welcome to <span class="guide-title-brand">Diving<span>HQ</span></span></h1>
       <p class="guide-lede">
         A platform for running diving meets — divers submit dive sheets,
         judges score on phones, the operator drives the meet from a
@@ -288,6 +288,12 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
   color: var(--text); line-height: 1.05;
   margin: 0 0 1rem;
 }
+/* "Welcome to DivingHQ" — the brand mark sits inside the
+   sentence. Outer span is the bold-italic brand wrap; inner
+   span splits HQ into cyan so the colour rhythm matches the
+   home-page hero (DIVING white, HQ cyan). */
+.guide-title-brand { color: var(--text); }
+.guide-title-brand span { color: var(--cyan); }
 .guide-lede {
   font-family: var(--font-mono);
   font-size: 14px; line-height: 1.7;

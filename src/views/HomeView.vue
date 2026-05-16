@@ -426,7 +426,9 @@ onMounted(() => {
   font-size: 18px;
   font-weight: 900;
   font-style: italic;
-  color: var(--text-3);
+  /* DIVING white, HQ cyan — match the hero wordmark so the
+     brand reads identically across the page. */
+  color: var(--text);
   text-decoration: none;
 }
 .footer-logo span { color: var(--cyan); }

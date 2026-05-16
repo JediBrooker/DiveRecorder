@@ -57,7 +57,7 @@ async function handleSubmit() {
 
 <template>
   <div class="wrap">
-    <div class="login-mark">DivingHQ</div>
+    <div class="login-mark">DIVING<span>HQ</span></div>
     <h1>Register Organisation</h1>
     <p class="subtitle">Get your federation on the platform</p>
 
@@ -116,9 +116,10 @@ async function handleSubmit() {
 .wrap { width: 100%; max-width: 520px; animation: fadeUp 0.4s ease; }
 .login-mark {
   font-family: var(--font-display); font-size: 13px; font-weight: 700;
-  letter-spacing: 0.3em; text-transform: uppercase; color: var(--cyan);
+  letter-spacing: 0.3em; text-transform: uppercase; color: var(--text);
   margin-bottom: 2.5rem; display: flex; align-items: center; gap: 0.75rem;
 }
+.login-mark span { color: var(--cyan); }
 .login-mark::before { content: ''; display: block; width: 24px; height: 2px; background: var(--cyan); }
 h1 { font-size: 44px; font-style: italic; margin-bottom: 0.25rem; }
 .subtitle { color: var(--text-3); font-size: 12px; letter-spacing: 0.15em; margin-bottom: 2.5rem; font-family: var(--font-display); font-weight: 600; text-transform: uppercase; }

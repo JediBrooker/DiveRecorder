@@ -57,7 +57,7 @@ onMounted(confirm)
 
 <template>
   <div class="confirm-wrap">
-    <div class="confirm-mark">DivingHQ</div>
+    <div class="confirm-mark">DIVING<span>HQ</span></div>
     <h1>Confirm Email</h1>
     <p class="subtitle">Verifying your new address</p>
 
@@ -88,9 +88,10 @@ onMounted(confirm)
 .confirm-wrap { width: 100%; max-width: 420px; animation: fadeUp 0.4s ease; }
 .confirm-mark {
   font-family: var(--font-display); font-size: 13px; font-weight: 700;
-  letter-spacing: 0.3em; text-transform: uppercase; color: var(--cyan);
+  letter-spacing: 0.3em; text-transform: uppercase; color: var(--text);
   margin-bottom: 2.5rem; display: flex; align-items: center; gap: 0.75rem;
 }
+.confirm-mark span { color: var(--cyan); }
 .confirm-mark::before {
   content: ''; display: block; width: 24px; height: 2px; background: var(--cyan);
 }
