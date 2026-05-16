@@ -87,6 +87,13 @@ async function handleSubmit() {
            actual home (`/`) is invisible to them. Same target
            as the Home + Dashboard footer links. -->
       <RouterLink to="/guide">New here? <span>Read the user guide</span></RouterLink>
+      <!-- Bug report — same pre-filled GitHub issue URL as the
+           Home + Dashboard footers, with the `bug` label + a
+           "Bug: " title prefix so reports land tagged without
+           the reporter knowing the taxonomy. -->
+      <a href="https://github.com/JediBrooker/DiveRecorder/issues/new?labels=bug&title=Bug%3A%20"
+         target="_blank"
+         rel="noopener">Found a bug? <span>🐛 Report it on GitHub</span></a>
     </div>
   </div>
 </template>
