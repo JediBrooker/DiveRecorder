@@ -629,6 +629,27 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
    wide spreadsheets on phones.
    ========================================================= */
 @media (max-width: 720px) {
+  /* CRITICAL: restore `display: table-cell` on the rank cells.
+     Desktop uses `display: flex` / `inline-flex` on .jra-td-actual
+     and .jra-td-cell to centre the rank + total pair on a single
+     baseline. That worked at laptop widths but collides with the
+     new `position: sticky` columns on phones — the flex td drops
+     out of the table-row column flow and the four cells in a row
+     end up stacked vertically inside one visual column.
+     Switch the cells back to native table-cell layout on mobile
+     and recreate the "rank + small muted total" inline pair with
+     plain text-align + inline-block spans. */
+  .jra-td-actual,
+  .jra-td-cell {
+    display: table-cell;
+    text-align: center;
+    vertical-align: middle;
+  }
+  .jra-actual-rank,
+  .jra-cell-rank   { display: inline; margin-right: 0.3rem; }
+  .jra-actual-total,
+  .jra-cell-total  { display: inline; }
+
   .jra-scroll {
     /* Hint at scrollable content with a subtle shadow on the
        right edge that fades as the user scrolls. */
@@ -644,8 +665,22 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
     background-attachment: local, local, scroll, scroll;
     -webkit-overflow-scrolling: touch;
   }
-  .jra-table { font-size: 11px; }
-  .jra-th, .jra-td { padding: 0.4rem 0.45rem; }
+  .jra-table {
+    font-size: 11px;
+    /* border-collapse: collapse breaks `position: sticky` on
+       table cells in Chrome and Safari (the sticky cells lose
+       their borders and sometimes don't repaint on scroll).
+       Switch to separate + zero spacing on mobile — visually
+       identical, but sticky behaves. */
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .jra-th, .jra-td {
+    padding: 0.4rem 0.45rem;
+    /* With border-collapse: separate we need to put the
+       horizontal border on each cell rather than the table. */
+    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  }
 
   /* Pair / diver column — pinned to the left edge so the row
      label is always visible during horizontal scroll. */
