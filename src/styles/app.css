@@ -458,6 +458,16 @@ h1, h2, h3, h4 {
   max-width: 520px;
   max-height: 90vh;
   overflow-y: auto;
+  /* CSS spec quirk: when one overflow axis is `auto` and the
+     other is `visible`, the visible axis gets promoted to
+     `auto` too. With just `overflow-y: auto` above, every
+     modal silently became horizontally scrollable whenever a
+     descendant (e.g. a 3-column flex row in the Edit Event
+     form) exceeded the modal width — user reported drag-left/
+     right dropping content off the screen.
+     `overflow-x: clip` stops horizontal overflow without
+     creating a scroll context. Safari 16+ universal. */
+  overflow-x: clip;
   animation: fadeUp 0.2s ease;
 }
 

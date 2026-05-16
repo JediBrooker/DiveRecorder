@@ -387,13 +387,23 @@
   padding: 0.65rem;
   margin-bottom: 0.5rem;
   display: flex; flex-direction: column; gap: 0.35rem;
+  min-width: 0;
 }
 .rr-section-row {
   display: flex; gap: 0.5rem; align-items: flex-end;
+  min-width: 0;
 }
-.rr-section-row .input { font-size: 12px; padding: 0.45rem 0.6rem; }
-.rr-label { flex: 1 1 auto; }
-.rr-cell { flex: 1 1 0; display: flex; flex-direction: column; gap: 0.2rem; }
+.rr-section-row .input {
+  font-size: 12px; padding: 0.45rem 0.6rem;
+  /* `min-width: 0` lets the flex parent shrink the input below
+     its UA-stylesheet intrinsic width — without it, <input
+     type="number"> in particular has an implicit ~150px min
+     that pushes the 3-cell row wider than a phone viewport. */
+  min-width: 0;
+  width: 100%;
+}
+.rr-label { flex: 1 1 auto; min-width: 0; }
+.rr-cell  { flex: 1 1 0;    min-width: 0; display: flex; flex-direction: column; gap: 0.2rem; }
 .rr-cell-label {
   font-family: var(--font-display); font-size: 9px; font-weight: 700;
   letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-3);
