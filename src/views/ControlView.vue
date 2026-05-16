@@ -88,6 +88,7 @@ const {
   broadcastLiveError,
   broadcastSelection,
   broadcastOpenDisabled,
+  obsInstructionsOpen,
   openBroadcastInNewWindow,
   pickBroadcastAll,
   toggleBroadcastSelection,
@@ -97,6 +98,35 @@ const {
 } = useBroadcastChooser({
   closeHeaderMenu: () => { headerMenuOpen.value = false },
 })
+
+// OBS / streaming-app instructions panel — option 4 in the
+// broadcast chooser. The chroma-key overlay URL is the existing
+// `/scoreboard/<id>?overlay=1` endpoint; we surface it here as
+// an absolute URL the operator can paste straight into OBS
+// Studio's Browser Source dialog. `obsCopyState` drives the
+// transient "Copied!" feedback on the copy button.
+const obsCopyState = ref('idle') // 'idle' | 'copied' | 'failed'
+const obsOverlayUrl = computed(() => {
+  const id = currentEvent.value?.id
+  if (!id) return ''
+  // Absolute URL — when pasted into OBS it has to resolve from
+  // outside this app context, so build from window.location.
+  const origin = typeof window !== 'undefined' && window.location
+    ? window.location.origin
+    : ''
+  return `${origin}/scoreboard/${id}?overlay=1`
+})
+async function copyObsUrl() {
+  const url = obsOverlayUrl.value
+  if (!url) return
+  try {
+    await navigator.clipboard.writeText(url)
+    obsCopyState.value = 'copied'
+  } catch {
+    obsCopyState.value = 'failed'
+  }
+  setTimeout(() => { obsCopyState.value = 'idle' }, 1800)
+}
 
 // Sponsor branding modal — hosts the SponsorLogosManager from
 // Phase 2 so the operator can swap a logo / fix alt text / pause
@@ -3283,24 +3313,24 @@ onUnmounted(() => {
          a venue projector that needs to show multiple concurrent
          events at once. -->
     <div v-if="broadcastChoiceOpen" class="lb-backdrop"
-         @mousedown.self="broadcastChoiceOpen = false; broadcastPickerOpen = false">
+         @mousedown.self="broadcastChoiceOpen = false; broadcastPickerOpen = false; obsInstructionsOpen = false">
       <div class="lb-modal broadcast-chooser">
         <div class="lb-header">
           <div>
             <div class="lb-title">📺 Broadcast</div>
             <div class="lb-event">
-              {{ broadcastPickerOpen
-                  ? 'Tick the events to project, then Open'
-                  : 'Pick what to broadcast and where' }}
+              <template v-if="broadcastPickerOpen">Tick the events to project, then Open</template>
+              <template v-else-if="obsInstructionsOpen">Stream the live scoreboard into OBS or another broadcast tool</template>
+              <template v-else>Pick what to broadcast and where</template>
             </div>
           </div>
           <button class="btn btn-ghost btn-sm"
-                  @click="broadcastChoiceOpen = false; broadcastPickerOpen = false">Close</button>
+                  @click="broadcastChoiceOpen = false; broadcastPickerOpen = false; obsInstructionsOpen = false">Close</button>
         </div>
-        <!-- Default chooser body. Hidden while the multi-event
-             sub-picker is open so the operator sees one panel
-             at a time. -->
-        <div v-if="!broadcastPickerOpen" class="lb-body broadcast-chooser-body">
+        <!-- Default chooser body. Hidden while either sub-panel
+             (multi-event picker, OBS instructions) is open so the
+             operator sees one panel at a time. -->
+        <div v-if="!broadcastPickerOpen && !obsInstructionsOpen" class="lb-body broadcast-chooser-body">
           <!-- 1. Operator broadcast — inline on this screen. -->
           <RouterLink
             to="/control?broadcast=1"
@@ -3361,13 +3391,36 @@ onUnmounted(() => {
               </div>
             </div>
           </button>
+
+          <!-- 4. OBS / live-streaming setup instructions. Doesn't
+               open a new window — expands an inline sub-panel
+               with the chroma-key overlay URL and a Browser
+               Source how-to. Disabled when no event is selected
+               (the overlay URL needs an event id to compose). -->
+          <button class="broadcast-option"
+                  type="button"
+                  :disabled="!currentEvent"
+                  @click="obsInstructionsOpen = true">
+            <div class="broadcast-option-glyph">🎬</div>
+            <div class="broadcast-option-text">
+              <div class="broadcast-option-title">
+                Stream to OBS / live-streaming app…
+              </div>
+              <div class="broadcast-option-desc">
+                Composite the live scoreboard into OBS Studio,
+                Streamlabs, vMix, or any tool that supports a
+                Browser Source. Opens a how-to with the chroma-key
+                overlay URL to paste into your stream.
+              </div>
+            </div>
+          </button>
         </div>
 
         <!-- Sub-picker: appears when the operator clicks option 3
              and there are 2+ Live events. Every Live event ticked
              by default so the operator unticks what they don't
              want. "Select all / None" affordances at the top. -->
-        <div v-else class="lb-body broadcast-picker">
+        <div v-else-if="broadcastPickerOpen" class="lb-body broadcast-picker">
           <div class="broadcast-picker-head">
             <span class="broadcast-picker-count">
               {{ broadcastSelection.size }} of {{ broadcastLiveEvents.length }} selected
@@ -3401,6 +3454,122 @@ onUnmounted(() => {
                     @click="confirmBroadcastPicker">
               Open broadcast ({{ broadcastSelection.size }})
             </button>
+          </div>
+        </div>
+
+        <!-- OBS / streaming-app setup panel: appears when the
+             operator clicks option 4. Shows the chroma-key overlay
+             URL with a one-click Copy button, plus the standard
+             OBS Studio Browser Source steps. The same URL works
+             in any tool that supports Browser Source / web overlay
+             (Streamlabs, vMix, Restream Studio, …). -->
+        <div v-else-if="obsInstructionsOpen" class="lb-body obs-instructions">
+          <p class="obs-lead">
+            The scoreboard ships with a built-in <strong>chroma-key overlay</strong>
+            view. Paste the URL below into OBS Studio (or any tool that
+            supports a Browser Source) and the active diver, scores, and
+            top-3 will composite straight into your broadcast — no extra
+            install, no plugin.
+          </p>
+
+          <div class="obs-url-block">
+            <label class="obs-url-label">Overlay URL for
+              <strong>{{ currentEvent?.name || 'this event' }}</strong></label>
+            <div class="obs-url-row">
+              <input class="obs-url-input"
+                     type="text"
+                     readonly
+                     :value="obsOverlayUrl"
+                     @focus="$event.target.select()">
+              <button class="btn btn-primary btn-sm obs-url-copy"
+                      type="button"
+                      @click="copyObsUrl">
+                <template v-if="obsCopyState === 'copied'">✓ Copied</template>
+                <template v-else-if="obsCopyState === 'failed'">Copy failed</template>
+                <template v-else>Copy</template>
+              </button>
+            </div>
+            <p class="obs-url-hint">
+              Tip: append <code>&amp;bg=ff00ff</code> for magenta chroma
+              if green spill is a problem under your venue lighting.
+              The default is <code>#00ff44</code> (OBS standard green).
+            </p>
+          </div>
+
+          <ol class="obs-steps">
+            <li class="obs-step">
+              <span class="obs-step-num">1</span>
+              <div class="obs-step-text">
+                <div class="obs-step-title">Open OBS Studio</div>
+                <div class="obs-step-desc">
+                  Or any broadcast tool that supports a Browser Source
+                  (Streamlabs Desktop, vMix, Restream Studio, Ecamm Live).
+                </div>
+              </div>
+            </li>
+            <li class="obs-step">
+              <span class="obs-step-num">2</span>
+              <div class="obs-step-text">
+                <div class="obs-step-title">Add a Browser Source</div>
+                <div class="obs-step-desc">
+                  In the <strong>Sources</strong> panel click <strong>+ → Browser</strong>,
+                  give it a name like "Scoreboard", and click OK.
+                </div>
+              </div>
+            </li>
+            <li class="obs-step">
+              <span class="obs-step-num">3</span>
+              <div class="obs-step-text">
+                <div class="obs-step-title">Paste the overlay URL</div>
+                <div class="obs-step-desc">
+                  Paste the URL above into the <strong>URL</strong> field. Set
+                  <strong>Width</strong> to 1920 and <strong>Height</strong> to 1080.
+                  Leave <em>Refresh browser when scene becomes active</em> ticked.
+                </div>
+              </div>
+            </li>
+            <li class="obs-step">
+              <span class="obs-step-num">4</span>
+              <div class="obs-step-text">
+                <div class="obs-step-title">Add a Chroma Key filter</div>
+                <div class="obs-step-desc">
+                  Right-click the Browser Source → <strong>Filters</strong> →
+                  <strong>+ → Chroma Key</strong>. Set
+                  <strong>Key Color Type</strong> to Green (or Custom #00ff44).
+                  The page background drops out and the scoreboard graphics
+                  float on top of your camera feed.
+                </div>
+              </div>
+            </li>
+            <li class="obs-step">
+              <span class="obs-step-num">5</span>
+              <div class="obs-step-text">
+                <div class="obs-step-title">Position &amp; go live</div>
+                <div class="obs-step-desc">
+                  Drag the Browser Source to taste — bottom-third for
+                  active-diver lower-thirds, full-frame between dives
+                  for the leaderboard. The overlay re-renders in real
+                  time as the meet progresses.
+                </div>
+              </div>
+            </li>
+          </ol>
+
+          <div class="obs-help-note">
+            Need a different chroma-key colour? Append
+            <code>&amp;bg=&lt;hex&gt;</code> to the URL (e.g.
+            <code>?overlay=1&amp;bg=0000ff</code> for blue).
+          </div>
+
+          <div class="broadcast-picker-actions">
+            <button class="btn btn-ghost" type="button"
+                    @click="obsInstructionsOpen = false">← Back</button>
+            <a class="btn btn-primary" target="_blank" rel="noopener"
+               :href="obsOverlayUrl || '#'"
+               :class="{ disabled: !obsOverlayUrl }"
+               @click="!obsOverlayUrl && $event.preventDefault()">
+              Preview overlay ↗
+            </a>
           </div>
         </div>
       </div>

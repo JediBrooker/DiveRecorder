@@ -728,6 +728,156 @@
   border-top: 1px solid var(--border-2);
 }
 
+/* OBS / streaming-app instructions panel — same modal frame as
+   the multi-event picker so the visual shell doesn't jump when
+   the sub-panel swaps. URL row + numbered Browser Source steps. */
+.obs-instructions {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 0.85rem 1rem 1rem;
+}
+.obs-lead {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.obs-lead strong { color: var(--cyan); font-weight: 700; }
+
+.obs-url-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.85rem;
+  background: var(--bg-2);
+  border: 1px solid var(--cyan);
+  border-radius: var(--radius);
+}
+.obs-url-label {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.obs-url-label strong { color: var(--text-1); }
+.obs-url-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+.obs-url-input {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--text-1);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  user-select: all;
+}
+.obs-url-input:focus {
+  outline: none;
+  border-color: var(--cyan);
+}
+.obs-url-copy { min-width: 84px; text-align: center; }
+.obs-url-hint {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.obs-url-hint code {
+  background: var(--bg-3);
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  padding: 0.05rem 0.3rem;
+  color: var(--cyan);
+}
+
+.obs-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.obs-step {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 0.7rem;
+  align-items: start;
+  padding: 0.7rem 0.85rem;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm, 4px);
+}
+.obs-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--cyan);
+  color: var(--bg-1, #030712);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 800;
+}
+.obs-step-title {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--text-1);
+  margin-bottom: 0.25rem;
+}
+.obs-step-desc {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-3);
+}
+.obs-step-desc strong { color: var(--text-1); font-weight: 700; }
+.obs-step-desc em { color: var(--text-2); font-style: italic; }
+
+.obs-help-note {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--text-3);
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-3);
+  border: 1px dashed var(--border-2);
+  border-radius: var(--radius-sm, 4px);
+}
+.obs-help-note code {
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: 3px;
+  padding: 0.05rem 0.3rem;
+  color: var(--cyan);
+}
+
+.obs-instructions .broadcast-picker-actions .btn.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+@media (max-width: 480px) {
+  .obs-url-row { grid-template-columns: 1fr; }
+  .obs-url-copy { width: 100%; }
+}
+
 .lb-backdrop { position: fixed; inset: 0; background: rgba(3,7,18,0.95); backdrop-filter: blur(12px); z-index: 300; }
 
 /* =========================================================

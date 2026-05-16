@@ -1,7 +1,7 @@
-/* Broadcast chooser — state for the 3-flavour ⋯ → 📺 Broadcast…
+/* Broadcast chooser — state for the 4-flavour ⋯ → 📺 Broadcast…
  * modal in Control Room.
  *
- * Three flavours surfaced to the operator:
+ * Four flavours surfaced to the operator:
  *   1. Operator broadcast (this screen, kiosk layout) — handled
  *      inline in the template via a RouterLink, no composable
  *      state needed beyond `broadcastChoiceOpen`.
@@ -12,6 +12,10 @@
  *      then opens /broadcast/all?ids=<comma-list> in a new window.
  *      Skipped when there are 0 or 1 Live events (the canonical
  *      /broadcast/all URL is opened directly).
+ *   4. Stream to OBS / live-streaming app → expands a sub-panel
+ *      with the chroma-key overlay URL (`/scoreboard/<id>?overlay=1`)
+ *      and step-by-step Browser Source setup so the operator can
+ *      composite the live scoreboard into their broadcast graphics.
  *
  * Lifted out of ControlView.vue when that file crossed 7,500
  * lines and reading it through cost real agent tokens. The state
@@ -55,6 +59,10 @@ export function useBroadcastChooser({ closeHeaderMenu = () => {} } = {}) {
   const broadcastLiveLoading = ref(false)
   const broadcastLiveError = ref('')
   const broadcastSelection = ref(new Set())
+  // Sub-panel state for option 4 (OBS / streaming-app setup
+  // instructions). Static content — just a how-to with the
+  // chroma-key overlay URL — so no fetch / selection state needed.
+  const obsInstructionsOpen = ref(false)
 
   function openBroadcastInNewWindow(path) {
     // Aim for an undecorated popup, with reasonable defaults that
@@ -65,6 +73,7 @@ export function useBroadcastChooser({ closeHeaderMenu = () => {} } = {}) {
     window.open(path, '_blank', NEW_WINDOW_OPTS)
     broadcastChoiceOpen.value = false
     broadcastPickerOpen.value = false
+    obsInstructionsOpen.value = false
     closeHeaderMenu()
   }
 
@@ -147,6 +156,7 @@ export function useBroadcastChooser({ closeHeaderMenu = () => {} } = {}) {
     broadcastLiveError,
     broadcastSelection,
     broadcastOpenDisabled,
+    obsInstructionsOpen,
     openBroadcastInNewWindow,
     pickBroadcastAll,
     toggleBroadcastSelection,
