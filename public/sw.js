@@ -1,4 +1,4 @@
-/* Dive Recorder service worker.
+/* DivingHQ service worker.
  *
  * Goal: a minimal offline shell so a judge's phone keeps the app
  * UI rendering when poolside wifi drops mid-meet. The actual
@@ -32,7 +32,11 @@
  * reaching browsers that had cached the previous app.css).
  */
 
-const CACHE = "diverecorder-shell-v4";
+// Bumped to v5 alongside the DiveRecorder → DivingHQ rebrand
+// (the cache key prefix changed too, so existing PWA shells
+// were technically already invalidated — but bumping the
+// number is the canonical signal to clear).
+const CACHE = "divinghq-shell-v5";
 const SHELL = [
   "/",
   "/index.html",
@@ -159,11 +163,11 @@ self.addEventListener("push", (event) => {
   try {
     payload = event.data.json();
   } catch {
-    payload = { title: "DiveRecorder", body: event.data.text() };
+    payload = { title: "DivingHQ", body: event.data.text() };
   }
   const {
     id,
-    title = "DiveRecorder",
+    title = "DivingHQ",
     body = "",
     data = {},
     action_url = "/",

@@ -58,7 +58,7 @@ async function submit() {
 
 <template>
   <div class="reset-wrap">
-    <div class="reset-mark">Dive Recorder</div>
+    <div class="reset-mark">DivingHQ</div>
     <h1>New Password</h1>
     <p class="subtitle">Pick something memorable</p>
 

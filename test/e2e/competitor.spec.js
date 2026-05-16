@@ -132,7 +132,7 @@ test("diver registers, gates on email verification, then submits a dive list", a
 
   // ---- 8. Browser sanity: SPA boots. ----
   await page.goto(`/scoreboard/${eventId}`);
-  await expect(page).toHaveTitle(/dive recorder/i);
+  await expect(page).toHaveTitle(/divinghq/i);
 
   // ---- Cleanup ----
   await setup.deleteOrg(orgId);

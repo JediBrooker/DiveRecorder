@@ -515,7 +515,7 @@ module.exports = function createPdfRouter({ pool }) {
       doc.moveDown(1);
       doc.font("Helvetica-Oblique").fontSize(8).fillColor("#94a3b8")
         .text(
-          `Generated ${new Date().toLocaleString()} via Dive Recorder.`,
+          `Generated ${new Date().toLocaleString()} via DivingHQ.`,
           { align: "center" },
         );
 
@@ -870,7 +870,7 @@ module.exports = function createPdfRouter({ pool }) {
 
       doc.moveDown(1);
       doc.font("Helvetica-Oblique").fontSize(8).fillColor("#94a3b8")
-        .text(`Generated ${new Date().toLocaleString()} via Dive Recorder.`, { align: "center" });
+        .text(`Generated ${new Date().toLocaleString()} via DivingHQ.`, { align: "center" });
 
       doc.end();
     } catch (err) {
@@ -1102,7 +1102,7 @@ module.exports = function createPdfRouter({ pool }) {
 
       doc.moveDown(0.4);
       doc.font("Helvetica-Oblique").fontSize(8).fillColor("#94a3b8")
-        .text(`Generated ${new Date().toLocaleString()} via Dive Recorder.`, { align: "center" });
+        .text(`Generated ${new Date().toLocaleString()} via DivingHQ.`, { align: "center" });
       doc.end();
     } catch (err) {
       console.error("[Score Sheet PDF Error]", err.message);
@@ -1332,7 +1332,7 @@ module.exports = function createPdfRouter({ pool }) {
       doc.pipe(res);
 
       // Header
-      doc.fontSize(20).font("Helvetica-Bold").text("DIVE RECORDER", { align: "center" });
+      doc.fontSize(20).font("Helvetica-Bold").text("DIVINGHQ", { align: "center" });
       doc.fontSize(10).font("Helvetica").text(event.org_name, { align: "center" });
       doc.moveDown(0.5);
       doc.fontSize(16).font("Helvetica-Bold").text(event.name, { align: "center" });

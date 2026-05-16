@@ -1,6 +1,6 @@
-# DiveRecorder
+# DivingHQ
 
-📖 **[User Guide → DiveRecorder Wiki](https://github.com/JediBrooker/DiveRecorder/wiki)** — how to actually use the app: register a federation, run a meet, judge dives, watch the scoreboard, manage admin tasks. This README covers setup, deployment, and architecture.
+📖 **[User Guide → DivingHQ Wiki](https://github.com/JediBrooker/DivingHQ/wiki)** — how to actually use the app: register a federation, run a meet, judge dives, watch the scoreboard, manage admin tasks. This README covers setup, deployment, and architecture.
 
 ---
 
@@ -18,7 +18,7 @@ Built around five audiences:
 
 ## Table of contents
 
-- [User Guide (Wiki) ↗](https://github.com/JediBrooker/DiveRecorder/wiki)
+- [User Guide (Wiki) ↗](https://github.com/JediBrooker/DivingHQ/wiki)
 - [Screenshots](#screenshots)
 - [Tech stack](#tech-stack)
 - [Features](#features)
@@ -39,7 +39,7 @@ Built around five audiences:
 <details>
 <summary><h2 id="screenshots">Screenshots</h2></summary>
 
-Screenshots are grouped by audience: **Public**, **Spectators**, **Operators**, **Judges**, **Divers + Coaches**, and **Admins**. The full user guide lives in the [DiveRecorder Wiki](https://github.com/JediBrooker/DiveRecorder/wiki).
+Screenshots are grouped by audience: **Public**, **Spectators**, **Operators**, **Judges**, **Divers + Coaches**, and **Admins**. The full user guide lives in the [DivingHQ Wiki](https://github.com/JediBrooker/DivingHQ/wiki).
 
 ### Public-facing entry points
 
@@ -63,7 +63,7 @@ The path for an individual diver, judge, or coach to join an existing federation
 
 #### Register a Federation
 
-The first-time path for a country federation or club to register an organisation on DiveRecorder. Org admin lands here, fills in name + country code + slug + admin credentials, and the request goes to the system administrator's queue for approval before the federation can run meets.
+The first-time path for a country federation or club to register an organisation on DivingHQ. Org admin lands here, fills in name + country code + slug + admin credentials, and the request goes to the system administrator's queue for approval before the federation can run meets.
 
 ![Register a Federation](./docs/screenshots/register-org.png)
 
@@ -233,8 +233,8 @@ The project intentionally avoids a build-time framework like Nuxt or Next — th
 
 The complete feature inventory now lives in the wiki, with two views over the same set of features:
 
-- **[Features → By persona](https://github.com/JediBrooker/DiveRecorder/wiki/Features#by-persona)** — pick your role (Spectator / Diver / Judge / Referee / Coach / Meet manager / Org admin / System admin) and see everything you can do, with deep-links to the docs for each one.
-- **[Features → By section](https://github.com/JediBrooker/DiveRecorder/wiki/Features#by-section)** — same features inverted, grouped by app surface (Auth, Meet setup, Control Room, Judging, Scoreboard, Diver Portal, Admin Tasks, PDF/CSV exports, Notifications, Keyboard shortcuts, Performance + offline).
+- **[Features → By persona](https://github.com/JediBrooker/DivingHQ/wiki/Features#by-persona)** — pick your role (Spectator / Diver / Judge / Referee / Coach / Meet manager / Org admin / System admin) and see everything you can do, with deep-links to the docs for each one.
+- **[Features → By section](https://github.com/JediBrooker/DivingHQ/wiki/Features#by-section)** — same features inverted, grouped by app surface (Auth, Meet setup, Control Room, Judging, Scoreboard, Diver Portal, Admin Tasks, PDF/CSV exports, Notifications, Keyboard shortcuts, Performance + offline).
 
 The README used to inline this list; the wiki page keeps deep-links to the user guide and is easier to keep in sync as features land.
 
@@ -254,16 +254,16 @@ The README used to inline this list; the wiki page keeps deep-links to the user 
 ### 2. Clone and install
 
 ```bash
-git clone https://github.com/JediBrooker/DiveRecorder.git
-cd DiveRecorder
+git clone https://github.com/JediBrooker/DivingHQ.git
+cd DivingHQ
 npm install
 ```
 
 ### 3. Create and initialise the database
 
 ```bash
-createdb diverecorder
-psql -d diverecorder -f init.sql
+createdb divinghq
+psql -d divinghq -f init.sql
 ```
 
 `init.sql` is the single bootstrap script — it creates every table, enum, function and index, loads the full World Aquatics dive directory (~830 dives), and creates a system-admin account so you can sign in immediately. Schema version is logged on server boot.
@@ -271,7 +271,7 @@ psql -d diverecorder -f init.sql
 ### 4. (Optional) Seed test data
 
 ```bash
-psql -d diverecorder -f seed_test_data.sql
+psql -d divinghq -f seed_test_data.sql
 ```
 
 Adds 20 country federations, 80 clubs, 1000 users, 50 individual events, 20 synchronised pair events (11-judge panels with proper World Aquatics scoring) and 10 team events (3 teams of 4 members each), all with dive lists, judge scores, and matching audit history. Useful for stress-testing the archive, scoreboard, and admin views. Idempotent — safe to re-run; deletes the prior seed before re-inserting.
@@ -291,7 +291,7 @@ SMTP_HOST=smtp.your-provider.com
 SMTP_PORT=587
 SMTP_USER=...
 SMTP_PASS=...
-SMTP_FROM="Dive Recorder <noreply@your-domain.example.com>"
+SMTP_FROM="DivingHQ <noreply@your-domain.example.com>"
 ```
 
 Without `SMTP_HOST` set, every email helper silently no-ops — registrations and password changes work, just no email is dispatched. `APP_BASE_URL` is used to build the reset-password link AND the referee sign-off code QR/deep-link; the server refuses to issue a sign-off code when it isn't set, so make sure the value is configured in production.
@@ -512,11 +512,11 @@ The split is the result of an incremental refactor from a single 6,400-line `ser
 <details>
 <summary><h2 id="roles">Roles</h2></summary>
 
-DiveRecorder has eight role personas — seven values in the `org_role` enum plus the `is_system_admin` boolean flag. Each persona below describes the role's context and the things that role can actually do in the app.
+DivingHQ has eight role personas — seven values in the `org_role` enum plus the `is_system_admin` boolean flag. Each persona below describes the role's context and the things that role can actually do in the app.
 
 ### `is_system_admin` — Platform operator
 
-The platform operator runs DiveRecorder as a multi-tenant SaaS — the only person who sees across every federation on the system. They're the last line of defence when something goes wrong, whether that's a stuck migration, a suspicious score change, or an org admin who's locked themselves out the morning of a national championship. Their authority is orthogonal to `org_role`: not "in" any single org, but above all of them.
+The platform operator runs DivingHQ as a multi-tenant SaaS — the only person who sees across every federation on the system. They're the last line of defence when something goes wrong, whether that's a stuck migration, a suspicious score change, or an org admin who's locked themselves out the morning of a national championship. Their authority is orthogonal to `org_role`: not "in" any single org, but above all of them.
 
 **What they can do:**
 - Approve or reject new federation sign-ups (`/api/orgs/pending`)
@@ -641,7 +641,7 @@ Bug reports go through GitHub Issues. The repo has a template that prompts for t
 
 **To file a bug:**
 
-1. Open https://github.com/JediBrooker/DiveRecorder/issues/new/choose
+1. Open https://github.com/JediBrooker/DivingHQ/issues/new/choose
 2. Pick the **Bug report** template.
 3. Fill in the sections (steps to reproduce, expected vs actual, environment).
 4. **Don't paste passwords, JWTs, or other secrets.** If a JWT helps the diagnosis, redact the signature segment.
@@ -709,7 +709,7 @@ org in cleanup so parallel runs don't collide.
 ### Running
 
 The spec runs use the same Postgres test database as `npm test`
-(`diverecorder_test` by default — override with `DB_DATABASE`).
+(`divinghq_test` by default — override with `DB_DATABASE`).
 
 ```bash
 # Whole suite (parallel, headless)

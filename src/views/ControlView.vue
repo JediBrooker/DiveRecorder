@@ -3023,7 +3023,7 @@ onUnmounted(() => {
     <!-- Header -->
     <div class="ctrl-header">
       <div style="display:flex;align-items:center;gap:1.5rem">
-        <RouterLink to="/dashboard" class="app-logo" style="font-size:16px">DIVE<span>RECORDER</span></RouterLink>
+        <RouterLink to="/dashboard" class="app-logo" style="font-size:16px">DIVING<span>HQ</span></RouterLink>
         <select class="event-select-sm" v-model="selectedEventId" @change="onEventChange">
           <option value="">— Select Event —</option>
           <option v-for="ev in events" :key="ev.id" :value="ev.id">{{ ev.name }}</option>

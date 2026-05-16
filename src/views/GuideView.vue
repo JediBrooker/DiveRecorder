@@ -4,7 +4,7 @@
  * sketch of "what is this and how do I use it."
  *
  * Deliberately NOT a wiki replacement — the wiki at
- * https://github.com/JediBrooker/DiveRecorder/wiki carries the
+ * https://github.com/JediBrooker/DivingHQ/wiki carries the
  * exhaustive material. This page is the 5-minute orientation
  * that gets a new user from "I have no idea where to click" to
  * "OK, I know which screen to open."
@@ -14,14 +14,14 @@
  *   • Dashboard (`/dashboard`) footer alongside the bug-report link
  *
  * Structure (matches the journey of a first-time user):
- *   1. What is DiveRecorder?
+ *   1. What is DivingHQ?
  *   2. "I'm a …" — role-by-role cards
  *   3. Common first questions (FAQ-lite, 4 items)
  *   4. Where to go from here — link out to the full wiki
  */
 import { RouterLink } from 'vue-router'
 
-const WIKI = 'https://github.com/JediBrooker/DiveRecorder/wiki'
+const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
 </script>
 
 <template>
@@ -39,7 +39,7 @@ const WIKI = 'https://github.com/JediBrooker/DiveRecorder/wiki'
     <!-- Hero -->
     <section class="guide-hero">
       <div class="guide-eyebrow">User Guide</div>
-      <h1 class="guide-title">Welcome to DiveRecorder</h1>
+      <h1 class="guide-title">Welcome to DivingHQ</h1>
       <p class="guide-lede">
         A platform for running diving meets — divers submit dive sheets,
         judges score on phones, the operator drives the meet from a

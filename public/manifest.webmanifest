@@ -1,6 +1,6 @@
 {
-  "name": "Dive Recorder",
-  "short_name": "DiveRecorder",
+  "name": "DivingHQ",
+  "short_name": "DivingHQ",
   "description": "Real-time diving competition scoring and results.",
   "start_url": "/dashboard",
   "scope": "/",

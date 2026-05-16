@@ -59,7 +59,7 @@ async function handleSubmit() {
 
 <template>
   <div class="login-wrap">
-    <div class="login-mark">Dive Recorder</div>
+    <div class="login-mark">DivingHQ</div>
     <h1>Sign In</h1>
     <p class="subtitle">Official competition portal</p>
 
@@ -91,7 +91,7 @@ async function handleSubmit() {
            Home + Dashboard footers, with the `bug` label + a
            "Bug: " title prefix so reports land tagged without
            the reporter knowing the taxonomy. -->
-      <a href="https://github.com/JediBrooker/DiveRecorder/issues/new?labels=bug&title=Bug%3A%20"
+      <a href="https://github.com/JediBrooker/DivingHQ/issues/new?labels=bug&title=Bug%3A%20"
          target="_blank"
          rel="noopener">Found a bug? <span>🐛 Report it on GitHub</span></a>
     </div>

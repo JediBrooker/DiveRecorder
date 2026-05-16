@@ -1,5 +1,5 @@
 -- =============================================================
--- DiveRecorder — INITIAL LOAD
+-- DivingHQ — INITIAL LOAD
 --
 -- One-shot bootstrap for a fresh, empty database. Folds in the
 -- old schema_v2.sql + every migration (001 .. 007), the full
@@ -7,8 +7,8 @@
 -- account so you can sign in immediately.
 --
 -- Usage:
---     createdb diverecorder
---     psql -d diverecorder -f init.sql
+--     createdb divinghq
+--     psql -d divinghq -f init.sql
 --
 -- After this finishes, log in with:
 --     username: admin
@@ -2442,7 +2442,7 @@ VALUES (
     'admin',
     '$2b$12$ByJxDUrjsvPjFqTjsWp2O.eTL6QoytQLQmHyTNwiNJLOJVZJZ/Oha',  -- bcrypt('admin', 12)
     'System Administrator',
-    'admin@diverecorder.local',
+    'admin@divinghq.local',
     '00000000-0000-0000-0000-000000000001',
     NULL,
     true,
@@ -2490,5 +2490,5 @@ COMMIT;
 -- and the ability to register additional organisations).
 --
 -- For test data on top of this clean install, run:
---     psql -d diverecorder -f seed_test_data.sql
+--     psql -d divinghq -f seed_test_data.sql
 -- =============================================================

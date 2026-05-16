@@ -34,9 +34,9 @@ test("server is healthy and exposes schema_meta", async ({ request: req }) => {
 
 test("SPA index page boots", async ({ page }) => {
   await page.goto("/");
-  // The SPA's index.html sets <title>Dive Recorder</title>;
+  // The SPA's index.html sets <title>DivingHQ</title>;
   // anything else means the static fallback didn't fire.
-  await expect(page).toHaveTitle(/dive recorder/i);
+  await expect(page).toHaveTitle(/divinghq/i);
   // The bundle should load and Vue should mount; check the
   // root #app element is present and the JS chunk fired.
   const rootCount = await page.locator("#app").count();
@@ -75,7 +75,7 @@ test("public diver profile: crawler gets OG tags, browser gets SPA", async ({ re
   // which falls through to the SPA fallback. So instead let's
   // just verify the SPA fallback fires for /diver/whatever.
   await page.goto("/diver/0123456789abcdef0123456789abcdef");
-  await expect(page).toHaveTitle(/dive recorder/i);
+  await expect(page).toHaveTitle(/divinghq/i);
 });
 
 test("crawler UA on /diver/:slug receives OG-tagged HTML when slug exists",

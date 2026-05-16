@@ -171,7 +171,7 @@ test("five judges submit scores → scoreboard shows the diver's total", async (
 
   // ---- And via the browser, just to satisfy "Playwright" ----
   await page.goto(`/scoreboard/${eventId}`);
-  await expect(page).toHaveTitle(/dive recorder/i);
+  await expect(page).toHaveTitle(/divinghq/i);
 
   // ---- Cleanup ----
   await setup.deleteOrg(orgId);

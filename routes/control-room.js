@@ -935,7 +935,7 @@ module.exports = function createControlRoomRouter({
   // both require something — push permission OR the referee
   // physically at the manager's laptop. Cut 3 plugs the gap: the
   // manager generates a 6-digit code on their screen; the
-  // referee opens DiveRecorder on their own already-signed-in
+  // referee opens DivingHQ on their own already-signed-in
   // device, navigates to /sign-off-codes, types the code in.
   // Server matches code → pending request → stamps signed_off_by
   // = the referee whose session typed it.

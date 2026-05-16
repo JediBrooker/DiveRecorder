@@ -57,7 +57,7 @@ async function handleSubmit() {
 
 <template>
   <div class="wrap">
-    <div class="login-mark">Dive Recorder</div>
+    <div class="login-mark">DivingHQ</div>
     <h1>Register Organisation</h1>
     <p class="subtitle">Get your federation on the platform</p>
 

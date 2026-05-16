@@ -1,5 +1,5 @@
 -- =============================================================
--- DiveRecorder — TEST DATA SEED
+-- DivingHQ — TEST DATA SEED
 --
 -- Layered on top of init.sql. Adds:
 --
@@ -21,7 +21,7 @@
 --   ... continuing every 50 users through bulk_user_0951 (NOR).
 --
 -- Run:
---   psql -d diverecorder -f seed_test_data.sql
+--   psql -d divinghq -f seed_test_data.sql
 --
 -- Idempotent — reruns first delete every org with slug 'bulk-*'
 -- (and everything cascading from them) before re-seeding. Will

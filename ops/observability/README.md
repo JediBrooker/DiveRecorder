@@ -111,7 +111,7 @@ first login regardless.
 * **Two datasources** — Prometheus (default) and Loki — auto-loaded
   via `grafana/provisioning/datasources/all.yml`. No need to add
   them through the UI.
-* **One starter dashboard** at `Dashboards → Dive Recorder → Dive
+* **One starter dashboard** at `Dashboards → DivingHQ → Dive
   Recorder`, with nine panels:
   * Score submissions / minute (stat)
   * Connected sockets (stat)

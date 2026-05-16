@@ -585,7 +585,7 @@ module.exports = function createJudgeRankingRouter({ pool }) {
       doc.moveDown(0.8);
       doc.font("Helvetica-Oblique").fontSize(8).fillColor("#94a3b8")
         .text(
-          `Generated ${new Date().toLocaleString()} via Dive Recorder.  ` +
+          `Generated ${new Date().toLocaleString()} via DivingHQ.  ` +
           "Each judge column shows the rank this diver would hold if every " +
           "judge had scored unanimously like that judge.",
           { align: "center" },

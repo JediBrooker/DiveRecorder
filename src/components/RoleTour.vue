@@ -51,7 +51,7 @@ const SLIDES = {
       body: 'When a meet manager assigns you to a panel, the Judge view loads the active diver automatically. No event picker — just tap the score.' },
     { emoji: '📱',
       title: 'Built for the pool deck',
-      body: 'Lock your phone in landscape, leave it face-up, and Dive Recorder keeps the screen awake. Submitting a score buzzes the phone so you can confirm without looking.' },
+      body: 'Lock your phone in landscape, leave it face-up, and DivingHQ keeps the screen awake. Submitting a score buzzes the phone so you can confirm without looking.' },
     { emoji: '🚩',
       title: 'Need the referee?',
       body: 'Tap "Signal Referee" if you missed a dive or the dive list looks wrong. The referee gets a flag on the Control Room — tap again to clear it.' },

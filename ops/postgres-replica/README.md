@@ -128,7 +128,7 @@ automatically):
 
 ```sql
 CREATE USER reader WITH LOGIN PASSWORD '<PICK_ANOTHER_STRONG_PW>';
-GRANT CONNECT ON DATABASE diverecorder TO reader;
+GRANT CONNECT ON DATABASE divinghq TO reader;
 GRANT USAGE ON SCHEMA public TO reader;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO reader;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
@@ -141,10 +141,10 @@ too — no need to re-run the GRANT after every migration.
 
 ### 4. Wire the app
 
-Edit `~/DiveRecorder/.env` on the **app** server:
+Edit `~/DivingHQ/.env` on the **app** server:
 
 ```
-DATABASE_READ_URL=postgres://reader:<password>@<replica-host>:5432/diverecorder
+DATABASE_READ_URL=postgres://reader:<password>@<replica-host>:5432/divinghq
 ```
 
 Restart: `pm2 restart dive-recorder`. You should see a log

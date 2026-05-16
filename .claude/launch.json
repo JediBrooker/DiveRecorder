@@ -10,7 +10,7 @@
         "PORT": "3097",
         "RATE_LIMIT_DISABLED": "true",
         "APP_BASE_URL": "http://127.0.0.1:3097",
-        "DB_DATABASE": "diverecorder_test",
+        "DB_DATABASE": "divinghq_test",
         "JWT_SECRET": "local-test-secret-do-not-use-in-prod-aaaaa"
       }
     }

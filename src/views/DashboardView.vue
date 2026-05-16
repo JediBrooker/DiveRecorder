@@ -1017,7 +1017,7 @@ function attachSocketHandlers() {
   <div class="dashboard">
     <div class="header-inner">
       <div class="header-welcome">
-        <div class="welcome-label">Dive Recorder</div>
+        <div class="welcome-label">DivingHQ</div>
         <div class="welcome-name">{{ welcomeName }}</div>
         <div class="role-line">{{ roleLine }}</div>
       </div>
@@ -1249,7 +1249,7 @@ function attachSocketHandlers() {
       <span class="dashboard-footer-sep" aria-hidden="true">·</span>
       <span class="dashboard-footer-label">Spot a bug?</span>
       <a
-        href="https://github.com/JediBrooker/DiveRecorder/issues/new?labels=bug&title=Bug%3A%20"
+        href="https://github.com/JediBrooker/DivingHQ/issues/new?labels=bug&title=Bug%3A%20"
         target="_blank"
         rel="noopener"
         class="dashboard-footer-link"

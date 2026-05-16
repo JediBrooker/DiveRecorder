@@ -16,7 +16,7 @@ onMounted(() => {
   <section class="hero">
     <div class="hero-glow"></div>
     <div class="hero-mark">Competition Management Platform</div>
-    <div class="hero-logo">DIVE<span>RECORDER</span></div>
+    <div class="hero-logo">DIVING<span>HQ</span></div>
     <p class="hero-tagline">End-to-end diving competition management — from event setup and dive list submission through to live judging, broadcast scores, and final results.</p>
     <div class="hero-actions">
       <RouterLink to="/login" class="hero-btn-primary">Sign In</RouterLink>
@@ -145,7 +145,7 @@ onMounted(() => {
   <!-- Footer -->
   <footer style="border-top:1px solid var(--border);padding:2rem;">
     <div style="max-width:1200px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
-      <RouterLink to="/" class="footer-logo">DIVE<span>RECORDER</span></RouterLink>
+      <RouterLink to="/" class="footer-logo">DIVING<span>HQ</span></RouterLink>
       <div class="footer-links">
         <RouterLink to="/login">Sign In</RouterLink>
         <RouterLink to="/register">Register</RouterLink>
@@ -158,7 +158,7 @@ onMounted(() => {
         <!-- Public issue tracker. Pre-fills the title with
              "Bug:" + a bug label so the report lands tagged
              without the reporter having to know our taxonomy. -->
-        <a href="https://github.com/JediBrooker/DiveRecorder/issues/new?labels=bug&amp;title=Bug%3A%20"
+        <a href="https://github.com/JediBrooker/DivingHQ/issues/new?labels=bug&amp;title=Bug%3A%20"
            target="_blank"
            rel="noopener"
            class="footer-bug">🐛 Report a bug</a>

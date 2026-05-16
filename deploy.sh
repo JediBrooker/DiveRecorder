@@ -146,7 +146,7 @@ run npm run migrate
 # regression a deploy would otherwise ship blind.
 #
 # For full integration coverage, run `npm test` against a
-# DEDICATED test database (createdb diverecorder_test, point
+# DEDICATED test database (createdb divinghq_test, point
 # DB_DATABASE at it) — never against the production DB.
 if [[ $SKIP_TESTS -eq 0 ]]; then
   step "npm run test:safe"

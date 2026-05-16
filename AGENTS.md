@@ -387,7 +387,7 @@ test DB:
 PORT=3097 \
 RATE_LIMIT_DISABLED=true \
 APP_BASE_URL=http://127.0.0.1:3097 \
-DB_DATABASE=diverecorder_test \
+DB_DATABASE=divinghq_test \
 JWT_SECRET=local-test-secret-do-not-use-in-prod-aaaaa \
   node server.js
 ```
@@ -423,7 +423,7 @@ on the GitHub Actions round-trip — push-then-watch-CI is a 15-minute
 loop that hides bugs behind merge commits and is twice as slow as
 running locally.
 
-Project lives at `~/Code/DiveRecorder` (local disk, not Google
+Project lives at `~/Code/DivingHQ` (local disk, not Google
 Drive — an earlier copy on Drive caused 2-5 min Node module-load
 hangs). Cold boot is ~1 second; full local-CI cycle is ~3 min.
 
@@ -435,8 +435,8 @@ npm run lint
 npm run build
 
 # 2. Integration tests (requires Postgres at $DB_DATABASE,
-#    default diverecorder_test). Boots server.js in-process.
-DB_DATABASE=diverecorder_test \
+#    default divinghq_test). Boots server.js in-process.
+DB_DATABASE=divinghq_test \
   JWT_SECRET=local-test-secret-do-not-use-in-prod-aaaaa \
   npm test
 
@@ -449,7 +449,7 @@ DB_DATABASE=diverecorder_test \
 #    auto-spawned server, but if you pre-boot, set it yourself.
 PORT=3097 RATE_LIMIT_DISABLED=true APP_BASE_URL=http://127.0.0.1:3097 \
   node server.js &
-DB_DATABASE=diverecorder_test E2E_HIGHLIGHT=0 npx playwright test
+DB_DATABASE=divinghq_test E2E_HIGHLIGHT=0 npx playwright test
 ```
 
 A change is "ready to push" only after all three are green.

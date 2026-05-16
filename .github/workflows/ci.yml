@@ -41,7 +41,7 @@ jobs:
         env:
           POSTGRES_USER: diver
           POSTGRES_PASSWORD: diver
-          POSTGRES_DB: diverecorder_test
+          POSTGRES_DB: divinghq_test
         ports:
           - 5432:5432
         options: >-
@@ -54,7 +54,7 @@ jobs:
       PGHOST: localhost
       PGUSER: diver
       PGPASSWORD: diver
-      PGDATABASE: diverecorder_test
+      PGDATABASE: divinghq_test
       # JWT_SECRET is required for server.js to boot (it fail-closes
       # on missing or placeholder values). The integration test
       # require()s server.js directly, so without this the whole
@@ -76,7 +76,7 @@ jobs:
         run: npm ci
 
       - name: Apply schema (init.sql)
-        run: psql -v ON_ERROR_STOP=1 -h localhost -U diver -d diverecorder_test -f init.sql
+        run: psql -v ON_ERROR_STOP=1 -h localhost -U diver -d divinghq_test -f init.sql
 
       - name: Run tests
         run: npm test
@@ -92,7 +92,7 @@ jobs:
         env:
           POSTGRES_USER: diver
           POSTGRES_PASSWORD: diver
-          POSTGRES_DB: diverecorder_test
+          POSTGRES_DB: divinghq_test
         ports:
           - 5432:5432
         options: >-
@@ -107,10 +107,10 @@ jobs:
       PGHOST: localhost
       PGUSER: diver
       PGPASSWORD: diver
-      PGDATABASE: diverecorder_test
+      PGDATABASE: divinghq_test
       # DB_DATABASE explicit so the integration-test fixture
       # (which prefers DB_* over PG*) targets the same database.
-      DB_DATABASE: diverecorder_test
+      DB_DATABASE: divinghq_test
       # Required for server.js to boot — see the test job's
       # comment for why we use a long deterministic dummy.
       JWT_SECRET: ci-test-secret-do-not-use-in-prod-aaaaaaaaaaaaaaaa
@@ -133,7 +133,7 @@ jobs:
         run: npm ci
 
       - name: Apply schema (init.sql)
-        run: psql -v ON_ERROR_STOP=1 -h localhost -U diver -d diverecorder_test -f init.sql
+        run: psql -v ON_ERROR_STOP=1 -h localhost -U diver -d divinghq_test -f init.sql
 
       # Cache the Chromium binary (~140MB) keyed by the lockfile.
       # Most runs hit cache and skip the download entirely; runs

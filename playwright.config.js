@@ -76,7 +76,7 @@ module.exports = defineConfig({
   // already going on :3000 can run e2e in parallel without a
   // port collision. PORT + DB_DATABASE are passed through the
   // env so the e2e suite uses the same Postgres the integration
-  // tests use (diverecorder_test).
+  // tests use (divinghq_test).
   webServer: {
     command: "npm run build && PORT=3097 node server.js",
     url: "http://127.0.0.1:3097/api/health",
@@ -87,7 +87,7 @@ module.exports = defineConfig({
     env: {
       PORT: "3097",
       // Point at the local test DB created in `npm test` setup.
-      DB_DATABASE: process.env.DB_DATABASE || "diverecorder_test",
+      DB_DATABASE: process.env.DB_DATABASE || "divinghq_test",
       // Disable the auth + bulk-write rate limiters for the suite.
       // Every request comes from 127.0.0.1 so the production limit
       // (20 auth req / 15 min / IP) trips after a few tests and

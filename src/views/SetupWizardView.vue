@@ -115,7 +115,7 @@ onMounted(() => {
 <template>
   <div class="wizard-shell">
     <header class="wizard-header">
-      <RouterLink to="/dashboard" class="wizard-logo">DIVE<span>RECORDER</span></RouterLink>
+      <RouterLink to="/dashboard" class="wizard-logo">DIVING<span>HQ</span></RouterLink>
       <button type="button" class="wizard-skip-link" @click="dismiss">
         Skip setup &rarr;
       </button>

@@ -14,14 +14,14 @@
 #     cd ops/postgres-replica && ./verify.sh
 #
 # Defaults to http://127.0.0.1:3000 — override with HOST.
-# Defaults to the local diverecorder DB — override with DB_*.
+# Defaults to the local divinghq DB — override with DB_*.
 
 set -euo pipefail
 
 HOST="${HOST:-http://127.0.0.1:3000}"
 DB_HOST="${DB_HOST:-localhost}"
 DB_USER="${DB_USER:-${USER}}"
-DB_DATABASE="${DB_DATABASE:-diverecorder_test}"
+DB_DATABASE="${DB_DATABASE:-divinghq_test}"
 
 echo "Verifying read-replica wiring at $HOST"
 echo "Comparing to primary at $DB_HOST/$DB_DATABASE"

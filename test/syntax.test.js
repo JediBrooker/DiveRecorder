@@ -28,7 +28,7 @@ test("server.js loads cleanly (catches TDZ / missing-binding bugs)", () => {
     JWT_SECRET: "test_test_test_test_test_test_test_test",
     DB_HOST: "127.0.0.1",
     DB_PORT: "5432",
-    DB_NAME: "diverecorder_test",
+    DB_NAME: "divinghq_test",
     DB_USER: "test",
     DB_PASSWORD: "test",
     NODE_ENV: "test",

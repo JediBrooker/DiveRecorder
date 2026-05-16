@@ -101,7 +101,7 @@ test("admin creates event, adds roster, flips status, reads it back", async ({
   // — but we can at least check the public scoreboard for this
   // event renders.
   await page.goto(`/scoreboard/${eventId}`);
-  await expect(page).toHaveTitle(/dive recorder/i);
+  await expect(page).toHaveTitle(/divinghq/i);
 
   // ---- Cleanup ----
   await setup.deleteOrg(orgId);

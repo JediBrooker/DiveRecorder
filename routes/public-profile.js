@@ -298,7 +298,7 @@ module.exports = function createPublicProfileRouter({ pool, readPool }) {
   </defs>
   <rect width="1200" height="630" fill="url(#bg)"/>
   <text x="80" y="120" font-family="Helvetica, Arial, sans-serif"
-        font-size="28" fill="#67e8f9" letter-spacing="3">DIVE RECORDER</text>
+        font-size="28" fill="#67e8f9" letter-spacing="3">DIVINGHQ</text>
   <text x="80" y="280" font-family="Helvetica, Arial, sans-serif"
         font-size="84" font-weight="bold" fill="#ffffff">${e(d.full_name)}</text>
   <text x="80" y="340" font-family="Helvetica, Arial, sans-serif"
@@ -368,7 +368,7 @@ module.exports = function createPublicProfileRouter({ pool, readPool }) {
         base = `${req.protocol}://${host}`;
       }
       const url = `${base}/diver/${slug}`;
-      const title = `${d.full_name} — Dive Recorder`;
+      const title = `${d.full_name} — DivingHQ`;
       const subline = [d.org_name, d.country_code, d.club_name]
         .filter(Boolean).join(" · ");
       const description = subline
@@ -393,7 +393,7 @@ module.exports = function createPublicProfileRouter({ pool, readPool }) {
 <meta property="og:title" content="${htmlEscape(title)}">
 <meta property="og:description" content="${htmlEscape(description)}">
 <meta property="og:image" content="${htmlEscape(ogImage)}">
-<meta property="og:site_name" content="Dive Recorder">
+<meta property="og:site_name" content="DivingHQ">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="${htmlEscape(title)}">
 <meta name="twitter:description" content="${htmlEscape(description)}">

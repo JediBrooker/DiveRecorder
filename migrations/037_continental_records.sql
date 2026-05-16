@@ -5,7 +5,7 @@
 -- World Aquatics tracks Oceania, European, Pan-American, Asian,
 -- and African records alongside national records — and a junior
 -- setting an Oceania record at a Pacific Junior Champs has had
--- no place to land them in DiveRecorder until now. This
+-- no place to land them in DivingHQ until now. This
 -- migration adds:
 --
 --   * organisations.continent — short ISO-ish region code on

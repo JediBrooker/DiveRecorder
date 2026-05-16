@@ -92,7 +92,7 @@ async function handleSubmit() {
 
 <template>
   <div class="wrap">
-    <div class="login-mark">Dive Recorder</div>
+    <div class="login-mark">DivingHQ</div>
     <h1>Register</h1>
     <p class="subtitle">Create your account</p>
 

@@ -57,7 +57,7 @@ onMounted(confirm)
 
 <template>
   <div class="confirm-wrap">
-    <div class="confirm-mark">Dive Recorder</div>
+    <div class="confirm-mark">DivingHQ</div>
     <h1>Confirm Email</h1>
     <p class="subtitle">Verifying your new address</p>
 

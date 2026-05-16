@@ -4,7 +4,7 @@
 -- Coaches use poolside / pool-deck entries (sit-dives, kneel-dives,
 -- standing falls) as a teaching progression before introducing the
 -- 1m board. Until now there was no way to record those sessions in
--- DiveRecorder because the events.height column is a board_height
+-- DivingHQ because the events.height column is a board_height
 -- enum that only knows 1m / 3m / 5m / 7.5m / 10m.
 --
 -- Adding '0m' BEFORE '1m' so the spectator UI's natural sort order
