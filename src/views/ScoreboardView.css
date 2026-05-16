@@ -645,7 +645,21 @@
 /* Completed-event branch. In normal mode the page scrolls
    naturally so this is just a flex container. Broadcast +
    overlay modes re-enable the overflow lock. */
-.sb-completed { display: flex; flex-direction: column; }
+.sb-completed {
+  display: flex;
+  flex-direction: column;
+  /* Defensive clamp at the recap-container level. The Judge
+     Ranking Analysis matrix can be very wide (one column per
+     judge), and `overflow-x: clip` here means any descendant
+     pushing wider than the viewport gets clipped to the parent
+     rather than forcing the page itself to scroll horizontally.
+     The JRA's own `.jra-scroll` wrapper still handles its own
+     internal scroll. clip > hidden — see DashboardView for the
+     reasoning. */
+  overflow-x: clip;
+  max-width: 100%;
+  min-width: 0;
+}
 .sb-layout.broadcast-mode .sb-completed,
 .sb-layout.overlay-mode .sb-completed {
   flex: 1; overflow-y: auto; overflow-x: hidden;
@@ -991,7 +1005,27 @@
     border-bottom: 1px solid var(--border);
   }
   .sb-col:last-child { border-bottom: none; }
-  .col-body { padding: 0.75rem 1rem; max-height: 360px; }
+  /* `.col-body` is shared by the live 3-column layout (.sb-body)
+     and the completed-event recap (.sb-completed). On the live
+     view each column needs an internal scrollbox so all three
+     fit in a phone screen at once — that's where the 360px cap
+     comes from. On the recap the whole page should flow so the
+     spectator can simply scroll down the leaderboard. Scope the
+     cap to .sb-body only. */
+  .sb-body .col-body { padding: 0.75rem 1rem; max-height: 360px; }
+  .sb-completed .col-body {
+    padding: 0.75rem 1rem;
+    max-height: none;
+    overflow: visible;
+  }
+  /* The Judge Ranking Analysis card lives inside .sb-completed
+     and renders a wide matrix table (one column per judge). The
+     table itself has overflow-x: auto, but the .recap-card
+     wrapper needs min-width:0 so the table's intrinsic content
+     width can't push the whole page wider than the viewport
+     (Safari quirk on flex / grid children). */
+  .sb-completed .recap-card { min-width: 0; overflow-x: hidden; }
+  .sb-completed .recap-card .col-body { min-width: 0; }
   .active-centre { padding: 1.5rem 1rem; }
 
   /* Big "current diver" name dominates the centre column on
