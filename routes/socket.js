@@ -233,6 +233,40 @@ module.exports = function attachSocket({
     }
     socket.on("subscribe_event", (data) => joinEvent(data?.event_id));
 
+    // Venue bridge subscription. Hardware bridges (Daktronics,
+    // Colorado Time Systems, OmegaTiming, etc.) join `venue:<id>`
+    // rooms to receive canonical `venue.scoreboard_state` payloads.
+    // See lib/venue-state.js for the spec + wire shape.
+    //
+    // No auth gate here — a bridge runs inside the venue's own LAN
+    // and the venue operator chose to install it. Adding a
+    // dedicated bridge token would harden against curious public
+    // clients but doesn't change the security posture (the same
+    // data is on the public scoreboard already).
+    function joinVenue(eventId) {
+      if (!eventId) return;
+      socket.join(`venue:${eventId}`);
+    }
+    socket.on("subscribe_venue", async (data) => {
+      const eventId = data?.event_id;
+      if (!eventId) return;
+      joinVenue(eventId);
+      // Immediately emit a fresh snapshot so the bridge has full
+      // state to render — important after a bridge restart.
+      try {
+        const { emitVenueState } = require("../lib/venue-state");
+        await emitVenueState({
+          io,
+          pool,
+          eventId,
+          activePayload: activeDivers[eventId],
+          onHoldReason: meetHolds[eventId]?.reason || null,
+        });
+      } catch (err) {
+        console.error("[subscribe_venue] initial snapshot failed", err.message);
+      }
+    });
+
     // Bring late-arriving clients up to speed with whatever's
     // currently live.
     if (Object.keys(activeDivers).length > 0) {
@@ -267,6 +301,22 @@ module.exports = function attachSocket({
             .maybeNotifyCoachesOfNextDivers({ pool, push }, data.event_id, data);
         } catch (err) {
           console.error("[set_active_diver] coach alert hook failed", err.message);
+        }
+      }
+
+      // Venue scoreboard state — fan out to any connected
+      // hardware bridge in this event's venue room. See
+      // lib/venue-state.js for the wire shape.
+      if (data.event_id) {
+        try {
+          require("../lib/venue-state").emitVenueState({
+            io, pool,
+            eventId: data.event_id,
+            activePayload: data,
+            onHoldReason: meetHolds[data.event_id]?.reason || null,
+          });
+        } catch (err) {
+          console.error("[set_active_diver] venue emit failed", err.message);
         }
       }
     });
@@ -413,6 +463,21 @@ module.exports = function attachSocket({
         judge_number: judgeNumber,
       });
 
+      // Venue bridge fan-out — refresh the scoreboard_state for
+      // hardware boards every time a judge submits.
+      if (data.event_id) {
+        try {
+          require("../lib/venue-state").emitVenueState({
+            io, pool,
+            eventId: data.event_id,
+            activePayload: activeDivers[data.event_id],
+            onHoldReason: meetHolds[data.event_id]?.reason || null,
+          });
+        } catch (err) {
+          console.error("[submit_score] venue emit failed", err.message);
+        }
+      }
+
       checkAndApplyRecords({
         eventId:      data.event_id,
         competitorId: data.competitor_id,
@@ -429,6 +494,20 @@ module.exports = function attachSocket({
                                        ["meet_manager", "referee", "org_admin"]))) return;
       if (socketActionRateLimited("announce_score", socket.userId)) return;
       io.to(`event:${data.event_id}`).emit("final_score_announced", data);
+      // Venue bridges want the post-final state: dive_total is now
+      // present, running_total + rank updated, leaderboard reshuffled.
+      if (data.event_id) {
+        try {
+          require("../lib/venue-state").emitVenueState({
+            io, pool,
+            eventId: data.event_id,
+            activePayload: activeDivers[data.event_id],
+            onHoldReason: meetHolds[data.event_id]?.reason || null,
+          });
+        } catch (err) {
+          console.error("[announce_score] venue emit failed", err.message);
+        }
+      }
     });
 
     // -----------------------------------------------------------
@@ -594,6 +673,17 @@ module.exports = function attachSocket({
       }
       io.to(`event:${data.event_id}`).emit("meet_held",
         { event_id: data.event_id, ...meetHolds[data.event_id] });
+      // Venue: flip on_hold=true so the bridge can flash a HOLD banner.
+      try {
+        require("../lib/venue-state").emitVenueState({
+          io, pool,
+          eventId: data.event_id,
+          activePayload: activeDivers[data.event_id],
+          onHoldReason: meetHolds[data.event_id].reason,
+        });
+      } catch (err) {
+        console.error("[meet_hold] venue emit failed", err.message);
+      }
     });
     socket.on("meet_resume", async (data) => {
       if (!(await socketCanManageEvent(socket, data?.event_id,
@@ -604,6 +694,17 @@ module.exports = function attachSocket({
         persistClearMeetHold(data.event_id);
       }
       io.to(`event:${data.event_id}`).emit("meet_resumed", { event_id: data.event_id });
+      // Venue: clear on_hold so the bridge drops the HOLD banner.
+      try {
+        require("../lib/venue-state").emitVenueState({
+          io, pool,
+          eventId: data.event_id,
+          activePayload: activeDivers[data.event_id],
+          onHoldReason: null,
+        });
+      } catch (err) {
+        console.error("[meet_resume] venue emit failed", err.message);
+      }
     });
     socket.on("get_meet_hold", (data) => {
       if (!data?.event_id) return;

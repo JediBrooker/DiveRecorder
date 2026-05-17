@@ -553,6 +553,17 @@ app.use(require("./routes/coach")({
   loadEventForEntries,
 }));
 
+// =============================================================
+// VENUE INTEGRATION ROUTES
+// [SECTION: ROUTES — VENUE]
+// /api/venue/scoreboard-state/:event_id — one-shot snapshot
+// for hardware bridges (Daktronics, Colorado Time Systems, etc).
+// Companion to the `venue.scoreboard_state` socket event
+// emitted from routes/socket.js. See lib/venue-state.js for
+// the canonical payload spec.
+// =============================================================
+app.use(require("./routes/venue")({ pool }));
+
 // Cross-org diver search + browse + orgs/all live in routes/
 // diver-search.js — extracted to keep server.js manageable. See
 // AGENTS.md for the modularisation plan.
