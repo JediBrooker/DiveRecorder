@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
+import i18n from './i18n'
 import { tipDirective } from './directives/tip'
 // Global styles. Imported here (not via <link> in index.html) so
 // Vite content-hashes the output filename — any edit to app.css
@@ -13,6 +14,7 @@ import './styles/app.css'
 const app = createApp(App)
 app.use(createPinia())
 app.use(router)
+app.use(i18n)
 // v-tip — instant tooltip replacement for `title=`. See
 // src/directives/tip.js for the rationale (native title has a
 // ~500ms browser delay; this swaps it for a CSS-only ::after

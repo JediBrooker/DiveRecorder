@@ -30,11 +30,15 @@
 
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
 import { usePush } from '@/composables/usePush'
 import { diveDescription } from '@/composables/useDiveLabel'
 import { showSuccess, showError } from '@/composables/useNotify'
+import LocaleSwitcher from '@/components/LocaleSwitcher.vue'
+
+const { t } = useI18n()
 
 const auth = useAuthStore()
 const { socket } = useSocket()
@@ -131,7 +135,7 @@ async function saveAlertPrefs() {
       }),
     })
     alertPrefs.value = saved
-    showSuccess('Alert preferences saved')
+    showSuccess(t('common.saving'))
   } catch (err) {
     showError(err.message || 'Failed to save preferences')
   } finally {
@@ -181,9 +185,14 @@ function placeColor(n) {
 }
 function fmtEta(seconds) {
   if (seconds == null || seconds < 0) return ''
-  if (seconds < 60) return 'NOW'
+  if (seconds < 60) return t('coach.dashboard.up_next_now')
   const mins = Math.round(seconds / 60)
   return `~${mins}m`
+}
+function fmtDivesAway(n) {
+  return t(n === 1
+    ? 'coach.dashboard.up_next_dives_away_one'
+    : 'coach.dashboard.up_next_dives_away_many', { n })
 }
 function etaTier(seconds) {
   if (seconds == null) return ''
@@ -243,22 +252,19 @@ const hasMultipleMeets = computed(() => groupedByMeet.value.length > 1)
   <div class="coach-wrap">
     <div class="page-header">
       <div>
-        <div class="page-label">Coach Dashboard</div>
-        <h1 class="page-title">My Divers</h1>
-        <div class="page-sub">
-          For each linked diver: their next dive, current rank, and most-recent
-          completed dive. Ask your org admin to add or remove links from the
-          User Manager.
-        </div>
+        <div class="page-label">{{ $t('coach.dashboard.label') }}</div>
+        <h1 class="page-title">{{ $t('coach.dashboard.title') }}</h1>
+        <div class="page-sub">{{ $t('coach.dashboard.subtitle') }}</div>
       </div>
       <div class="header-actions">
         <button class="btn btn-ghost btn-sm" @click="alertSettingsOpen = !alertSettingsOpen">
-          🔔 {{ alertPrefs.enabled ? 'Alerts on' : 'Alerts off' }}
+          🔔 {{ alertPrefs.enabled ? $t('coach.dashboard.alerts_on') : $t('coach.dashboard.alerts_off') }}
         </button>
+        <LocaleSwitcher />
         <button class="btn btn-ghost btn-sm" @click="load" :disabled="loading">
-          {{ loading ? '↻ Refreshing' : '↻ Refresh' }}
+          {{ loading ? $t('common.refreshing') : $t('common.refresh') }}
         </button>
-        <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">← Dashboard</RouterLink>
+        <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">{{ $t('common.dashboard') }}</RouterLink>
       </div>
     </div>
 
@@ -268,54 +274,47 @@ const hasMultipleMeets = computed(() => groupedByMeet.value.length > 1)
          been granted yet, surface a one-tap "Enable on this
          device" button that wraps usePush + the prefs POST. -->
     <div v-if="alertSettingsOpen" class="alert-settings-panel">
-      <div class="alert-settings-title">⏱ "Your diver is up next" alerts</div>
+      <div class="alert-settings-title">{{ $t('coach.dashboard.alerts_title') }}</div>
       <div class="alert-settings-body">
         <label class="alert-toggle">
           <input type="checkbox" v-model="alertPrefs.enabled">
-          <span>Notify me when one of my divers is approaching the board</span>
+          <span>{{ $t('coach.dashboard.alerts_toggle') }}</span>
         </label>
         <div class="alert-row">
           <label>
-            Fire alert
+            {{ $t('coach.dashboard.alerts_fire_label') }}
             <input type="number"
                    class="input alert-input"
                    v-model.number="alertPrefs.dives_ahead"
                    min="1" max="10">
-            dive{{ alertPrefs.dives_ahead === 1 ? '' : 's' }} ahead of active
+            {{ alertPrefs.dives_ahead === 1
+                ? $t('coach.dashboard.alerts_dives_one')
+                : $t('coach.dashboard.alerts_dives_many') }}
           </label>
         </div>
-        <p class="alert-hint">
-          Approximate warning at a 30s shot-clock: 1 dive ≈ 30s, 2 dives ≈ 1 min,
-          3 dives ≈ 90s. Alerts fan out across every Live event you have a
-          squad member in.
-        </p>
+        <p class="alert-hint">{{ $t('coach.dashboard.alerts_hint') }}</p>
         <div class="alert-actions">
           <button v-if="push.permission?.value !== 'granted'"
                   class="btn btn-primary btn-sm"
                   @click="enablePushAndPrefs"
                   :disabled="savingPrefs">
-            Enable push on this device
+            {{ $t('coach.dashboard.alerts_enable_push') }}
           </button>
           <button class="btn btn-primary btn-sm"
                   @click="saveAlertPrefs"
                   :disabled="savingPrefs">
-            {{ savingPrefs ? 'Saving…' : 'Save' }}
+            {{ savingPrefs ? $t('common.saving') : $t('common.save') }}
           </button>
         </div>
       </div>
     </div>
 
-    <div v-if="loading && !rows.length" class="empty">Loading your divers…</div>
+    <div v-if="loading && !rows.length" class="empty">{{ $t('coach.dashboard.loading') }}</div>
     <div v-else-if="error" class="msg msg-error">{{ error }}</div>
     <div v-else-if="!rows.length" class="empty-state-card">
       <div class="empty-state-icon">🤝</div>
-      <div class="empty-state-title">No divers linked yet</div>
-      <div class="empty-state-body">
-        Once your org admin links you to the divers you coach, their
-        events, results, and analytics will appear here. Ask your
-        federation's admin to open <strong>User Manager → your row →
-        Coach Links</strong> and add the divers you mentor.
-      </div>
+      <div class="empty-state-title">{{ $t('coach.dashboard.no_divers_title') }}</div>
+      <div class="empty-state-body">{{ $t('coach.dashboard.no_divers_body') }}</div>
     </div>
 
     <template v-else>
@@ -326,8 +325,8 @@ const hasMultipleMeets = computed(() => groupedByMeet.value.length > 1)
            this strip is just noise. -->
       <section v-if="upNext.rows.length" class="up-next-section">
         <div class="up-next-head">
-          <span class="up-next-label">⏱ Up next</span>
-          <span class="up-next-sub">your divers in the next {{ upNext.max_eta_minutes }} minutes</span>
+          <span class="up-next-label">{{ $t('coach.dashboard.up_next_label') }}</span>
+          <span class="up-next-sub">{{ $t('coach.dashboard.up_next_sub', { minutes: upNext.max_eta_minutes }) }}</span>
         </div>
         <div class="up-next-strip">
           <RouterLink v-for="row in upNext.rows"
@@ -336,9 +335,7 @@ const hasMultipleMeets = computed(() => groupedByMeet.value.length > 1)
                       :class="['up-next-card', etaTier(row.eta_seconds)]">
             <div class="up-next-eta">
               <span class="up-next-eta-value">{{ fmtEta(row.eta_seconds) }}</span>
-              <span class="up-next-eta-detail">
-                {{ row.dives_until }} {{ row.dives_until === 1 ? 'dive' : 'dives' }} away
-              </span>
+              <span class="up-next-eta-detail">{{ fmtDivesAway(row.dives_until) }}</span>
             </div>
             <div class="up-next-diver">
               <span class="up-next-name">{{ row.full_name }}</span>
@@ -373,7 +370,7 @@ const hasMultipleMeets = computed(() => groupedByMeet.value.length > 1)
         <!-- LIVE — biggest cards, brightest accent -->
         <section v-if="bucket.live.length" class="diver-section">
           <div class="section-head">
-            <span class="section-label">🔴 Diving Now</span>
+            <span class="section-label">{{ $t('coach.dashboard.section_live') }}</span>
             <span class="section-count">{{ bucket.live.length }}</span>
           </div>
           <div class="diver-grid">
@@ -428,7 +425,7 @@ const hasMultipleMeets = computed(() => groupedByMeet.value.length > 1)
              coach-on-behalf-of editor for that event. -->
         <section v-if="bucket.upcoming.length" class="diver-section">
           <div class="section-head">
-            <span class="section-label">📅 Upcoming</span>
+            <span class="section-label">{{ $t('coach.dashboard.section_upcoming') }}</span>
             <span class="section-count">{{ bucket.upcoming.length }}</span>
           </div>
           <div class="diver-grid">
@@ -469,7 +466,7 @@ const hasMultipleMeets = computed(() => groupedByMeet.value.length > 1)
              because divers with no event don't belong to a meet. -->
         <section v-if="bucket.idle.length && !bucket.meet_id" class="diver-section">
           <div class="section-head">
-            <span class="section-label">💤 No active event</span>
+            <span class="section-label">{{ $t('coach.dashboard.section_idle') }}</span>
             <span class="section-count">{{ bucket.idle.length }}</span>
           </div>
           <div class="diver-grid">

@@ -1,11 +1,14 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter, useRoute, RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
+import LocaleSwitcher from '@/components/LocaleSwitcher.vue'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
+const { t } = useI18n()
 
 const username = ref('')
 const password = ref('')
@@ -46,7 +49,7 @@ async function handleSubmit() {
       body: JSON.stringify({ username: username.value, password: password.value }),
     })
     const data = await res.json()
-    if (!res.ok) throw new Error(data.error || 'Login failed')
+    if (!res.ok) throw new Error(data.error || t('auth.login.submit_failed'))
     auth.saveSession(data)
     router.push(safeNextPath())
   } catch (err) {
@@ -59,41 +62,36 @@ async function handleSubmit() {
 
 <template>
   <div class="login-wrap">
-    <div class="login-mark">DIVING<span>HQ</span></div>
-    <h1>Sign In</h1>
-    <p class="subtitle">Official competition portal</p>
+    <div class="login-top">
+      <div class="login-mark">DIVING<span>HQ</span></div>
+      <LocaleSwitcher />
+    </div>
+    <h1>{{ $t('auth.login.title') }}</h1>
+    <p class="subtitle">{{ $t('auth.login.subtitle') }}</p>
 
     <form @submit.prevent="handleSubmit" class="form-stack">
       <div class="field">
-        <label class="label">Username</label>
+        <label class="label">{{ $t('auth.login.username_label') }}</label>
         <input class="input" type="text" v-model="username" autocomplete="username" required>
       </div>
       <div class="field">
-        <label class="label">Password</label>
+        <label class="label">{{ $t('auth.login.password_label') }}</label>
         <input class="input" type="password" v-model="password" autocomplete="current-password" required>
       </div>
       <div v-if="errorMsg" class="msg msg-error">{{ errorMsg }}</div>
       <button type="submit" class="btn btn-primary-lg" style="margin-top:0.5rem" :disabled="loading">
-        {{ loading ? 'Signing in...' : 'Sign In' }}
+        {{ loading ? $t('auth.login.submit_loading') : $t('auth.login.submit_idle') }}
       </button>
     </form>
 
     <div class="footer-links">
-      <RouterLink to="/forgot-password">Forgot your password? <span>Reset it</span></RouterLink>
-      <RouterLink to="/register">No account? <span>Register here</span></RouterLink>
-      <RouterLink to="/register-org">Registering a new federation? <span>Register your org</span></RouterLink>
-      <!-- User guide link — many users land directly on /login
-           and treat it as the home page; the guide link on the
-           actual home (`/`) is invisible to them. Same target
-           as the Home + Dashboard footer links. -->
-      <RouterLink to="/guide">New here? <span>Read the user guide</span></RouterLink>
-      <!-- Bug report — same pre-filled GitHub issue URL as the
-           Home + Dashboard footers, with the `bug` label + a
-           "Bug: " title prefix so reports land tagged without
-           the reporter knowing the taxonomy. -->
+      <RouterLink to="/forgot-password">{{ $t('auth.login.forgot_password') }} <span>{{ $t('auth.login.forgot_password_action') }}</span></RouterLink>
+      <RouterLink to="/register">{{ $t('auth.login.no_account') }} <span>{{ $t('auth.login.no_account_action') }}</span></RouterLink>
+      <RouterLink to="/register-org">{{ $t('auth.login.register_federation') }} <span>{{ $t('auth.login.register_federation_action') }}</span></RouterLink>
+      <RouterLink to="/guide">{{ $t('auth.login.new_here') }} <span>{{ $t('auth.login.new_here_action') }}</span></RouterLink>
       <a href="https://github.com/JediBrooker/DivingHQ/issues/new?labels=bug&title=Bug%3A%20"
          target="_blank"
-         rel="noopener">Found a bug? <span>🐛 Report it on GitHub</span></a>
+         rel="noopener">{{ $t('auth.login.found_bug') }} <span>{{ $t('auth.login.found_bug_action') }}</span></a>
     </div>
   </div>
 </template>
@@ -111,6 +109,10 @@ async function handleSubmit() {
   max-width: 420px;
   animation: fadeUp 0.4s ease;
 }
+.login-top {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 2.5rem;
+}
 .login-mark {
   font-family: var(--font-display);
   font-size: 13px;
@@ -122,7 +124,7 @@ async function handleSubmit() {
      brand recognisable at a glance while the white DIVING
      reads cleanly against the dark page. */
   color: var(--text);
-  margin-bottom: 2.5rem;
+  /* margin-bottom moved to .login-top, which now wraps the mark + locale switcher */
   display: flex;
   align-items: center;
   /* No `gap` here — flex would treat the text "DIVING" and

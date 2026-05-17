@@ -13,7 +13,8 @@
     "test:safe": "node --test test/syntax.test.js test/calc.test.js test/score-trim.test.js test/dive-label.test.js",
     "test:e2e": "playwright test",
     "test:e2e:headed": "PW_SLOWMO=300 playwright test --headed",
-    "migrate": "node scripts/migrate.js"
+    "migrate": "node scripts/migrate.js",
+    "translate": "node scripts/translate-locales.js"
   },
   "keywords": [],
   "author": "",
@@ -39,6 +40,7 @@
     "socket.io-client": "^4.8.3",
     "speakeasy": "^2.0.0",
     "vue": "^3.5.13",
+    "vue-i18n": "^9.14.5",
     "vue-router": "^4.5.0",
     "web-push": "^3.6.7"
   },
