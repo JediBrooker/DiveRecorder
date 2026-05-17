@@ -379,14 +379,14 @@ module.exports = function createScoreboardRouter({
             losers don't appear in the SF's leaderboard.
             For non-super-final events (score_carry_from NULL) the
             CTE is empty and behaviour is unchanged. */
-         carry_totals AS (
+         carry_rounds AS (
            SELECT s.competitor_id, 0 AS round_number,
-                  SUM(calc_event_dive_points(
+                  calc_event_dive_points(
                     array_agg(ej.judge_number ORDER BY ej.judge_number),
                     array_agg(s.score ORDER BY ej.judge_number),
                     e.number_of_judges, MAX(d.dd), e.event_type,
                     BOOL_OR(cdl.partner_id IS NOT NULL)
-                  ) ) AS round_total
+                  ) AS round_total
            FROM scores s
            JOIN events e ON e.id = s.event_id
            LEFT JOIN event_judges ej ON ej.event_id = s.event_id AND ej.judge_id = s.judge_id
@@ -403,6 +403,12 @@ module.exports = function createScoreboardRouter({
                   AND is_reserve = FALSE
              )
            GROUP BY s.competitor_id, s.round_number, e.number_of_judges, e.event_type
+         ),
+         carry_totals AS (
+           SELECT competitor_id, 0 AS round_number,
+                  SUM(round_total) AS round_total
+           FROM carry_rounds
+           GROUP BY competitor_id
          ),
          dive_totals_with_carry AS (
            SELECT * FROM dive_totals

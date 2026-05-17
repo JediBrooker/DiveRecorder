@@ -16,6 +16,7 @@
 const crypto = require("node:crypto");
 const bcrypt = require("bcryptjs");
 const { Pool } = require("pg");
+const { io } = require("socket.io-client");
 require("dotenv").config();
 
 // Reuse the same DB the integration tests target. Falls back to
@@ -36,6 +37,108 @@ const pool = process.env.DATABASE_URL
 // that's a unit-test concern. We just need a string ≥8 chars
 // that bcrypt-compares cleanly.
 const TEST_PASSWORD = "e2e-test-password-1234";
+
+function openSocket(baseURL, token) {
+  return new Promise((resolve, reject) => {
+    const sock = io(baseURL, {
+      auth: { token },
+      transports: ["websocket"],
+      reconnection: false,
+    });
+    const timer = setTimeout(() => {
+      sock.disconnect();
+      reject(new Error("socket connect timeout"));
+    }, 5000);
+    sock.on("connect", () => {
+      clearTimeout(timer);
+      resolve(sock);
+    });
+    sock.on("connect_error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+async function submitJudgeScore({
+  baseURL,
+  token,
+  eventId,
+  competitorId,
+  roundNumber,
+  diveId,
+  score,
+}) {
+  const sock = await openSocket(baseURL, token);
+  try {
+    sock.emit("subscribe_event", { event_id: eventId });
+    const ack = new Promise((resolve, reject) => {
+      let timer;
+      const cleanup = () => {
+        clearTimeout(timer);
+        sock.off("score_received", onAck);
+        sock.off("score_rejected", onRej);
+      };
+      const onAck = () => { cleanup(); resolve(); };
+      const onRej = (m) => {
+        cleanup();
+        reject(new Error(`score rejected: ${JSON.stringify(m)}`));
+      };
+      sock.on("score_received", onAck);
+      sock.on("score_rejected", onRej);
+      timer = setTimeout(() => {
+        cleanup();
+        reject(new Error("score ack timeout"));
+      }, 5000);
+    });
+    sock.emit("submit_score", {
+      event_id: eventId,
+      competitor_id: competitorId,
+      round_number: roundNumber,
+      score,
+      dive_id: diveId,
+    });
+    await ack;
+  } finally {
+    sock.disconnect();
+  }
+}
+
+async function submitPanelScores({
+  baseURL,
+  judges,
+  eventId,
+  competitorId,
+  roundNumber,
+  diveId,
+  scores = [7.0, 7.5, 8.0, 8.5, 9.0],
+}) {
+  for (let i = 0; i < judges.length; i++) {
+    await submitJudgeScore({
+      baseURL,
+      token: judges[i].token,
+      eventId,
+      competitorId,
+      roundNumber,
+      diveId,
+      score: scores[i % scores.length],
+    });
+  }
+}
+
+function collectApiErrors(page) {
+  const errors = [];
+  page.on("response", (response) => {
+    const url = response.url();
+    if (url.includes("/api/") && response.status() >= 500) {
+      errors.push(`${response.status()} ${url}`);
+    }
+  });
+  page.on("pageerror", (err) => {
+    errors.push(`page error: ${err.message}`);
+  });
+  return errors;
+}
 
 function rand() {
   return crypto.randomBytes(4).toString("hex");
@@ -434,6 +537,10 @@ module.exports = {
   pool,
   TEST_PASSWORD,
   rand,
+  openSocket,
+  submitJudgeScore,
+  submitPanelScores,
+  collectApiErrors,
   createOrgAndAdmin,
   insertUser,
   insertClub,
