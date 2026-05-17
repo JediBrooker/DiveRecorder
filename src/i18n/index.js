@@ -1,52 +1,58 @@
-// vue-i18n setup. Locales live in src/locales/{...}.json and are
-// imported eagerly so the locale switcher is instant — the entire
-// dictionary is small enough that lazy-loading per locale adds
-// latency without saving meaningful bytes.
+// vue-i18n setup. Locales live in src/locales/{...}.json. Only the
+// English fallback is bundled synchronously; every other locale is
+// loaded on demand via dynamic import() so Vite emits one ~10–15 KB
+// gzipped chunk per language. Without this, all 25 dictionaries (~620 KB
+// of JSON) land in the main bundle and blow past Rollup's 500 KB warning.
 //
-// The English dictionary is the source of truth. Translations
-// are generated AI-assisted via scripts/translate-locales.js
-// (Claude API) and proofread by federation admins in-app.
+// Boot sequence (see main.js):
+//   1. createApp() — synchronous, only `en` is in memory
+//   2. await initI18n() — resolves the persisted/browser locale and
+//      awaits its chunk before mount, so non-English users never see
+//      an English flash on first paint
+//   3. app.mount()
 //
 // Locale persistence:
 //   1. localStorage('locale')  — primary, survives sign-out
-//   2. navigator.language      — first-visit fallback, e.g. a
-//                                French-speaking spectator hits
-//                                the site on a phone set to fr-FR
-//                                and gets French automatically
+//   2. navigator.language      — first-visit fallback
 //   3. 'en'                    — final fallback
 //
-// RTL support: setLocale() also sets <html dir="rtl"|"ltr"> based
-// on the SUPPORTED_LOCALES entry's `rtl` flag. Tailwind / regular
-// CSS already respects `dir` for things like text-alignment and
-// list-bullet position, so the existing layout flips cleanly for
-// Arabic without per-component changes.
+// RTL support: setLocale() also sets <html dir="rtl"|"ltr"> based on
+// the SUPPORTED_LOCALES entry's `rtl` flag.
 
 import { createI18n } from 'vue-i18n'
 import en from '@/locales/en.json'
-import es from '@/locales/es.json'
-import fr from '@/locales/fr.json'
-import de from '@/locales/de.json'
-import it from '@/locales/it.json'
-import pt from '@/locales/pt.json'
-import pl from '@/locales/pl.json'
-import ru from '@/locales/ru.json'
-import uk from '@/locales/uk.json'
-import fi from '@/locales/fi.json'
-import sv from '@/locales/sv.json'
-import da from '@/locales/da.json'
-import no from '@/locales/no.json'
-import hu from '@/locales/hu.json'
-import hr from '@/locales/hr.json'
-import sr from '@/locales/sr.json'
-import zh from '@/locales/zh.json'
-import ja from '@/locales/ja.json'
-import ko from '@/locales/ko.json'
-import id from '@/locales/id.json'
-import ms from '@/locales/ms.json'
-import tl from '@/locales/tl.json'
-import ar from '@/locales/ar.json'
-import tr from '@/locales/tr.json'
-import el from '@/locales/el.json'
+
+// Dynamic loaders for every non-fallback locale. Vite turns each
+// import() into a separate chunk; the vue-i18n plugin still
+// pre-compiles them (its `include` glob matches regardless of
+// static vs dynamic import), so no runtime `new Function` ever
+// runs — important for our `script-src 'self'` CSP.
+const loaders = {
+  es: () => import('@/locales/es.json'),
+  fr: () => import('@/locales/fr.json'),
+  de: () => import('@/locales/de.json'),
+  it: () => import('@/locales/it.json'),
+  pt: () => import('@/locales/pt.json'),
+  pl: () => import('@/locales/pl.json'),
+  ru: () => import('@/locales/ru.json'),
+  uk: () => import('@/locales/uk.json'),
+  fi: () => import('@/locales/fi.json'),
+  sv: () => import('@/locales/sv.json'),
+  da: () => import('@/locales/da.json'),
+  no: () => import('@/locales/no.json'),
+  hu: () => import('@/locales/hu.json'),
+  hr: () => import('@/locales/hr.json'),
+  sr: () => import('@/locales/sr.json'),
+  zh: () => import('@/locales/zh.json'),
+  ja: () => import('@/locales/ja.json'),
+  ko: () => import('@/locales/ko.json'),
+  id: () => import('@/locales/id.json'),
+  ms: () => import('@/locales/ms.json'),
+  tl: () => import('@/locales/tl.json'),
+  ar: () => import('@/locales/ar.json'),
+  tr: () => import('@/locales/tr.json'),
+  el: () => import('@/locales/el.json'),
+}
 
 export const SUPPORTED_LOCALES = [
   { code: 'en', label: 'English',          flag: '🇬🇧' },
@@ -84,7 +90,6 @@ function detectInitialLocale() {
     if (stored && SUPPORTED_LOCALES.some(l => l.code === stored)) return stored
   } catch { /* localStorage blocked in some private contexts */ }
 
-  // navigator.language is e.g. "fr-FR" — match on the 2-letter prefix.
   const nav = (typeof navigator !== 'undefined' ? navigator.language : '') || ''
   const prefix = nav.split('-')[0].toLowerCase()
   if (SUPPORTED_LOCALES.some(l => l.code === prefix)) return prefix
@@ -93,40 +98,57 @@ function detectInitialLocale() {
 }
 
 const i18n = createI18n({
-  legacy: false,            // composition-API mode — useI18n() returns reactive
-  globalInjection: true,    // $t available without explicit useI18n()
-  locale: detectInitialLocale(),
+  legacy: false,
+  globalInjection: true,
+  // Always boot with `en` synchronously. initI18n() flips to the
+  // detected locale before mount once its chunk has loaded.
+  locale: FALLBACK_LOCALE,
   fallbackLocale: FALLBACK_LOCALE,
-  // Silent in development: vue-i18n warns on every missing key,
-  // which is noisy while we're rolling out the extraction sweep
-  // page-by-page. Re-enable once the dictionary is complete.
   missingWarn: false,
   fallbackWarn: false,
-  messages: {
-    en, es, fr, de, it, pt, pl, ru, uk, fi, sv, da, no, hu,
-    hr, sr, zh, ja, ko, id, ms, tl, ar, tr, el,
-  },
+  messages: { en },
 })
 
-// Public setter — every locale change goes through this so the
-// localStorage write + <html lang> + <html dir> sync stay in lockstep.
-export function setLocale(code) {
-  const entry = SUPPORTED_LOCALES.find(l => l.code === code)
-  if (!entry) return
-  i18n.global.locale.value = code
-  try { localStorage.setItem('locale', code) } catch { /* ignore */ }
-  if (typeof document !== 'undefined') {
-    document.documentElement.setAttribute('lang', code)
-    document.documentElement.setAttribute('dir', entry.rtl ? 'rtl' : 'ltr')
-  }
+const loaded = new Set([FALLBACK_LOCALE])
+
+async function ensureLoaded(code) {
+  if (loaded.has(code)) return
+  const loader = loaders[code]
+  if (!loader) return
+  const mod = await loader()
+  i18n.global.setLocaleMessage(code, mod.default)
+  loaded.add(code)
 }
 
-// Initialize <html lang> + <html dir> on boot.
-if (typeof document !== 'undefined') {
-  const code = i18n.global.locale.value
+function applyHtmlAttrs(code) {
+  if (typeof document === 'undefined') return
   const entry = SUPPORTED_LOCALES.find(l => l.code === code)
   document.documentElement.setAttribute('lang', code)
   document.documentElement.setAttribute('dir', entry?.rtl ? 'rtl' : 'ltr')
 }
+
+// Public setter — every locale change goes through this so the
+// dynamic load + localStorage write + <html lang>/<html dir> sync
+// stay in lockstep. Async because non-fallback locales may need a
+// network fetch; LocaleSwitcher awaits before clearing its busy state.
+export async function setLocale(code) {
+  if (!SUPPORTED_LOCALES.some(l => l.code === code)) return
+  await ensureLoaded(code)
+  i18n.global.locale.value = code
+  try { localStorage.setItem('locale', code) } catch { /* ignore */ }
+  applyHtmlAttrs(code)
+}
+
+// Awaited by main.js before app.mount() — guarantees the detected
+// locale's messages are in memory at first paint.
+export async function initI18n() {
+  const code = detectInitialLocale()
+  await setLocale(code)
+}
+
+// Bootstrap <html lang>/<html dir> immediately so the very first
+// frame (still English) has correct attributes. initI18n() will
+// overwrite them once the real locale resolves.
+applyHtmlAttrs(FALLBACK_LOCALE)
 
 export default i18n

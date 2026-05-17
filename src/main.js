@@ -2,7 +2,7 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
-import i18n from './i18n'
+import i18n, { initI18n } from './i18n'
 import { tipDirective } from './directives/tip'
 // Global styles. Imported here (not via <link> in index.html) so
 // Vite content-hashes the output filename — any edit to app.css
@@ -22,7 +22,11 @@ app.use(i18n)
 //   title="static"  →  v-tip="'static'"
 //   :title="expr"   →  v-tip="expr"
 app.directive('tip', tipDirective)
-app.mount('#app')
+
+// Await the detected locale's chunk before mounting so non-English
+// users never see an English flash on first paint. `en` is bundled
+// synchronously, so this resolves immediately for English users.
+initI18n().finally(() => app.mount('#app'))
 
 // Register the service worker only in production builds — the
 // Vite dev server's HMR conflicts with cached assets. Skips

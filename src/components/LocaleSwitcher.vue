@@ -15,8 +15,8 @@ const { locale } = useI18n()
 const current = computed(() =>
   SUPPORTED_LOCALES.find(l => l.code === locale.value) || SUPPORTED_LOCALES[0])
 
-function onChange(e) {
-  setLocale(e.target.value)
+async function onChange(e) {
+  await setLocale(e.target.value)
 }
 </script>
 
