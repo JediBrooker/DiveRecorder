@@ -43,6 +43,9 @@ const TARGET_LANGUAGES = {
   es: "Spanish (Spain — castellano)",
   fr: "French (international)",
   de: "German (standard German, formal Sie)",
+  it: "Italian (standard Italian)",
+  pt: "Portuguese (European Portuguese — Portugal)",
+  pl: "Polish (standard Polish)",
 };
 
 const args = process.argv.slice(2);

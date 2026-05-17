@@ -24,12 +24,18 @@ import en from '@/locales/en.json'
 import es from '@/locales/es.json'
 import fr from '@/locales/fr.json'
 import de from '@/locales/de.json'
+import it from '@/locales/it.json'
+import pt from '@/locales/pt.json'
+import pl from '@/locales/pl.json'
 
 export const SUPPORTED_LOCALES = [
-  { code: 'en', label: 'English',  flag: '🇬🇧' },
-  { code: 'es', label: 'Español',  flag: '🇪🇸' },
-  { code: 'fr', label: 'Français', flag: '🇫🇷' },
-  { code: 'de', label: 'Deutsch',  flag: '🇩🇪' },
+  { code: 'en', label: 'English',    flag: '🇬🇧' },
+  { code: 'es', label: 'Español',    flag: '🇪🇸' },
+  { code: 'fr', label: 'Français',   flag: '🇫🇷' },
+  { code: 'de', label: 'Deutsch',    flag: '🇩🇪' },
+  { code: 'it', label: 'Italiano',   flag: '🇮🇹' },
+  { code: 'pt', label: 'Português',  flag: '🇵🇹' },
+  { code: 'pl', label: 'Polski',     flag: '🇵🇱' },
 ]
 
 export const FALLBACK_LOCALE = 'en'
@@ -58,7 +64,7 @@ const i18n = createI18n({
   // page-by-page. Re-enable once the dictionary is complete.
   missingWarn: false,
   fallbackWarn: false,
-  messages: { en, es, fr, de },
+  messages: { en, es, fr, de, it, pt, pl },
 })
 
 // Public setter — every locale change goes through this so the
