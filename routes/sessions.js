@@ -1,4 +1,4 @@
-// Sessions / Schedule routes — Phases 1, 2 & 3.
+// Sessions / Schedule routes — Phases 1, 2, 3 & 4.
 //
 //   GET    /api/meets/:meetId/sessions               sessions + inlined blocks (P1)
 //   GET    /api/meets/:meetId/schedule.ics           iCal feed, public (P1)
@@ -11,6 +11,7 @@
 //   PUT    /api/blocks/:id                           edit a block (P3, auth)
 //   DELETE /api/blocks/:id                           delete a block (P3, auth)
 //   GET    /api/meets/:meetId/judges/availability    availability hint (P3)
+//   POST   /api/blocks/reflow                        confirm live re-flow (P4, auth)
 //
 // Phase 1 shipped the read-only timeline and the iCal feed. Phase 2
 // added conflict detection + per-conflict dismissal (§5). Phase 3
@@ -32,8 +33,15 @@
 // next drawer poll — the inline subset is a UX latency win, not a
 // new source of truth.
 //
-// Phase 4 (live re-flow) will continue to extend this file when its
-// turn comes; the schedule_block_shifts ledger is already in place.
+// Phase 4 (live re-flow, this revision): operator marks an event
+// Complete via PUT /api/events/:id/status — the events router calls
+// buildReflowProposal() from lib/schedule-reflow.js and returns the
+// proposal alongside the event row. The Control Room shows the
+// modal, the operator picks which downstream blocks to shift, and
+// the confirmed subset POSTs to /api/blocks/reflow below. That
+// endpoint atomically shifts windows + appends the
+// schedule_block_shifts ledger + emits schedule:shifted, which the
+// SchedulerView's existing socket subscription picks up.
 //
 // SEEDING
 // -------
@@ -65,6 +73,11 @@ const {
   detectConflicts,
   computeResourceFingerprint,
 } = require("../lib/schedule-conflicts");
+const {
+  buildReflowProposal,
+  stampActualStart,
+  REFLOW_NOISE_THRESHOLD_MS,
+} = require("../lib/schedule-reflow");
 
 // Default warmup length the WA rulebook expects in front of
 // every competition event. Editable per-block in phase 3 — for
@@ -1326,6 +1339,197 @@ module.exports = function createSessionsRouter({
     } catch (err) {
       console.error("[GET availability]", err.message);
       res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // POST /api/blocks/reflow                 (Phase 4, auth)
+  //
+  // Body: { meet_id, delta_seconds, block_ids: [...], reason? }
+  //
+  // Confirms the operator-driven live re-flow described in
+  // docs/session-scheduler.md §6: shift the listed blocks forward
+  // by delta_seconds inside one transaction, append a
+  // schedule_block_shifts ledger row per block, and broadcast
+  // `schedule:shifted` so public-schedule viewers refresh.
+  //
+  // Re-verification: we don't trust the client's delta_seconds at
+  // face value, but we also don't want to reject every replay where
+  // a real human took 10 seconds to confirm. The check is that
+  // delta_seconds is positive and within a sane envelope (under
+  // 24h — anything beyond is almost certainly bogus). The shift
+  // candidates were already filtered to "haven't started" when the
+  // modal was built; we re-check here with FOR UPDATE so a race
+  // with a concurrent set_active_diver doesn't push us past an
+  // event that just went Live.
+  //
+  // 409 on actual_start_at-set: the modal saw the block as
+  // not-yet-started, but in the meantime someone (perhaps the same
+  // operator from another tab) flipped its event Live. We refuse
+  // the whole batch — partial reflow leaves the timeline in a
+  // worse state than no reflow.
+  // -------------------------------------------------------------
+  router.post("/api/blocks/reflow", editorGate, async (req, res) => {
+    const body = req.body || {};
+    const meetId = body.meet_id;
+    const deltaSeconds = Number(body.delta_seconds);
+    const blockIdsRaw = Array.isArray(body.block_ids) ? body.block_ids : [];
+    const reason =
+      typeof body.reason === "string" ? body.reason.slice(0, 1000) : null;
+
+    if (!meetId || !UUID_RE.test(String(meetId))) {
+      return res.status(400).json({ error: "meet_id is required (uuid)" });
+    }
+    if (
+      !Number.isFinite(deltaSeconds) ||
+      deltaSeconds <= 0 ||
+      deltaSeconds > 24 * 60 * 60
+    ) {
+      return res.status(400).json({
+        error: "delta_seconds must be a positive number under 86400",
+      });
+    }
+    if (!blockIdsRaw.length) {
+      return res.status(400).json({ error: "block_ids must be non-empty" });
+    }
+    const seen = new Set();
+    const blockIds = [];
+    for (const id of blockIdsRaw) {
+      if (typeof id !== "string" || !UUID_RE.test(id)) {
+        return res
+          .status(400)
+          .json({ error: "block_ids entries must be UUIDs" });
+      }
+      if (!seen.has(id)) {
+        seen.add(id);
+        blockIds.push(id);
+      }
+    }
+
+    const deltaMs = Math.round(deltaSeconds * 1000);
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Lock the candidate rows + verify ownership via the parent
+      // session. SELECT FOR UPDATE serialises against any concurrent
+      // PUT /api/blocks/:id (manual edit) and against another tab
+      // running the same reflow confirm — the second writer waits,
+      // then sees actual_start_at-set or the new window and bails.
+      const lockedRes = await client.query(
+        `SELECT b.id, b.session_id, b.starts_at, b.ends_at,
+                b.actual_start_at, s.meet_id
+           FROM schedule_blocks b
+           JOIN sessions s ON s.id = b.session_id
+          WHERE b.id = ANY($1::uuid[])
+            FOR UPDATE OF b`,
+        [blockIds],
+      );
+      if (lockedRes.rowCount !== blockIds.length) {
+        await client.query("ROLLBACK");
+        return res
+          .status(404)
+          .json({ error: "One or more block_ids not found" });
+      }
+      const meetSet = new Set(lockedRes.rows.map((r) => r.meet_id));
+      if (meetSet.size !== 1 || !meetSet.has(meetId)) {
+        await client.query("ROLLBACK");
+        return res
+          .status(400)
+          .json({ error: "block_ids must all belong to the meet_id" });
+      }
+      // §6 guard — refuse if any candidate is already running. The
+      // modal pre-filtered on this but the time between modal open
+      // and confirm is operator-paced; a concurrent Live flip can
+      // land in the gap.
+      const startedAlready = lockedRes.rows.find(
+        (r) => r.actual_start_at != null,
+      );
+      if (startedAlready) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          error:
+            "One or more blocks have already started — refetch the schedule and retry",
+          conflicting_block_id: startedAlready.id,
+        });
+      }
+
+      // Apply the shift + append the ledger row per block. We do
+      // them in the lock order from the SELECT (id ASC isn't
+      // guaranteed but it doesn't matter — every row is locked, no
+      // deadlock window). One ledger row per block per shift event;
+      // shifted_at uses the txn clock so all rows share a timestamp.
+      const shiftedAt = new Date();
+      const shiftedBy = req.user?.id || null;
+      const shiftedBlockIds = [];
+      for (const row of lockedRes.rows) {
+        const newStarts = new Date(
+          new Date(row.starts_at).getTime() + deltaMs,
+        );
+        const newEnds = new Date(
+          new Date(row.ends_at).getTime() + deltaMs,
+        );
+        await client.query(
+          `UPDATE schedule_blocks
+              SET starts_at  = $2,
+                  ends_at    = $3,
+                  updated_at = now()
+            WHERE id = $1`,
+          [row.id, newStarts.toISOString(), newEnds.toISOString()],
+        );
+        await client.query(
+          `INSERT INTO schedule_block_shifts
+             (block_id, shifted_at, shifted_by,
+              old_starts_at, new_starts_at, reason)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [
+            row.id,
+            shiftedAt,
+            shiftedBy,
+            row.starts_at,
+            newStarts.toISOString(),
+            reason,
+          ],
+        );
+        shiftedBlockIds.push(row.id);
+      }
+
+      await client.query("COMMIT");
+      invalidateConflictCache(meetId);
+
+      // Re-fetch the shifted rows (post-update) so the response
+      // gives the caller the canonical new windows without a second
+      // round-trip.
+      const blocksRes = await pool.query(
+        `SELECT b.id, b.session_id, b.block_type, b.label,
+                b.starts_at, b.ends_at, b.board_ids, b.event_id,
+                b.actual_start_at, b.actual_end_at, b.notes,
+                b.created_at, b.updated_at,
+                e.name AS event_name, e.height AS event_height
+           FROM schedule_blocks b
+           LEFT JOIN events e ON e.id = b.event_id
+          WHERE b.id = ANY($1::uuid[])
+          ORDER BY b.starts_at ASC`,
+        [shiftedBlockIds],
+      );
+
+      safeEmit("schedule:shifted", {
+        meet_id: meetId,
+        shifted_block_ids: shiftedBlockIds,
+        delta_seconds: deltaSeconds,
+      });
+
+      res.json({
+        shifted: blocksRes.rows,
+        delta_seconds: deltaSeconds,
+      });
+    } catch (err) {
+      try { await client.query("ROLLBACK"); } catch { /* swallow */ }
+      console.error("[POST blocks/reflow]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    } finally {
+      client.release();
     }
   });
 

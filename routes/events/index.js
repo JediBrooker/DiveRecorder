@@ -25,6 +25,10 @@ const {
   loadH2hPairResults,
   loadSfCumulative,
 } = require("../../lib/super-final-helpers");
+const {
+  buildReflowProposal,
+  stampActualStart,
+} = require("../../lib/schedule-reflow");
 
 // Migration 039: shape-check operator-prescribed round_dives. We
 // only validate structure here (round numbering 1..N contiguous,
@@ -858,7 +862,46 @@ module.exports = function createEventsRouter({
         }
       }
 
-      res.json(r.rows[0]);
+      // ---------------------------------------------------------
+      // Phase 4 — session-scheduler bookkeeping + live re-flow.
+      //
+      // On Upcoming → Live: stamp actual_start_at on the matching
+      //   schedule_block row (if any) so the post-meet debrief can
+      //   diff planned vs observed. Best-effort and silent on
+      //   no-match meets (older meets pre-scheduler, or the
+      //   operator never put this event on a schedule).
+      //
+      // On any → Completed: stamp actual_end_at + build the reflow
+      //   proposal. The proposal is returned alongside the event
+      //   row as `reflow` (or null when the delta is below the
+      //   noise floor, the event ran short, or there's no matching
+      //   schedule block). The Control Room reads it and surfaces
+      //   the modal.
+      //
+      // Wrapped in try/catch so a scheduler issue NEVER blocks the
+      // status flip from succeeding — the operator's finalise
+      // action is the load-bearing thing here. A failed reflow
+      // just means we ship `event` without `reflow` and the
+      // operator can use the manual editor in the scheduler view.
+      // ---------------------------------------------------------
+      let reflow = null;
+      if (previousStatus !== status) {
+        try {
+          const evRow = r.rows[0];
+          if (status === "Live") {
+            await stampActualStart(pool, evRow.id, new Date());
+          } else if (status === "Completed") {
+            reflow = await buildReflowProposal(pool, evRow.id, new Date());
+          }
+        } catch (reflowErr) {
+          // Don't let a scheduler-side failure (missing tables on
+          // pre-049 deploys, transient pool issue) bubble up as a
+          // 500 — the status flip already committed.
+          console.error("[Reflow Bookkeeping Error]", reflowErr.message);
+        }
+      }
+
+      res.json({ ...r.rows[0], reflow });
     } catch (err) {
       console.error("[Status Update Error]", err.message);
       res.status(500).json({ error: "Internal server error" });

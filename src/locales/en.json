@@ -636,6 +636,28 @@
       "busy": "Busy until {time}",
       "busy_with": "Busy until {time} ({label})",
       "loading": "Checking availability…"
+    },
+    "reflow": {
+      "title": "Reschedule downstream",
+      "heading": "\"{event}\" ran {minutes} min long. Reschedule downstream blocks?",
+      "heading_no_event": "Event ran {minutes} min long. Reschedule downstream blocks?",
+      "blurb": "Shift the checked blocks forward by {minutes} min. Blocks that have already started are excluded.",
+      "col_select": "Shift",
+      "col_label": "Block",
+      "col_session": "Session",
+      "col_window": "Old → new start",
+      "select_all": "Select all",
+      "select_none": "Select none",
+      "reason_label": "Reason (optional)",
+      "reason_placeholder": "e.g. Event 3 ran 20m long — visible in the shifts audit",
+      "confirm": "Confirm reschedule",
+      "skip": "Skip",
+      "saving": "Shifting blocks…",
+      "save_failed": "Couldn't reschedule blocks",
+      "conflict_refresh": "Some blocks already started — close this and reopen from the scheduler to retry.",
+      "no_candidates": "No downstream blocks to shift.",
+      "shifted_toast_one": "Shifted 1 block downstream.",
+      "shifted_toast_many": "Shifted {count} blocks downstream."
     }
   }
 }

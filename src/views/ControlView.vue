@@ -15,6 +15,7 @@ import StatusPill from '@/components/StatusPill.vue'
 import JudgeRankingTable from '@/components/JudgeRankingTable.vue'
 import ReadinessChecklist from '@/components/ReadinessChecklist.vue'
 import JudgePanelModal from '@/components/JudgePanelModal.vue'
+import ReflowModal from '@/components/ReflowModal.vue'
 import SponsorLogosManager from '@/components/manager/SponsorLogosManager.vue'
 import {
   annotatedScores,
@@ -185,6 +186,33 @@ async function copyDaktronicsText(kind, text) {
 // level, not the event); the menu item hides for standalone
 // events.
 const sponsorBrandingOpen = ref(false)
+// Phase 4 — Reflow modal state. Populated from the response of the
+// PUT /api/events/:id/status call when the operator finalises an
+// event that ran long. The modal closes via `onReflowClose`; on a
+// successful confirm `onReflowSaved` pops a toast. Skipping the
+// modal leaves the timeline untouched — manual edits in the
+// scheduler view are always available as the fallback.
+const reflowOpen = ref(false)
+const reflowProposal = ref(null)
+const reflowEventName = ref('')
+function onReflowClose() {
+  reflowOpen.value = false
+  reflowProposal.value = null
+  reflowEventName.value = ''
+}
+function onReflowSaved(payload) {
+  const count = (payload && payload.count) || 0
+  if (count > 0) {
+    // Singular vs plural picked in JS — avoids vue-i18n's plural
+    // overload which has shifted shape between v8 / v9 / v11. The
+    // locale file has both forms under scheduler.reflow.
+    const key = count === 1
+      ? 'scheduler.reflow.shifted_toast_one'
+      : 'scheduler.reflow.shifted_toast_many'
+    showSuccess(t(key, { count }))
+  }
+  onReflowClose()
+}
 // Connection state lives on the singleton socket itself
 // (`socket.isConnected`, a ref). A parallel `connStatus` ref
 // would just shadow that state — and now that useSocket is a
@@ -3039,7 +3067,7 @@ async function finaliseEvent() {
   try {
     const evId = currentEvent.value.id
     const evName = currentEvent.value.name
-    await auth.apiFetch(`/api/events/${evId}/status`, {
+    const finaliseResponse = await auth.apiFetch(`/api/events/${evId}/status`, {
       method: 'PUT',
       body: JSON.stringify({ status: 'Completed' }),
     })
@@ -3048,6 +3076,18 @@ async function finaliseEvent() {
     // flipping the status above also flips the label to
     // "View Results" without an explicit assignment here.
     await showLeaderboard()
+    // Phase 4 — if the event ran long, the server returned a
+    // reflow proposal. Surface the modal so the operator can
+    // confirm which downstream blocks shift. Skipping the modal
+    // (or having no candidates) leaves the timeline untouched —
+    // the manual scheduler editor stays available either way.
+    if (finaliseResponse && finaliseResponse.reflow
+        && Array.isArray(finaliseResponse.reflow.candidates)
+        && finaliseResponse.reflow.candidates.length) {
+      reflowProposal.value = finaliseResponse.reflow
+      reflowEventName.value = evName
+      reflowOpen.value = true
+    }
     // Offer an Undo. Finalising flips status Live → Completed,
     // which is fully reversible by an org admin via the same
     // status endpoint. Common misclick recovery — the operator
@@ -3943,6 +3983,20 @@ onUnmounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- Phase 4 — Reflow modal. Mounted once at the Control Room
+         root so the operator can finalise an event and confirm
+         downstream shifts without leaving the view. Open/proposal
+         state lives on `reflowOpen` / `reflowProposal`, populated
+         by finaliseEvent() when the server returns a non-null
+         `reflow` payload. -->
+    <ReflowModal
+      :open="reflowOpen"
+      :proposal="reflowProposal"
+      :event-name="reflowEventName"
+      @close="onReflowClose"
+      @saved="onReflowSaved"
+    />
 
     <!-- Sponsor branding modal — wraps the SponsorLogosManager
          from Phase 2 in a familiar lb-modal shell so the

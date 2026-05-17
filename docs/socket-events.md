@@ -32,6 +32,7 @@ that's intentional, but every privileged event must call
 | `schedule:block_updated`      | `{ meet_id, session_id, block?, conflicts?, created?, session_updated? }` | A Phase 3 manual edit landed (`PUT /api/blocks/:id`, `POST /api/sessions/:sessionId/blocks`, or `PUT /api/sessions/:id`). Other timeline tabs refetch `/sessions` and update inline. `conflicts` is the post-edit subset that mentions the touched block — the front-end uses it to flash the card red/amber without a separate conflict round-trip. Public broadcast. |
 | `schedule:block_deleted`      | `{ meet_id, session_id, block_id }` | A schedule block was deleted via `DELETE /api/blocks/:id`. Other tabs drop the row and refetch conflicts. Public broadcast. |
 | `schedule:session_duplicated` | `{ meet_id, source_session_id, session }` | A session was cloned forward via `POST /api/sessions/:id/duplicate`. `session.blocks` is inlined. Other tabs splice the new session into the list. Public broadcast. |
+| `schedule:shifted`            | `{ meet_id, shifted_block_ids: [...], delta_seconds }` | Phase 4 live re-flow committed — `POST /api/blocks/reflow` shifted every listed block forward by `delta_seconds` and appended a `schedule_block_shifts` ledger row per block. Timeline tabs (incl. public schedule) refetch `/api/meets/:id/sessions` so the new windows appear. Public broadcast. |
 
 ---
 
