@@ -11,14 +11,42 @@
 // covered by `npm test` (Node test runner), so the two suites
 // don't interfere.
 
-const { defineConfig, devices } = require("@playwright/test");
+const { defineConfig } = require("@playwright/test");
+
+const FULL_E2E = process.env.E2E_FULL === "1";
+const DEMO_E2E = process.env.E2E_DEMO === "1";
+const DOCS_E2E = process.env.E2E_DOCS === "1";
+const requestedCiWorkers = Number(process.env.PW_WORKERS);
+const ciWorkers = Number.isFinite(requestedCiWorkers) && requestedCiWorkers > 0
+  ? Math.floor(requestedCiWorkers)
+  : 3;
+
+const testIgnore = [];
+if (!FULL_E2E && !DEMO_E2E) {
+  testIgnore.push(
+    "**/meet-manager.spec.js",
+    "**/judge.spec.js",
+    "**/scoreboard-ui.spec.js",
+  );
+}
+if (!FULL_E2E && !DOCS_E2E) {
+  testIgnore.push("**/wiki-screenshots.spec.js");
+}
 
 module.exports = defineConfig({
   testDir: "./test/e2e",
+  // The default suite is the fast automatic regression gate.
+  // The long human-paced walkthroughs and documentation
+  // screenshot generator are opt-in:
+  //
+  //   E2E_FULL=1  playwright test      # every spec, fast pacing
+  //   E2E_DEMO=1  playwright test ...  # headed demo walkthroughs
+  //   E2E_DOCS=1  playwright test ...  # docs screenshot writer
+  testIgnore,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,        // fail the build if .only slipped in
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  workers: process.env.CI ? ciWorkers : undefined,
   reporter: process.env.CI ? "github" : "list",
   // Long enough for `npm run build` (~1s) + the server's first
   // boot read of schema_meta + audit purge (~200ms). The
@@ -94,6 +122,11 @@ module.exports = defineConfig({
       // poisons the rest with 429s. The bypass is opt-in via env
       // var — production .env never sets it.
       RATE_LIMIT_DISABLED: "true",
+      // Local .env often points SMTP_HOST at smtp.example.com so
+      // registration tests can exercise email-triggering paths.
+      // For e2e, force the helper into documented dev no-op mode:
+      // no DNS lookups, no noisy best-effort mailer failures.
+      SMTP_HOST: "",
     },
   },
 });

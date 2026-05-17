@@ -18,9 +18,10 @@
 //                       so they're randomly Exec A (1-2),
 //                       Exec B (3-4), or Synchronisation (5-9)
 //
-// Designed to be watched live — defaults are tuned for the
-// human eye. Override the pacing knobs (J_PRE_DIVE_MS, etc.)
-// for a CI / smoke pass.
+// Designed to be watched live when E2E_DEMO=1. The default
+// suite excludes this spec; E2E_FULL=1 runs it with fast pacing.
+// Override the pacing knobs (J_PRE_DIVE_MS, etc.) for exact
+// repro timing.
 
 const { test, expect } = require("@playwright/test");
 const { io } = require("socket.io-client");
@@ -46,7 +47,7 @@ const TOTAL_ROUNDS = 3;
 // position in the array passed to assignJudges, so we put our
 // test judge at the chosen index. Random per run so the variety
 // of synchro roles (Exec A / Exec B / Sync) all get exercised
-// across CI runs.
+// across full/demo runs.
 const TEST_JUDGE_NUMBER = Number(process.env.J_NUMBER)
   || Math.floor(Math.random() * NUM_JUDGES) + 1;
 
@@ -72,14 +73,16 @@ const DIVE_PICKS = [
   { dive_code: "301", position: "B" },
 ];
 
-// Pacing — defaults tuned for live watching (~1 minute per dive).
-// CI overrides via env to ~5x faster.
-const LOGIN_HOLD_MS  = Number(process.env.J_LOGIN_HOLD_MS  ?? 1500);
-const PRE_DIVE_MS    = Number(process.env.J_PRE_DIVE_MS    ?? 1500);
-const PER_KEYPRESS_MS = Number(process.env.J_PER_KEYPRESS_MS ?? 350);
-const POST_SUBMIT_MS = Number(process.env.J_POST_SUBMIT_MS ?? 1000);
-const POST_DIVE_MS   = Number(process.env.J_POST_DIVE_MS   ?? 700);
-const FINAL_HOLD_MS  = Number(process.env.J_FINAL_HOLD_MS  ?? 3000);
+// Pacing. Default is fast for `E2E_FULL=1`; `E2E_DEMO=1`
+// restores the human-watchable values used by headed demos.
+const DEMO_PACING = process.env.E2E_DEMO === "1";
+const pace = (name, fastMs, demoMs) => Number(process.env[name] ?? (DEMO_PACING ? demoMs : fastMs));
+const LOGIN_HOLD_MS   = pace("J_LOGIN_HOLD_MS", 0, 1500);
+const PRE_DIVE_MS     = pace("J_PRE_DIVE_MS", 50, 1500);
+const PER_KEYPRESS_MS = pace("J_PER_KEYPRESS_MS", 10, 350);
+const POST_SUBMIT_MS  = pace("J_POST_SUBMIT_MS", 50, 1000);
+const POST_DIVE_MS    = pace("J_POST_DIVE_MS", 50, 700);
+const FINAL_HOLD_MS   = pace("J_FINAL_HOLD_MS", 0, 3000);
 
 test.describe.configure({ mode: "serial" });
 

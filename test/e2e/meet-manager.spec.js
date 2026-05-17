@@ -22,7 +22,7 @@
 //        green  Start Event
 //      Each click is fronted by a deliberate WORKFLOW_HOLD_MS
 //      dwell so the colour transition is visible to a watching
-//      human (CI overrides the dwell to ~200ms).
+//      human when the spec runs in E2E_DEMO mode.
 //   5. The Start Event click flips status Upcoming → Live in the
 //      same place as the old setEventStatus API call did.
 //   6. Judges connect via socket and submit scores while the
@@ -32,7 +32,8 @@
 //
 // Designed to be diagnostic: prints the variant + height it
 // picked at the top so a failed run can be re-run with the
-// matching env vars.
+// matching env vars. E2E_DEMO=1 restores human-watchable pacing;
+// E2E_FULL=1 runs this path with fast waits.
 
 const { test, expect } = require("@playwright/test");
 const { io } = require("socket.io-client");
@@ -65,24 +66,18 @@ const DIVE_PICKS = [
   { dive_code: "301", position: "B" },
 ];
 
-// Pacing knobs. Defaults are tuned for human watching (--headed)
-// — the scoring loop takes ~1 minute end-to-end at these
-// values. CI overrides them down via env vars to ~5x faster.
-//
-// Quick speed-up for a CI / smoke pass:
-//   MM_PRE_DIVE_MS=200 MM_PER_SCORE_MS=50 MM_POST_DIVE_MS=200 \
-//   MM_LOGIN_HOLD_MS=200 MM_FINAL_HOLD_MS=200 MM_WORKFLOW_HOLD_MS=200
-const PRE_DIVE_MS    = Number(process.env.MM_PRE_DIVE_MS    ?? 1200);
-const PER_SCORE_MS   = Number(process.env.MM_PER_SCORE_MS   ?? 250);
-const POST_DIVE_MS   = Number(process.env.MM_POST_DIVE_MS   ?? 900);
-const LOGIN_HOLD_MS  = Number(process.env.MM_LOGIN_HOLD_MS  ?? 1500);
-const FINAL_HOLD_MS  = Number(process.env.MM_FINAL_HOLD_MS  ?? 4000);
+// Pacing knobs. Default is fast for `E2E_FULL=1`; `E2E_DEMO=1`
+// restores the headed, human-watchable values.
+const DEMO_PACING = process.env.E2E_DEMO === "1";
+const pace = (name, fastMs, demoMs) => Number(process.env[name] ?? (DEMO_PACING ? demoMs : fastMs));
+const PRE_DIVE_MS    = pace("MM_PRE_DIVE_MS", 50, 1200);
+const PER_SCORE_MS   = pace("MM_PER_SCORE_MS", 10, 250);
+const POST_DIVE_MS   = pace("MM_POST_DIVE_MS", 50, 900);
+const LOGIN_HOLD_MS  = pace("MM_LOGIN_HOLD_MS", 0, 1500);
+const FINAL_HOLD_MS  = pace("MM_FINAL_HOLD_MS", 0, 4000);
 // Slow-mo dwell between the four pre-meet workflow steps
-// (Check In → Randomise → Sign Off → Start). Defaults to 2.5s so
-// a watching human can see the button shift colour from red →
-// orange → yellow → green; CI shrinks it to 200ms via the env
-// override above.
-const WORKFLOW_HOLD_MS = Number(process.env.MM_WORKFLOW_HOLD_MS ?? 2500);
+// (Check In → Randomise → Sign Off → Start).
+const WORKFLOW_HOLD_MS = pace("MM_WORKFLOW_HOLD_MS", 0, 2500);
 
 test.describe.configure({ mode: "serial" });
 
@@ -352,7 +347,7 @@ test("meet-manager full E2E (random variant)", async ({
   // and Finalise both ask "are you sure?" via confirm(), and
   // Playwright suspends the page until a dialog is dismissed.
   // E2E_DIALOG_HOLD_MS=5000 leaves the popup visible for a
-  // watching human; default 0 = instant accept for CI.
+  // watching human; default 0 keeps automated runs fast.
   await setup.installDialogDelay(page);
   // Cyan ring at every pointerdown so a headed-mode watcher can
   // track where each click lands. Off in CI via E2E_HIGHLIGHT=0.
@@ -406,7 +401,7 @@ test("meet-manager full E2E (random variant)", async ({
   //   4. Green  — "▶ Start Event"
   //
   // The dwell between steps is WORKFLOW_HOLD_MS (default 2.5s in
-  // headed mode, 200ms in CI). Each step resolves an explicit
+  // E2E_DEMO mode, 0ms otherwise). Each step resolves an explicit
   // .wf-btn-* selector so the test fails loudly if a future
   // refactor breaks the colour ↔ state mapping.
   // ============================================================

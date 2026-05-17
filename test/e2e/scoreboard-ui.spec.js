@@ -5,33 +5,36 @@
 // scores come in, and watch the standings shift.
 //
 // The headless scoring.spec.js verifies the same pipeline as fast
-// as possible. This spec optimises for *visibility*, not speed —
-// don't run it in CI.
+// as possible. This spec optimises for *visibility* when
+// E2E_DEMO=1. The default suite excludes it; E2E_FULL=1 runs it
+// with fast pacing.
 //
 // Run it headed to watch:
-//   npx playwright test test/e2e/scoreboard-ui.spec.js --headed --workers=1
+//   E2E_DEMO=1 npx playwright test test/e2e/scoreboard-ui.spec.js --headed --workers=1
 //
 // Tunable timings — env-overridable so you can speed it up or
 // slow it down without editing the file:
 //   PW_PRE_DIVE_MS    delay between active-diver banner appearing
-//                     and the first judge's score (default 1500)
-//   PW_PER_SCORE_MS   delay between consecutive judges (default 250)
+//                     and the first judge's score
+//   PW_PER_SCORE_MS   delay between consecutive judges
 //   PW_POST_DIVE_MS   delay after a diver's last score before the
-//                     next diver gets the active banner (default 1200)
+//                     next diver gets the active banner
 //   PW_FINAL_HOLD_MS  hold on the final standings before teardown
-//                     (default 5000)
 
 const { test, expect } = require("@playwright/test");
 const { io } = require("socket.io-client");
 const setup = require("./_setup");
 
-const PRE_DIVE_MS    = Number(process.env.PW_PRE_DIVE_MS    ?? 1500);
-const PER_SCORE_MS   = Number(process.env.PW_PER_SCORE_MS   ?? 250);
+const DEMO_PACING = process.env.E2E_DEMO === "1";
+const pace = (name, fastMs, demoMs) => Number(process.env[name] ?? (DEMO_PACING ? demoMs : fastMs));
+
+const PRE_DIVE_MS    = pace("PW_PRE_DIVE_MS", 50, 1500);
+const PER_SCORE_MS   = pace("PW_PER_SCORE_MS", 10, 250);
 // Pause AFTER the dive's last score lands so the watcher can
 // read the inline pills + Dive Total + ranking line before the
 // next diver is announced (which would clear them).
-const POST_DIVE_MS   = Number(process.env.PW_POST_DIVE_MS   ?? 2500);
-const FINAL_HOLD_MS  = Number(process.env.PW_FINAL_HOLD_MS  ?? 5000);
+const POST_DIVE_MS   = pace("PW_POST_DIVE_MS", 50, 2500);
+const FINAL_HOLD_MS  = pace("PW_FINAL_HOLD_MS", 0, 5000);
 
 test.describe.configure({ mode: "serial" });
 
