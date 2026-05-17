@@ -46,7 +46,7 @@
       "password": "Contraseña",
       "organisation": "Organización",
       "org_placeholder": "— Selecciona tu organización —",
-      "club": "Club",
+      "club": "Club deportivo",
       "club_independent": "— Sin club / independiente —",
       "club_new": "+ Crear un nuevo club",
       "club_no_clubs": "Aún no hay clubes registrados para esta organización. Puedes crear uno arriba.",
@@ -150,7 +150,7 @@
       "edit_dive_lists": "✎ Listas de saltos",
       "last_dive_label": "Último",
       "next_dive_label": "Siguiente",
-      "round_label": "R{round}",
+      "round_label": "Ronda {round}",
       "running_total": "Total {total}"
     },
     "dive_lists": {
@@ -249,7 +249,7 @@
     "tab_referee": "Árbitro",
     "tab_coach": "Entrenador",
     "tab_manager": "Gestor",
-    "tab_admin": "Admin",
+    "tab_admin": "Administrador",
     "tab_sysadmin": "Admin del Sistema",
     "tab_spectator": "Espectador",
     "tab_other": "Más",
@@ -272,7 +272,7 @@
     "field_full_name": "Nombre completo",
     "field_email": "Correo electrónico",
     "field_country": "País",
-    "field_club": "Club",
+    "field_club": "Club deportivo",
     "field_team": "Equipo",
     "current_password": "Contraseña actual",
     "new_password": "Nueva contraseña",
@@ -331,7 +331,7 @@
     "subtitle": "Una introducción de 5 minutos para nuevos usuarios",
     "section_overview": "Resumen",
     "section_first_time": "¿Primera vez aquí?",
-    "section_roles": "Roles",
+    "section_roles": "Funciones",
     "section_finding": "Encontrar cosas",
     "section_help": "Pedir ayuda",
     "back_to_home": "← Volver al inicio",
@@ -364,7 +364,7 @@
     "filter_search": "Buscar código o descripción…",
     "no_dives_match": "Ningún salto coincide con el filtro.",
     "col_code": "Código",
-    "col_dd": "DD",
+    "col_dd": "Grado de dificultad",
     "col_position": "Posición",
     "col_description": "Descripción"
   },
@@ -432,7 +432,7 @@
   "audit_log": {
     "title": "Registro de auditoría",
     "subtitle": "Cada acción privilegiada, ordenada por tiempo",
-    "filter_actor": "Actor",
+    "filter_actor": "Autor",
     "filter_action": "Acción",
     "filter_date": "Rango de fechas",
     "no_entries": "Ninguna entrada coincide con el filtro."
@@ -510,7 +510,7 @@
     "server_error": "Error del servidor — inténtalo de nuevo"
   },
   "actions": {
-    "ok": "OK",
+    "ok": "Aceptar",
     "yes": "Sí",
     "no": "No",
     "confirm": "Confirmar",
@@ -541,7 +541,7 @@
     "judge": "Juez",
     "referee": "Árbitro",
     "manager": "Gestor",
-    "admin": "Admin"
+    "admin": "Administrador"
   },
   "locale": {
     "switcher_label": "Idioma"

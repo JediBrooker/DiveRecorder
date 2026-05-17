@@ -322,7 +322,7 @@
     "view_meet": "Погледај такмичење →",
     "view_event": "Погледај догађај →",
     "view_recap": "Погледај сажетак →",
-    "stream_overlay": "Stream Overlay",
+    "stream_overlay": "Преклапање стрима",
     "broadcast": "Пренос",
     "pdf_recap": "📄 PDF сажетак"
   },
@@ -364,7 +364,7 @@
     "filter_search": "Претражи код или опис…",
     "no_dives_match": "Ниједан скок не одговара филтеру.",
     "col_code": "Код",
-    "col_dd": "DD",
+    "col_dd": "Тежина",
     "col_position": "Позиција",
     "col_description": "Опис"
   },

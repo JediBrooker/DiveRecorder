@@ -53,7 +53,7 @@
       "new_club_name": "Pangalan ng bagong club",
       "short_code_optional": "Maikling code (opsyonal)",
       "requested_role": "Gusto kong magrehistro bilang",
-      "role_default": "Diver (default)",
+      "role_default": "Diver (karaniwan)",
       "role_spectator": "Manonood lamang",
       "note_label": "Tala sa org admin (opsyonal)",
       "note_placeholder": "hal. lumahok ako sa nationals noong nakaraang taon",
@@ -69,7 +69,7 @@
       "section_org": "Detalye ng organisasyon",
       "fed_name_label": "Pangalan ng pederasyon",
       "fed_name_placeholder": "hal. Philippine Swimming Inc.",
-      "country_label": "Country Code (ISO)",
+      "country_label": "Code ng bansa (ISO)",
       "country_placeholder": "PHL",
       "slug_label": "URL slug",
       "slug_placeholder": "swimming-ph",
@@ -186,7 +186,7 @@
   },
   "home": {
     "hero": {
-      "mark": "Competition Management Platform",
+      "mark": "Platform sa pamamahala ng kumpetensya",
       "tagline": "End-to-end na pamamahala ng diving competition — mula sa pag-setup ng event at pagsumite ng dive list hanggang sa live na pag-judge, broadcast scores, at final results.",
       "btn_sign_in": "Mag-sign In",
       "btn_create_account": "Gumawa ng Account",

@@ -40,7 +40,7 @@
       "subtitle": "Buat akun Anda",
       "full_name": "Nama lengkap",
       "username": "Nama pengguna",
-      "email": "Email",
+      "email": "Surel",
       "email_hint": "Digunakan untuk pengaturan ulang kata sandi dan notifikasi kompetisi.",
       "email_placeholder": "anda{'@'}contoh.com",
       "password": "Kata sandi",
@@ -150,7 +150,7 @@
       "edit_dive_lists": "✎ Daftar loncatan",
       "last_dive_label": "Terakhir",
       "next_dive_label": "Berikutnya",
-      "round_label": "R{round}",
+      "round_label": "Babak {round}",
       "running_total": "Total {total}"
     },
     "dive_lists": {
@@ -249,7 +249,7 @@
     "tab_referee": "Wasit kepala",
     "tab_coach": "Pelatih",
     "tab_manager": "Pengelola",
-    "tab_admin": "Admin",
+    "tab_admin": "Administrator",
     "tab_sysadmin": "Admin sistem",
     "tab_spectator": "Penonton",
     "tab_other": "Lainnya",
@@ -270,7 +270,7 @@
     "section_notifications": "Notifikasi",
     "section_danger": "Zona berbahaya",
     "field_full_name": "Nama lengkap",
-    "field_email": "Email",
+    "field_email": "Surel",
     "field_country": "Negara",
     "field_club": "Klub",
     "field_team": "Tim",
@@ -309,7 +309,7 @@
     "filter_country": "Negara",
     "filter_year": "Tahun",
     "filter_height": "Tinggi",
-    "filter_status": "Status",
+    "filter_status": "Keadaan",
     "status_live": "Langsung",
     "status_upcoming": "Akan datang",
     "status_completed": "Selesai",
@@ -322,7 +322,7 @@
     "view_meet": "Lihat kompetisi →",
     "view_event": "Lihat nomor →",
     "view_recap": "Lihat rekap →",
-    "stream_overlay": "Stream Overlay",
+    "stream_overlay": "Overlay siaran",
     "broadcast": "Siaran",
     "pdf_recap": "📄 Rekap PDF"
   },
@@ -364,7 +364,7 @@
     "filter_search": "Cari kode atau deskripsi…",
     "no_dives_match": "Tidak ada loncatan yang cocok dengan filter.",
     "col_code": "Kode",
-    "col_dd": "DD",
+    "col_dd": "Tingkat kesulitan",
     "col_position": "Posisi",
     "col_description": "Deskripsi"
   },
@@ -411,7 +411,7 @@
     "new_event": "+ Nomor baru",
     "empty_state_title": "Belum ada kompetisi",
     "empty_state_body": "Buat kompetisi pertama Anda untuk memulai.",
-    "filter_status": "Status",
+    "filter_status": "Keadaan",
     "filter_search": "Cari kompetisi…",
     "tab_overview": "Ikhtisar",
     "tab_events": "Nomor",
@@ -441,7 +441,7 @@
     "title": "Penyiapan federasi",
     "subtitle": "Wizard singkat untuk federasi baru",
     "step_intro": "Selamat datang",
-    "step_brand": "Branding",
+    "step_brand": "Identitas merek",
     "step_clubs": "Klub",
     "step_users": "Pengguna",
     "step_done": "Selesai",
@@ -481,7 +481,7 @@
     "missing_dives": "Loncatan yang hilang untuk ronde: {rounds}",
     "synchro_partner": "Pasangan sinkro",
     "pick_partner": "Pilih pasangan",
-    "dd_total": "Total DD",
+    "dd_total": "Total tingkat kesulitan",
     "validate_warning": "Beberapa ronde tidak memenuhi aturan nomor. Perbaiki sebelum mengirim."
   },
   "meet_day": {
@@ -510,7 +510,7 @@
     "server_error": "Kesalahan server — silakan coba lagi"
   },
   "actions": {
-    "ok": "OK",
+    "ok": "Setuju",
     "yes": "Ya",
     "no": "Tidak",
     "confirm": "Konfirmasi",
@@ -522,7 +522,7 @@
     "share": "Bagikan",
     "copy": "Salin",
     "copied": "✓ Tersalin",
-    "filter": "Filter",
+    "filter": "Saring",
     "search": "Cari",
     "reset_filters": "Setel ulang filter"
   },
@@ -541,7 +541,7 @@
     "judge": "Juri",
     "referee": "Wasit kepala",
     "manager": "Pengelola",
-    "admin": "Admin"
+    "admin": "Administrator"
   },
   "locale": {
     "switcher_label": "Bahasa"

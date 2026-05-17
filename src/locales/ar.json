@@ -364,7 +364,7 @@
     "filter_search": "ابحث بالرمز أو الوصف…",
     "no_dives_match": "لا توجد غطسات تطابق المرشّح.",
     "col_code": "الرمز",
-    "col_dd": "DD",
+    "col_dd": "معامل الصعوبة",
     "col_position": "الوضعية",
     "col_description": "الوصف"
   },

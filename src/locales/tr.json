@@ -71,7 +71,7 @@
       "fed_name_placeholder": "ör. Türkiye Yüzme Federasyonu",
       "country_label": "Ülke Kodu (ISO)",
       "country_placeholder": "TUR",
-      "slug_label": "URL Slug",
+      "slug_label": "URL kısa adı",
       "slug_placeholder": "yuzme-tr",
       "section_admin": "Yönetici Hesabınız",
       "full_name": "Ad Soyad",
@@ -171,7 +171,7 @@
       "pick_a_dive": "— Bir atlama seç —",
       "prescribed_lock": "zorunlu",
       "prescribed_height": "{height} m olmalı",
-      "partner_label": "Partner",
+      "partner_label": "Eş atlamacı",
       "partner_placeholder": "Partner kullanıcı kimliği (UUID)",
       "validation_errors": "Doğrulama hataları:",
       "save_list": "Listeyi kaydet",
@@ -249,7 +249,7 @@
     "tab_referee": "Baş Hakem",
     "tab_coach": "Antrenör",
     "tab_manager": "Yönetici",
-    "tab_admin": "Admin",
+    "tab_admin": "Yönetici (Admin)",
     "tab_sysadmin": "Sistem Admini",
     "tab_spectator": "Seyirci",
     "tab_other": "Daha fazla",
@@ -364,7 +364,7 @@
     "filter_search": "Kod veya açıklama ara…",
     "no_dives_match": "Filtreyle eşleşen atlama yok.",
     "col_code": "Kod",
-    "col_dd": "DD",
+    "col_dd": "Zorluk derecesi",
     "col_position": "Pozisyon",
     "col_description": "Açıklama"
   },
@@ -541,7 +541,7 @@
     "judge": "Hakem",
     "referee": "Baş Hakem",
     "manager": "Yönetici",
-    "admin": "Admin"
+    "admin": "Yönetici (Admin)"
   },
   "locale": {
     "switcher_label": "Dil"

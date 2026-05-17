@@ -150,7 +150,7 @@
       "edit_dive_lists": "✎ Liste skokova",
       "last_dive_label": "Zadnji",
       "next_dive_label": "Sljedeći",
-      "round_label": "R{round}",
+      "round_label": "Runda {round}",
       "running_total": "Ukupno {total}"
     },
     "dive_lists": {
@@ -171,7 +171,7 @@
       "pick_a_dive": "— Odaberi skok —",
       "prescribed_lock": "propisano",
       "prescribed_height": "mora biti {height}m",
-      "partner_label": "Partner",
+      "partner_label": "Sinkro-partner",
       "partner_placeholder": "ID partnera (UUID)",
       "validation_errors": "Greške u potvrdi:",
       "save_list": "Spremi listu",
@@ -249,7 +249,7 @@
     "tab_referee": "Glavni sudac",
     "tab_coach": "Trener",
     "tab_manager": "Menadžer",
-    "tab_admin": "Admin",
+    "tab_admin": "Administrator",
     "tab_sysadmin": "Sistem admin",
     "tab_spectator": "Gledatelj",
     "tab_other": "Više",
@@ -309,7 +309,7 @@
     "filter_country": "Zemlja",
     "filter_year": "Godina",
     "filter_height": "Visina",
-    "filter_status": "Status",
+    "filter_status": "Stanje",
     "status_live": "Uživo",
     "status_upcoming": "Nadolazeći",
     "status_completed": "Završeno",
@@ -322,7 +322,7 @@
     "view_meet": "Pogledaj natjecanje →",
     "view_event": "Pogledaj događaj →",
     "view_recap": "Pogledaj sažetak →",
-    "stream_overlay": "Stream Overlay",
+    "stream_overlay": "Prekrivač za prijenos",
     "broadcast": "Prijenos",
     "pdf_recap": "📄 PDF sažetak"
   },
@@ -364,7 +364,7 @@
     "filter_search": "Pretraži kod ili opis…",
     "no_dives_match": "Nijedan skok ne odgovara filtru.",
     "col_code": "Kod",
-    "col_dd": "DD",
+    "col_dd": "Težina",
     "col_position": "Pozicija",
     "col_description": "Opis"
   },
@@ -411,7 +411,7 @@
     "new_event": "+ Novi događaj",
     "empty_state_title": "Još nema natjecanja",
     "empty_state_body": "Stvori svoje prvo natjecanje za početak.",
-    "filter_status": "Status",
+    "filter_status": "Stanje",
     "filter_search": "Pretraži natjecanja…",
     "tab_overview": "Pregled",
     "tab_events": "Događaji",
@@ -541,7 +541,7 @@
     "judge": "Sudac",
     "referee": "Glavni sudac",
     "manager": "Menadžer",
-    "admin": "Admin"
+    "admin": "Administrator"
   },
   "locale": {
     "switcher_label": "Jezik"
