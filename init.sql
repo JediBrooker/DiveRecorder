@@ -338,6 +338,31 @@ CREATE INDEX idx_meet_sponsor_logos_meet
 
 
 -- =============================================================
+-- BOARDS (Migration 049 — Session Scheduler phase 1)
+-- First-class resource so a championship venue can model multiple
+-- physical boards at the same height (warmup vs competition,
+-- pool A vs pool B). The board_height enum stays as the source
+-- of truth for events.height and the dive picker — this table is
+-- additive. Boards are seeded lazily on first GET to the
+-- scheduler endpoint (one per board_height in "Main pool"); the
+-- migration does not backfill every org.
+-- =============================================================
+CREATE TABLE public.boards (
+    id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    org_id        uuid NOT NULL REFERENCES public.organisations(id) ON DELETE CASCADE,
+    pool_name     varchar(80) NOT NULL,             -- "Main pool", "Warmup pool"
+    height        board_height NOT NULL,
+    label         varchar(60),                      -- "Board A", "South-end", optional
+    display_order integer NOT NULL DEFAULT 0,
+    archived_at   timestamptz,                      -- soft delete; preserves history
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (org_id, pool_name, height, label)
+);
+CREATE INDEX idx_boards_org_active
+    ON public.boards (org_id) WHERE archived_at IS NULL;
+
+
+-- =============================================================
 -- EVENTS
 -- =============================================================
 
@@ -433,6 +458,11 @@ CREATE TABLE public.events (
     -- divers can't change their list, the inherited one rides.
     -- Meet manager bypass via /roster late-entry.
     dive_list_locks_at        timestamptz,
+    -- Migration 049: optional pin to a specific physical board.
+    -- NULL = the scheduler matches by `height` against the
+    -- meet's pool. Existing events stay valid without picking a
+    -- board.
+    board_id                  uuid REFERENCES public.boards(id),
     created_at       timestamptz DEFAULT now(),
     CONSTRAINT events_number_of_judges_check
         CHECK (number_of_judges = ANY (ARRAY[3, 5, 7, 9, 11])),
@@ -1237,6 +1267,110 @@ CREATE UNIQUE INDEX idx_signoff_pending_code
 
 
 -- =============================================================
+-- SESSION SCHEDULER (Migration 049 — Phase 1)
+--
+-- A session is one day-on-one-pool timeline owned by a meet; a
+-- session is composed of schedule_blocks (warmups, event starts,
+-- breaks, ceremonies, customs). Phase 1 is read-only — blocks
+-- are auto-seeded server-side from events.scheduled_at on first
+-- GET (45-min warmup window before each event, event_duration
+-- estimated from total_rounds × competitors × 90s, fallback
+-- 90 min). See routes/sessions.js and docs/session-scheduler.md.
+--
+-- The schedule_block_shifts and dismissed_conflicts ledgers
+-- below land now even though no Phase-1 code writes to them —
+-- they avoid a second schema bump for phase 2 (conflicts) and
+-- phase 4 (live re-flow).
+-- =============================================================
+
+CREATE TABLE public.sessions (
+    id              uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    meet_id         uuid NOT NULL REFERENCES public.meets(id) ON DELETE CASCADE,
+    name            varchar(120) NOT NULL,         -- "Saturday morning, 3m"
+    session_date    date NOT NULL,                 -- the day this session covers
+    pool            varchar(80),                   -- "Main pool" — free text for v1
+    -- Optional referee for the whole session. Per-block
+    -- assignments can override but most sessions inherit one.
+    referee_user_id uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_sessions_meet_date
+    ON public.sessions (meet_id, session_date);
+
+CREATE TYPE schedule_block_type AS ENUM (
+    'warmup',       -- pool open for athletes, no scoring
+    'event_start',  -- a competition event runs here
+    'break',        -- pool closed, scoreboard idle
+    'ceremony',     -- medals / opening / closing
+    'custom'        -- free-form for whatever the operator needs
+);
+
+CREATE TABLE public.schedule_blocks (
+    id              uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    session_id      uuid NOT NULL REFERENCES public.sessions(id) ON DELETE CASCADE,
+    block_type      schedule_block_type NOT NULL,
+    label           varchar(160),                  -- "Warmup — Men's 3m"
+    starts_at       timestamptz NOT NULL,
+    ends_at         timestamptz NOT NULL,
+    CONSTRAINT block_window_valid CHECK (ends_at > starts_at),
+    -- Array because a warmup can claim multiple boards at once.
+    -- Empty = doesn't claim a board (ceremony, announcements).
+    -- Postgres can't FK an array; the API validates membership.
+    board_ids       uuid[] NOT NULL DEFAULT '{}',
+    -- For event_start blocks: the event running in the slot.
+    -- NULL for non-event blocks. SET NULL on delete so removing
+    -- an event leaves an orphaned-but-visible schedule row the
+    -- operator can clean up.
+    event_id        uuid REFERENCES public.events(id) ON DELETE SET NULL,
+    -- Phase-4 live re-flow. starts_at / ends_at stay as the
+    -- planned window; actual_* track what really happened.
+    actual_start_at timestamptz,
+    actual_end_at   timestamptz,
+    notes           text,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_schedule_blocks_session
+    ON public.schedule_blocks (session_id, starts_at);
+CREATE INDEX idx_schedule_blocks_event
+    ON public.schedule_blocks (event_id) WHERE event_id IS NOT NULL;
+CREATE INDEX idx_events_board
+    ON public.events (board_id) WHERE board_id IS NOT NULL;
+
+-- Audit-only — never read by the running app. Lets us debrief
+-- "why did Sunday afternoon collapse" after a meet.
+CREATE TABLE public.schedule_block_shifts (
+    id            uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    block_id      uuid NOT NULL REFERENCES public.schedule_blocks(id) ON DELETE CASCADE,
+    shifted_at    timestamptz NOT NULL DEFAULT now(),
+    shifted_by    uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    old_starts_at timestamptz NOT NULL,
+    new_starts_at timestamptz NOT NULL,
+    reason        text                              -- "Event 3 ran 20m long"
+);
+
+-- Per-conflict dismissals (phase 2). Sorted (a,b) so the pair
+-- has one canonical row. resource_fingerprint is a hash of the
+-- resource members at dismissal time so the conflict resurfaces
+-- when membership shifts.
+CREATE TABLE public.dismissed_conflicts (
+    id           uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    meet_id      uuid NOT NULL REFERENCES public.meets(id) ON DELETE CASCADE,
+    block_a_id   uuid NOT NULL REFERENCES public.schedule_blocks(id) ON DELETE CASCADE,
+    block_b_id   uuid NOT NULL REFERENCES public.schedule_blocks(id) ON DELETE CASCADE,
+    CONSTRAINT block_pair_sorted CHECK (block_a_id < block_b_id),
+    resource_kind text NOT NULL
+        CHECK (resource_kind IN ('judge','board','diver','referee')),
+    resource_fingerprint text NOT NULL,
+    dismissed_by uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    dismissed_at timestamptz NOT NULL DEFAULT now(),
+    reason       text,
+    UNIQUE (block_a_id, block_b_id, resource_kind)
+);
+
+
+-- =============================================================
 -- SCHEMA VERSION STAMP
 -- Single-row table the server reads on boot to log which
 -- schema version is deployed. init.sql sets the current baked-in
@@ -1251,7 +1385,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 48);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 49);
 
 
 -- =============================================================

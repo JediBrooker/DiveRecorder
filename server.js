@@ -23,6 +23,7 @@
 //   [SECTION: ROUTES — COACH]         /api/coach/*
 //   [SECTION: ROUTES — USERS]         /api/users/*, /api/role-requests/*
 //   [SECTION: ROUTES — MEETS]         /api/meets/*
+//   [SECTION: ROUTES — SESSIONS]      /api/meets/:id/sessions, schedule.ics
 //   [SECTION: ROUTES — EVENTS]        /api/events (CRUD + status)
 //   [SECTION: ROUTES — STAGE ADVANCE] /api/events/:id/advance (top-N)
 //   [SECTION: ROUTES — TEMPLATES]     /api/orgs/:id/event-templates
@@ -596,6 +597,16 @@ app.use(require("./routes/meets")({
   requireMeetEditor,
   requireEventManager,
 }));
+
+// =============================================================
+// SESSION SCHEDULER ROUTES
+// [SECTION: ROUTES — SESSIONS]
+// /api/meets/:meetId/sessions       — sessions + inlined blocks
+// /api/meets/:meetId/schedule.ics   — public iCal feed
+// Phase 1 is read-only; phase 2-4 (conflicts, manual edit, live
+// re-flow) extend this same file. See docs/session-scheduler.md.
+// =============================================================
+app.use(require("./routes/sessions")({ pool, optionalAuth }));
 
 // =============================================================
 // EVENT ROUTES

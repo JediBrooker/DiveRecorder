@@ -1938,6 +1938,11 @@ onUnmounted(() => {
             </div>
           </div>
           <div class="meet-row-actions">
+            <RouterLink :to="`/meet/${m.id}/schedule`"
+                        class="btn btn-ghost btn-sm"
+                        v-tip="$t('scheduler.manager_link_tip')">
+              {{ $t('scheduler.manager_link') }}
+            </RouterLink>
             <button class="btn btn-ghost btn-sm"
                     v-tip="'Edit name, dates, sponsor branding…'"
                     @click="openEditMeet(m)">Edit</button>

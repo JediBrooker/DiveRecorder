@@ -140,6 +140,14 @@ const routes = [
     component: () => import('@/views/MeetView.vue'),
   },
   {
+    // Session scheduler (read-only timeline + .ics — Phase 1).
+    // See docs/session-scheduler.md. Public for now — same
+    // visibility surface as the .ics feed it links to; later
+    // phases add edit affordances behind requiresAuth.
+    path: '/meet/:meetId/schedule',
+    component: () => import('@/views/SchedulerView.vue'),
+  },
+  {
     path: '/users',
     component: () => import('@/views/UserManagerView.vue'),
     meta: { requiresAuth: true, requiresRole: ['org_admin'] },
