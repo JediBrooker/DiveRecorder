@@ -24,43 +24,43 @@ onMounted(() => {
     <div class="hero-locale">
       <LocaleSwitcher />
     </div>
-    <div class="hero-mark">Competition Management Platform</div>
+    <div class="hero-mark">{{ $t('home.hero.mark') }}</div>
     <div class="hero-logo">DIVING<span>HQ</span></div>
-    <p class="hero-tagline">End-to-end diving competition management — from event setup and dive list submission through to live judging, broadcast scores, and final results.</p>
+    <p class="hero-tagline">{{ $t('home.hero.tagline') }}</p>
     <div class="hero-actions">
-      <RouterLink to="/login" class="hero-btn-primary">Sign In</RouterLink>
-      <RouterLink to="/register" class="hero-btn-ghost">Create Account</RouterLink>
-      <RouterLink to="/scoreboard" class="hero-btn-ghost">Scoreboard &amp; Results</RouterLink>
-      <RouterLink to="/judges" class="hero-btn-ghost">Judge Analysis</RouterLink>
+      <RouterLink to="/login" class="hero-btn-primary">{{ $t('home.hero.btn_sign_in') }}</RouterLink>
+      <RouterLink to="/register" class="hero-btn-ghost">{{ $t('home.hero.btn_create_account') }}</RouterLink>
+      <RouterLink to="/scoreboard" class="hero-btn-ghost">{{ $t('home.hero.btn_scoreboard') }}</RouterLink>
+      <RouterLink to="/judges" class="hero-btn-ghost">{{ $t('home.hero.btn_judge_analysis') }}</RouterLink>
     </div>
     <!-- New-user primer link. Quiet by design — pitched to
          someone who's never seen the app and isn't sure where
          to start, without competing with the primary CTAs. -->
     <RouterLink to="/guide" class="hero-guide-link">
-      New here? Read the 5-minute user guide →
+      {{ $t('home.hero.guide_link') }}
     </RouterLink>
   </section>
 
   <!-- Live strip -->
   <div class="live-strip">
-    <div class="live-pill">LIVE</div>
-    <span class="live-text">Live scoreboard is open to everyone — no login required</span>
-    <RouterLink to="/scoreboard" class="btn btn-ghost btn-sm">Watch Live →</RouterLink>
+    <div class="live-pill">{{ $t('home.live_strip.pill') }}</div>
+    <span class="live-text">{{ $t('home.live_strip.text') }}</span>
+    <RouterLink to="/scoreboard" class="btn btn-ghost btn-sm">{{ $t('home.live_strip.watch') }}</RouterLink>
   </div>
 
   <!-- Features -->
   <section class="features">
-    <div class="section-label">Built for every role in the pool</div>
+    <div class="section-label">{{ $t('home.features.section_label') }}</div>
     <div class="feature-grid">
 
       <div class="feat" style="border-color:rgba(16,185,129,0.15)">
         <div class="feat-icon" style="color:var(--green);background:var(--green-dim);border-color:rgba(16,185,129,0.25)">
           <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
         </div>
-        <div class="feat-title">Diver Portal</div>
-        <div class="feat-desc">Submit your dive list ahead of competition. DD requirements are validated automatically against the official directory.</div>
+        <div class="feat-title">{{ $t('home.features.diver_portal_title') }}</div>
+        <div class="feat-desc">{{ $t('home.features.diver_portal_desc') }}</div>
         <div class="feat-tags">
-          <span class="feat-tag" style="color:var(--green);border-color:rgba(16,185,129,0.3);background:var(--green-dim)">Diver</span>
+          <span class="feat-tag" style="color:var(--green);border-color:rgba(16,185,129,0.3);background:var(--green-dim)">{{ $t('role.diver') }}</span>
         </div>
       </div>
 
@@ -68,11 +68,11 @@ onMounted(() => {
         <div class="feat-icon" style="color:var(--cyan);background:var(--cyan-dim);border-color:rgba(6,182,212,0.25)">
           <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
         </div>
-        <div class="feat-title">Control Room</div>
-        <div class="feat-desc">Advance through the dive order, monitor incoming judge scores in real time, and issue referee rulings without leaving the screen.</div>
+        <div class="feat-title">{{ $t('home.features.control_room_title') }}</div>
+        <div class="feat-desc">{{ $t('home.features.control_room_desc') }}</div>
         <div class="feat-tags">
-          <span class="feat-tag" style="color:var(--red);border-color:rgba(239,68,68,0.3);background:var(--red-dim)">Referee</span>
-          <span class="feat-tag" style="color:var(--amber);border-color:rgba(245,158,11,0.3);background:var(--amber-dim)">Manager</span>
+          <span class="feat-tag" style="color:var(--red);border-color:rgba(239,68,68,0.3);background:var(--red-dim)">{{ $t('role.referee') }}</span>
+          <span class="feat-tag" style="color:var(--amber);border-color:rgba(245,158,11,0.3);background:var(--amber-dim)">{{ $t('role.manager') }}</span>
         </div>
       </div>
 
@@ -80,10 +80,10 @@ onMounted(() => {
         <div class="feat-icon" style="color:var(--cyan);background:var(--cyan-dim);border-color:rgba(6,182,212,0.25)">
           <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 4a2 2 0 114 0v1a1 1 0 001 1h3a1 1 0 011 1v3a1 1 0 01-1 1h-1a2 2 0 100 4h1a1 1 0 011 1v3a1 1 0 01-1 1h-3a1 1 0 01-1-1v-1a2 2 0 10-4 0v1a1 1 0 01-1 1H7a1 1 0 01-1-1v-3a1 1 0 00-1-1H4a2 2 0 110-4h1a1 1 0 001-1V7a1 1 0 011-1h3a1 1 0 001-1V4z"/></svg>
         </div>
-        <div class="feat-title">Judge Terminal</div>
-        <div class="feat-desc">Touch-optimised scoring interface. Tap a score and submit — synced instantly to the control room and scoreboard.</div>
+        <div class="feat-title">{{ $t('home.features.judge_terminal_title') }}</div>
+        <div class="feat-desc">{{ $t('home.features.judge_terminal_desc') }}</div>
         <div class="feat-tags">
-          <span class="feat-tag" style="color:var(--cyan);border-color:rgba(6,182,212,0.3);background:var(--cyan-dim)">Judge</span>
+          <span class="feat-tag" style="color:var(--cyan);border-color:rgba(6,182,212,0.3);background:var(--cyan-dim)">{{ $t('role.judge') }}</span>
         </div>
       </div>
 
@@ -91,10 +91,10 @@ onMounted(() => {
         <div class="feat-icon" style="color:var(--red);background:var(--red-dim);border-color:rgba(239,68,68,0.25)">
           <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
         </div>
-        <div class="feat-title">Scoreboard &amp; Results</div>
-        <div class="feat-desc">One browsable surface for every meet — broadcast-ready live view of the current diver and standings, plus full recaps and dive breakdowns for completed meets.</div>
+        <div class="feat-title">{{ $t('home.features.scoreboard_title') }}</div>
+        <div class="feat-desc">{{ $t('home.features.scoreboard_desc') }}</div>
         <div class="feat-tags">
-          <span class="feat-tag" style="color:var(--text-2);border-color:var(--border-2);background:var(--bg-3)">Public</span>
+          <span class="feat-tag" style="color:var(--text-2);border-color:var(--border-2);background:var(--bg-3)">{{ $t('role.public') }}</span>
         </div>
       </div>
 
@@ -102,11 +102,11 @@ onMounted(() => {
         <div class="feat-icon" style="color:var(--amber);background:var(--amber-dim);border-color:rgba(245,158,11,0.25)">
           <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
         </div>
-        <div class="feat-title">Meet Manager</div>
-        <div class="feat-desc">Create events, configure rounds and panel sizes, assign judges, and manage the full structure of a competition.</div>
+        <div class="feat-title">{{ $t('home.features.meet_manager_title') }}</div>
+        <div class="feat-desc">{{ $t('home.features.meet_manager_desc') }}</div>
         <div class="feat-tags">
-          <span class="feat-tag" style="color:var(--amber);border-color:rgba(245,158,11,0.3);background:var(--amber-dim)">Manager</span>
-          <span class="feat-tag" style="color:#a78bfa;border-color:rgba(167,139,250,0.3);background:rgba(167,139,250,0.08)">Admin</span>
+          <span class="feat-tag" style="color:var(--amber);border-color:rgba(245,158,11,0.3);background:var(--amber-dim)">{{ $t('role.manager') }}</span>
+          <span class="feat-tag" style="color:#a78bfa;border-color:rgba(167,139,250,0.3);background:rgba(167,139,250,0.08)">{{ $t('role.admin') }}</span>
         </div>
       </div>
 
@@ -114,10 +114,10 @@ onMounted(() => {
         <div class="feat-icon" style="color:#a78bfa;background:rgba(167,139,250,0.08);border-color:rgba(167,139,250,0.25)">
           <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
         </div>
-        <div class="feat-title">User Manager</div>
-        <div class="feat-desc">Approve role requests and control member access across your federation. Every role change is gated through a request workflow.</div>
+        <div class="feat-title">{{ $t('home.features.user_manager_title') }}</div>
+        <div class="feat-desc">{{ $t('home.features.user_manager_desc') }}</div>
         <div class="feat-tags">
-          <span class="feat-tag" style="color:#a78bfa;border-color:rgba(167,139,250,0.3);background:rgba(167,139,250,0.08)">Admin</span>
+          <span class="feat-tag" style="color:#a78bfa;border-color:rgba(167,139,250,0.3);background:rgba(167,139,250,0.08)">{{ $t('role.admin') }}</span>
         </div>
       </div>
 
@@ -126,27 +126,27 @@ onMounted(() => {
 
   <!-- How it works -->
   <section class="how">
-    <div class="section-label">How a meet runs</div>
+    <div class="section-label">{{ $t('home.how.section_label') }}</div>
     <div class="how-steps">
       <div class="how-step">
         <div class="step-num">01</div>
-        <div class="step-title">Set up the event</div>
-        <div class="step-desc">The meet manager creates events, sets the number of rounds and judges, and assigns the panel.</div>
+        <div class="step-title">{{ $t('home.how.step01_title') }}</div>
+        <div class="step-desc">{{ $t('home.how.step01_desc') }}</div>
       </div>
       <div class="how-step">
         <div class="step-num">02</div>
-        <div class="step-title">Divers submit lists</div>
-        <div class="step-desc">Each diver logs in and submits their dive list. DD values are pulled from the official directory automatically.</div>
+        <div class="step-title">{{ $t('home.how.step02_title') }}</div>
+        <div class="step-desc">{{ $t('home.how.step02_desc') }}</div>
       </div>
       <div class="how-step">
         <div class="step-num">03</div>
-        <div class="step-title">Scoring goes live</div>
-        <div class="step-desc">The referee steps through the dive order on the control room screen. Judges score on their own devices in real time.</div>
+        <div class="step-title">{{ $t('home.how.step03_title') }}</div>
+        <div class="step-desc">{{ $t('home.how.step03_desc') }}</div>
       </div>
       <div class="how-step">
         <div class="step-num">04</div>
-        <div class="step-title">Results broadcast</div>
-        <div class="step-desc">Scores appear on the live scoreboard the moment they're confirmed. Standings update after every dive.</div>
+        <div class="step-title">{{ $t('home.how.step04_title') }}</div>
+        <div class="step-desc">{{ $t('home.how.step04_desc') }}</div>
       </div>
     </div>
   </section>
@@ -156,21 +156,21 @@ onMounted(() => {
     <div style="max-width:1200px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
       <RouterLink to="/" class="footer-logo">DIVING<span>HQ</span></RouterLink>
       <div class="footer-links">
-        <RouterLink to="/login">Sign In</RouterLink>
-        <RouterLink to="/register">Register</RouterLink>
-        <RouterLink to="/register-org">Register Federation</RouterLink>
-        <RouterLink to="/scoreboard">Scoreboard &amp; Results</RouterLink>
+        <RouterLink to="/login">{{ $t('home.footer.sign_in') }}</RouterLink>
+        <RouterLink to="/register">{{ $t('home.footer.register') }}</RouterLink>
+        <RouterLink to="/register-org">{{ $t('home.footer.register_federation') }}</RouterLink>
+        <RouterLink to="/scoreboard">{{ $t('home.footer.scoreboard') }}</RouterLink>
         <!-- Plain-English new-user primer. Linked from both
              footer slots (home + dashboard) so a confused user
              always has the same entry point. -->
-        <RouterLink to="/guide">📖 User Guide</RouterLink>
+        <RouterLink to="/guide">{{ $t('home.footer.user_guide') }}</RouterLink>
         <!-- Public issue tracker. Pre-fills the title with
              "Bug:" + a bug label so the report lands tagged
              without the reporter having to know our taxonomy. -->
         <a href="https://github.com/JediBrooker/DivingHQ/issues/new?labels=bug&amp;title=Bug%3A%20"
            target="_blank"
            rel="noopener"
-           class="footer-bug">🐛 Report a bug</a>
+           class="footer-bug">{{ $t('home.footer.report_bug') }}</a>
       </div>
     </div>
   </footer>

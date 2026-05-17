@@ -99,6 +99,74 @@
       "withdraw_failed": "A visszaléptetés sikertelen"
     }
   },
+  "home": {
+    "hero": {
+      "mark": "Versenykezelő platform",
+      "tagline": "A műugró versenyek teljes körű kezelése — az esemény beállításától és az ugráslisták leadásától az élő pontozásig, az eredmények közvetítéséig és a végső eredményekig.",
+      "btn_sign_in": "Bejelentkezés",
+      "btn_create_account": "Fiók létrehozása",
+      "btn_scoreboard": "Eredménytábla",
+      "btn_judge_analysis": "Pontozóbíró-elemzés",
+      "guide_link": "Új itt? Olvasd el az 5 perces útmutatót →"
+    },
+    "live_strip": {
+      "pill": "ÉLŐ",
+      "text": "Az élő eredménytábla mindenki számára elérhető — nem kell bejelentkezni",
+      "watch": "Élő nézés →"
+    },
+    "features": {
+      "section_label": "Minden szerephez a medence partján",
+      "diver_portal_title": "Műugró portál",
+      "diver_portal_desc": "Add le az ugráslistádat a verseny előtt. A nehézségi együttható (DD) követelményeit a hivatalos jegyzék alapján automatikusan ellenőrizzük.",
+      "control_room_title": "Vezérlőszoba",
+      "control_room_desc": "Haladj végig az ugrás sorrendjén, kísérd valós időben a pontozóbírók pontjait, és hozz versenybírói döntéseket anélkül, hogy elhagynád a képernyőt.",
+      "judge_terminal_title": "Pontozóbírói terminál",
+      "judge_terminal_desc": "Érintőképernyőre optimalizált pontozási felület. Koppints egy pontra és küldd el — azonnal szinkronizálódik a vezérlőszobával és az eredménytáblával.",
+      "scoreboard_title": "Eredménytábla",
+      "scoreboard_desc": "Egyetlen, böngészhető felület minden versenyhez — közvetítésre kész élő nézet az aktuális műugróról és a helyezésekről, plusz teljes összefoglalók és ugráselemzések a befejezett versenyekhez.",
+      "meet_manager_title": "Versenymenedzser",
+      "meet_manager_desc": "Hozz létre eseményeket, állítsd be a fordulókat és a paneleket, oszd ki a pontozóbírókat, és kezeld a verseny teljes szerkezetét.",
+      "user_manager_title": "Felhasználókezelő",
+      "user_manager_desc": "Hagyd jóvá a szerepkör-kéréseket, és szabályozd a szövetséged tagjainak hozzáférését. Minden szerepkörváltozás kérési folyamaton keresztül történik."
+    },
+    "how": {
+      "section_label": "Így zajlik egy verseny",
+      "step01_title": "Esemény beállítása",
+      "step01_desc": "A versenymenedzser létrehozza az eseményeket, beállítja a fordulók és a pontozóbírók számát, és kiosztja a panelt.",
+      "step02_title": "A műugrók beküldik a listákat",
+      "step02_desc": "Minden műugró bejelentkezik és beküldi az ugráslistáját. A DD értékek automatikusan a hivatalos jegyzékből kerülnek be.",
+      "step03_title": "A pontozás élőben indul",
+      "step03_desc": "A versenybíró a vezérlőszoba képernyőjén lépked az ugrás sorrendjén. A pontozóbírók saját eszközeiken pontoznak valós időben.",
+      "step04_title": "Eredmények közvetítése",
+      "step04_desc": "A pontok azonnal megjelennek az élő eredménytáblán a megerősítés után. A helyezések minden ugrás után frissülnek."
+    },
+    "footer": {
+      "sign_in": "Bejelentkezés",
+      "register": "Regisztráció",
+      "register_federation": "Szövetség regisztrálása",
+      "scoreboard": "Eredménytábla",
+      "user_guide": "📖 Felhasználói útmutató",
+      "report_bug": "🐛 Hiba jelentése"
+    }
+  },
+  "dashboard": {
+    "search_divers": "Műugrók keresése…",
+    "searching": "Keresés…",
+    "no_divers_match": "Nincs találat műugrókra.",
+    "inbox": "Bejövő",
+    "my_profile": "Profilom",
+    "sign_out": "Kijelentkezés",
+    "secondary_scoreboard": "Eredménytábla",
+    "secondary_judges": "Pontozóbíró-elemzés"
+  },
+  "role": {
+    "public": "Nyilvános",
+    "diver": "Műugró",
+    "judge": "Pontozóbíró",
+    "referee": "Versenybíró",
+    "manager": "Menedzser",
+    "admin": "Admin"
+  },
   "locale": {
     "switcher_label": "Nyelv"
   }

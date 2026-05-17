@@ -99,6 +99,74 @@
       "withdraw_failed": "Zurückziehen fehlgeschlagen"
     }
   },
+  "home": {
+    "hero": {
+      "mark": "Wettkampfmanagement-Plattform",
+      "tagline": "Wassersprung-Wettkampfmanagement von A bis Z — von der Eventeinrichtung und Sprunglisten-Einreichung über das Live-Kampfgericht bis zur Ergebnisübertragung und Endklassierung.",
+      "btn_sign_in": "Anmelden",
+      "btn_create_account": "Konto erstellen",
+      "btn_scoreboard": "Anzeigetafel & Ergebnisse",
+      "btn_judge_analysis": "Kampfrichter-Analyse",
+      "guide_link": "Neu hier? Lesen Sie die 5-Minuten-Anleitung →"
+    },
+    "live_strip": {
+      "pill": "LIVE",
+      "text": "Die Live-Anzeigetafel ist für alle offen — keine Anmeldung nötig",
+      "watch": "Live ansehen →"
+    },
+    "features": {
+      "section_label": "Für jede Rolle am Beckenrand",
+      "diver_portal_title": "Springer-Portal",
+      "diver_portal_desc": "Reichen Sie Ihre Sprungkarte vor dem Wettkampf ein. DD-Anforderungen werden automatisch gegen das offizielle Verzeichnis geprüft.",
+      "control_room_title": "Kontrollraum",
+      "control_room_desc": "Gehen Sie die Sprungreihenfolge durch, beobachten Sie eingehende Kampfrichternoten in Echtzeit und treffen Sie Schiedsrichter-Entscheidungen ohne den Bildschirm zu verlassen.",
+      "judge_terminal_title": "Kampfrichter-Terminal",
+      "judge_terminal_desc": "Wertungs-Oberfläche für Touch-Bedienung. Note antippen und senden — sofort mit Kontrollraum und Anzeigetafel synchronisiert.",
+      "scoreboard_title": "Anzeigetafel & Ergebnisse",
+      "scoreboard_desc": "Eine durchsuchbare Oberfläche für jeden Wettkampf — sendebereite Live-Ansicht von aktuellem Springer und Klassierung, plus komplette Rückblicke und Sprungaufschlüsselung für abgeschlossene Wettkämpfe.",
+      "meet_manager_title": "Wettkampf-Manager",
+      "meet_manager_desc": "Erstellen Sie Events, konfigurieren Sie Runden und Panel-Größen, weisen Sie Kampfrichter zu und verwalten Sie die gesamte Wettkampfstruktur.",
+      "user_manager_title": "Benutzerverwaltung",
+      "user_manager_desc": "Genehmigen Sie Rollenanfragen und steuern Sie den Mitgliederzugriff in Ihrem Verband. Jede Rollenänderung läuft über einen Anfrage-Workflow."
+    },
+    "how": {
+      "section_label": "So läuft ein Wettkampf ab",
+      "step01_title": "Event einrichten",
+      "step01_desc": "Der Wettkampf-Manager erstellt Events, legt die Zahl der Runden und Kampfrichter fest und besetzt das Panel.",
+      "step02_title": "Springer reichen Listen ein",
+      "step02_desc": "Jeder Springer meldet sich an und reicht seine Sprungkarte ein. DD-Werte werden automatisch aus dem offiziellen Verzeichnis übernommen.",
+      "step03_title": "Wertung geht live",
+      "step03_desc": "Der Schiedsrichter geht im Kontrollraum die Sprungreihenfolge durch. Kampfrichter werten in Echtzeit auf ihren eigenen Geräten.",
+      "step04_title": "Ergebnisübertragung",
+      "step04_desc": "Noten erscheinen auf der Live-Anzeigetafel, sobald sie bestätigt sind. Die Klassierung aktualisiert sich nach jedem Sprung."
+    },
+    "footer": {
+      "sign_in": "Anmelden",
+      "register": "Registrieren",
+      "register_federation": "Verband registrieren",
+      "scoreboard": "Anzeigetafel & Ergebnisse",
+      "user_guide": "📖 Anleitung",
+      "report_bug": "🐛 Fehler melden"
+    }
+  },
+  "dashboard": {
+    "search_divers": "Springer suchen…",
+    "searching": "Suche…",
+    "no_divers_match": "Keine Springer gefunden.",
+    "inbox": "Posteingang",
+    "my_profile": "Mein Profil",
+    "sign_out": "Abmelden",
+    "secondary_scoreboard": "Anzeigetafel & Ergebnisse",
+    "secondary_judges": "Kampfrichter-Analyse"
+  },
+  "role": {
+    "public": "Öffentlich",
+    "diver": "Springer",
+    "judge": "Kampfrichter",
+    "referee": "Schiedsrichter",
+    "manager": "Manager",
+    "admin": "Admin"
+  },
   "locale": {
     "switcher_label": "Sprache"
   }

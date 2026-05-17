@@ -99,6 +99,74 @@
       "withdraw_failed": "Tilbagetrækning mislykkedes"
     }
   },
+  "home": {
+    "hero": {
+      "mark": "Platform til stævnehåndtering",
+      "tagline": "End-to-end-håndtering af udspringsstævner — fra opsætning af stævnet og indsendelse af springlister til live-dommerarbejde, transmission af resultater og endelige slutresultater.",
+      "btn_sign_in": "Log ind",
+      "btn_create_account": "Opret konto",
+      "btn_scoreboard": "Resultattavle",
+      "btn_judge_analysis": "Dommeranalyse",
+      "guide_link": "Ny her? Læs guiden på 5 minutter →"
+    },
+    "live_strip": {
+      "pill": "LIVE",
+      "text": "Live-resultattavlen er åben for alle — ingen login påkrævet",
+      "watch": "Se live →"
+    },
+    "features": {
+      "section_label": "Bygget til hver rolle ved bassinkanten",
+      "diver_portal_title": "Udspringerens portal",
+      "diver_portal_desc": "Indsend din springliste før stævnet. Krav til sværhedsgrad valideres automatisk mod det officielle kartotek.",
+      "control_room_title": "Kontrolrum",
+      "control_room_desc": "Gå gennem springrækkefølgen, overvåg dommerens karakterer i realtid og afsig overdommerafgørelser uden at forlade skærmen.",
+      "judge_terminal_title": "Dommerterminal",
+      "judge_terminal_desc": "Bedømmelsesgrænseflade optimeret til touch. Tryk på en karakter og send — synkroniseres øjeblikkeligt med kontrolrummet og resultattavlen.",
+      "scoreboard_title": "Resultattavle",
+      "scoreboard_desc": "Én navigerbar overflade for hvert stævne — transmissionsklar live-visning af den aktuelle udspringer og stillingen, plus fulde opsummeringer og springopdelinger for afsluttede stævner.",
+      "meet_manager_title": "Stævnehåndtering",
+      "meet_manager_desc": "Opret konkurrencer, konfigurer runder og paneler, tildel dommere og administrér hele stævnets struktur.",
+      "user_manager_title": "Brugerhåndtering",
+      "user_manager_desc": "Godkend rolleanmodninger og styr medlemmernes adgang i dit forbund. Enhver rolleændring går gennem en anmodningsproces."
+    },
+    "how": {
+      "section_label": "Sådan forløber et stævne",
+      "step01_title": "Sæt konkurrencen op",
+      "step01_desc": "Stævnelederen opretter konkurrencer, fastsætter antallet af runder og dommere og tildeler panelet.",
+      "step02_title": "Udspringere indsender lister",
+      "step02_desc": "Hver udspringer logger ind og indsender sin springliste. Sværhedsgrader hentes automatisk fra det officielle kartotek.",
+      "step03_title": "Bedømmelsen går live",
+      "step03_desc": "Overdommeren går gennem springrækkefølgen på kontrolrummets skærm. Dommerne bedømmer i realtid på deres egne enheder.",
+      "step04_title": "Resultater transmitteres",
+      "step04_desc": "Karaktererne vises på live-resultattavlen, så snart de er bekræftet. Stillingen opdateres efter hvert spring."
+    },
+    "footer": {
+      "sign_in": "Log ind",
+      "register": "Tilmeld",
+      "register_federation": "Registrér forbund",
+      "scoreboard": "Resultattavle",
+      "user_guide": "📖 Brugervejledning",
+      "report_bug": "🐛 Rapportér en fejl"
+    }
+  },
+  "dashboard": {
+    "search_divers": "Søg udspringere…",
+    "searching": "Søger…",
+    "no_divers_match": "Ingen udspringere matcher.",
+    "inbox": "Indbakke",
+    "my_profile": "Min profil",
+    "sign_out": "Log ud",
+    "secondary_scoreboard": "Resultattavle",
+    "secondary_judges": "Dommeranalyse"
+  },
+  "role": {
+    "public": "Offentlig",
+    "diver": "Udspringer",
+    "judge": "Dommer",
+    "referee": "Overdommer",
+    "manager": "Stævneleder",
+    "admin": "Admin"
+  },
   "locale": {
     "switcher_label": "Sprog"
   }

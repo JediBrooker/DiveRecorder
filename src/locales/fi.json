@@ -99,6 +99,74 @@
       "withdraw_failed": "Vetäytyminen epäonnistui"
     }
   },
+  "home": {
+    "hero": {
+      "mark": "Kilpailujen hallintajärjestelmä",
+      "tagline": "Uimahyppyjen kilpailujen kokonaisvaltainen hallinta — tapahtuman luomisesta ja hyppylistojen lähettämisestä live-tuomarointiin, tulosten lähetykseen ja loppusijoituksiin.",
+      "btn_sign_in": "Kirjaudu sisään",
+      "btn_create_account": "Luo tili",
+      "btn_scoreboard": "Tulostaulu ja tulokset",
+      "btn_judge_analysis": "Tuomarianalyysi",
+      "guide_link": "Uusi täällä? Lue 5 minuutin opas →"
+    },
+    "live_strip": {
+      "pill": "LIVE",
+      "text": "Live-tulostaulu on avoinna kaikille — sisäänkirjautumista ei tarvita",
+      "watch": "Katso suorana →"
+    },
+    "features": {
+      "section_label": "Suunniteltu jokaiselle roolille altaan reunalla",
+      "diver_portal_title": "Hyppääjän portaali",
+      "diver_portal_desc": "Lähetä hyppylistasi ennen kilpailua. DD-vaatimukset tarkistetaan automaattisesti virallisesta luettelosta.",
+      "control_room_title": "Ohjaamo",
+      "control_room_desc": "Etene hyppyjärjestyksessä, seuraa tuomareiden pisteytyksiä reaaliajassa ja tee ylituomarin päätökset näytöltä lähtemättä.",
+      "judge_terminal_title": "Tuomarin pääte",
+      "judge_terminal_desc": "Pisteytysliittymä on optimoitu kosketukselle. Napauta pistettä ja lähetä — synkronoituu välittömästi ohjaamoon ja tulostauluun.",
+      "scoreboard_title": "Tulostaulu ja tulokset",
+      "scoreboard_desc": "Yksi selattava näkymä jokaiselle kilpailulle — lähetysvalmis live-näkymä nykyisestä hyppääjästä ja sijoituksista, sekä kattavat yhteenvedot ja hyppyjen erittelyt päättyneistä kilpailuista.",
+      "meet_manager_title": "Kilpailun hallinta",
+      "meet_manager_desc": "Luo tapahtumia, määritä kierrokset ja paneelit, nimeä tuomarit ja hallinnoi kilpailun koko rakennetta.",
+      "user_manager_title": "Käyttäjähallinta",
+      "user_manager_desc": "Hyväksy roolipyynnöt ja hallinnoi jäsenten pääsyä liitossasi. Jokainen roolin muutos kulkee pyyntöprosessin kautta."
+    },
+    "how": {
+      "section_label": "Näin kilpailu etenee",
+      "step01_title": "Aseta tapahtuma",
+      "step01_desc": "Kilpailupäällikkö luo tapahtumat, asettaa kierrosten ja tuomareiden määrän ja nimeää paneelin.",
+      "step02_title": "Hyppääjät lähettävät listat",
+      "step02_desc": "Jokainen hyppääjä kirjautuu ja lähettää hyppylistansa. DD-arvot haetaan automaattisesti virallisesta luettelosta.",
+      "step03_title": "Pisteytys käynnistyy livenä",
+      "step03_desc": "Ylituomari etenee hyppyjärjestyksessä ohjaamon näytöllä. Tuomarit pisteyttävät reaaliajassa omilla laitteillaan.",
+      "step04_title": "Tulosten lähetys",
+      "step04_desc": "Pisteet näkyvät live-tulostaululla heti vahvistuksen jälkeen. Sijoitukset päivittyvät jokaisen hypyn jälkeen."
+    },
+    "footer": {
+      "sign_in": "Kirjaudu sisään",
+      "register": "Rekisteröidy",
+      "register_federation": "Rekisteröi liitto",
+      "scoreboard": "Tulostaulu ja tulokset",
+      "user_guide": "📖 Käyttöopas",
+      "report_bug": "🐛 Ilmoita virheestä"
+    }
+  },
+  "dashboard": {
+    "search_divers": "Etsi hyppääjiä…",
+    "searching": "Haetaan…",
+    "no_divers_match": "Yhtään hyppääjää ei löytynyt.",
+    "inbox": "Saapuneet",
+    "my_profile": "Oma profiili",
+    "sign_out": "Kirjaudu ulos",
+    "secondary_scoreboard": "Tulostaulu ja tulokset",
+    "secondary_judges": "Tuomarianalyysi"
+  },
+  "role": {
+    "public": "Julkinen",
+    "diver": "Hyppääjä",
+    "judge": "Tuomari",
+    "referee": "Ylituomari",
+    "manager": "Päällikkö",
+    "admin": "Ylläpitäjä"
+  },
   "locale": {
     "switcher_label": "Kieli"
   }

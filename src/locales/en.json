@@ -99,6 +99,74 @@
       "withdraw_failed": "Withdraw failed"
     }
   },
+  "home": {
+    "hero": {
+      "mark": "Competition Management Platform",
+      "tagline": "End-to-end diving competition management — from event setup and dive list submission through to live judging, broadcast scores, and final results.",
+      "btn_sign_in": "Sign In",
+      "btn_create_account": "Create Account",
+      "btn_scoreboard": "Scoreboard & Results",
+      "btn_judge_analysis": "Judge Analysis",
+      "guide_link": "New here? Read the 5-minute user guide →"
+    },
+    "live_strip": {
+      "pill": "LIVE",
+      "text": "Live scoreboard is open to everyone — no login required",
+      "watch": "Watch Live →"
+    },
+    "features": {
+      "section_label": "Built for every role in the pool",
+      "diver_portal_title": "Diver Portal",
+      "diver_portal_desc": "Submit your dive list ahead of competition. DD requirements are validated automatically against the official directory.",
+      "control_room_title": "Control Room",
+      "control_room_desc": "Advance through the dive order, monitor incoming judge scores in real time, and issue referee rulings without leaving the screen.",
+      "judge_terminal_title": "Judge Terminal",
+      "judge_terminal_desc": "Touch-optimised scoring interface. Tap a score and submit — synced instantly to the control room and scoreboard.",
+      "scoreboard_title": "Scoreboard & Results",
+      "scoreboard_desc": "One browsable surface for every meet — broadcast-ready live view of the current diver and standings, plus full recaps and dive breakdowns for completed meets.",
+      "meet_manager_title": "Meet Manager",
+      "meet_manager_desc": "Create events, configure rounds and panel sizes, assign judges, and manage the full structure of a competition.",
+      "user_manager_title": "User Manager",
+      "user_manager_desc": "Approve role requests and control member access across your federation. Every role change is gated through a request workflow."
+    },
+    "how": {
+      "section_label": "How a meet runs",
+      "step01_title": "Set up the event",
+      "step01_desc": "The meet manager creates events, sets the number of rounds and judges, and assigns the panel.",
+      "step02_title": "Divers submit lists",
+      "step02_desc": "Each diver logs in and submits their dive list. DD values are pulled from the official directory automatically.",
+      "step03_title": "Scoring goes live",
+      "step03_desc": "The referee steps through the dive order on the control room screen. Judges score on their own devices in real time.",
+      "step04_title": "Results broadcast",
+      "step04_desc": "Scores appear on the live scoreboard the moment they're confirmed. Standings update after every dive."
+    },
+    "footer": {
+      "sign_in": "Sign In",
+      "register": "Register",
+      "register_federation": "Register Federation",
+      "scoreboard": "Scoreboard & Results",
+      "user_guide": "📖 User Guide",
+      "report_bug": "🐛 Report a bug"
+    }
+  },
+  "dashboard": {
+    "search_divers": "Search divers…",
+    "searching": "Searching…",
+    "no_divers_match": "No divers match that.",
+    "inbox": "Inbox",
+    "my_profile": "My Profile",
+    "sign_out": "Sign Out",
+    "secondary_scoreboard": "Scoreboard & Results",
+    "secondary_judges": "Judge Analysis"
+  },
+  "role": {
+    "public": "Public",
+    "diver": "Diver",
+    "judge": "Judge",
+    "referee": "Referee",
+    "manager": "Manager",
+    "admin": "Admin"
+  },
   "locale": {
     "switcher_label": "Language"
   }

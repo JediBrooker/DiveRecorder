@@ -99,6 +99,74 @@
       "withdraw_failed": "Trekking mislyktes"
     }
   },
+  "home": {
+    "hero": {
+      "mark": "Plattform for stevnehåndtering",
+      "tagline": "Helhetlig håndtering av stupstevner — fra oppsett av stevnet og innsending av stuplister til live-dømming, sending av poeng og endelige resultater.",
+      "btn_sign_in": "Logg inn",
+      "btn_create_account": "Opprett konto",
+      "btn_scoreboard": "Resultattavle",
+      "btn_judge_analysis": "Dommeranalyse",
+      "guide_link": "Ny her? Les 5-minutters-veiledningen →"
+    },
+    "live_strip": {
+      "pill": "DIREKTE",
+      "text": "Live-resultattavlen er åpen for alle — ingen innlogging kreves",
+      "watch": "Se direkte →"
+    },
+    "features": {
+      "section_label": "Bygget for hver rolle ved bassengkanten",
+      "diver_portal_title": "Stuperens portal",
+      "diver_portal_desc": "Send inn stuplisten din før stevnet. Vanskelighetsgrad-krav valideres automatisk mot det offisielle registeret.",
+      "control_room_title": "Kontrollrom",
+      "control_room_desc": "Gå gjennom stuprekkefølgen, overvåk dommerpoeng i sanntid og avgi overdommer-avgjørelser uten å forlate skjermen.",
+      "judge_terminal_title": "Dommerterminal",
+      "judge_terminal_desc": "Pisetyringsgrensesnitt optimalisert for berøring. Trykk på en karakter og send — synkroniseres umiddelbart med kontrollrommet og resultattavlen.",
+      "scoreboard_title": "Resultattavle",
+      "scoreboard_desc": "Én navigerbar flate for hvert stevne — sendingsklar live-visning av nåværende stuper og stillingen, pluss fullstendige oppsummeringer og stupanalyser for ferdige stevner.",
+      "meet_manager_title": "Stevneadministrator",
+      "meet_manager_desc": "Opprett øvelser, konfigurer runder og paneler, tildel dommere og administrer hele stevnets struktur.",
+      "user_manager_title": "Brukeradministrasjon",
+      "user_manager_desc": "Godkjenn rolleforespørsler og styr medlemmenes tilgang i forbundet ditt. Hver rolleendring går via en forespørselsflyt."
+    },
+    "how": {
+      "section_label": "Slik forløper et stevne",
+      "step01_title": "Sett opp øvelsen",
+      "step01_desc": "Stevneleder oppretter øvelser, setter antall runder og dommere og tildeler panelet.",
+      "step02_title": "Stupere sender inn lister",
+      "step02_desc": "Hver stuper logger inn og sender inn sin stupliste. Vanskelighetsgrader hentes automatisk fra det offisielle registeret.",
+      "step03_title": "Dømming går live",
+      "step03_desc": "Overdommer går gjennom stuprekkefølgen på kontrollrommets skjerm. Dommerne dømmer i sanntid på sine egne enheter.",
+      "step04_title": "Resultater sendes",
+      "step04_desc": "Karakterene vises på live-resultattavlen straks de er bekreftet. Stillingen oppdateres etter hvert stup."
+    },
+    "footer": {
+      "sign_in": "Logg inn",
+      "register": "Registrer deg",
+      "register_federation": "Registrer forbund",
+      "scoreboard": "Resultattavle",
+      "user_guide": "📖 Brukerveiledning",
+      "report_bug": "🐛 Rapporter en feil"
+    }
+  },
+  "dashboard": {
+    "search_divers": "Søk etter stupere…",
+    "searching": "Søker…",
+    "no_divers_match": "Ingen stupere matcher.",
+    "inbox": "Innboks",
+    "my_profile": "Min profil",
+    "sign_out": "Logg ut",
+    "secondary_scoreboard": "Resultattavle",
+    "secondary_judges": "Dommeranalyse"
+  },
+  "role": {
+    "public": "Offentlig",
+    "diver": "Stuper",
+    "judge": "Dommer",
+    "referee": "Overdommer",
+    "manager": "Stevneleder",
+    "admin": "Admin"
+  },
   "locale": {
     "switcher_label": "Språk"
   }

@@ -99,6 +99,74 @@
       "withdraw_failed": "Wycofanie nie powiodło się"
     }
   },
+  "home": {
+    "hero": {
+      "mark": "Platforma do zarządzania zawodami",
+      "tagline": "Kompleksowe zarządzanie zawodami w skokach do wody — od konfiguracji wydarzenia i przesyłania list skoków po sędziowanie na żywo, transmisję wyników i klasyfikację końcową.",
+      "btn_sign_in": "Zaloguj się",
+      "btn_create_account": "Utwórz konto",
+      "btn_scoreboard": "Tablica wyników",
+      "btn_judge_analysis": "Analiza sędziów",
+      "guide_link": "Jesteś tu nowy? Przeczytaj 5-minutowy przewodnik →"
+    },
+    "live_strip": {
+      "pill": "NA ŻYWO",
+      "text": "Tablica wyników na żywo jest dostępna dla każdego — bez logowania",
+      "watch": "Oglądaj na żywo →"
+    },
+    "features": {
+      "section_label": "Stworzone dla każdej roli przy basenie",
+      "diver_portal_title": "Portal skoczka",
+      "diver_portal_desc": "Prześlij listę skoków przed zawodami. Wymagania DD są automatycznie weryfikowane w oficjalnym katalogu.",
+      "control_room_title": "Pokój kontroli",
+      "control_room_desc": "Przechodź przez kolejność skoków, monitoruj na żywo oceny sędziów i wydawaj decyzje sędziego głównego bez opuszczania ekranu.",
+      "judge_terminal_title": "Terminal sędziego",
+      "judge_terminal_desc": "Interfejs oceny zoptymalizowany dla ekranu dotykowego. Dotknij oceny i wyślij — natychmiast zsynchronizowane z pokojem kontroli i tablicą wyników.",
+      "scoreboard_title": "Tablica wyników",
+      "scoreboard_desc": "Jedna przeglądarka dla każdych zawodów — gotowy do transmisji widok na żywo aktualnego skoczka i klasyfikacji, plus pełne podsumowania i analizy skoków z zakończonych zawodów.",
+      "meet_manager_title": "Menedżer zawodów",
+      "meet_manager_desc": "Twórz wydarzenia, konfiguruj rundy i panele, przypisuj sędziów i zarządzaj całą strukturą zawodów.",
+      "user_manager_title": "Menedżer użytkowników",
+      "user_manager_desc": "Zatwierdzaj wnioski o role i kontroluj dostęp członków federacji. Każda zmiana roli przechodzi przez proces wniosku."
+    },
+    "how": {
+      "section_label": "Jak przebiegają zawody",
+      "step01_title": "Skonfiguruj wydarzenie",
+      "step01_desc": "Menedżer zawodów tworzy wydarzenia, ustawia liczbę rund i sędziów oraz przydziela panel.",
+      "step02_title": "Skoczkowie przesyłają listy",
+      "step02_desc": "Każdy skoczek loguje się i przesyła swoją listę skoków. Wartości DD są automatycznie pobierane z oficjalnego katalogu.",
+      "step03_title": "Ocenianie startuje na żywo",
+      "step03_desc": "Sędzia główny przechodzi przez kolejność skoków na ekranie pokoju kontroli. Sędziowie oceniają w czasie rzeczywistym na własnych urządzeniach.",
+      "step04_title": "Transmisja wyników",
+      "step04_desc": "Oceny pojawiają się na tablicy wyników na żywo natychmiast po potwierdzeniu. Klasyfikacja aktualizuje się po każdym skoku."
+    },
+    "footer": {
+      "sign_in": "Zaloguj się",
+      "register": "Zarejestruj się",
+      "register_federation": "Zarejestruj federację",
+      "scoreboard": "Tablica wyników",
+      "user_guide": "📖 Przewodnik użytkownika",
+      "report_bug": "🐛 Zgłoś błąd"
+    }
+  },
+  "dashboard": {
+    "search_divers": "Szukaj skoczków…",
+    "searching": "Szukanie…",
+    "no_divers_match": "Brak pasujących skoczków.",
+    "inbox": "Skrzynka",
+    "my_profile": "Mój profil",
+    "sign_out": "Wyloguj",
+    "secondary_scoreboard": "Tablica wyników",
+    "secondary_judges": "Analiza sędziów"
+  },
+  "role": {
+    "public": "Publiczny",
+    "diver": "Skoczek",
+    "judge": "Sędzia",
+    "referee": "Sędzia główny",
+    "manager": "Menedżer",
+    "admin": "Admin"
+  },
   "locale": {
     "switcher_label": "Język"
   }

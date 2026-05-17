@@ -22,10 +22,15 @@ function onChange(e) {
 
 <template>
   <label class="locale-switcher" :title="$t('locale.switcher_label')">
+    <!-- Standalone flag shows the CURRENT selection. The native
+         <select>'s rendered text is just the language name — if
+         we also embed the flag inside <option>, the selected
+         option's text would render the flag a second time next
+         to the standalone span (the "two flags" bug). -->
     <span class="locale-flag" aria-hidden="true">{{ current.flag }}</span>
     <select :value="locale" @change="onChange" class="locale-select">
       <option v-for="l in SUPPORTED_LOCALES" :key="l.code" :value="l.code">
-        {{ l.flag }} {{ l.label }}
+        {{ l.label }}
       </option>
     </select>
   </label>

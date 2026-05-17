@@ -99,6 +99,74 @@
       "withdraw_failed": "Error al retirar"
     }
   },
+  "home": {
+    "hero": {
+      "mark": "Plataforma de gestión de competiciones",
+      "tagline": "Gestión integral de competiciones de saltos — desde la configuración del evento y la presentación de listas de saltos hasta el arbitraje en directo, los resultados retransmitidos y la clasificación final.",
+      "btn_sign_in": "Iniciar sesión",
+      "btn_create_account": "Crear cuenta",
+      "btn_scoreboard": "Marcador y resultados",
+      "btn_judge_analysis": "Análisis de jueces",
+      "guide_link": "¿Eres nuevo? Lee la guía rápida de 5 minutos →"
+    },
+    "live_strip": {
+      "pill": "EN DIRECTO",
+      "text": "El marcador en directo está abierto a todos — no requiere registro",
+      "watch": "Ver en directo →"
+    },
+    "features": {
+      "section_label": "Diseñado para cada rol en la piscina",
+      "diver_portal_title": "Portal del saltador",
+      "diver_portal_desc": "Envía tu lista de saltos antes de la competición. Los requisitos de DD se validan automáticamente con el directorio oficial.",
+      "control_room_title": "Sala de control",
+      "control_room_desc": "Avanza por el orden de saltos, monitoriza en tiempo real los puntajes de los jueces y emite decisiones arbitrales sin salir de la pantalla.",
+      "judge_terminal_title": "Terminal del juez",
+      "judge_terminal_desc": "Interfaz de puntuación optimizada para pantalla táctil. Toca una nota y envíala — sincronizada al instante con la sala de control y el marcador.",
+      "scoreboard_title": "Marcador y resultados",
+      "scoreboard_desc": "Una sola superficie navegable para cada competición — vista en directo lista para retransmisión del saltador actual y la clasificación, más resúmenes completos y desglose de saltos de competiciones finalizadas.",
+      "meet_manager_title": "Gestor de competiciones",
+      "meet_manager_desc": "Crea eventos, configura rondas y paneles, asigna jueces y administra la estructura completa de la competición.",
+      "user_manager_title": "Gestor de usuarios",
+      "user_manager_desc": "Aprueba solicitudes de rol y controla el acceso de los miembros de tu federación. Todo cambio de rol pasa por un flujo de solicitud."
+    },
+    "how": {
+      "section_label": "Cómo se desarrolla una competición",
+      "step01_title": "Configura el evento",
+      "step01_desc": "El gestor crea los eventos, establece el número de rondas y jueces, y asigna el panel.",
+      "step02_title": "Los saltadores envían sus listas",
+      "step02_desc": "Cada saltador inicia sesión y envía su lista de saltos. Los valores de DD se importan automáticamente del directorio oficial.",
+      "step03_title": "Empieza el arbitraje",
+      "step03_desc": "El árbitro avanza por el orden de saltos en la sala de control. Los jueces puntúan desde sus propios dispositivos en tiempo real.",
+      "step04_title": "Retransmisión de resultados",
+      "step04_desc": "Las notas aparecen en el marcador en directo en cuanto se confirman. La clasificación se actualiza tras cada salto."
+    },
+    "footer": {
+      "sign_in": "Iniciar sesión",
+      "register": "Registrarse",
+      "register_federation": "Registrar federación",
+      "scoreboard": "Marcador y resultados",
+      "user_guide": "📖 Guía de uso",
+      "report_bug": "🐛 Reportar un error"
+    }
+  },
+  "dashboard": {
+    "search_divers": "Buscar saltadores…",
+    "searching": "Buscando…",
+    "no_divers_match": "Ningún saltador coincide.",
+    "inbox": "Bandeja",
+    "my_profile": "Mi perfil",
+    "sign_out": "Cerrar sesión",
+    "secondary_scoreboard": "Marcador y resultados",
+    "secondary_judges": "Análisis de jueces"
+  },
+  "role": {
+    "public": "Público",
+    "diver": "Saltador",
+    "judge": "Juez",
+    "referee": "Árbitro",
+    "manager": "Gestor",
+    "admin": "Admin"
+  },
   "locale": {
     "switcher_label": "Idioma"
   }

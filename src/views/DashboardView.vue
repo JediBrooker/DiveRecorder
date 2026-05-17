@@ -1038,15 +1038,15 @@ function attachSocketHandlers() {
             @input="onDiverSearchInput"
             @focus="diverDropdown = true"
             @blur="onDiverSearchBlur"
-            placeholder="Search divers…"
+            :placeholder="$t('dashboard.search_divers')"
             autocomplete="off"
-            aria-label="Search divers"
+            :aria-label="$t('dashboard.search_divers')"
           >
           <div v-if="diverDropdown && (diverResults.length || diverSearching || diverSearch.trim().length >= 2)"
                class="find-diver-dropdown">
-            <div v-if="diverSearching" class="find-diver-empty">Searching…</div>
+            <div v-if="diverSearching" class="find-diver-empty">{{ $t('dashboard.searching') }}</div>
             <div v-else-if="!diverResults.length" class="find-diver-empty">
-              No divers match that.
+              {{ $t('dashboard.no_divers_match') }}
             </div>
             <button
               v-for="r in diverResults"
@@ -1069,9 +1069,9 @@ function attachSocketHandlers() {
              on every app boot, so it carries to every page (and
              every subsequent sign-in) automatically. -->
         <LocaleSwitcher />
-        <RouterLink to="/inbox" class="btn btn-ghost">Inbox</RouterLink>
-        <RouterLink to="/profile" class="btn btn-ghost">My Profile</RouterLink>
-        <button class="btn btn-ghost" @click="logout">Sign Out</button>
+        <RouterLink to="/inbox" class="btn btn-ghost">{{ $t('dashboard.inbox') }}</RouterLink>
+        <RouterLink to="/profile" class="btn btn-ghost">{{ $t('dashboard.my_profile') }}</RouterLink>
+        <button class="btn btn-ghost" @click="logout">{{ $t('dashboard.sign_out') }}</button>
       </div>
       <!-- Secondary nav row — right-aligned beneath the account
            buttons, sitting just above the header bottom border.
@@ -1085,11 +1085,11 @@ function attachSocketHandlers() {
       <nav class="header-secondary-nav" aria-label="Secondary">
         <RouterLink to="/scoreboard" class="header-secondary-link">
           <span class="header-secondary-link-icon" aria-hidden="true">🏆</span>
-          <span>Scoreboard &amp; Results</span>
+          <span>{{ $t('dashboard.secondary_scoreboard') }}</span>
         </RouterLink>
         <RouterLink to="/judges" class="header-secondary-link">
           <span class="header-secondary-link-icon" aria-hidden="true">⚖️</span>
-          <span>Judge Analysis</span>
+          <span>{{ $t('dashboard.secondary_judges') }}</span>
         </RouterLink>
       </nav>
     </div>

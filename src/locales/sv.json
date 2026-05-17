@@ -99,6 +99,74 @@
       "withdraw_failed": "Avanmälan misslyckades"
     }
   },
+  "home": {
+    "hero": {
+      "mark": "Plattform för tävlingshantering",
+      "tagline": "Helhetslösning för simhoppstävlingar — från evenemangsinställning och inlämning av hopplistor till live-bedömning, sändning av poäng och slutresultat.",
+      "btn_sign_in": "Logga in",
+      "btn_create_account": "Skapa konto",
+      "btn_scoreboard": "Resultattavla",
+      "btn_judge_analysis": "Domaranalys",
+      "guide_link": "Ny här? Läs guiden på 5 minuter →"
+    },
+    "live_strip": {
+      "pill": "LIVE",
+      "text": "Live-resultattavlan är öppen för alla — ingen inloggning krävs",
+      "watch": "Se direktsändning →"
+    },
+    "features": {
+      "section_label": "Byggd för varje roll vid bassängkanten",
+      "diver_portal_title": "Hopparens portal",
+      "diver_portal_desc": "Skicka in din hopplista före tävlingen. Kravvärden för svårighetsgrad valideras automatiskt mot den officiella katalogen.",
+      "control_room_title": "Kontrollrum",
+      "control_room_desc": "Gå igenom hoppordningen, övervaka inkommande domarpoäng i realtid och utfärda överdomarbeslut utan att lämna skärmen.",
+      "judge_terminal_title": "Domarterminal",
+      "judge_terminal_desc": "Bedömningsgränssnitt optimerat för touch. Tryck på en poäng och skicka — synkroniseras omedelbart med kontrollrummet och resultattavlan.",
+      "scoreboard_title": "Resultattavla",
+      "scoreboard_desc": "En och samma yta för varje tävling — sändningsklar live-vy av den aktuella hopparen och ställningen, plus fullständiga sammanfattningar och hopprapporter för avslutade tävlingar.",
+      "meet_manager_title": "Tävlingshanterare",
+      "meet_manager_desc": "Skapa grenar, konfigurera omgångar och paneler, tilldela domare och hantera tävlingens hela struktur.",
+      "user_manager_title": "Användarhantering",
+      "user_manager_desc": "Godkänn rollförfrågningar och styr medlemmarnas åtkomst i ditt förbund. Varje rolländring går via en förfrågningsprocess."
+    },
+    "how": {
+      "section_label": "Så går en tävling till",
+      "step01_title": "Sätt upp grenen",
+      "step01_desc": "Tävlingsledaren skapar grenar, anger antal omgångar och domare och tillsätter panelen.",
+      "step02_title": "Hopparna skickar in listor",
+      "step02_desc": "Varje hoppare loggar in och skickar in sin hopplista. Svårighetsvärden hämtas automatiskt från den officiella katalogen.",
+      "step03_title": "Bedömningen går live",
+      "step03_desc": "Överdomaren går igenom hoppordningen på kontrollrummets skärm. Domarna bedömer i realtid på sina egna enheter.",
+      "step04_title": "Resultat sänds",
+      "step04_desc": "Poängen visas på live-resultattavlan så snart de bekräftats. Ställningen uppdateras efter varje hopp."
+    },
+    "footer": {
+      "sign_in": "Logga in",
+      "register": "Registrera",
+      "register_federation": "Registrera förbund",
+      "scoreboard": "Resultattavla",
+      "user_guide": "📖 Användarguide",
+      "report_bug": "🐛 Rapportera ett fel"
+    }
+  },
+  "dashboard": {
+    "search_divers": "Sök hoppare…",
+    "searching": "Söker…",
+    "no_divers_match": "Ingen hoppare matchar.",
+    "inbox": "Inkorg",
+    "my_profile": "Min profil",
+    "sign_out": "Logga ut",
+    "secondary_scoreboard": "Resultattavla",
+    "secondary_judges": "Domaranalys"
+  },
+  "role": {
+    "public": "Offentlig",
+    "diver": "Hoppare",
+    "judge": "Domare",
+    "referee": "Överdomare",
+    "manager": "Tävlingsledare",
+    "admin": "Admin"
+  },
   "locale": {
     "switcher_label": "Språk"
   }
