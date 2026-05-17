@@ -43,8 +43,13 @@
 //   * Subscribes to schedule:block_updated, schedule:block_deleted
 //     and schedule:session_duplicated so multi-tab edits propagate.
 //
-// Phase 4 (live re-flow) will continue to extend this file when
-// its turn comes.
+// Phase 4 (this revision): subscribes to `schedule:shifted` and
+// refetches /sessions on receipt. The live re-flow UI itself
+// (the "Reschedule downstream" modal) lives in the Control Room
+// — the operator who marked the event Complete shouldn't have to
+// leave that view to confirm shifts. See
+// src/components/ReflowModal.vue + the finaliseEvent flow in
+// ControlView.vue.
 
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
@@ -209,11 +214,17 @@ socket.on('schedule:conflict_dismissed', onConflictDismissed)
 socket.on('schedule:block_updated', onScheduleChanged)
 socket.on('schedule:block_deleted', onScheduleChanged)
 socket.on('schedule:session_duplicated', onScheduleChanged)
+// Phase 4 — live re-flow. The Control Room's reflow modal POSTs
+// to /api/blocks/reflow which emits this event; every connected
+// timeline (including public-schedule viewers) refetches so the
+// new windows appear within a socket round-trip.
+socket.on('schedule:shifted', onScheduleChanged)
 onUnmounted(() => {
   socket.off('schedule:conflict_dismissed', onConflictDismissed)
   socket.off('schedule:block_updated', onScheduleChanged)
   socket.off('schedule:block_deleted', onScheduleChanged)
   socket.off('schedule:session_duplicated', onScheduleChanged)
+  socket.off('schedule:shifted', onScheduleChanged)
 })
 
 // The .ics URL is a same-origin path so the browser can hand it
