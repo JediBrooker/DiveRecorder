@@ -33,6 +33,7 @@ import { useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
 import { fmtCloses, fmtRelative } from '@/lib/format'
+import LocaleSwitcher from '@/components/LocaleSwitcher.vue'
 
 // Per-role panels — async-imported so each tab's chunk only
 // loads when the user activates it. A diver-only account
@@ -1062,6 +1063,12 @@ function attachSocketHandlers() {
             </button>
           </div>
         </div>
+        <!-- Locale switcher — sits alongside the other account-
+             scoped actions. The chosen language persists to
+             localStorage and is read back by detectInitialLocale()
+             on every app boot, so it carries to every page (and
+             every subsequent sign-in) automatically. -->
+        <LocaleSwitcher />
         <RouterLink to="/inbox" class="btn btn-ghost">Inbox</RouterLink>
         <RouterLink to="/profile" class="btn btn-ghost">My Profile</RouterLink>
         <button class="btn btn-ghost" @click="logout">Sign Out</button>

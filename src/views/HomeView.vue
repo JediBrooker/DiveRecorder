@@ -2,6 +2,7 @@
 import { onMounted } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import LocaleSwitcher from '@/components/LocaleSwitcher.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -15,6 +16,14 @@ onMounted(() => {
   <!-- Hero -->
   <section class="hero">
     <div class="hero-glow"></div>
+    <!-- Top-right locale switcher. The chosen language is
+         written to localStorage by setLocale() in src/i18n,
+         so it carries to every other page automatically — both
+         within the current SPA session (vue-i18n's locale ref is
+         a global reactive) and across page reloads / sign-in. -->
+    <div class="hero-locale">
+      <LocaleSwitcher />
+    </div>
     <div class="hero-mark">Competition Management Platform</div>
     <div class="hero-logo">DIVING<span>HQ</span></div>
     <p class="hero-tagline">End-to-end diving competition management — from event setup and dive list submission through to live judging, broadcast scores, and final results.</p>
@@ -178,6 +187,15 @@ onMounted(() => {
   padding: 6rem 2rem 4rem;
   position: relative;
   overflow: hidden;
+}
+.hero-locale {
+  position: absolute;
+  top: 1.25rem;
+  right: 1.25rem;
+  z-index: 2;
+}
+@media (max-width: 720px) {
+  .hero-locale { top: 0.75rem; right: 0.75rem; }
 }
 .hero-glow {
   position: absolute;

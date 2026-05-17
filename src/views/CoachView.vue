@@ -36,7 +36,6 @@ import { useSocket } from '@/composables/useSocket'
 import { usePush } from '@/composables/usePush'
 import { diveDescription } from '@/composables/useDiveLabel'
 import { showSuccess, showError } from '@/composables/useNotify'
-import LocaleSwitcher from '@/components/LocaleSwitcher.vue'
 
 const { t } = useI18n()
 
@@ -260,7 +259,6 @@ const hasMultipleMeets = computed(() => groupedByMeet.value.length > 1)
         <button class="btn btn-ghost btn-sm" @click="alertSettingsOpen = !alertSettingsOpen">
           🔔 {{ alertPrefs.enabled ? $t('coach.dashboard.alerts_on') : $t('coach.dashboard.alerts_off') }}
         </button>
-        <LocaleSwitcher />
         <button class="btn btn-ghost btn-sm" @click="load" :disabled="loading">
           {{ loading ? $t('common.refreshing') : $t('common.refresh') }}
         </button>
