@@ -1082,6 +1082,7 @@ function attachSocketHandlers() {
         <LocaleSwitcher />
         <RouterLink to="/inbox" class="btn btn-ghost">{{ $t('dashboard.inbox') }}</RouterLink>
         <RouterLink to="/profile" class="btn btn-ghost">{{ $t('dashboard.my_profile') }}</RouterLink>
+        <RouterLink to="/guide" class="btn btn-ghost">{{ $t('dashboard.user_guide') }}</RouterLink>
         <button class="btn btn-ghost" @click="logout">{{ $t('dashboard.sign_out') }}</button>
       </div>
       <!-- Secondary nav row — right-aligned beneath the account
