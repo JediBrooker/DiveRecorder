@@ -7,6 +7,7 @@ import { RouterLink } from 'vue-router'
 
 const props = defineProps({
   attentionCards:  { type: Array, default: () => [] },
+  workflowActions: { type: Array, default: () => [] },
   recentActivity:  { type: Array, default: () => [] },
   fmtRelative:     { type: Function, required: true },
   icons:           { type: Object, required: true },
@@ -15,7 +16,7 @@ const props = defineProps({
 
 <template>
   <section class="panel">
-    <div v-if="!attentionCards.length && !recentActivity.length" class="dashboard-panel-empty">
+    <div v-if="!attentionCards.length && !workflowActions.length && !recentActivity.length" class="dashboard-panel-empty">
       <div class="empty-state-icon">📊</div>
       <div class="empty-state-title">All quiet</div>
       <div class="empty-state-body">
@@ -36,6 +37,27 @@ const props = defineProps({
         <span class="action-card-title">{{ card.title }}</span>
         <span v-if="card.meta" class="action-card-meta">{{ card.meta }}</span>
         <span class="action-card-arrow" aria-hidden="true">→</span>
+      </RouterLink>
+    </div>
+
+    <div v-if="workflowActions.length" class="panel-section">
+      <div class="panel-section-label">Event readiness</div>
+      <RouterLink
+        v-for="item in workflowActions.slice(0, 6)"
+        :key="item.event_id"
+        :to="item.next_action?.to || `/control?event=${item.event_id}`"
+        :class="['workflow-card', item.ready ? 'workflow-card-ready' : '', item.status === 'Live' ? 'workflow-card-live' : '']"
+      >
+        <span class="workflow-card-main">
+          <span class="workflow-card-title">{{ item.event_name }}</span>
+          <span class="workflow-card-meta">
+            {{ item.next_action?.label || 'Open event' }}
+            <template v-if="item.next_action?.hint"> · {{ item.next_action.hint }}</template>
+          </span>
+        </span>
+        <span class="workflow-card-count">
+          {{ item.ready ? 'Ready' : `${item.blockers?.length || 0} left` }}
+        </span>
       </RouterLink>
     </div>
 

@@ -121,6 +121,7 @@ module.exports = function createPublicProfileRouter({ pool, readPool }) {
             AND cdl.round_number = s.round_number
            LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
            WHERE s.competitor_id = $1
+             AND COALESCE(e.is_rehearsal, FALSE) = FALSE
            GROUP BY s.event_id, s.round_number, e.number_of_judges, e.event_type
          )
          SELECT
@@ -153,7 +154,11 @@ module.exports = function createPublicProfileRouter({ pool, readPool }) {
             AND cdl.round_number = s.round_number
            LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
            WHERE s.event_id IN (
-             SELECT DISTINCT event_id FROM scores WHERE competitor_id = $1
+             SELECT DISTINCT s0.event_id
+             FROM scores s0
+             JOIN events e0 ON e0.id = s0.event_id
+             WHERE s0.competitor_id = $1
+               AND COALESCE(e0.is_rehearsal, FALSE) = FALSE
            )
            GROUP BY s.event_id, s.competitor_id, s.round_number, e.number_of_judges, e.event_type
          ),
@@ -174,6 +179,7 @@ module.exports = function createPublicProfileRouter({ pool, readPool }) {
          FROM ranked
          JOIN events e ON e.id = ranked.event_id
          WHERE ranked.competitor_id = $1
+           AND COALESCE(e.is_rehearsal, FALSE) = FALSE
          ORDER BY e.created_at DESC
          LIMIT 5`,
         [diver.id],
@@ -259,6 +265,7 @@ module.exports = function createPublicProfileRouter({ pool, readPool }) {
             AND cdl.round_number = s.round_number
            LEFT JOIN dive_directory dd ON dd.id = COALESCE(s.dive_id, cdl.dive_id)
            WHERE s.competitor_id = $1
+             AND COALESCE(e.is_rehearsal, FALSE) = FALSE
            GROUP BY s.event_id, s.round_number, e.number_of_judges, e.event_type
          )
          SELECT MAX(dive_total)::numeric(6,2) AS best

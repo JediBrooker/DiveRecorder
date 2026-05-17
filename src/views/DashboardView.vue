@@ -98,6 +98,9 @@ const pendingOrgs        = ref([])     // /api/orgs filtered to pending (sysadmi
 const recentActivity     = ref([])     // /api/audit/recent
 const judgeEvents        = ref([])     // /api/judge/my-events
 const coachData          = ref(null)   // /api/coach/dashboard
+const workflowActions    = ref([])     // /api/dashboard operator readiness summaries
+const refereeDesk        = ref(null)   // /api/dashboard referee sign-off desk
+const coachWorkbench     = ref(null)   // /api/dashboard coach next actions
 const diverEventIds      = ref(null)   // event ids the caller has an entry in
                                        // (null = unknown / not loaded yet,
                                        // [] = loaded + zero entries). Lets
@@ -573,6 +576,9 @@ async function loadDashboardBundle() {
   if (Array.isArray(bundle.pending_orgs))     pendingOrgs.value     = bundle.pending_orgs
   if (Array.isArray(bundle.recent_activity))  recentActivity.value  = bundle.recent_activity
   if (Array.isArray(bundle.judge_events))     judgeEvents.value     = bundle.judge_events
+  if (Array.isArray(bundle.workflow_actions)) workflowActions.value = bundle.workflow_actions
+  if (bundle.referee_desk) refereeDesk.value = bundle.referee_desk
+  if (bundle.coach_workbench) coachWorkbench.value = bundle.coach_workbench
   if (bundle.coach && Array.isArray(bundle.coach.divers)) {
     coachData.value = bundle.coach
   }
@@ -810,12 +816,17 @@ function badgeFor(id) {
     return n || null
   }
   if (id === 'meet_manager') {
-    const n = liveCount.value + upcomingCount.value
+    const n = workflowActions.value.filter(a => a?.status !== 'Completed').length || liveCount.value + upcomingCount.value
     return n || null
   }
+  if (id === 'referee') return refereeDesk.value?.pending_signoffs?.length || null
   if (id === 'judge') return judgeEvents.value.length || null
   if (id === 'coach') {
-    const n = coachData.value?.divers?.length
+    const work = coachWorkbench.value
+    const n = (work?.live?.length || 0)
+      + (work?.incomplete_lists?.length || 0)
+      + (work?.closing_soon?.length || 0)
+      || coachData.value?.divers?.length
     return n || null
   }
   return null
@@ -1208,6 +1219,7 @@ function attachSocketHandlers() {
     <OrgAdminPanel
       v-if="activeTab === 'org_admin'"
       :attention-cards="attentionCards"
+      :workflow-actions="workflowActions"
       :recent-activity="recentActivity"
       :fmt-relative="fmtRelative"
       :icons="ICONS"
@@ -1215,11 +1227,13 @@ function attachSocketHandlers() {
     <MeetManagerPanel
       v-else-if="activeTab === 'meet_manager'"
       :operator-events="operatorEvents"
+      :workflow-actions="workflowActions"
       :fmt-closes="fmtCloses"
       :icons="ICONS"
     />
     <RefereePanel
       v-else-if="activeTab === 'referee'"
+      :referee-desk="refereeDesk"
       :icons="ICONS"
     />
     <JudgePanel
@@ -1230,6 +1244,7 @@ function attachSocketHandlers() {
     <CoachPanel
       v-else-if="activeTab === 'coach'"
       :coach-data="coachData"
+      :coach-workbench="coachWorkbench"
       :icons="ICONS"
     />
     <DiverPanel

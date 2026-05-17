@@ -347,6 +347,9 @@
 .event-type-pill.age {
   color: #c4b5fd; background: rgba(139,92,246,0.08); border-color: rgba(139,92,246,0.4);
 }
+.event-type-pill.rehearsal {
+  color: var(--amber); background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.45);
+}
 /* International chip: clickable button styled like the other
    pills. Lights up cyan on hover so it reads as actionable. */
 .event-type-pill.intl-pill {

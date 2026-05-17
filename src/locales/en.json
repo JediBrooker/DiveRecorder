@@ -438,7 +438,7 @@
     "no_entries": "No audit entries match the filter."
   },
   "setup": {
-    "title": "Federation Setup",
+    "title": "Welcome — let's get you set up",
     "subtitle": "A short wizard for new federations",
     "step_intro": "Welcome",
     "step_brand": "Branding",
@@ -448,7 +448,8 @@
     "next": "Next →",
     "back": "← Back",
     "finish": "Finish setup",
-    "skip": "Skip this step"
+    "skip": "Skip this step",
+    "skip_setup": "Skip setup"
   },
   "clubs": {
     "title": "Clubs",
@@ -470,12 +471,12 @@
     "col_members": "Members"
   },
   "competitor": {
-    "page_label": "Dive list",
+    "page_label": "Submit Dive List",
     "loading_directory": "Loading dive directory…",
     "no_events": "You're not entered in any open event right now.",
     "pick_event": "Pick an event",
     "round_label": "Round {n}",
-    "submit_list": "Submit dive list",
+    "submit_list": "Finalise & Submit List",
     "saving": "Saving…",
     "saved": "Dive list saved",
     "missing_dives": "Missing dives for round(s): {rounds}",
@@ -493,7 +494,7 @@
     "running_total": "Running total {total}",
     "last_score": "Last score",
     "next_dive": "Next dive",
-    "waiting": "Waiting for the event to go Live…"
+    "waiting": "This event hasn't started yet. Waiting for the event to go Live…"
   },
   "score_audit": {
     "title": "Score Audit",

@@ -140,6 +140,7 @@ async function submitCreateDive() {
 // Migration 031: sign-off policy + multi-board flag.
 const createEnforceSignoff = ref(false) // hard gate — push or credential only
 const createMixedHeight    = ref(false) // event spans multiple boards
+const createIsRehearsal    = ref(false) // dry-run: no public archive / records / emails
 // Help-popover toggles
 const showSignoffHelp     = ref(false)
 const showMixedHeightHelp = ref(false)
@@ -681,6 +682,7 @@ const editType = ref('individual')
 const editEntriesCloseAt = ref('')   // datetime-local string, '' = no deadline
 const editEnforceSignoff = ref(false)
 const editMixedHeight    = ref(false)
+const editIsRehearsal    = ref(false)
 // Structured age group — same shape as the Create form.
 const editAgeChoice  = ref('')
 const editAgeMasters = ref('')
@@ -1056,6 +1058,7 @@ async function createEvent() {
         round_rules: buildRoundRulesPayload(),
         enforce_referee_signoff: createEnforceSignoff.value,
         is_mixed_height:         createMixedHeight.value,
+        is_rehearsal:            createIsRehearsal.value,
       }),
     })
     createName.value = ''
@@ -1078,6 +1081,7 @@ async function createEvent() {
     createRoundSections.value = []
     createEnforceSignoff.value = false
     createMixedHeight.value = false
+    createIsRehearsal.value = false
     showCreateModal.value = false
     await Promise.all([loadEvents(), loadMeets()])
   } catch (err) {
@@ -1094,6 +1098,7 @@ async function openEdit(ev) {
   editType.value = ev.event_type || 'individual'
   editEnforceSignoff.value = !!ev.enforce_referee_signoff
   editMixedHeight.value    = !!ev.is_mixed_height
+  editIsRehearsal.value    = !!ev.is_rehearsal
   // Decompose stored age_group into the structured dropdown.
   // Capture the ORIGINAL stored value so a legacy-format event
   // can show a warning + opt-out before its column gets rewritten
@@ -1197,6 +1202,7 @@ async function saveEdit() {
         entries_close_at: editEntriesCloseAt.value || null,
         enforce_referee_signoff: editEnforceSignoff.value,
         is_mixed_height:         editMixedHeight.value,
+        is_rehearsal:            editIsRehearsal.value,
         // Migration 038/039: round_rules + round_dives are
         // editable here too. round_dives = [] clears all
         // prescriptions; non-empty replaces them atomically.
@@ -1896,6 +1902,17 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <div class="field">
+          <label class="checkbox-row">
+            <input type="checkbox" v-model="createIsRehearsal">
+            Rehearsal / dry-run event
+          </label>
+          <p class="hint">
+            Uses the real Control Room workflow, but stays out of public archive,
+            analytics, emails, and records.
+          </p>
+        </div>
+
         <div v-if="formErr" class="msg msg-error">{{ formErr }}</div>
         <button type="submit" class="btn btn-primary-lg" style="margin-top:0.25rem">Create Event</button>
       </form>
@@ -2011,6 +2028,11 @@ onUnmounted(() => {
               </span>
               <span v-if="ev.event_type === 'synchro_pair'" class="event-type-pill">Synchro</span>
               <span v-else-if="ev.event_type === 'team'" class="event-type-pill team">Team</span>
+              <span v-if="ev.is_rehearsal"
+                    class="event-type-pill rehearsal"
+                    v-tip="'Dry-run event: no public archive, analytics, emails, or records'">
+                Rehearsal
+              </span>
               <!-- 🌐 International chip: visible when one or more
                    other federations are on the participating list.
                    Click jumps straight into the Federations modal. -->
@@ -2312,6 +2334,15 @@ onUnmounted(() => {
           <p class="hint">
             When on, only the referee can sign off — via push, code,
             or credential entry.
+          </p>
+        </div>
+        <div class="field">
+          <label class="checkbox-row">
+            <input type="checkbox" v-model="editIsRehearsal">
+            Rehearsal / dry-run event
+          </label>
+          <p class="hint">
+            Rehearsal scores do not publish to archive, analytics, emails, or records.
           </p>
         </div>
         <!-- Round dives — same editor as the New Event modal,

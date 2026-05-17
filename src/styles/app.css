@@ -925,6 +925,83 @@ h1, h2, h3, h4 {
 }
 .action-card:hover .action-card-arrow { transform: translateX(3px); color: var(--cyan); }
 
+.workflow-card {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.75rem 0.95rem;
+  margin-bottom: 0.45rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--amber);
+  border-radius: var(--radius);
+  text-decoration: none;
+  min-width: 0;
+  transition: transform 0.15s, border-color 0.15s, background 0.15s;
+}
+.workflow-card:hover {
+  transform: translateX(2px);
+  border-color: var(--border-2);
+}
+.workflow-card-ready {
+  border-left-color: var(--green);
+}
+.workflow-card-live {
+  border-left-color: var(--red);
+  background: rgba(239,68,68,0.04);
+}
+.workflow-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.workflow-card-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 800;
+  font-style: italic;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workflow-card-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workflow-card-count {
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.workflow-mini-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: rgba(245,158,11,0.12);
+  border: 1px solid rgba(245,158,11,0.4);
+  color: var(--amber);
+  font-size: 8.5px;
+  font-style: normal;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 /* Activity list (org admin recent feed) */
 .activity-list { list-style: none; padding: 0; margin: 0; }
 .activity-item {

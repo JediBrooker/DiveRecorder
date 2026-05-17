@@ -119,7 +119,7 @@ onMounted(() => {
     <header class="wizard-header">
       <RouterLink to="/dashboard" class="wizard-logo">DIVING<span>HQ</span></RouterLink>
       <button type="button" class="wizard-skip-link" @click="dismiss">
-        {{ $t('setup.skip') }} &rarr;
+        {{ $t('setup.skip_setup') }} &rarr;
       </button>
     </header>
 

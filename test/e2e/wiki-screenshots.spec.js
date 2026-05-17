@@ -127,19 +127,25 @@ test("setup: build host federation, 3 events, divers + judges + coach", async ({
 }) => {
   test.setTimeout(120_000);
 
-  // Drain any leftover synthetic orgs from prior e2e runs. These
-  // accumulate when a spec crashes mid-test before its deleteOrg
-  // teardown runs — over time the scoreboard list mode fills with
-  // "2024 CAN Championship 5m" / "E2E individual 3m" rows that
-  // make our screenshots look like garbage. The slug prefix
-  // matches every synthetic org createOrgAndAdmin() makes, so this
-  // is safe to run against the test DB.
+  // Drain stale synthetic orgs from prior e2e runs. Do not delete
+  // fresh e2e orgs here: this spec runs in parallel with other
+  // files, and deleting their users mid-test can deadlock against
+  // status flips / notification fan-out. A short age gate keeps
+  // crashed-run leftovers out of the screenshots without racing the
+  // active suite.
   await setup.pool.query(`
     DELETE FROM users
-     WHERE org_id IN (SELECT id FROM organisations WHERE slug LIKE 'e2e-%')
+     WHERE org_id IN (
+       SELECT id
+         FROM organisations
+        WHERE slug LIKE 'e2e-%'
+          AND created_at < now() - interval '15 minutes'
+     )
   `);
   await setup.pool.query(`
-    DELETE FROM organisations WHERE slug LIKE 'e2e-%'
+    DELETE FROM organisations
+     WHERE slug LIKE 'e2e-%'
+       AND created_at < now() - interval '15 minutes'
   `);
 
   // Federation that maps to a recognisable flag — DEU matches the

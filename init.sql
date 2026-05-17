@@ -420,6 +420,11 @@ CREATE TABLE public.events (
     -- directory rather than filtering to one height. Used for
     -- mixed-board exhibitions / progression sessions.
     is_mixed_height           boolean NOT NULL DEFAULT FALSE,
+    -- Workflow rehearsal / dry-run mode. Rehearsal events can
+    -- move through the same Control Room flow as real events but
+    -- are excluded from public archive, analytics, emails, and
+    -- record-setting side effects.
+    is_rehearsal              boolean NOT NULL DEFAULT FALSE,
     -- Migration 041: post-advance dive-list lock. Stamped by
     -- the advance endpoint (NOW() + lock_minutes, default 30
     -- per WA Article 6.7.3 — change-of-dives must be submitted
@@ -531,6 +536,10 @@ CREATE TABLE public.competitor_dive_lists (
     --     roster endpoint excludes them from the active queue.
     display_order integer,
     withdrawn_at  timestamptz,
+    -- Migration 047: who withdrew this row and why. NULL on
+    -- historic withdrawals from before the audit fields existed.
+    withdrawn_by_user_id uuid REFERENCES public.users(id) ON DELETE SET NULL,
+    withdrawn_reason     text,
     -- Migration 040: reserves carry forward from a prelim/semi to
     -- the next stage but don't compete unless the operator
     -- promotes them via the Control Room (e.g. when a primary
@@ -689,6 +698,14 @@ CREATE TABLE public.coach_diver_links (
     created_at  timestamptz DEFAULT now() NOT NULL,
     UNIQUE (coach_id, diver_id),
     CONSTRAINT coach_diver_distinct CHECK (coach_id <> diver_id)
+);
+
+CREATE TABLE public.coach_alert_preferences (
+    coach_id      uuid PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
+    enabled       boolean NOT NULL DEFAULT true,
+    dives_ahead   int NOT NULL DEFAULT 2
+                  CHECK (dives_ahead >= 1 AND dives_ahead <= 10),
+    updated_at    timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE public.role_audit_log (
@@ -1061,6 +1078,7 @@ CREATE INDEX idx_role_requests_org      ON public.role_requests (org_id, status)
 CREATE INDEX idx_clubs_org              ON public.clubs (org_id);
 CREATE INDEX idx_events_org             ON public.events (org_id);
 CREATE INDEX idx_events_status          ON public.events (status);
+CREATE INDEX idx_events_rehearsal       ON public.events (org_id, is_rehearsal, status);
 CREATE INDEX idx_event_managers_event   ON public.event_managers (event_id);
 CREATE INDEX idx_event_managers_user    ON public.event_managers (user_id);
 -- Composite covers both the "panel for this event" listings and
@@ -1071,6 +1089,8 @@ CREATE INDEX idx_dive_lists_event       ON public.competitor_dive_lists (event_i
 CREATE INDEX idx_dive_lists_competitor  ON public.competitor_dive_lists (competitor_id);
 CREATE INDEX idx_dive_lists_partner     ON public.competitor_dive_lists (partner_id);
 CREATE INDEX idx_dive_lists_team        ON public.competitor_dive_lists (team_id);
+CREATE INDEX idx_cdl_withdrawn_by       ON public.competitor_dive_lists (withdrawn_by_user_id)
+    WHERE withdrawn_by_user_id IS NOT NULL;
 CREATE INDEX idx_teams_org              ON public.teams (org_id);
 CREATE INDEX idx_team_members_user      ON public.team_members (user_id);
 CREATE INDEX idx_event_teams_team       ON public.event_teams (team_id);
@@ -1219,8 +1239,8 @@ CREATE UNIQUE INDEX idx_signoff_pending_code
 -- =============================================================
 -- SCHEMA VERSION STAMP
 -- Single-row table the server reads on boot to log which
--- schema version is deployed. init.sql sets version 8 (matches
--- the latest migration baked in here); each future migration
+-- schema version is deployed. init.sql sets the current baked-in
+-- version matching the latest migration; each future migration
 -- bumps the value.
 -- =============================================================
 
@@ -1231,7 +1251,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 45);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 48);
 
 
 -- =============================================================

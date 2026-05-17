@@ -13,6 +13,7 @@ import { useBroadcastChooser } from '@/composables/useBroadcastChooser'
 import DiverIdentity from '@/components/DiverIdentity.vue'
 import StatusPill from '@/components/StatusPill.vue'
 import JudgeRankingTable from '@/components/JudgeRankingTable.vue'
+import ReadinessChecklist from '@/components/ReadinessChecklist.vue'
 import SponsorLogosManager from '@/components/manager/SponsorLogosManager.vue'
 import {
   annotatedScores,
@@ -708,6 +709,13 @@ const orderWorkflowState = computed(() => {
   return 'start'
 })
 
+const workflowMode = computed(() => {
+  const status = currentEvent.value?.status
+  if (status === 'Live') return 'meet'
+  if (status === 'Completed') return 'review'
+  return 'setup'
+})
+
 // Stepper helper — classifies each pre-meet step as done /
 // active / future relative to the current workflow state.
 // Drives the four-pip indicator that renders ABOVE the action
@@ -1204,6 +1212,7 @@ const preFlightSummary = computed(() => {
   }
   return {
     eventName: ev.name,
+    isRehearsal: !!ev.is_rehearsal,
     eventType: ev.event_type === 'synchro_pair' ? 'Synchro Pair'
              : ev.event_type === 'team'         ? 'Team'
              : 'Individual',
@@ -1220,8 +1229,87 @@ const preFlightSummary = computed(() => {
   }
 })
 
+function openDiveOrderChecklistTarget() {
+  diveOrderOpen.value = true
+  requestAnimationFrame(() => {
+    document
+      .querySelector('[data-dive-order-panel]')
+      ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  })
+}
+
+const readinessItems = computed(() => {
+  const ev = currentEvent.value
+  const summary = preFlightSummary.value
+  if (!ev || !summary) return []
+  const panelReady = summary.judgeCount > 0 && summary.judges.length >= summary.judgeCount
+  return [
+    {
+      key: 'roster',
+      label: 'Roster has competitors',
+      done: summary.diverCount > 0,
+      hint: 'Add or import competitors',
+      onFix: openLateEntry,
+    },
+    {
+      key: 'dive_lists',
+      label: 'Dive lists complete',
+      done: summary.diverCount > 0 && summary.incompleteDivers.length === 0,
+      hint: summary.incompleteDivers.length
+        ? `${summary.incompleteDivers.length} incomplete`
+        : 'Review the dive order',
+      onFix: openDiveOrderChecklistTarget,
+    },
+    {
+      key: 'panel',
+      label: 'Judge panel seated',
+      done: panelReady,
+      hint: `${summary.judges.length}/${summary.judgeCount} seats filled`,
+    },
+    {
+      key: 'check_in',
+      label: 'Check-in confirmed',
+      done: !!ev.check_in_done_at,
+      hint: 'Mark present, late, or DNS',
+      onFix: startCheckInStep,
+    },
+    {
+      key: 'order',
+      label: 'Start order locked',
+      done: !!ev.dive_order_randomised_at,
+      hint: 'Randomise or use current order',
+      onFix: orderWorkflowState.value === 'random' ? confirmDiveOrder : openDiveOrderChecklistTarget,
+    },
+    {
+      key: 'sign_off',
+      label: 'Referee sign-off',
+      done: !!ev.dive_order_signed_off_at,
+      hint: 'Send request or sign off',
+      onFix: signOffDiveOrder,
+    },
+  ]
+})
+
+const startBlockers = computed(() =>
+  readinessItems.value
+    .filter(item => !item.done)
+    .map(item => item.hint ? `${item.label}: ${item.hint}` : item.label),
+)
+const startBlocked = computed(() =>
+  currentEvent.value?.status === 'Upcoming' && startBlockers.value.length > 0,
+)
+const startBlockedReason = computed(() =>
+  startBlocked.value
+    ? `Not ready to start:\n${startBlockers.value.join('\n')}`
+    : 'Flip the event to Live. The order is then locked.',
+)
+
 async function startEvent() {
   if (!currentEvent.value) return
+  if (startBlocked.value) {
+    showError(startBlockedReason.value.replace(/\n/g, ' · '))
+    return
+  }
   // Open the pre-flight review instead of the bare native
   // confirm. The modal's "Go Live" button calls
   // commitStartEvent() once the operator has reviewed.
@@ -1230,6 +1318,10 @@ async function startEvent() {
 
 async function commitStartEvent() {
   if (!currentEvent.value) return
+  if (startBlocked.value) {
+    showError(startBlockedReason.value.replace(/\n/g, ' · '))
+    return
+  }
   preFlightOpen.value = false
   const evName = currentEvent.value.name
   orderBusy.value = true
@@ -3083,7 +3175,7 @@ onUnmounted(() => {
       <div class="ctrl-header-ctx">
         <div class="event-title-row">
           <div class="event-title-wrap">
-            <select class="event-title-select"
+            <select class="event-title-select event-select-sm"
                     v-model="selectedEventId"
                     @change="onEventChange"
                     v-tip="'Switch to a different event'">
@@ -3096,6 +3188,11 @@ onUnmounted(() => {
                pulse strip. Hidden until an event is selected; the
                picker is the prompt when none is. -->
           <StatusPill v-if="currentEvent?.status" :status="currentEvent.status" size="sm" />
+          <span v-if="currentEvent?.is_rehearsal"
+                class="rehearsal-pill"
+                v-tip="'Dry-run event: hidden from public archive, analytics, emails, and records'">
+            Rehearsal
+          </span>
         </div>
         <!-- Meet subtitle — drop the meet name (and an explicit
              "venue / federation" subtitle pattern) under the event
@@ -3217,6 +3314,9 @@ onUnmounted(() => {
               </span>
               <span v-if="preFlightSummary.ageGroup" class="preflight-pill">{{ preFlightSummary.ageGroup }}</span>
               <span class="preflight-pill">{{ preFlightSummary.rounds }} rounds</span>
+              <span v-if="preFlightSummary.isRehearsal" class="preflight-pill preflight-pill-rehearsal">
+                Rehearsal
+              </span>
             </div>
           </div>
 
@@ -3275,7 +3375,10 @@ onUnmounted(() => {
           <button type="button" class="btn btn-ghost preflight-cancel" @click="preFlightOpen = false">
             Not yet
           </button>
-          <button type="button" class="btn btn-primary preflight-go" @click="commitStartEvent" :disabled="orderBusy">
+          <button type="button" class="btn btn-primary preflight-go"
+                  @click="commitStartEvent"
+                  :disabled="orderBusy || startBlocked"
+                  v-tip="startBlockedReason">
             {{ orderBusy ? '▶ …' : '▶ Go Live' }}
           </button>
         </div>
@@ -4055,6 +4158,11 @@ onUnmounted(() => {
            — three terms for the same concept fragmented the
            operator's mental model. -->
       <div class="ctrl-panel">
+        <div v-if="currentEvent" class="workflow-mode-strip" aria-label="Workflow mode">
+          <span :class="['workflow-mode-chip', workflowMode === 'setup' ? 'active' : '']">Setup</span>
+          <span :class="['workflow-mode-chip', workflowMode === 'meet' ? 'active' : '']">Meet Day</span>
+          <span :class="['workflow-mode-chip', workflowMode === 'review' ? 'active' : '']">Review</span>
+        </div>
         <!-- Pre-Meet panel — houses the four-step pre-meet
              workflow stepper + the colour-cycling action button
              that drives it (Check In Divers → Randomise → Sign
@@ -4104,6 +4212,15 @@ onUnmounted(() => {
               <span class="wf-step-label">Start</span>
             </div>
           </div>
+          <ReadinessChecklist
+            v-if="currentEvent && currentEvent.status === 'Upcoming' && readinessItems.length"
+            :items="readinessItems"
+            :collapse-when-done="false"
+          />
+          <div v-if="currentEvent?.is_rehearsal" class="rehearsal-note">
+            Dry-run mode. Start and complete this event normally; public archive,
+            analytics, emails, and records stay untouched.
+          </div>
           <!-- Action row: pre-meet workflow button (one button
                cycles through four sequential states before the
                event flips Live — red Check In → orange Randomise
@@ -4141,9 +4258,9 @@ onUnmounted(() => {
               </button>
               <button v-else-if="orderWorkflowState === 'start'"
                       class="btn btn-sm wf-btn wf-btn-green"
-                      :disabled="orderBusy"
+                      :disabled="orderBusy || startBlocked"
                       @click="startEvent"
-                      v-tip="'Flip the event to Live. The order is then locked.'">
+                      v-tip="startBlockedReason">
                 {{ orderBusy ? '▶ …' : '▶ Start Event' }}
               </button>
               <!-- Skip-randomise affordance: if the operator has
@@ -4467,7 +4584,7 @@ onUnmounted(() => {
              During live scoring the operator only needs Up Next
              above; this panel is for pre-meet setup and the
              occasional manual jump. Header click toggles. -->
-        <div v-if="roster.length" class="dive-order-panel">
+        <div v-if="roster.length" class="dive-order-panel" data-dive-order-panel>
           <button class="dive-order-head"
                   @click="diveOrderOpen = !diveOrderOpen"
                   :aria-expanded="diveOrderOpen">

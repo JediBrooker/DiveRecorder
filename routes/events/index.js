@@ -20,6 +20,7 @@
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const { recordAudit, auditFromReq } = require("../../lib/audit");
+const { getEventReadiness } = require("../../lib/workflow");
 const {
   loadH2hPairResults,
   loadSfCumulative,
@@ -102,6 +103,69 @@ module.exports = function createEventsRouter({
   }
   const router = express.Router();
 
+  async function notifyEventLive(event) {
+    if (!push || typeof push.sendNotification !== "function" || !event?.id) return;
+    try {
+      const [judges, competitors, coaches] = await Promise.all([
+        pool.query(
+          `SELECT DISTINCT judge_id AS user_id
+           FROM event_judges
+           WHERE event_id = $1`,
+          [event.id],
+        ),
+        pool.query(
+          `SELECT DISTINCT competitor_id AS user_id
+           FROM competitor_dive_lists
+           WHERE event_id = $1
+             AND withdrawn_at IS NULL
+             AND is_reserve = FALSE`,
+          [event.id],
+        ),
+        pool.query(
+          `SELECT DISTINCT link.coach_id AS user_id
+           FROM competitor_dive_lists cdl
+           JOIN coach_diver_links link ON link.diver_id = cdl.competitor_id
+           WHERE cdl.event_id = $1
+             AND cdl.withdrawn_at IS NULL
+             AND cdl.is_reserve = FALSE`,
+          [event.id],
+        ),
+      ]);
+      const judgeIds = judges.rows.map((r) => r.user_id).filter(Boolean);
+      const competitorIds = competitors.rows.map((r) => r.user_id).filter(Boolean);
+      const coachIds = coaches.rows.map((r) => r.user_id).filter(Boolean);
+
+      await Promise.all([
+        push.sendNotification(judgeIds, {
+          category: "event_live",
+          title: "Judging panel is live",
+          body: event.name,
+          data: { event_id: event.id, event_name: event.name, role: "judge" },
+          action_url: `/judge?event=${event.id}`,
+          ttl_seconds: 3600,
+        }),
+        push.sendNotification(competitorIds, {
+          category: "event_live",
+          title: "Your event is live",
+          body: event.name,
+          data: { event_id: event.id, event_name: event.name, role: "diver" },
+          action_url: `/scoreboard/${event.id}`,
+          ttl_seconds: 3600,
+        }),
+        push.sendNotification(coachIds, {
+          category: "event_live",
+          title: "Squad event is live",
+          body: event.name,
+          data: { event_id: event.id, event_name: event.name, role: "coach" },
+          action_url: `/coach?event=${event.id}`,
+          ttl_seconds: 3600,
+        }),
+      ]);
+    } catch (err) {
+      console.error("[Event Live Notify Error]", err.message);
+    }
+  }
+
   // -------------------------------------------------------------
   // GET /api/events — list events visible to the caller.
   //
@@ -161,13 +225,31 @@ module.exports = function createEventsRouter({
         }
       } else {
         result = await pool.query(
-          `${SELECT} WHERE e.status IN ('Live','Completed') ORDER BY e.created_at DESC`,
+          `${SELECT}
+           WHERE e.status IN ('Live','Completed')
+             AND COALESCE(e.is_rehearsal, FALSE) = FALSE
+           ORDER BY e.created_at DESC`,
         );
       }
       res.json(result.rows);
     } catch (err) {
       console.error("[Events List Error]", err.message);
       res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  router.get("/api/events/:id/readiness", requireEventManager(), async (req, res) => {
+    try {
+      const readiness = await getEventReadiness(pool, {
+        eventId: req.params.id,
+        isSystemAdmin: !!req.user.is_system_admin,
+        orgId: req.user.org_id,
+      });
+      if (!readiness) return res.status(404).json({ error: "Event not found" });
+      res.json(readiness);
+    } catch (err) {
+      console.error("[Event Readiness Error]", err.message);
+      res.status(500).json({ error: "Failed to load event readiness" });
     }
   });
 
@@ -192,6 +274,10 @@ module.exports = function createEventsRouter({
       //   is_mixed_height         — multi-board event; the picker
       //                             widens to the full directory.
       enforce_referee_signoff, is_mixed_height,
+      // Workflow: rehearsal events let meet staff dry-run the
+      // entire scoring flow without public archive, email, or
+      // record side effects.
+      is_rehearsal,
       // Migration 038: structured round-by-round dive-list rules.
       // Optional — when null the legacy (dd_limit_rounds,
       // dd_limit_value) flat constraint applies. See
@@ -315,9 +401,9 @@ module.exports = function createEventsRouter({
             event_type, event_format, parent_event_id, advance_count,
             dd_limit_rounds, dd_limit_value, scheduled_at, entries_close_at,
             org_id, meet_id,
-            enforce_referee_signoff, is_mixed_height,
+            enforce_referee_signoff, is_mixed_height, is_rehearsal,
             round_rules)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
          RETURNING *`,
         [
           name,
@@ -342,6 +428,7 @@ module.exports = function createEventsRouter({
           meet_id || null,
           !!enforce_referee_signoff,
           !!is_mixed_height,
+          !!is_rehearsal,
           round_rules ? JSON.stringify(round_rules) : null,
         ],
       );
@@ -387,6 +474,7 @@ module.exports = function createEventsRouter({
           gender:     event.gender,
           age_group:  event.age_group,
           meet_id:    event.meet_id,
+          is_rehearsal: event.is_rehearsal,
         },
       });
       await client.query("COMMIT");
@@ -416,7 +504,7 @@ module.exports = function createEventsRouter({
       dd_limit_rounds, dd_limit_value,
       entries_close_at,
       // Migration 031 — see POST handler for the rationale.
-      enforce_referee_signoff, is_mixed_height,
+      enforce_referee_signoff, is_mixed_height, is_rehearsal,
       // Migration 038 — structured round rules. Tri-state:
       //   undefined → leave untouched
       //   null      → clear, fall back to legacy dd_limit_*
@@ -514,6 +602,7 @@ module.exports = function createEventsRouter({
       // flag back to its default.
       const enforceUntouched = enforce_referee_signoff === undefined;
       const mixedUntouched   = is_mixed_height          === undefined;
+      const rehearsalUntouched = is_rehearsal           === undefined;
       // total_rounds: when round_dives is a non-empty array its
       // length wins; an empty array (`[]` = clear) reverts to the
       // body's total_rounds (or untouched if neither is set).
@@ -536,7 +625,7 @@ module.exports = function createEventsRouter({
            gender           = COALESCE($2, gender),
            number_of_judges = COALESCE($3, number_of_judges),
            total_rounds     = COALESCE($4, total_rounds),
-           height           = CASE WHEN $5::boolean THEN height ELSE $6::numeric END,
+           height           = CASE WHEN $5::boolean THEN height ELSE $6::board_height END,
            event_type       = COALESCE($7, event_type),
            age_group        = CASE WHEN $8::boolean THEN age_group ELSE $9 END,
            event_format     = COALESCE($10, event_format),
@@ -548,7 +637,8 @@ module.exports = function createEventsRouter({
            entries_close_at = CASE WHEN $19::boolean THEN entries_close_at ELSE $20::timestamptz END,
            enforce_referee_signoff = CASE WHEN $24::boolean THEN enforce_referee_signoff ELSE $25::boolean END,
            is_mixed_height         = CASE WHEN $26::boolean THEN is_mixed_height         ELSE $27::boolean END,
-           round_rules             = CASE WHEN $28::boolean THEN round_rules ELSE $29::jsonb END
+           round_rules             = CASE WHEN $28::boolean THEN round_rules ELSE $29::jsonb END,
+           is_rehearsal            = CASE WHEN $30::boolean THEN is_rehearsal ELSE $31::boolean END
          WHERE id=$21 AND ($22::boolean OR org_id=$23) RETURNING *`,
         [
           name || null,
@@ -582,6 +672,7 @@ module.exports = function createEventsRouter({
           round_rules === undefined || round_rules === null
             ? null
             : JSON.stringify(round_rules),
+          rehearsalUntouched, !!is_rehearsal,
         ],
       );
       if (!r.rows.length) {
@@ -695,7 +786,7 @@ module.exports = function createEventsRouter({
       // Read the previous status before the update so we know
       // which notification (if any) to fire.
       const prior = await pool.query(
-        "SELECT status FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)",
+        "SELECT status, is_rehearsal FROM events WHERE id = $1 AND ($2::boolean OR org_id = $3)",
         [req.params.id, !!req.user.is_system_admin, req.user.org_id],
       );
       const previousStatus = prior.rows[0]?.status;
@@ -710,8 +801,11 @@ module.exports = function createEventsRouter({
       // Notify competitors on the meaningful transitions.
       // Best-effort, never blocks the response.
       if (previousStatus !== status) {
-        if (status === "Live")      sendEventStartedEmails(r.rows[0]).catch(() => {});
-        if (status === "Completed") sendEventResultsEmails(r.rows[0]).catch(() => {});
+        if (!r.rows[0].is_rehearsal) {
+          if (status === "Live")      sendEventStartedEmails(r.rows[0]).catch(() => {});
+          if (status === "Completed") sendEventResultsEmails(r.rows[0]).catch(() => {});
+          if (status === "Live")      notifyEventLive(r.rows[0]).catch(() => {});
+        }
 
         // Real-time push for the dashboard pulse strip — emit
         // globally so any connected dashboard tab can refetch

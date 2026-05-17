@@ -69,9 +69,9 @@ test("seed_test_data.sql exists and is non-empty", () => {
   assert.ok(stat.size > 1000);
 });
 
-test("init.sql declares schema version 45", () => {
+test("init.sql declares schema version 48", () => {
   const sql = fs.readFileSync(path.join(__dirname, "..", "init.sql"), "utf8");
-  assert.match(sql, /INSERT INTO public\.schema_meta \(id, version\) VALUES \(1, 45\)/);
+  assert.match(sql, /INSERT INTO public\.schema_meta \(id, version\) VALUES \(1, 48\)/);
 });
 
 test("scoreCategory boundaries match World Aquatics buckets", () => {

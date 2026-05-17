@@ -48,6 +48,7 @@ const PER_DIVE = `
    AND cdl.round_number = s.round_number
   LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
   WHERE s.competitor_id = $1
+    AND COALESCE(e.is_rehearsal, FALSE) = FALSE
     AND ($2::date IS NULL OR e.created_at >= $2::date)
     AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')
   GROUP BY s.event_id, s.competitor_id, s.round_number,
@@ -94,6 +95,7 @@ const FULL_FIELD_RANKING = `
     FROM scores s
     JOIN events e ON e.id = s.event_id
     WHERE s.competitor_id = $1
+      AND COALESCE(e.is_rehearsal, FALSE) = FALSE
       AND ($2::date IS NULL OR e.created_at >= $2::date)
       AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')
   ),
@@ -344,6 +346,7 @@ const JUDGE_PER_DIVE = `
       AND s2.round_number  = s.round_number
   ) panel ON TRUE
   WHERE s.judge_id = $1
+    AND COALESCE(e.is_rehearsal, FALSE) = FALSE
     AND ($2::date IS NULL OR e.created_at >= $2::date)
     AND ($3::date IS NULL OR e.created_at <  $3::date + INTERVAL '1 day')
 `;

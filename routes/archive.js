@@ -88,6 +88,7 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
            WHERE s.event_id = e.id
          ) live ON e.status = 'Live'
          WHERE e.status IN ('Live', 'Completed')
+           AND COALESCE(e.is_rehearsal, FALSE) = FALSE
          ORDER BY
            CASE e.status WHEN 'Live' THEN 0 ELSE 1 END,    -- live meets float to the top
            e.created_at DESC`,
@@ -112,7 +113,9 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
          FROM clubs cl
          JOIN users u ON u.club_id = cl.id
          JOIN scores s ON s.competitor_id = u.id
-         JOIN events e ON e.id = s.event_id AND e.status IN ('Live', 'Completed')
+         JOIN events e ON e.id = s.event_id
+          AND e.status IN ('Live', 'Completed')
+          AND COALESCE(e.is_rehearsal, FALSE) = FALSE
          JOIN organisations o ON o.id = cl.org_id
          ORDER BY o.country_code ASC, cl.name ASC`,
       );
@@ -137,7 +140,15 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
   router.get("/api/archive/:eventId/results", async (req, res) => {
     try {
       const [ev, standings, history, panel] = await Promise.all([
-        reads.query("SELECT e.name, e.gender, e.height, e.total_rounds, e.number_of_judges, e.event_type, o.name AS org_name FROM events e JOIN organisations o ON e.org_id = o.id WHERE e.id = $1", [req.params.eventId]),
+        reads.query(
+          `SELECT e.name, e.gender, e.height, e.total_rounds,
+                  e.number_of_judges, e.event_type, o.name AS org_name
+           FROM events e
+           JOIN organisations o ON e.org_id = o.id
+           WHERE e.id = $1
+             AND COALESCE(e.is_rehearsal, FALSE) = FALSE`,
+          [req.params.eventId],
+        ),
         reads.query(
           `WITH per_dive AS (
              SELECT s.competitor_id, cdl.team_id, s.round_number,
@@ -156,6 +167,7 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
               AND cdl.round_number = s.round_number
              LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
              WHERE s.event_id = $1
+               AND COALESCE(e.is_rehearsal, FALSE) = FALSE
              GROUP BY s.competitor_id, cdl.team_id, s.round_number, e.number_of_judges, e.event_type
            ),
            team_standings AS (
@@ -255,6 +267,7 @@ module.exports = function createArchiveRouter({ pool, readPool }) {
            LEFT JOIN organisations pl ON pl.id = pu.org_id
            LEFT JOIN teams t ON t.id = cdl.team_id
            WHERE s.event_id = $1
+             AND COALESCE(e.is_rehearsal, FALSE) = FALSE
            GROUP BY u.id, u.full_name, o.country_code, cl.name,
                     pu.id, pu.full_name, pl.country_code,
                     t.id, t.name,

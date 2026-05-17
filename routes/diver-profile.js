@@ -140,6 +140,7 @@ module.exports = function createDiverProfileRouter({
             AND cdl.round_number = s.round_number
            LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
            WHERE s.competitor_id = $1
+             AND COALESCE(e.is_rehearsal, FALSE) = FALSE
            ${DATE_FILTER}
            GROUP BY s.event_id, s.round_number, e.number_of_judges, e.event_type
          )
@@ -176,6 +177,7 @@ module.exports = function createDiverProfileRouter({
             AND cdl.round_number = s.round_number
            LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
            WHERE s.competitor_id = $1
+             AND COALESCE(e.is_rehearsal, FALSE) = FALSE
              AND d.id IS NOT NULL
            ${DATE_FILTER}
            GROUP BY s.event_id, s.round_number,
@@ -211,6 +213,7 @@ module.exports = function createDiverProfileRouter({
            FROM scores s
            JOIN events e ON e.id = s.event_id
            WHERE s.competitor_id = $1
+             AND COALESCE(e.is_rehearsal, FALSE) = FALSE
            ${DATE_FILTER}
          ),
          per_dive AS (
@@ -230,6 +233,7 @@ module.exports = function createDiverProfileRouter({
             AND cdl.round_number = s.round_number
            LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
            WHERE s.event_id IN (SELECT event_id FROM diver_events)
+             AND COALESCE(e.is_rehearsal, FALSE) = FALSE
            GROUP BY s.event_id, s.competitor_id, s.round_number, e.number_of_judges, e.event_type
          ),
          all_event_totals AS (
@@ -421,6 +425,7 @@ module.exports = function createDiverProfileRouter({
            FROM scores s
            JOIN events e ON e.id = s.event_id
            WHERE s.competitor_id = $1
+             AND COALESCE(e.is_rehearsal, FALSE) = FALSE
              AND ($2::date IS NULL OR e.created_at >= $2::date)
              AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')`,
           [id, fromDate, toDate],
@@ -489,6 +494,7 @@ module.exports = function createDiverProfileRouter({
              LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
              WHERE u.org_id = $4
                AND s.competitor_id <> $1
+               AND COALESCE(e.is_rehearsal, FALSE) = FALSE
                AND ($2::date IS NULL OR e.created_at >= $2::date)
                AND ($3::date IS NULL OR e.created_at < $3::date + INTERVAL '1 day')
              GROUP BY s.event_id, s.competitor_id, s.round_number,
@@ -596,6 +602,7 @@ module.exports = function createDiverProfileRouter({
            LEFT JOIN dive_directory d ON d.id = COALESCE(s.dive_id, cdl.dive_id)
            WHERE s.competitor_id = $1
              AND s.event_id = ANY($2::uuid[])
+             AND COALESCE(e.is_rehearsal, FALSE) = FALSE
            GROUP BY s.event_id, s.round_number,
                     d.dive_code, d.position, d.height, d.dd, d.description,
                     e.number_of_judges, e.event_type
