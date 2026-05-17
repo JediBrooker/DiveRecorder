@@ -1,7 +1,7 @@
-// vue-i18n setup. Locales live in src/locales/{en,es,fr,de}.json
-// and are imported eagerly so the locale switcher is instant —
-// the entire dictionary is small enough that lazy-loading per
-// locale adds latency without saving meaningful bytes.
+// vue-i18n setup. Locales live in src/locales/{...}.json and are
+// imported eagerly so the locale switcher is instant — the entire
+// dictionary is small enough that lazy-loading per locale adds
+// latency without saving meaningful bytes.
 //
 // The English dictionary is the source of truth. Translations
 // are generated AI-assisted via scripts/translate-locales.js
@@ -15,9 +15,11 @@
 //                                and gets French automatically
 //   3. 'en'                    — final fallback
 //
-// Server-side user.locale (per-user preference) comes later as
-// part of the i18next middleware roll-out; for now this is a
-// browser-only state.
+// RTL support: setLocale() also sets <html dir="rtl"|"ltr"> based
+// on the SUPPORTED_LOCALES entry's `rtl` flag. Tailwind / regular
+// CSS already respects `dir` for things like text-alignment and
+// list-bullet position, so the existing layout flips cleanly for
+// Arabic without per-component changes.
 
 import { createI18n } from 'vue-i18n'
 import en from '@/locales/en.json'
@@ -34,22 +36,44 @@ import sv from '@/locales/sv.json'
 import da from '@/locales/da.json'
 import no from '@/locales/no.json'
 import hu from '@/locales/hu.json'
+import hr from '@/locales/hr.json'
+import sr from '@/locales/sr.json'
+import zh from '@/locales/zh.json'
+import ja from '@/locales/ja.json'
+import ko from '@/locales/ko.json'
+import id from '@/locales/id.json'
+import ms from '@/locales/ms.json'
+import tl from '@/locales/tl.json'
+import ar from '@/locales/ar.json'
+import tr from '@/locales/tr.json'
+import el from '@/locales/el.json'
 
 export const SUPPORTED_LOCALES = [
-  { code: 'en', label: 'English',     flag: '🇬🇧' },
-  { code: 'es', label: 'Español',     flag: '🇪🇸' },
-  { code: 'fr', label: 'Français',    flag: '🇫🇷' },
-  { code: 'de', label: 'Deutsch',     flag: '🇩🇪' },
-  { code: 'it', label: 'Italiano',    flag: '🇮🇹' },
-  { code: 'pt', label: 'Português',   flag: '🇵🇹' },
-  { code: 'pl', label: 'Polski',      flag: '🇵🇱' },
-  { code: 'ru', label: 'Русский',     flag: '🇷🇺' },
-  { code: 'uk', label: 'Українська',  flag: '🇺🇦' },
-  { code: 'fi', label: 'Suomi',       flag: '🇫🇮' },
-  { code: 'sv', label: 'Svenska',     flag: '🇸🇪' },
-  { code: 'da', label: 'Dansk',       flag: '🇩🇰' },
-  { code: 'no', label: 'Norsk',       flag: '🇳🇴' },
-  { code: 'hu', label: 'Magyar',      flag: '🇭🇺' },
+  { code: 'en', label: 'English',          flag: '🇬🇧' },
+  { code: 'es', label: 'Español',          flag: '🇪🇸' },
+  { code: 'fr', label: 'Français',         flag: '🇫🇷' },
+  { code: 'de', label: 'Deutsch',          flag: '🇩🇪' },
+  { code: 'it', label: 'Italiano',         flag: '🇮🇹' },
+  { code: 'pt', label: 'Português',        flag: '🇵🇹' },
+  { code: 'pl', label: 'Polski',           flag: '🇵🇱' },
+  { code: 'ru', label: 'Русский',          flag: '🇷🇺' },
+  { code: 'uk', label: 'Українська',       flag: '🇺🇦' },
+  { code: 'fi', label: 'Suomi',            flag: '🇫🇮' },
+  { code: 'sv', label: 'Svenska',          flag: '🇸🇪' },
+  { code: 'da', label: 'Dansk',            flag: '🇩🇰' },
+  { code: 'no', label: 'Norsk',            flag: '🇳🇴' },
+  { code: 'hu', label: 'Magyar',           flag: '🇭🇺' },
+  { code: 'hr', label: 'Hrvatski',         flag: '🇭🇷' },
+  { code: 'sr', label: 'Српски',           flag: '🇷🇸' },
+  { code: 'zh', label: '中文',              flag: '🇨🇳' },
+  { code: 'ja', label: '日本語',            flag: '🇯🇵' },
+  { code: 'ko', label: '한국어',            flag: '🇰🇷' },
+  { code: 'id', label: 'Bahasa Indonesia', flag: '🇮🇩' },
+  { code: 'ms', label: 'Bahasa Melayu',    flag: '🇲🇾' },
+  { code: 'tl', label: 'Tagalog',          flag: '🇵🇭' },
+  { code: 'ar', label: 'العربية',          flag: '🇸🇦', rtl: true },
+  { code: 'tr', label: 'Türkçe',           flag: '🇹🇷' },
+  { code: 'el', label: 'Ελληνικά',         flag: '🇬🇷' },
 ]
 
 export const FALLBACK_LOCALE = 'en'
@@ -78,23 +102,31 @@ const i18n = createI18n({
   // page-by-page. Re-enable once the dictionary is complete.
   missingWarn: false,
   fallbackWarn: false,
-  messages: { en, es, fr, de, it, pt, pl, ru, uk, fi, sv, da, no, hu },
+  messages: {
+    en, es, fr, de, it, pt, pl, ru, uk, fi, sv, da, no, hu,
+    hr, sr, zh, ja, ko, id, ms, tl, ar, tr, el,
+  },
 })
 
 // Public setter — every locale change goes through this so the
-// localStorage write + <html lang> sync stay in lockstep.
+// localStorage write + <html lang> + <html dir> sync stay in lockstep.
 export function setLocale(code) {
-  if (!SUPPORTED_LOCALES.some(l => l.code === code)) return
+  const entry = SUPPORTED_LOCALES.find(l => l.code === code)
+  if (!entry) return
   i18n.global.locale.value = code
   try { localStorage.setItem('locale', code) } catch { /* ignore */ }
   if (typeof document !== 'undefined') {
     document.documentElement.setAttribute('lang', code)
+    document.documentElement.setAttribute('dir', entry.rtl ? 'rtl' : 'ltr')
   }
 }
 
-// Initialize <html lang> on boot.
+// Initialize <html lang> + <html dir> on boot.
 if (typeof document !== 'undefined') {
-  document.documentElement.setAttribute('lang', i18n.global.locale.value)
+  const code = i18n.global.locale.value
+  const entry = SUPPORTED_LOCALES.find(l => l.code === code)
+  document.documentElement.setAttribute('lang', code)
+  document.documentElement.setAttribute('dir', entry?.rtl ? 'rtl' : 'ltr')
 }
 
 export default i18n

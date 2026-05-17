@@ -53,6 +53,17 @@ const TARGET_LANGUAGES = {
   da: "Danish (standard Danish)",
   no: "Norwegian (bokmål)",
   hu: "Hungarian (standard Hungarian)",
+  hr: "Croatian (standard Croatian)",
+  sr: "Serbian (standard Serbian, Cyrillic script)",
+  zh: "Mandarin Chinese (Simplified Chinese, Mainland)",
+  ja: "Japanese (standard Japanese, polite -masu form)",
+  ko: "Korean (standard Korean, polite -습니다 form)",
+  id: "Indonesian (Bahasa Indonesia)",
+  ms: "Malay (Bahasa Melayu, Malaysia)",
+  tl: "Tagalog (Filipino)",
+  ar: "Arabic (Modern Standard Arabic)",
+  tr: "Turkish (standard Turkish)",
+  el: "Greek (modern Greek)",
 };
 
 const args = process.argv.slice(2);
