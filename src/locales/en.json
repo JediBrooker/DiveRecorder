@@ -546,5 +546,25 @@
   },
   "locale": {
     "switcher_label": "Language"
+  },
+  "scheduler": {
+    "title": "Schedule",
+    "subtitle": "Read-only timeline of warmups, events, breaks, and ceremonies for this meet.",
+    "back_to_meet": "← Back to meet",
+    "subscribe_ics": "Subscribe (.ics)",
+    "download_ics": "download",
+    "empty": "No sessions yet. Sessions are auto-seeded from events that have a scheduled time.",
+    "no_blocks": "No blocks in this session yet.",
+    "no_boards_column": "Schedule",
+    "load_failed": "Failed to load schedule",
+    "manager_link": "Schedule",
+    "manager_link_tip": "Open the read-only timeline + iCal feed for this meet",
+    "block_type": {
+      "warmup": "Warmup",
+      "event_start": "Event",
+      "break": "Break",
+      "ceremony": "Ceremony",
+      "custom": "Block"
+    }
   }
 }
