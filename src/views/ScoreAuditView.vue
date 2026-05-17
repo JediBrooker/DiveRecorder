@@ -1,10 +1,12 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const auth = useAuthStore()
+const { t } = useI18n()
 
 const eventId = computed(() => route.params.id)
 const eventInfo = ref(null)
@@ -115,8 +117,9 @@ onMounted(load)
   <div class="audit-wrap">
     <div class="page-header">
       <div>
-        <div class="page-label">Score Audit Trail</div>
+        <div class="page-label">{{ $t('score_audit.title') }}</div>
         <h1 class="page-title">{{ eventInfo?.name || 'Event' }}</h1>
+        <div class="page-tagline">{{ $t('score_audit.subtitle') }}</div>
         <div v-if="eventInfo" class="page-sub">
           {{ eventInfo.gender }} · {{ eventInfo.height || '—' }} · {{ eventInfo.total_rounds }} rounds
         </div>

@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { cachedFetch, idbDelete } from '@/lib/idbCache'
@@ -26,6 +27,7 @@ import YearOverYearWidget     from '@/components/profile-widgets/YearOverYearWid
 
 const route = useRoute()
 const auth = useAuthStore()
+const { t } = useI18n()
 
 const profile = ref(null)
 const loading = ref(false)

@@ -25,9 +25,12 @@ const submitting = ref(true)
 const done = ref(false)
 const error = ref('')
 
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
+
 async function confirm() {
   if (!token.value) {
-    error.value = "This page needs to be opened from the link in your confirmation email."
+    error.value = t('auth.confirm_email.missing_token')
     submitting.value = false
     return
   }
@@ -38,7 +41,7 @@ async function confirm() {
       body: JSON.stringify({ token: token.value }),
     })
     const body = await r.json().catch(() => ({}))
-    if (!r.ok) throw new Error(body.error || 'Email change confirmation failed')
+    if (!r.ok) throw new Error(body.error || t('auth.confirm_email.failed'))
     done.value = true
     // Sign out locally — the server bumped token_version so the
     // current JWT is dead anyway. Best to drop it now so the next
@@ -58,23 +61,23 @@ onMounted(confirm)
 <template>
   <div class="confirm-wrap">
     <div class="confirm-mark">DIVING<span>HQ</span></div>
-    <h1>Confirm Email</h1>
-    <p class="subtitle">Verifying your new address</p>
+    <h1>{{ $t('auth.confirm_email.title') }}</h1>
+    <p class="subtitle">{{ $t('auth.confirm_email.subtitle') }}</p>
 
     <template v-if="submitting">
-      <div class="msg msg-info">Confirming…</div>
+      <div class="msg msg-info">{{ $t('auth.confirm_email.confirming') }}</div>
     </template>
 
     <template v-else-if="done">
       <div class="msg msg-success">
-        Email updated. Redirecting you to sign in with the new address…
+        {{ $t('auth.confirm_email.success') }}
       </div>
     </template>
 
     <template v-else>
-      <div class="msg msg-error">{{ error || 'Confirmation failed.' }}</div>
+      <div class="msg msg-error">{{ error || $t('auth.confirm_email.fallback_error') }}</div>
       <RouterLink to="/login" class="btn btn-ghost btn-sm" style="margin-top:1.25rem">
-        Back to sign in
+        {{ $t('auth.confirm_email.back_to_sign_in') }}
       </RouterLink>
     </template>
   </div>

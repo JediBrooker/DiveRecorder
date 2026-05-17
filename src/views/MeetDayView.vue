@@ -23,9 +23,12 @@
 
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
 import StatusPill from '@/components/StatusPill.vue'
+
+const { t } = useI18n()
 
 const route   = useRoute()
 const router  = useRouter()
@@ -174,7 +177,7 @@ const eventNotLive = computed(() => {
   <div class="meet-day">
     <div class="page-header">
       <div>
-        <div class="page-label">Meet day</div>
+        <div class="page-label">{{ $t('meet_day.page_label') }}</div>
         <h1 class="page-title">{{ data?.event?.name || 'Loading…' }}</h1>
         <div class="page-sub" v-if="data">
           <StatusPill :status="data.event.status" size="sm" />
@@ -191,7 +194,7 @@ const eventNotLive = computed(() => {
     <template v-else-if="data">
       <!-- Pre-event hint when nothing's happening yet -->
       <div v-if="eventNotLive && data.event.status === 'Upcoming'" class="md-hint">
-        This event hasn't started yet. Standings + queue go live the moment the meet manager opens it.
+        {{ $t('meet_day.waiting') }}
       </div>
       <div v-else-if="eventNotLive && data.event.status === 'Completed'" class="md-hint">
         This event is over — no more dives. Tap the link below to view the recap.
@@ -200,7 +203,7 @@ const eventNotLive = computed(() => {
       <!-- BLOCK 1: Your next dive ----------------------------- -->
       <section class="md-card md-next-dive">
         <header class="md-card-head">
-          <span class="md-card-label">Your next dive</span>
+          <span class="md-card-label">{{ $t('meet_day.next_dive') }}</span>
           <span v-if="data.next_dive" class="md-round-pip">
             R{{ data.next_dive.round_number }}/{{ data.event.total_rounds }}
           </span>

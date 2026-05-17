@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useSocket } from '@/composables/useSocket'
 import { annotatedScores, groupedSynchroScoresForDisplay, trimCount, synchroJudgeGroups } from '@/composables/useScoreCategories'
@@ -15,6 +16,7 @@ import SponsorRotation from '@/components/scoreboard/SponsorRotation.vue'
 
 const route  = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const socket = useSocket({ spectator: true })
 
 // Broadcast / kiosk mode: when the URL ends in /broadcast we
@@ -1022,8 +1024,8 @@ onMounted(async () => {
       <template v-else>
         <div class="header-left">
           <button @click="resetToEventPicker" class="btn btn-ghost btn-sm" style="margin-right:0.5rem">← All Meets</button>
-          <div v-if="isCompleted" class="status-badge done-badge">FINAL</div>
-          <div v-else class="status-badge live-badge">LIVE</div>
+          <div v-if="isCompleted" class="status-badge done-badge">{{ $t('scoreboard.status_completed') }}</div>
+          <div v-else class="status-badge live-badge">{{ $t('scoreboard.status_live') }}</div>
           <span class="sb-event-name">{{ currentEvent?.name || (isCompleted ? 'Event Recap' : 'Broadcast Feed') }}</span>
         </div>
       </template>
@@ -1036,14 +1038,14 @@ onMounted(async () => {
           :to="`/scoreboard/${currentEventId}/broadcast`"
           class="btn btn-ghost btn-sm"
           v-tip="'Open in broadcast / kiosk mode (no page chrome)'"
-        >📺 Broadcast</RouterLink>
+        >📺 {{ $t('scoreboard.broadcast') }}</RouterLink>
         <a
           v-if="currentEventId && !isCompleted"
           :href="`/scoreboard/${currentEventId}?overlay=1`"
           target="_blank" rel="noopener"
           class="btn btn-ghost btn-sm"
           v-tip="'Open the chroma-key overlay (for OBS / streaming). Append &bg=ff00ff for a magenta key colour.'"
-        >🎬 Stream overlay</a>
+        >🎬 {{ $t('scoreboard.stream_overlay') }}</a>
         <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">Dashboard</RouterLink>
       </div>
     </div>
@@ -1408,7 +1410,7 @@ onMounted(async () => {
       <!-- Right: Standings -->
       <div class="sb-col">
         <div class="col-head">
-          <span>Standings</span>
+          <span>{{ $t('scoreboard.standings') }}</span>
           <div class="tabs">
             <button
               :class="['tab', standingsTab === 'final' ? 'tab-active' : '']"

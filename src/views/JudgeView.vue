@@ -1,10 +1,13 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
 import { diveDescription } from '@/composables/useDiveLabel'
 import { showInfo } from '@/composables/useNotify'
+
+const { t } = useI18n()
 
 // Pool deck ergonomics — judging often happens on a phone left
 // face-up on a table for an entire round. Two helpers:
@@ -325,9 +328,9 @@ const submitLabel = computed(() => {
   if (signaled.value && submitted.value) return 'Submit Corrected Score'
   if (submitted.value) {
     const val = currentScore.value + (isHalf.value ? 0.5 : 0)
-    return `✓ Submitted — ${val % 1 === 0 ? val : val.toFixed(1)}`
+    return `✓ ${t('judge.score_submitted')} — ${val % 1 === 0 ? val : val.toFixed(1)}`
   }
-  return 'Lock & Submit'
+  return t('judge.submit_score')
 })
 </script>
 
@@ -338,7 +341,7 @@ const submitLabel = computed(() => {
          judges need to know if a tap actually sent. -->
     <div v-if="!socket.isConnected.value" class="conn-banner">
       <span class="conn-dot"></span>
-      Reconnecting… your last score may not have sent
+      {{ $t('judge.panel_offline') }}
     </div>
     <!-- Meet-hold banner — Control Room paused the meet. Score
          input is disabled below until the hold lifts. -->
@@ -358,7 +361,7 @@ const submitLabel = computed(() => {
               {{ activeDiver.partner_name }}<span v-if="activeDiver?.partner_country" class="diver-country">{{ activeDiver.partner_country }}</span>
             </template>
             <template v-else>
-              {{ activeDiver?.diverName || 'Waiting for diver...' }}<span v-if="activeDiver?.country_code" class="diver-country">{{ activeDiver.country_code }}</span>
+              {{ activeDiver?.diverName || $t('judge.waiting') }}<span v-if="activeDiver?.country_code" class="diver-country">{{ activeDiver.country_code }}</span>
             </template>
           </div>
           <div v-if="activeDiver?.team_name" class="judge-team-line">
@@ -463,7 +466,7 @@ const submitLabel = computed(() => {
         v-tip="signaled ? 'Tap to clear the signal' : 'Flag the referee — e.g. did not see the dive, request a review'"
       >
         <span class="signal-dot"></span>
-        {{ signaled ? '✓ Signal sent — tap to cancel' : '🚩 Signal Referee' }}
+        {{ signaled ? '✓ Signal sent — tap to cancel' : `🚩 ${$t('judge.signal_referee')}` }}
       </button>
     </div>
 

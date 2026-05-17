@@ -28,17 +28,17 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
   <div class="guide-wrap">
     <!-- Top nav -->
     <div class="guide-nav">
-      <RouterLink to="/" class="btn btn-ghost btn-sm">← Home</RouterLink>
+      <RouterLink to="/" class="btn btn-ghost btn-sm">{{ $t('guide.back_to_home') }}</RouterLink>
       <a :href="WIKI" target="_blank" rel="noopener"
          class="btn btn-ghost btn-sm"
          v-tip="'Detailed user guide on GitHub'">
-        📚 Full wiki ↗
+        {{ $t('guide.open_wiki') }}
       </a>
     </div>
 
     <!-- Hero -->
     <section class="guide-hero">
-      <div class="guide-eyebrow">User Guide</div>
+      <div class="guide-eyebrow">{{ $t('guide.title') }}</div>
       <h1 class="guide-title">Welcome to <span class="guide-title-brand">Diving<span>HQ</span></span></h1>
       <p class="guide-lede">
         A platform for running diving meets — divers submit dive sheets,
@@ -51,7 +51,7 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
 
     <!-- "I'm a …" — role cards -->
     <section class="guide-section">
-      <h2 class="guide-h2">I'm a…</h2>
+      <h2 class="guide-h2">{{ $t('guide.section_roles') }}</h2>
 
       <div class="guide-roles">
         <article class="role-card">
@@ -172,7 +172,7 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
 
     <!-- FAQ-lite -->
     <section class="guide-section">
-      <h2 class="guide-h2">Common first questions</h2>
+      <h2 class="guide-h2">{{ $t('guide.section_first_time') }}</h2>
 
       <dl class="guide-faq">
         <dt>I just registered, but I can't sign in yet.</dt>
@@ -219,7 +219,7 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
 
     <!-- Where to next -->
     <section class="guide-section guide-next">
-      <h2 class="guide-h2">Where to go from here</h2>
+      <h2 class="guide-h2">{{ $t('guide.section_finding') }}</h2>
       <p class="guide-next-lede">
         Need the deep-dive version? The
         <a :href="WIKI" target="_blank" rel="noopener">full wiki</a>

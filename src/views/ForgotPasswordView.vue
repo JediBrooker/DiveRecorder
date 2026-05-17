@@ -12,9 +12,12 @@ const sending = ref(false)
 const sent = ref(false)
 const error = ref('')
 
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
+
 async function submit() {
   if (!email.value.trim()) {
-    error.value = 'Enter the email address on your account'
+    error.value = t('auth.forgot.missing_email')
     return
   }
   error.value = ''
@@ -27,7 +30,7 @@ async function submit() {
     })
     if (!r.ok) {
       const body = await r.json().catch(() => ({}))
-      throw new Error(body.error || 'Request failed')
+      throw new Error(body.error || t('auth.forgot.request_failed'))
     }
     sent.value = true
   } catch (err) {
@@ -41,33 +44,33 @@ async function submit() {
 <template>
   <div class="reset-wrap">
     <div class="reset-mark">DIVING<span>HQ</span></div>
-    <h1>Reset Password</h1>
-    <p class="subtitle">We'll email you a link</p>
+    <h1>{{ $t('auth.forgot.title') }}</h1>
+    <p class="subtitle">{{ $t('auth.forgot.subtitle') }}</p>
 
     <template v-if="sent">
       <div class="msg msg-success">
-        If an account exists for that address, a reset link is on its way. The link expires in 30 minutes.
+        {{ $t('auth.forgot.sent_message') }}
       </div>
-      <RouterLink to="/login" class="btn btn-ghost btn-sm" style="margin-top:1.25rem">← Back to sign in</RouterLink>
+      <RouterLink to="/login" class="btn btn-ghost btn-sm" style="margin-top:1.25rem">{{ $t('auth.forgot.back_to_sign_in') }}</RouterLink>
     </template>
 
     <form v-else @submit.prevent="submit" class="form-stack">
       <div class="field">
-        <label class="label">Account email</label>
+        <label class="label">{{ $t('auth.forgot.email_label') }}</label>
         <input
           class="input"
           type="email"
           v-model="email"
           autocomplete="email"
-          placeholder="you@example.com"
+          :placeholder="$t('auth.forgot.email_placeholder')"
           required
         >
       </div>
       <div v-if="error" class="msg msg-error">{{ error }}</div>
       <button type="submit" class="btn btn-primary-lg" :disabled="sending" style="margin-top:0.5rem">
-        {{ sending ? 'Sending…' : 'Send Reset Link' }}
+        {{ sending ? $t('auth.forgot.submit_loading') : $t('auth.forgot.submit_idle') }}
       </button>
-      <RouterLink to="/login" class="back-link">← Back to sign in</RouterLink>
+      <RouterLink to="/login" class="back-link">{{ $t('auth.forgot.back_to_sign_in') }}</RouterLink>
     </form>
   </div>
 </template>

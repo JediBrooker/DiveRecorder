@@ -58,56 +58,53 @@ async function handleSubmit() {
 <template>
   <div class="wrap">
     <div class="login-mark">DIVING<span>HQ</span></div>
-    <h1>Register Organisation</h1>
-    <p class="subtitle">Get your federation on the platform</p>
+    <h1>{{ $t('auth.register_org.title') }}</h1>
+    <p class="subtitle">{{ $t('auth.register_org.subtitle') }}</p>
 
     <form @submit.prevent="handleSubmit" class="form-stack">
       <div class="section">
-        <div class="section-label">Organisation Details</div>
+        <div class="section-label">{{ $t('auth.register_org.section_org') }}</div>
         <div class="field">
-          <label class="label">Federation Name</label>
-          <input class="input" type="text" v-model="orgName" placeholder="e.g. Swimming Australia" required>
+          <label class="label">{{ $t('auth.register_org.fed_name_label') }}</label>
+          <input class="input" type="text" v-model="orgName" :placeholder="$t('auth.register_org.fed_name_placeholder')" required>
         </div>
         <div class="grid-2">
           <div class="field">
-            <label class="label">Country Code (ISO)</label>
-            <input class="input" type="text" v-model="countryCode" placeholder="AUS" maxlength="3" style="text-transform:uppercase">
+            <label class="label">{{ $t('auth.register_org.country_label') }}</label>
+            <input class="input" type="text" v-model="countryCode" :placeholder="$t('auth.register_org.country_placeholder')" maxlength="3" style="text-transform:uppercase">
           </div>
           <div class="field">
-            <label class="label">URL Slug</label>
-            <input class="input" type="text" v-model="slug" @input="onSlugInput" placeholder="swimming-aus" required>
+            <label class="label">{{ $t('auth.register_org.slug_label') }}</label>
+            <input class="input" type="text" v-model="slug" @input="onSlugInput" :placeholder="$t('auth.register_org.slug_placeholder')" required>
             <div class="slug-preview">divedmeet.com/org/<span>{{ slug || '—' }}</span></div>
           </div>
         </div>
       </div>
 
       <div class="section">
-        <div class="section-label">Your Admin Account</div>
+        <div class="section-label">{{ $t('auth.register_org.section_admin') }}</div>
         <div class="field">
-          <label class="label">Full Name</label>
+          <label class="label">{{ $t('auth.register_org.full_name') }}</label>
           <input class="input" type="text" v-model="fullName" required>
         </div>
         <div class="field">
-          <label class="label">Username</label>
+          <label class="label">{{ $t('auth.register_org.username') }}</label>
           <input class="input" type="text" v-model="username" autocomplete="username" required>
         </div>
         <div class="field">
-          <label class="label">Password</label>
+          <label class="label">{{ $t('auth.register_org.password') }}</label>
           <input class="input" type="password" v-model="password" autocomplete="new-password" required>
         </div>
       </div>
 
-      <p class="note">
-        Your organisation will be reviewed and activated by a platform administrator before
-        you can log in. You'll receive access once approved.
-      </p>
+      <p class="note">{{ $t('auth.register_org.note') }}</p>
 
       <div v-if="msg" :class="['msg', msgType === 'success' ? 'msg-success' : 'msg-error']">{{ msg }}</div>
       <button type="submit" class="btn btn-primary-lg" :disabled="loading">
-        {{ loading ? 'Submitting...' : 'Submit Registration' }}
+        {{ loading ? $t('auth.register_org.submit_loading') : $t('auth.register_org.submit_idle') }}
       </button>
     </form>
-    <p class="footer-link">Already registered? <RouterLink to="/login">Sign in</RouterLink></p>
+    <p class="footer-link">{{ $t('auth.register_org.already_registered') }} <RouterLink to="/login">{{ $t('auth.register_org.sign_in_link') }}</RouterLink></p>
   </div>
 </template>
 

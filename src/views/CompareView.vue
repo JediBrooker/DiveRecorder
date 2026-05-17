@@ -277,20 +277,19 @@ onMounted(async () => {
   <div class="compare-wrap">
     <div class="page-header">
       <div>
-        <div class="page-label">Diver Comparison</div>
+        <div class="page-label">{{ $t('compare.title') }}</div>
         <h1 class="page-title">Head-to-Head</h1>
         <div class="page-sub">
-          Pick two divers — from any organisation — to compare stats and personal bests side by side.
-          Type a name to autocomplete, or click <strong>Browse</strong> for the full filterable list.
+          {{ $t('compare.subtitle') }}
         </div>
       </div>
-      <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">← Dashboard</RouterLink>
+      <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">{{ $t('compare.back') }}</RouterLink>
     </div>
 
     <!-- Pickers — autocomplete + browse, one per side -->
     <div class="picker-row">
       <div class="picker-side">
-        <div class="picker-label-a">Diver A</div>
+        <div class="picker-label-a">{{ $t('compare.pick_diver_a') }}</div>
         <div class="picker-input-wrap">
           <input
             class="input"
@@ -325,7 +324,7 @@ onMounted(async () => {
       </div>
       <div class="picker-vs">VS</div>
       <div class="picker-side">
-        <div class="picker-label-b">Diver B</div>
+        <div class="picker-label-b">{{ $t('compare.pick_diver_b') }}</div>
         <div class="picker-input-wrap">
           <input
             class="input"

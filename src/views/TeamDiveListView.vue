@@ -1,12 +1,14 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { diveDescription } from '@/composables/useDiveLabel'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const { t } = useI18n()
 
 const teamId  = computed(() => route.params.teamId)
 const eventId = computed(() => route.params.eventId)
@@ -205,13 +207,13 @@ onMounted(load)
 <template>
   <div class="page-header">
     <div>
-      <div class="page-label">Team Dive List</div>
+      <div class="page-label">{{ $t('competitor.page_label') }}</div>
       <h1 class="page-title">{{ team?.name || '…' }}</h1>
       <div v-if="event" class="page-sub">
         {{ event.name }} · {{ event.gender }} · {{ event.height || '—' }} · {{ event.total_rounds }} rounds
       </div>
     </div>
-    <RouterLink to="/teams" class="btn btn-ghost">← Teams</RouterLink>
+    <RouterLink to="/teams" class="btn btn-ghost">← {{ $t('teams.title') }}</RouterLink>
   </div>
 
   <div class="main">

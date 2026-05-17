@@ -241,7 +241,7 @@ onMounted(loadDives)
 
 <template>
   <div class="page-header">
-    <h1 class="page-title">Dive Directory</h1>
+    <h1 class="page-title">{{ $t('dive_directory.title') }}</h1>
     <RouterLink to="/dashboard" class="btn btn-ghost">← Dashboard</RouterLink>
   </div>
 
@@ -273,7 +273,7 @@ onMounted(loadDives)
     <!-- Filters + create -->
     <div class="toolbar">
       <input class="input" type="text" v-model="searchTerm"
-             placeholder="Search by code, description, position…">
+             :placeholder="$t('dive_directory.filter_search')">
       <select class="select" v-model="heightFilter">
         <option value="">All heights</option>
         <option v-for="h in HEIGHT_OPTIONS" :key="h" :value="h">{{ h }}</option>
@@ -356,11 +356,11 @@ onMounted(loadDives)
       <table class="data-table">
         <thead>
           <tr>
-            <th>Code</th>
+            <th>{{ $t('dive_directory.col_code') }}</th>
             <th>Height</th>
-            <th>Position</th>
-            <th class="num-col">DD</th>
-            <th>Description</th>
+            <th>{{ $t('dive_directory.col_position') }}</th>
+            <th class="num-col">{{ $t('dive_directory.col_dd') }}</th>
+            <th>{{ $t('dive_directory.col_description') }}</th>
             <th>Source</th>
             <th class="actions-col">Actions</th>
           </tr>
@@ -374,7 +374,7 @@ onMounted(loadDives)
           </tr>
           <tr v-else-if="!filteredDives.length">
             <td colspan="7" class="empty-state">
-              {{ dives.length ? 'No dives match the current filter.' : 'No dives in the directory yet.' }}
+              {{ dives.length ? $t('dive_directory.no_dives_match') : 'No dives in the directory yet.' }}
             </td>
           </tr>
           <template v-for="d in filteredDives" :key="d.id">

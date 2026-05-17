@@ -18,20 +18,23 @@ const submitting = ref(false)
 const error = ref('')
 const done = ref(false)
 
+import { useI18n } from 'vue-i18n'
+const { t } = useI18n()
+
 onMounted(() => {
   if (!token.value) {
-    error.value = "This page needs to be opened from the link in your reset email."
+    error.value = t('auth.reset.missing_token')
   }
 })
 
 async function submit() {
   error.value = ''
   if (newPassword.value.length < 6) {
-    error.value = 'New password must be at least 6 characters'
+    error.value = t('auth.reset.min_length_error')
     return
   }
   if (newPassword.value !== confirmPassword.value) {
-    error.value = 'Passwords don\'t match'
+    error.value = t('auth.reset.mismatch_error')
     return
   }
   submitting.value = true
@@ -45,7 +48,7 @@ async function submit() {
       }),
     })
     const body = await r.json().catch(() => ({}))
-    if (!r.ok) throw new Error(body.error || 'Reset failed')
+    if (!r.ok) throw new Error(body.error || t('auth.reset.reset_failed'))
     done.value = true
     setTimeout(() => router.push('/login'), 2000)
   } catch (err) {
@@ -59,34 +62,34 @@ async function submit() {
 <template>
   <div class="reset-wrap">
     <div class="reset-mark">DIVING<span>HQ</span></div>
-    <h1>New Password</h1>
-    <p class="subtitle">Pick something memorable</p>
+    <h1>{{ $t('auth.reset.title') }}</h1>
+    <p class="subtitle">{{ $t('auth.reset.subtitle') }}</p>
 
     <template v-if="done">
       <div class="msg msg-success">
-        Password updated. Redirecting you to sign in…
+        {{ $t('auth.reset.success') }}
       </div>
     </template>
 
     <form v-else-if="token" @submit.prevent="submit" class="form-stack">
       <div class="field">
-        <label class="label">New password</label>
+        <label class="label">{{ $t('auth.reset.new_password_label') }}</label>
         <input class="input" type="password" autocomplete="new-password" v-model="newPassword" required>
       </div>
       <div class="field">
-        <label class="label">Confirm new password</label>
+        <label class="label">{{ $t('auth.reset.confirm_password_label') }}</label>
         <input class="input" type="password" autocomplete="new-password" v-model="confirmPassword" required>
       </div>
       <div v-if="error" class="msg msg-error">{{ error }}</div>
       <button type="submit" class="btn btn-primary-lg" :disabled="submitting" style="margin-top:0.5rem">
-        {{ submitting ? 'Saving…' : 'Set New Password' }}
+        {{ submitting ? $t('auth.reset.submit_loading') : $t('auth.reset.submit_idle') }}
       </button>
     </form>
 
     <template v-else>
-      <div class="msg msg-error">{{ error || 'No reset token found.' }}</div>
+      <div class="msg msg-error">{{ error || $t('auth.reset.no_token_message') }}</div>
       <RouterLink to="/forgot-password" class="btn btn-ghost btn-sm" style="margin-top:1.25rem">
-        Request a new reset link
+        {{ $t('auth.reset.request_new_link') }}
       </RouterLink>
     </template>
   </div>

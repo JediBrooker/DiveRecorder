@@ -23,9 +23,11 @@
 
 import { ref, computed, onMounted, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { showError } from '@/composables/useNotify'
 
+const { t } = useI18n()
 const auth = useAuthStore()
 const router = useRouter()
 const isSysAdmin = computed(() => !!auth.user?.is_system_admin)
@@ -404,8 +406,8 @@ onMounted(async () => {
   <div class="audit-wrap">
     <div class="page-header">
       <div>
-        <div class="page-label">Audit Log</div>
-        <h1 class="page-title">Federation activity</h1>
+        <div class="page-label">{{ $t('audit_log.title') }}</div>
+        <h1 class="page-title">{{ $t('audit_log.subtitle') }}</h1>
         <div class="page-sub">
           Every score correction and role change across
           {{ isSysAdmin ? 'all federations' : 'your federation' }} —
@@ -521,7 +523,7 @@ onMounted(async () => {
     <section v-if="activeTab === 'scores'">
       <div class="filters">
         <div class="field-inline">
-          <span class="filter-label">Action</span>
+          <span class="filter-label">{{ $t('audit_log.filter_action') }}</span>
           <select class="select select-sm" v-model="scoreFilters.action">
             <option value="all">All</option>
             <option value="insert">Submitted</option>
@@ -553,7 +555,7 @@ onMounted(async () => {
 
       <div v-if="scoreBusy && !scoreRows.length" class="empty">Loading…</div>
       <div v-else-if="!scoreRows.length" class="empty">
-        No score audit entries match the current filters.
+        {{ $t('audit_log.no_entries') }}
       </div>
       <div v-else class="table-wrap"><table class="audit-table">
         <thead>
@@ -609,7 +611,7 @@ onMounted(async () => {
     <section v-if="activeTab === 'roles'">
       <div class="filters">
         <div class="field-inline">
-          <span class="filter-label">Action</span>
+          <span class="filter-label">{{ $t('audit_log.filter_action') }}</span>
           <select class="select select-sm" v-model="roleFilters.action">
             <option value="all">All</option>
             <option value="granted">Granted</option>
@@ -641,7 +643,7 @@ onMounted(async () => {
 
       <div v-if="roleBusy && !roleRows.length" class="empty">Loading…</div>
       <div v-else-if="!roleRows.length" class="empty">
-        No role audit entries match the current filters.
+        {{ $t('audit_log.no_entries') }}
       </div>
       <div v-else class="table-wrap"><table class="audit-table">
         <thead>
@@ -706,7 +708,7 @@ onMounted(async () => {
 
       <div v-if="activityBusy && !activityRows.length" class="empty">Loading…</div>
       <div v-else-if="!activityRows.length" class="empty">
-        No activity audit entries match the current filters.
+        {{ $t('audit_log.no_entries') }}
       </div>
       <div v-else class="table-wrap"><table class="audit-table">
         <thead>

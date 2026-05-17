@@ -12,24 +12,26 @@
 // Menu directly: route /setup.
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { showSuccess, showError } from '@/composables/useNotify'
 
 const auth = useAuthStore()
 const router = useRouter()
+const { t } = useI18n()
 
 // Wizard step index — 0..3. Each step renders independently; a
 // progress strip at the top reflects the current position.
-const STEPS = [
-  { key: 'welcome',    label: 'Welcome' },
-  { key: 'club',       label: 'First Club' },
-  { key: 'invite',     label: 'Invite People' },
-  { key: 'event',      label: 'First Event' },
-]
+const STEPS = computed(() => [
+  { key: 'welcome',    label: t('setup.step_intro') },
+  { key: 'club',       label: t('setup.step_clubs') },
+  { key: 'invite',     label: t('setup.step_users') },
+  { key: 'event',      label: t('setup.step_done') },
+])
 const stepIdx = ref(0)
-const currentStep = computed(() => STEPS[stepIdx.value])
+const currentStep = computed(() => STEPS.value[stepIdx.value])
 
-function next()    { if (stepIdx.value < STEPS.length - 1) stepIdx.value++ }
+function next()    { if (stepIdx.value < STEPS.value.length - 1) stepIdx.value++ }
 function back()    { if (stepIdx.value > 0) stepIdx.value-- }
 function dismiss() {
   // Persist so the next dashboard visit doesn't redirect here
@@ -117,7 +119,7 @@ onMounted(() => {
     <header class="wizard-header">
       <RouterLink to="/dashboard" class="wizard-logo">DIVING<span>HQ</span></RouterLink>
       <button type="button" class="wizard-skip-link" @click="dismiss">
-        Skip setup &rarr;
+        {{ $t('setup.skip') }} &rarr;
       </button>
     </header>
 
@@ -149,7 +151,8 @@ onMounted(() => {
       <!-- Step 1 — Welcome -->
       <div v-if="currentStep.key === 'welcome'" class="wizard-card">
         <div class="wizard-eyebrow">Step 1 of 4</div>
-        <h1 class="wizard-title">Welcome — let's get you set up</h1>
+        <h1 class="wizard-title">{{ $t('setup.title') }}</h1>
+        <div class="wizard-subtitle">{{ $t('setup.subtitle') }}</div>
         <p class="wizard-body">
           Three quick steps and you'll have a working federation: create your
           first club, send the invite link to your divers / judges, then build
@@ -185,7 +188,7 @@ onMounted(() => {
         <div class="wizard-actions">
           <span></span>
           <button type="button" class="btn btn-primary" @click="next">
-            Let's go &rarr;
+            {{ $t('setup.next') }}
           </button>
         </div>
       </div>
@@ -212,9 +215,9 @@ onMounted(() => {
           </label>
         </form>
         <div class="wizard-actions">
-          <button type="button" class="btn btn-ghost" @click="back">&larr; Back</button>
+          <button type="button" class="btn btn-ghost" @click="back">{{ $t('setup.back') }}</button>
           <div class="wizard-actions-right">
-            <button type="button" class="btn btn-ghost" @click="next">Skip for now</button>
+            <button type="button" class="btn btn-ghost" @click="next">{{ $t('setup.skip') }}</button>
             <button type="button" class="btn btn-primary" :disabled="!clubName.trim() || clubBusy" @click="createClub">
               {{ clubBusy ? 'Creating…' : 'Create club &amp; continue &rarr;' }}
             </button>
@@ -252,10 +255,10 @@ onMounted(() => {
           self-registration.
         </p>
         <div class="wizard-actions">
-          <button type="button" class="btn btn-ghost" @click="back">&larr; Back</button>
+          <button type="button" class="btn btn-ghost" @click="back">{{ $t('setup.back') }}</button>
           <div class="wizard-actions-right">
             <button type="button" class="btn btn-primary" @click="next">
-              Continue &rarr;
+              {{ $t('setup.next') }}
             </button>
           </div>
         </div>
@@ -296,13 +299,13 @@ onMounted(() => {
           </li>
         </ul>
         <div class="wizard-actions">
-          <button type="button" class="btn btn-ghost" @click="back">&larr; Back</button>
+          <button type="button" class="btn btn-ghost" @click="back">{{ $t('setup.back') }}</button>
           <div class="wizard-actions-right">
             <RouterLink to="/dashboard" class="btn btn-ghost">
               Back to dashboard
             </RouterLink>
             <button type="button" class="btn btn-primary" @click="complete">
-              Open Meet Manager &rarr;
+              {{ $t('setup.finish') }}
             </button>
           </div>
         </div>
@@ -430,6 +433,12 @@ onMounted(() => {
   font-size: 13.5px; line-height: 1.7;
   color: var(--text-2);
   margin: 0 0 1.4rem;
+}
+.wizard-subtitle {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-3);
+  margin: -0.4rem 0 1rem;
 }
 .wizard-body code {
   background: var(--bg-3); padding: 0.05rem 0.35rem;

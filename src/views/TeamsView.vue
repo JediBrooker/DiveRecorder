@@ -1,7 +1,10 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
+
+const { t } = useI18n()
 import { confirmAction } from '@/composables/useConfirm'
 import { showSuccess, showError } from '@/composables/useNotify'
 import { fmtDate } from '@/lib/format'
@@ -302,8 +305,8 @@ watch(() => drawerTeam.value, (val) => {
 
 <template>
   <div class="page-header">
-    <h1 class="page-title">Teams</h1>
-    <RouterLink to="/dashboard" class="btn btn-ghost">← Dashboard</RouterLink>
+    <h1 class="page-title">{{ $t('teams.title') }}</h1>
+    <RouterLink to="/dashboard" class="btn btn-ghost">{{ $t('common.dashboard') }}</RouterLink>
   </div>
 
   <div class="main">
@@ -332,7 +335,7 @@ watch(() => drawerTeam.value, (val) => {
         <option v-for="o in teamOrgs" :key="o.id" :value="o.id">{{ o.name }}</option>
       </select>
       <span class="result-count">{{ filteredTeams.length.toLocaleString() }} of {{ teams.length.toLocaleString() }}</span>
-      <button class="btn btn-primary btn-sm" @click="openCreate">+ New Team</button>
+      <button class="btn btn-primary btn-sm" @click="openCreate">{{ $t('teams.new_team') }}</button>
     </div>
 
     <!-- Inline create -->
@@ -372,10 +375,10 @@ watch(() => drawerTeam.value, (val) => {
       <div class="table-wrap"><table class="data-table">
         <thead>
           <tr>
-            <th>Team</th>
+            <th>{{ $t('teams.col_name') }}</th>
             <th>Code</th>
             <th v-if="isSysAdmin">Organisation</th>
-            <th class="num-col">Members</th>
+            <th class="num-col">{{ $t('teams.col_members') }}</th>
             <th>Created</th>
             <th class="actions-col">Actions</th>
           </tr>

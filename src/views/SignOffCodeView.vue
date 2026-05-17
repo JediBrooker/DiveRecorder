@@ -15,11 +15,13 @@
 // "Signed off ✓" confirmation.
 import { ref, computed, onMounted } from 'vue'
 import { RouterLink, useRouter, useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
+const { t } = useI18n()
 
 const code = ref('')
 const busy = ref(false)
@@ -88,7 +90,7 @@ onMounted(() => {
 <template>
   <div class="page-header">
     <h1 class="page-title">Sign-Off Code</h1>
-    <RouterLink to="/dashboard" class="btn btn-ghost">← Dashboard</RouterLink>
+    <RouterLink to="/dashboard" class="btn btn-ghost">{{ $t('common.dashboard') }}</RouterLink>
   </div>
 
   <div class="main">

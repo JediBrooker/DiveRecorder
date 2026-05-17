@@ -1,10 +1,12 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { confirmAction } from '@/composables/useConfirm'
 import { showSuccess, showError } from '@/composables/useNotify'
 
+const { t } = useI18n()
 const auth = useAuthStore()
 
 const requests = ref([])
@@ -653,7 +655,7 @@ onUnmounted(() => {
 
 <template>
   <div class="page-header">
-    <h1 class="page-title">User Manager</h1>
+    <h1 class="page-title">{{ $t('user_manager.title') }}</h1>
     <RouterLink to="/dashboard" class="btn btn-ghost">← Dashboard</RouterLink>
   </div>
 
@@ -681,17 +683,17 @@ onUnmounted(() => {
     <div class="tabs">
       <button :class="['tab', activeTab === 'members' ? 'tab-active' : '']"
               @click="activeTab = 'members'">
-        Members <span class="tab-count">{{ stats.total.toLocaleString() }}</span>
+        {{ $t('user_manager.tab_members') }} <span class="tab-count">{{ stats.total.toLocaleString() }}</span>
       </button>
       <button :class="['tab', activeTab === 'requests' ? 'tab-active' : '']"
               @click="activeTab = 'requests'">
-        Requests <span :class="['tab-count', stats.pending ? 'tab-count-active' : '']">{{ stats.pending }}</span>
+        {{ $t('user_manager.tab_pending') }} <span :class="['tab-count', stats.pending ? 'tab-count-active' : '']">{{ stats.pending }}</span>
       </button>
     </div>
 
     <!-- Requests tab -->
     <div v-if="activeTab === 'requests'" class="card">
-      <div v-if="!requests.length" class="empty-state">No pending requests</div>
+      <div v-if="!requests.length" class="empty-state">{{ $t('user_manager.no_pending') }}</div>
       <div v-else class="requests-grid">
         <div v-for="rq in requests" :key="rq.id" class="request-card">
           <div style="flex:1;min-width:0">
@@ -706,8 +708,8 @@ onUnmounted(() => {
             <div v-if="rq.note" class="request-note">"{{ rq.note }}"</div>
           </div>
           <div class="request-actions">
-            <button class="btn btn-sm btn-approve" @click="reviewRequest(rq.id, 'approved')">Approve</button>
-            <button class="btn btn-danger btn-sm" @click="reviewRequest(rq.id, 'rejected')">Reject</button>
+            <button class="btn btn-sm btn-approve" @click="reviewRequest(rq.id, 'approved')">{{ $t('user_manager.approve') }}</button>
+            <button class="btn btn-danger btn-sm" @click="reviewRequest(rq.id, 'rejected')">{{ $t('user_manager.deny') }}</button>
           </div>
         </div>
       </div>

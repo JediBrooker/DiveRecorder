@@ -1,7 +1,10 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
+
+const { t } = useI18n()
 import { confirmAction } from '@/composables/useConfirm'
 import { showSuccess, showError } from '@/composables/useNotify'
 import { fmtDate } from '@/lib/format'
@@ -175,8 +178,8 @@ onMounted(async () => {
 
 <template>
   <div class="page-header">
-    <h1 class="page-title">Clubs</h1>
-    <RouterLink to="/dashboard" class="btn btn-ghost">← Dashboard</RouterLink>
+    <h1 class="page-title">{{ $t('clubs.title') }}</h1>
+    <RouterLink to="/dashboard" class="btn btn-ghost">{{ $t('common.dashboard') }}</RouterLink>
   </div>
 
   <div class="main">
@@ -199,7 +202,7 @@ onMounted(async () => {
 
     <!-- Filters + create -->
     <div class="toolbar">
-      <input class="input" type="text" v-model="searchTerm" placeholder="Search clubs by name, code, org…">
+      <input class="input" type="text" v-model="searchTerm" :placeholder="$t('clubs.search')">
       <select v-if="isSysAdmin" class="select" v-model="orgFilter">
         <option value="">All organisations ({{ clubOrgs.length }})</option>
         <option v-for="o in clubOrgs" :key="o.id" :value="o.id">
@@ -209,7 +212,7 @@ onMounted(async () => {
       <span class="result-count">
         {{ filteredClubs.length.toLocaleString() }} of {{ clubs.length.toLocaleString() }}
       </span>
-      <button class="btn btn-primary btn-sm" @click="openCreate">+ New Club</button>
+      <button class="btn btn-primary btn-sm" @click="openCreate">{{ $t('clubs.new_club') }}</button>
     </div>
 
     <!-- Inline create form -->
@@ -251,11 +254,11 @@ onMounted(async () => {
       <div class="table-wrap"><table class="data-table">
         <thead>
           <tr>
-            <th>Club</th>
-            <th>Code</th>
+            <th>{{ $t('clubs.col_name') }}</th>
+            <th>{{ $t('clubs.col_code') }}</th>
             <th v-if="isSysAdmin">Organisation</th>
-            <th class="num-col">Members</th>
-            <th>Created</th>
+            <th class="num-col">{{ $t('clubs.col_members') }}</th>
+            <th>{{ $t('clubs.col_created') }}</th>
             <th class="actions-col">Actions</th>
           </tr>
         </thead>

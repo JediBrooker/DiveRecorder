@@ -1,9 +1,11 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
+const { t } = useI18n()
 
 const events = ref([])
 const allJudges = ref([])
@@ -133,7 +135,7 @@ onMounted(async () => {
 <template>
   <div class="page-header">
     <h1 style="font-size:32px;font-style:italic">Assign Judges</h1>
-    <RouterLink to="/dashboard" class="btn btn-ghost">← Dashboard</RouterLink>
+    <RouterLink to="/dashboard" class="btn btn-ghost">{{ $t('common.dashboard') }}</RouterLink>
   </div>
 
   <div class="main">

@@ -139,7 +139,7 @@ onMounted(load)
   <div class="inbox-wrap">
     <div class="page-header">
       <div>
-        <div class="page-label">Inbox</div>
+        <div class="page-label">{{ $t('inbox.title') }}</div>
         <h1 class="page-title">Notifications</h1>
         <div class="page-sub">
           Every push notification + in-app banner sent to your account, kept
@@ -149,7 +149,7 @@ onMounted(load)
       </div>
       <div class="header-actions">
         <button v-if="unreadCount" type="button" class="btn btn-ghost btn-sm" @click="markAllRead">
-          Mark all read
+          {{ $t('inbox.mark_all_read') }}
         </button>
         <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">← Dashboard</RouterLink>
       </div>
@@ -161,20 +161,20 @@ onMounted(load)
         <button type="button"
                 :class="['chip', !showRead ? 'chip-active' : '']"
                 @click="showRead = false">
-          Unread <span class="chip-count">{{ unreadCount }}</span>
+          {{ $t('inbox.filter_unread') }} <span class="chip-count">{{ unreadCount }}</span>
         </button>
         <button type="button"
                 :class="['chip', showRead ? 'chip-active' : '']"
                 @click="showRead = true">
-          All <span class="chip-count">{{ rows.length }}</span>
+          {{ $t('inbox.filter_all') }} <span class="chip-count">{{ rows.length }}</span>
         </button>
       </div>
       <div v-if="categories.length > 1" class="field-inline">
-        <span class="filter-label">Category</span>
+        <span class="filter-label">{{ $t('inbox.filter_category') }}</span>
         <button type="button"
                 :class="['chip', categoryFilter === 'all' ? 'chip-active' : '']"
                 @click="categoryFilter = 'all'">
-          All
+          {{ $t('inbox.filter_all') }}
         </button>
         <button v-for="c in categories" :key="c.id"
                 type="button"
@@ -185,14 +185,12 @@ onMounted(load)
       </div>
     </div>
 
-    <div v-if="loading && !rows.length" class="empty">Loading…</div>
+    <div v-if="loading && !rows.length" class="empty">{{ $t('inbox.loading') }}</div>
     <EmptyState
       v-else-if="!filtered.length && !rows.length"
       icon="📭"
-      v-tip="'Quiet across the board'"
-      body="Notifications land here when role requests, score corrections,
-            referee calls, or finalised events come through. Subscribe to
-            push from your dashboard to also catch them on your phone."
+      v-tip="$t('inbox.empty_title')"
+      :body="$t('inbox.empty_body')"
       action-label="Open dashboard"
       action-to="/dashboard"
     />

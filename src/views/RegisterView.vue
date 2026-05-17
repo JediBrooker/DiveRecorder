@@ -93,38 +93,38 @@ async function handleSubmit() {
 <template>
   <div class="wrap">
     <div class="login-mark">DIVING<span>HQ</span></div>
-    <h1>Register</h1>
-    <p class="subtitle">Create your account</p>
+    <h1>{{ $t('auth.register.title') }}</h1>
+    <p class="subtitle">{{ $t('auth.register.subtitle') }}</p>
 
     <form @submit.prevent="handleSubmit" class="form-stack">
       <div class="field">
-        <label class="label">Full Name</label>
+        <label class="label">{{ $t('auth.register.full_name') }}</label>
         <input class="input" type="text" v-model="fullName" required>
       </div>
       <div class="field">
-        <label class="label">Username</label>
+        <label class="label">{{ $t('auth.register.username') }}</label>
         <input class="input" type="text" v-model="username" autocomplete="username" required>
       </div>
       <div class="field">
-        <label class="label">Email</label>
+        <label class="label">{{ $t('auth.register.email') }}</label>
         <input
           class="input"
           type="email"
           v-model="email"
           autocomplete="email"
-          placeholder="you@example.com"
+          :placeholder="$t('auth.register.email_placeholder')"
           required
         >
-        <span class="hint-line">Used for password reset and meet notifications.</span>
+        <span class="hint-line">{{ $t('auth.register.email_hint') }}</span>
       </div>
       <div class="field">
-        <label class="label">Password</label>
+        <label class="label">{{ $t('auth.register.password') }}</label>
         <input class="input" type="password" v-model="password" autocomplete="new-password" required>
       </div>
       <div class="field">
-        <label class="label">Organisation</label>
+        <label class="label">{{ $t('auth.register.organisation') }}</label>
         <select class="select" v-model="orgId" required>
-          <option value="">— Select your organisation —</option>
+          <option value="">{{ $t('auth.register.org_placeholder') }}</option>
           <option v-for="org in orgs" :key="org.id" :value="org.id">
             {{ org.name }}{{ org.country_code ? ` (${org.country_code})` : '' }}
           </option>
@@ -134,55 +134,52 @@ async function handleSubmit() {
       <!-- Club — only meaningful once an org is picked. Lets you
            pick an existing club, create a new one inline, or skip. -->
       <div class="field" v-if="orgId">
-        <label class="label">Club</label>
+        <label class="label">{{ $t('auth.register.club') }}</label>
         <select class="select" v-model="clubChoice">
-          <option value="">— No club / independent —</option>
+          <option value="">{{ $t('auth.register.club_independent') }}</option>
           <option v-for="c in clubs" :key="c.id" :value="c.id">
             {{ c.name }}<template v-if="c.short_code"> ({{ c.short_code }})</template>
           </option>
-          <option value="new">+ Create a new club</option>
+          <option value="new">{{ $t('auth.register.club_new') }}</option>
         </select>
         <p v-if="!clubs.length && clubChoice !== 'new'" class="hint-line">
-          No clubs registered for this org yet. You can create one above.
+          {{ $t('auth.register.club_no_clubs') }}
         </p>
       </div>
 
       <!-- Inline new-club form — only when "Create a new club" is picked -->
       <div v-if="orgId && clubChoice === 'new'" class="field new-club-block">
         <div class="field">
-          <label class="label">New Club Name</label>
+          <label class="label">{{ $t('auth.register.new_club_name') }}</label>
           <input class="input" type="text" v-model="newClubName" placeholder="e.g. Sydney Springboard" required>
         </div>
         <div class="field">
-          <label class="label">Short Code (optional)</label>
+          <label class="label">{{ $t('auth.register.short_code_optional') }}</label>
           <input class="input" type="text" v-model="newClubCode" placeholder="e.g. SYD" maxlength="20">
         </div>
       </div>
 
       <div class="field">
-        <label class="label">I want to register as</label>
+        <label class="label">{{ $t('auth.register.requested_role') }}</label>
         <select class="select" v-model="requestedRole">
-          <option value="diver">Diver (default)</option>
-          <option value="judge">Judge</option>
-          <option value="referee">Referee</option>
-          <option value="meet_manager">Meet Manager</option>
-          <option value="">Spectator only</option>
+          <option value="diver">{{ $t('auth.register.role_default') }}</option>
+          <option value="judge">{{ $t('role.judge') }}</option>
+          <option value="referee">{{ $t('role.referee') }}</option>
+          <option value="meet_manager">{{ $t('role.manager') }}</option>
+          <option value="">{{ $t('auth.register.role_spectator') }}</option>
         </select>
       </div>
       <div class="field" v-if="requestedRole">
-        <label class="label">Note to org admin (optional)</label>
-        <input class="input" type="text" v-model="note" placeholder="e.g. I competed at nationals last year">
+        <label class="label">{{ $t('auth.register.note_label') }}</label>
+        <input class="input" type="text" v-model="note" :placeholder="$t('auth.register.note_placeholder')">
       </div>
-      <p class="note">
-        All accounts start as <strong style="color:var(--text)">Spectator</strong>. If you request a role above,
-        your org admin will review and approve it. You'll be able to log in immediately.
-      </p>
+      <p class="note">{{ $t('auth.register.spectator_note') }}</p>
       <div v-if="msg" :class="['msg', msgType === 'success' ? 'msg-success' : 'msg-error']">{{ msg }}</div>
       <button type="submit" class="btn btn-primary-lg" style="margin-top:0.25rem" :disabled="loading">
-        {{ loading ? 'Creating...' : 'Create Account' }}
+        {{ loading ? $t('auth.register.submit_loading') : $t('auth.register.submit_idle') }}
       </button>
     </form>
-    <p class="footer-link">Already have an account? <RouterLink to="/login">Sign in</RouterLink></p>
+    <p class="footer-link">{{ $t('auth.register.already_have_account') }} <RouterLink to="/login">{{ $t('auth.register.sign_in_link') }}</RouterLink></p>
   </div>
 </template>
 

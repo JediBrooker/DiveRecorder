@@ -127,7 +127,7 @@ watch([orgId, countryCode], () => {
   <div class="profile-wrap judges-directory">
     <div class="page-header">
       <div>
-        <div class="page-label">Judge Directory</div>
+        <div class="page-label">{{ $t('judges_directory.title') }}</div>
         <h1 class="page-title">Public Judge Analysis</h1>
         <p class="page-sub">
           Every judge in the system, with a transparent breakdown
@@ -147,7 +147,7 @@ watch([orgId, countryCode], () => {
       <div class="filter-fields">
         <label class="field">
           <span class="field-label">Search</span>
-          <input class="input" type="search" v-model="q" placeholder="Judge name…" @keydown.enter="applyFilters">
+          <input class="input" type="search" v-model="q" :placeholder="$t('judges_directory.search')" @keydown.enter="applyFilters">
         </label>
         <label v-if="orgs.length" class="field">
           <span class="field-label">Federation</span>
@@ -181,7 +181,7 @@ watch([orgId, countryCode], () => {
     <div v-if="error" class="msg msg-error" style="margin-bottom: 1rem">{{ error }}</div>
 
     <div v-if="loading && !rows.length" class="empty">Loading…</div>
-    <div v-else-if="!visibleRows.length" class="empty">No judges match those filters.</div>
+    <div v-else-if="!visibleRows.length" class="empty">{{ $t('judges_directory.no_judges_match') }}</div>
 
     <table v-else class="judges-table">
       <thead>

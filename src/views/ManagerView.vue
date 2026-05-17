@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { confirmAction } from '@/composables/useConfirm'
 import { showSuccess, showError } from '@/composables/useNotify'
@@ -10,6 +11,7 @@ import RoundDivesEditor from '@/components/manager/RoundDivesEditor.vue'
 import SponsorLogosManager from '@/components/manager/SponsorLogosManager.vue'
 import { filterStandardTemplates } from '@/lib/standard-templates'
 
+const { t } = useI18n()
 const auth = useAuthStore()
 
 const events = ref([])
@@ -1472,7 +1474,7 @@ onUnmounted(() => {
 
 <template>
   <div class="page-header">
-    <h1 style="font-size:32px;font-style:italic">Meet Manager</h1>
+    <h1 style="font-size:32px;font-style:italic">{{ $t('manager.title') }}</h1>
     <RouterLink to="/dashboard" class="btn btn-ghost">← Dashboard</RouterLink>
   </div>
 
@@ -1483,11 +1485,11 @@ onUnmounted(() => {
     <div class="manager-toolbar">
       <button type="button" class="btn btn-primary"
               @click="showCreateMeetModal = true">
-        + New Meet
+        + {{ $t('manager.new_meet') }}
       </button>
       <button type="button" class="btn btn-primary"
               @click="showCreateModal = true">
-        + New Event
+        + {{ $t('manager.new_event') }}
       </button>
     </div>
 
@@ -1981,11 +1983,9 @@ onUnmounted(() => {
              the operator clears the filter without confusion. -->
         <div v-if="!filteredManagerEvents.length && !events.length" class="empty-state-card">
           <div class="empty-state-icon">📅</div>
-          <div class="empty-state-title">No events yet</div>
+          <div class="empty-state-title">{{ $t('manager.empty_state_title') }}</div>
           <div class="empty-state-body">
-            Events are the heart of a meet — they hold the judges, the rounds,
-            the dive lists, and the scoring. Build your first one using the
-            <strong>New Event</strong> form on the left.
+            {{ $t('manager.empty_state_body') }}
           </div>
         </div>
         <div v-else-if="!filteredManagerEvents.length" class="empty">

@@ -1,12 +1,14 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter, RouterLink } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { diveDescription } from '@/composables/useDiveLabel'
 import { confirmAction } from '@/composables/useConfirm'
 import { showSuccess, showError } from '@/composables/useNotify'
 import { validateDiveList } from '@/lib/round-rules'
 
+const { t } = useI18n()
 const router = useRouter()
 const auth = useAuthStore()
 
@@ -648,7 +650,7 @@ watch(currentEvent, async (ev) => {
 
 <template>
   <div class="page-header">
-    <h1 style="font-size:32px;font-style:italic">Submit Dive List</h1>
+    <h1 style="font-size:32px;font-style:italic">{{ $t('competitor.page_label') }}</h1>
     <RouterLink to="/dashboard" class="btn btn-ghost">← Dashboard</RouterLink>
   </div>
 
@@ -792,7 +794,7 @@ watch(currentEvent, async (ev) => {
          navigate the dropdown. -->
     <div v-if="isSynchro" class="card">
       <label class="label" style="margin-bottom:0.75rem;display:block">
-        Step 1.5 — Pick Your Synchro Partner
+        {{ $t('competitor.synchro_partner') }}
       </label>
       <div class="partner-typeahead">
         <input
@@ -886,7 +888,7 @@ watch(currentEvent, async (ev) => {
           <div class="total-bar" style="padding:0.5rem 1rem;background:transparent;border:none">
             <div>
               <div class="total-value">{{ totalDD }}</div>
-              <div class="total-label">Total DD</div>
+              <div class="total-label">{{ $t('competitor.dd_total') }}</div>
             </div>
           </div>
         </div>
@@ -968,10 +970,10 @@ watch(currentEvent, async (ev) => {
                   : (roundRulesValidation && !roundRulesValidation.valid)
                     ? 'Resolve round-rule violations above before submitting'
                     : 'Submit your dive list for this event'">
-          {{ loading ? 'Submitting...'
+          {{ loading ? $t('competitor.saving')
              : !isCurrentEventOpen ? 'Entries closed'
-             : (roundRulesValidation && !roundRulesValidation.valid) ? 'Round rules not met'
-             : 'Finalise & Submit List' }}
+             : (roundRulesValidation && !roundRulesValidation.valid) ? $t('competitor.validate_warning')
+             : $t('competitor.submit_list') }}
         </button>
       </div>
     </div>

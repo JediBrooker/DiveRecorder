@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
 import { diveDescription } from '@/composables/useDiveLabel'
@@ -22,6 +23,7 @@ import {
   trimCount,
 } from '@/composables/useScoreCategories'
 
+const { t } = useI18n()
 const auth = useAuthStore()
 const socket = useSocket()
 const route = useRoute()
@@ -141,9 +143,9 @@ const sponsorBrandingOpen = ref(false)
 // real singleton, two listeners on connect/disconnect (the
 // composable's + this view's) would race.
 const meetName = ref('')
-const activeInfo = ref({ name: '—', code: '—', dd: 'DD —', desc: 'Select an event to begin.' })
+const activeInfo = ref({ name: '—', code: '—', dd: 'DD —', desc: t('control.no_event') })
 const nextBtnDisabled = ref(true)
-const nextBtnText = ref('Next Diver →')
+const nextBtnText = ref(t('control.next_diver') + ' →')
 const nextBtnComplete = ref(false)
 // Finalise button state — driven by event status + whether
 // the very last dive of the very last round has been scored.
@@ -178,7 +180,7 @@ const finaliseBtnShow = computed(() => {
   return false
 })
 const finaliseBtnText = computed(() =>
-  currentEvent.value?.status === 'Completed' ? 'View Results' : 'Finalise Event ✓',
+  currentEvent.value?.status === 'Completed' ? t('control.view_results') : t('control.finalise') + ' ✓',
 )
 const finaliseBtnTitle = computed(() =>
   currentEvent.value?.status === 'Completed'
@@ -2704,17 +2706,17 @@ function updateNextButton(allScoresIn) {
   const isLast = currentIndex.value >= roster.value.length - 1
   if (!allScoresIn) {
     nextBtnDisabled.value = true
-    nextBtnText.value = 'Next Diver →'
+    nextBtnText.value = t('control.next_diver') + ' →'
     nextBtnComplete.value = false
     return
   }
   if (isLast) {
     nextBtnDisabled.value = false
-    nextBtnText.value = '✓ Event Complete — Finalise & View Results'
+    nextBtnText.value = '✓ Event Complete — ' + t('control.finalise') + ' & ' + t('control.view_results')
     nextBtnComplete.value = true
   } else {
     nextBtnDisabled.value = false
-    nextBtnText.value = 'Next Diver →'
+    nextBtnText.value = t('control.next_diver') + ' →'
     nextBtnComplete.value = false
   }
 }
@@ -3094,7 +3096,7 @@ onUnmounted(() => {
           class="btn-hold btn-hold-active"
           @click="resumeMeet"
           v-tip="'Resume the meet (H)'"
-        >▶ Resume</button>
+        >▶ {{ $t('control.resume') }}</button>
         <!-- Overflow menu — secondary chrome that the operator
              touches infrequently. Clicking the ⋯ toggles a small
              popover; the global mousedown listener closes it on
@@ -3112,12 +3114,12 @@ onUnmounted(() => {
               v-if="currentEvent && currentEvent.status !== 'Completed' && !isHeld"
               class="dropdown-item"
               @click="openHoldPrompt(); headerMenuOpen = false"
-            >⏸ Hold meet</button>
+            >⏸ {{ $t('control.hold') }}</button>
             <button
               v-if="currentEvent && !opsBroadcast"
               class="dropdown-item"
               @click="broadcastChoiceOpen = true; headerMenuOpen = false"
-            >📺 Broadcast…</button>
+            >📺 {{ $t('control.broadcast_menu') }}</button>
             <!-- Sponsor branding — only when the current event
                  lives inside a meet (sponsor is meet-scoped). -->
             <button
@@ -3125,7 +3127,7 @@ onUnmounted(() => {
               class="dropdown-item"
               @click="sponsorBrandingOpen = true; headerMenuOpen = false"
               v-tip="'Upload / reorder / rotate sponsor logos for this meet.'"
-            >🎨 Sponsor branding…</button>
+            >🎨 {{ $t('control.sponsor_branding') }}</button>
             <!-- Finalise event early — only relevant during a
                  Live meet that hasn't reached its last dive. The
                  prominent header "Finalise Event ✓" button only
@@ -3923,7 +3925,7 @@ onUnmounted(() => {
                 <div v-if="adjustMenuOpen" class="dropdown-menu adjust-menu">
                   <button class="dropdown-item dropdown-item-danger"
                           @click="refAction('failed'); adjustMenuOpen = false">
-                    Failed Dive <span class="dropdown-item-hint"><kbd>F</kbd></span>
+                    {{ $t('control.fail') }} <span class="dropdown-item-hint"><kbd>F</kbd></span>
                   </button>
                   <button class="dropdown-item dropdown-item-amber"
                           @click="refAction('cap'); adjustMenuOpen = false">
@@ -3931,7 +3933,7 @@ onUnmounted(() => {
                   </button>
                   <button class="dropdown-item dropdown-item-cyan"
                           @click="refAction('redive'); adjustMenuOpen = false">
-                    Re-Dive <span class="dropdown-item-hint"><kbd>R</kbd></span>
+                    {{ $t('control.redive') }} <span class="dropdown-item-hint"><kbd>R</kbd></span>
                   </button>
                 </div>
               </div>
