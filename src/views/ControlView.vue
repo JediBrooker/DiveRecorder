@@ -14,6 +14,7 @@ import DiverIdentity from '@/components/DiverIdentity.vue'
 import StatusPill from '@/components/StatusPill.vue'
 import JudgeRankingTable from '@/components/JudgeRankingTable.vue'
 import ReadinessChecklist from '@/components/ReadinessChecklist.vue'
+import JudgePanelModal from '@/components/JudgePanelModal.vue'
 import SponsorLogosManager from '@/components/manager/SponsorLogosManager.vue'
 import {
   annotatedScores,
@@ -1238,6 +1239,23 @@ function openDiveOrderChecklistTarget() {
   })
 }
 
+// Judge-panel picker modal — opened from the readiness checklist's
+// "Judge panel seated" row when the panel isn't yet full. On save,
+// re-fetch /api/events/:id/judges so judgePanel.value updates and
+// the readiness check ticks green without a page refresh.
+const judgePanelModalOpen = ref(false)
+function openJudgePanelModal() {
+  if (!currentEvent.value) return
+  judgePanelModalOpen.value = true
+}
+async function refreshJudgePanel() {
+  if (!selectedEventId.value) return
+  try {
+    const data = await auth.apiFetch(`/api/events/${selectedEventId.value}/judges`)
+    judgePanel.value = Array.isArray(data) ? data : []
+  } catch { /* leave stale; the next event switch reloads */ }
+}
+
 const readinessItems = computed(() => {
   const ev = currentEvent.value
   const summary = preFlightSummary.value
@@ -1265,6 +1283,7 @@ const readinessItems = computed(() => {
       label: 'Judge panel seated',
       done: panelReady,
       hint: `${summary.judges.length}/${summary.judgeCount} seats filled`,
+      onFix: openJudgePanelModal,
     },
     {
       key: 'check_in',
@@ -3290,6 +3309,20 @@ onUnmounted(() => {
       <span class="hold-pulse">⏸ MEET ON HOLD</span>
       <span v-if="holdReason" class="hold-reason">{{ holdReason }}</span>
     </div>
+
+    <!-- Judge panel picker — opened from the readiness checklist
+         when the panel isn't yet full. Self-contained: loads its
+         own judge list, posts to /api/events/:id/judges, and on
+         save emits → refreshJudgePanel() so the readiness check
+         updates in place. -->
+    <JudgePanelModal
+      :open="judgePanelModalOpen"
+      :event-id="selectedEventId"
+      :panel-size="currentEvent?.number_of_judges || 5"
+      :event-name="currentEvent?.name || ''"
+      @close="judgePanelModalOpen = false"
+      @saved="refreshJudgePanel"
+    />
 
     <!-- Pre-flight review modal — final visual check before
          flipping the event Live. The four-step pre-meet stepper
