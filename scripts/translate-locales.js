@@ -46,6 +46,13 @@ const TARGET_LANGUAGES = {
   it: "Italian (standard Italian)",
   pt: "Portuguese (European Portuguese — Portugal)",
   pl: "Polish (standard Polish)",
+  ru: "Russian (standard Russian)",
+  uk: "Ukrainian (standard Ukrainian)",
+  fi: "Finnish (standard Finnish)",
+  sv: "Swedish (rikssvenska)",
+  da: "Danish (standard Danish)",
+  no: "Norwegian (bokmål)",
+  hu: "Hungarian (standard Hungarian)",
 };
 
 const args = process.argv.slice(2);

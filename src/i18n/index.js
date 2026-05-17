@@ -27,15 +27,29 @@ import de from '@/locales/de.json'
 import it from '@/locales/it.json'
 import pt from '@/locales/pt.json'
 import pl from '@/locales/pl.json'
+import ru from '@/locales/ru.json'
+import uk from '@/locales/uk.json'
+import fi from '@/locales/fi.json'
+import sv from '@/locales/sv.json'
+import da from '@/locales/da.json'
+import no from '@/locales/no.json'
+import hu from '@/locales/hu.json'
 
 export const SUPPORTED_LOCALES = [
-  { code: 'en', label: 'English',    flag: '🇬🇧' },
-  { code: 'es', label: 'Español',    flag: '🇪🇸' },
-  { code: 'fr', label: 'Français',   flag: '🇫🇷' },
-  { code: 'de', label: 'Deutsch',    flag: '🇩🇪' },
-  { code: 'it', label: 'Italiano',   flag: '🇮🇹' },
-  { code: 'pt', label: 'Português',  flag: '🇵🇹' },
-  { code: 'pl', label: 'Polski',     flag: '🇵🇱' },
+  { code: 'en', label: 'English',     flag: '🇬🇧' },
+  { code: 'es', label: 'Español',     flag: '🇪🇸' },
+  { code: 'fr', label: 'Français',    flag: '🇫🇷' },
+  { code: 'de', label: 'Deutsch',     flag: '🇩🇪' },
+  { code: 'it', label: 'Italiano',    flag: '🇮🇹' },
+  { code: 'pt', label: 'Português',   flag: '🇵🇹' },
+  { code: 'pl', label: 'Polski',      flag: '🇵🇱' },
+  { code: 'ru', label: 'Русский',     flag: '🇷🇺' },
+  { code: 'uk', label: 'Українська',  flag: '🇺🇦' },
+  { code: 'fi', label: 'Suomi',       flag: '🇫🇮' },
+  { code: 'sv', label: 'Svenska',     flag: '🇸🇪' },
+  { code: 'da', label: 'Dansk',       flag: '🇩🇰' },
+  { code: 'no', label: 'Norsk',       flag: '🇳🇴' },
+  { code: 'hu', label: 'Magyar',      flag: '🇭🇺' },
 ]
 
 export const FALLBACK_LOCALE = 'en'
@@ -64,7 +78,7 @@ const i18n = createI18n({
   // page-by-page. Re-enable once the dictionary is complete.
   missingWarn: false,
   fallbackWarn: false,
-  messages: { en, es, fr, de, it, pt, pl },
+  messages: { en, es, fr, de, it, pt, pl, ru, uk, fi, sv, da, no, hu },
 })
 
 // Public setter — every locale change goes through this so the
