@@ -605,6 +605,37 @@
       "judge_modal_blurb": "Saving the panel created new schedule conflicts. The save went through — review them in the scheduler when you have a moment.",
       "judge_modal_view": "View in scheduler",
       "judge_modal_dismiss": "Dismiss warning"
+    },
+    "edit": {
+      "toggle_on": "Edit mode",
+      "toggle_off": "Edit mode",
+      "toggle_hint_on": "Drag blocks to reorder, drag edges to resize, click an empty cell to insert.",
+      "toggle_hint_off": "Edit mode lets you drag, resize, insert, and delete blocks.",
+      "save_failed": "Couldn't save changes",
+      "delete_block": "Delete block",
+      "delete_confirm": "Delete this block?",
+      "delete_yes": "Delete",
+      "delete_no": "Keep",
+      "insert_title": "New block",
+      "insert_label_placeholder": "Label (optional)",
+      "insert_create": "Add",
+      "insert_cancel": "Cancel",
+      "insert_starts": "Starts",
+      "insert_ends": "Ends",
+      "duplicate": "Duplicate to next day",
+      "duplicate_title": "Duplicate session",
+      "duplicate_blurb": "Clone every block in this session to a new day. Boards and the session referee are preserved; event references are cleared so the new day can fill them in.",
+      "duplicate_target_label": "New session date",
+      "duplicate_confirm": "Duplicate",
+      "duplicate_cancel": "Cancel",
+      "duplicate_failed": "Couldn't duplicate session",
+      "snap_hint": "Hold Shift while dragging for 5-min precision (default snap: 30 min)."
+    },
+    "availability": {
+      "available": "Available",
+      "busy": "Busy until {time}",
+      "busy_with": "Busy until {time} ({label})",
+      "loading": "Checking availability…"
     }
   }
 }

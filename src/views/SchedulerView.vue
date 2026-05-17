@@ -1,11 +1,11 @@
 <script setup>
-// Session Scheduler — Phases 1 & 2.
+// Session Scheduler — Phases 1, 2 & 3.
 //
 // Phase 1 (already shipped): vertical timeline (30-min gridlines)
 // with one column per board, blocks anchored to their windows by
 // absolute positioning. Read-only — no drag, no resize, no insert.
 //
-// Phase 2 (this revision): conflict overlay + drawer.
+// Phase 2 (already shipped): conflict overlay + drawer.
 //   * Blocks participating in an active (non-dismissed) conflict
 //     pick up a coloured outline (red for hard, amber for soft)
 //     and a ⚠ marker, matching docs/session-scheduler.md §4.1.
@@ -18,16 +18,40 @@
 //     event and refetches /conflicts on receipt so multi-tab
 //     dismissals propagate live.
 //
-// Phases 3-4 (drag-to-edit, duplicate-session, live re-flow)
-// continue to extend this same file — the read-only positioning
-// in Phase 1 + 2 doesn't change in Phase 3 (only the affordances
-// on top of it do).
+// Phase 3 (this revision): manual edit + duplicate-session.
+//   * "Edit mode" toggle in the header. Default OFF — the read-
+//     only Phase 2 surface stays the entry experience. With edit
+//     mode ON, blocks become draggable (vertical = shift in time,
+//     horizontal = re-column to a different board) and resizable
+//     (top edge = starts_at, bottom edge = ends_at). 30-min snap
+//     by default, 5-min when Shift is held.
+//   * Click an empty cell in edit mode → inline "insert" form
+//     pre-populated with the clicked board column and the snapped
+//     half-hour. Submit → POST /api/sessions/:id/blocks → block
+//     appears with its conflict warnings inline.
+//   * Hover a block in edit mode → small × button in the corner.
+//     Confirms inline ("Delete this block?") then DELETE
+//     /api/blocks/:id.
+//   * Every successful write surfaces the conflicts the API
+//     returned: the block flashes red/amber for a second and the
+//     conflict list rolls into the drawer on the next refetch.
+//   * "Duplicate to next day" button on each session header
+//     (visible only in edit mode). Opens a small modal with a
+//     date picker pre-filled to session_date + 1 day; on confirm
+//     POSTs /api/sessions/:id/duplicate and the new session
+//     appears as a fresh row.
+//   * Subscribes to schedule:block_updated, schedule:block_deleted
+//     and schedule:session_duplicated so multi-tab edits propagate.
+//
+// Phase 4 (live re-flow) will continue to extend this file when
+// its turn comes.
 
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
+import { useBlockDrag } from '@/composables/useBlockDrag'
 
 const route = useRoute()
 const { t } = useI18n()
@@ -63,6 +87,37 @@ const highlightBlockId = ref(null)  // block to flash when "Jump to block"
 const PIXELS_PER_MINUTE = 1.6
 const MINUTES_PER_GRIDLINE = 30
 const GRIDLINE_HEIGHT = PIXELS_PER_MINUTE * MINUTES_PER_GRIDLINE
+
+// Phase 3 — edit-mode state.
+const editMode = ref(false)
+const LS_EDIT_MODE = 'scheduler.editMode'
+watch(editMode, (v) => writePref(LS_EDIT_MODE, v))
+
+// Per-block flash-after-save signal. Holds the block id of the
+// row that should briefly pulse red/amber based on whether it
+// landed in a hard or soft conflict. Cleared on a timer below.
+const editFlashBlockId = ref(null)
+const editFlashSeverity = ref(null)
+const editSaveError = ref('')
+
+// Inline insert form state. Stores the clicked slot {sessionId,
+// startsIso, endsIso, boardIds} until the operator either fills
+// in the form (POST) or hits Cancel.
+const insertForm = ref(null) // { sessionId, block_type, label, starts_at, ends_at, board_ids }
+const insertSaving = ref(false)
+const insertError = ref('')
+
+// Hover-confirm delete state. Mirrors the per-conflict dismiss
+// inline form pattern — the small × button on each block flips
+// pendingDeleteId to that block, the operator confirms inline.
+const pendingDeleteId = ref(null)
+const deleteSaving = ref(false)
+
+// Duplicate-session modal state.
+const duplicateOpen = ref(null) // session object or null
+const duplicateDate = ref('')
+const duplicateSaving = ref(false)
+const duplicateError = ref('')
 
 // LocalStorage keys for the QoL prefs. Mirrors the locale-switcher
 // pattern in src/i18n/index.js — a single namespace, one key per
@@ -127,6 +182,7 @@ watch(() => route.params.meetId, () => load(), { immediate: true })
 onMounted(() => {
   drawerOpen.value = readPref(LS_DRAWER_OPEN, false)
   showDismissed.value = readPref(LS_SHOW_DISMISSED, false)
+  editMode.value = readPref(LS_EDIT_MODE, false)
   if (meetId.value) load()
 })
 
@@ -139,9 +195,25 @@ function onConflictDismissed(payload) {
   if (payload.meet_id && payload.meet_id !== meetId.value) return
   loadConflicts()
 }
+// Phase 3 — broadcast events from manual edits in other tabs.
+// We refetch the whole /sessions payload rather than splicing
+// in deltas because the absolute-positioning math depends on
+// the session window (earliest → latest) and a single moved
+// block can shift it.
+function onScheduleChanged(payload) {
+  if (!payload || !meetId.value) return
+  if (payload.meet_id && payload.meet_id !== meetId.value) return
+  load()
+}
 socket.on('schedule:conflict_dismissed', onConflictDismissed)
+socket.on('schedule:block_updated', onScheduleChanged)
+socket.on('schedule:block_deleted', onScheduleChanged)
+socket.on('schedule:session_duplicated', onScheduleChanged)
 onUnmounted(() => {
   socket.off('schedule:conflict_dismissed', onConflictDismissed)
+  socket.off('schedule:block_updated', onScheduleChanged)
+  socket.off('schedule:block_deleted', onScheduleChanged)
+  socket.off('schedule:session_duplicated', onScheduleChanged)
 })
 
 // The .ics URL is a same-origin path so the browser can hand it
@@ -404,6 +476,286 @@ async function undismiss(c) {
     conflictsError.value = err.message || t('scheduler.conflicts.load_failed')
   }
 }
+
+// -----------------------------------------------------------------
+// Phase 3 — manual edit
+// -----------------------------------------------------------------
+
+// Flash the just-edited block red/amber for ~1.4s. Severity comes
+// off the conflicts the API returned — hard wins over soft. We
+// pick the severity off the inline `conflicts` subset rather than
+// re-reading the global map because the global map only updates
+// after the next /conflicts poll.
+function flashBlock(blockId, returnedConflicts) {
+  if (!blockId) return
+  let severity = null
+  for (const c of (returnedConflicts || [])) {
+    if (c.severity === 'hard') { severity = 'hard'; break }
+    if (c.severity === 'soft') severity = 'soft'
+  }
+  editFlashBlockId.value = blockId
+  editFlashSeverity.value = severity
+  setTimeout(() => {
+    if (editFlashBlockId.value === blockId) {
+      editFlashBlockId.value = null
+      editFlashSeverity.value = null
+    }
+  }, 1400)
+}
+
+// Apply a server-returned block row to the local sessions ref
+// without re-fetching the whole payload. Used by drag-save and
+// inline-insert so the operator sees their edit land instantly;
+// the socket-driven refetch comes second and reconciles anything
+// the server might have normalised.
+function applyBlockUpdate(block) {
+  if (!block) return
+  for (const session of sessions.value) {
+    if (session.id !== block.session_id) continue
+    const idx = (session.blocks || []).findIndex((b) => b.id === block.id)
+    if (idx >= 0) {
+      session.blocks.splice(idx, 1, block)
+    } else {
+      session.blocks = (session.blocks || []).concat([block])
+      session.blocks.sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))
+    }
+    return
+  }
+}
+
+// Column → board_ids resolver. Given a clientX, walk every visible
+// timeline body to figure out which column the pointer is over.
+// Returns the new board_ids array for the dragged block, or null
+// when the pointer is outside any session timeline.
+function resolveColumnAtX(clientX, _dxPx, block) {
+  if (!boards.value.length) return null
+  // The drag may have started on a block in one session timeline
+  // and the operator may have dragged horizontally across another.
+  // We constrain re-column to the session that owns the block —
+  // dragging across sessions isn't supported in Phase 3 (see the
+  // design doc §2 "NOT in Phase 3" note in the brief).
+  const session = sessions.value.find((s) => s.blocks?.some((b) => b.id === block.id))
+  if (!session) return null
+  const body = document.querySelector(`[data-session-body="${session.id}"]`)
+  if (!body) return null
+  const rect = body.getBoundingClientRect()
+  if (clientX < rect.left || clientX > rect.right) return null
+  const colWidth = rect.width / boards.value.length
+  const idx = Math.min(
+    boards.value.length - 1,
+    Math.max(0, Math.floor((clientX - rect.left) / colWidth)),
+  )
+  return [boards.value[idx].id]
+}
+
+async function commitBlockEdit({ block, patch }) {
+  editSaveError.value = ''
+  try {
+    const body = await auth.apiFetch(`/api/blocks/${block.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    })
+    if (body?.block) applyBlockUpdate(body.block)
+    flashBlock(block.id, body?.conflicts)
+    // The socket emit triggers a global refetch on every tab; we
+    // also poke the conflicts list here so this tab updates the
+    // drawer count without waiting for the next socket round-trip.
+    await loadConflicts()
+  } catch (err) {
+    editSaveError.value = err.message || t('scheduler.edit.save_failed')
+    // Roll back the optimistic apply by reloading from the server.
+    await load()
+  }
+}
+
+// One drag composable per timeline session — but a single
+// composable works for the entire page because the resolver and
+// commit callbacks both look up the relevant session via the
+// block's id. The factory is invoked once at script init so the
+// reactive `dragState` is shared across all blocks.
+const dragger = useBlockDrag({
+  pixelsPerMinute: PIXELS_PER_MINUTE,
+  defaultSnapMinutes: MINUTES_PER_GRIDLINE,
+  fineSnapMinutes: 5,
+  resolveColumnAtX,
+  commit: commitBlockEdit,
+})
+// Re-expose the reactive ref at the top level of the setup
+// scope. Vue's template auto-unwrap only walks top-level refs
+// (not nested ones inside an object), so binding `dragState`
+// here lets the template reference the unwrapped value via
+// `dragState` without `.value`.
+const dragState = dragger.dragState
+
+function blockStyleWithPreview(block, session) {
+  // When this block is being dragged, render its preview window
+  // instead of its persisted one so the operator gets immediate
+  // visual feedback. Otherwise fall back to Phase 1 geometry.
+  const preview = dragger.dragState.value
+  if (preview && preview.blockId === block.id) {
+    return blockStyle({
+      ...block,
+      starts_at: preview.preview.starts_at,
+      ends_at: preview.preview.ends_at,
+      board_ids: preview.preview.board_ids ?? block.board_ids,
+    }, session)
+  }
+  return blockStyle(block, session)
+}
+
+// Click handler on the grid body. In edit mode an empty-cell
+// click → open the inline insert form pre-filled with the
+// half-hour slot under the cursor and the board column the click
+// landed in. We ignore clicks that land inside an existing block
+// (the block stops propagation in its mousedown handler) and the
+// no-boards case (operator has no columns to fill in yet).
+function onGridClick(e, session) {
+  if (!editMode.value) return
+  if (!boards.value.length) return
+  // The block's mousedown handler stops propagation, so a click
+  // that bubbles to the grid body is definitively on empty space.
+  const body = e.currentTarget
+  const rect = body.getBoundingClientRect()
+  const offsetMin = Math.max(0, (e.clientY - rect.top) / PIXELS_PER_MINUTE)
+  // Round DOWN to the start of the clicked half-hour — feels more
+  // natural ("click 10:42 → 10:30 block") than round-to-nearest.
+  const snappedMin = Math.floor(offsetMin / MINUTES_PER_GRIDLINE) * MINUTES_PER_GRIDLINE
+  const win = sessionWindow(session)
+  if (!win) return
+  const startsMs = win.start.getTime() + snappedMin * 60 * 1000
+  const endsMs = startsMs + MINUTES_PER_GRIDLINE * 60 * 1000
+
+  const colWidth = rect.width / boards.value.length
+  const colIdx = Math.min(
+    boards.value.length - 1,
+    Math.max(0, Math.floor((e.clientX - rect.left) / colWidth)),
+  )
+
+  insertForm.value = {
+    sessionId: session.id,
+    block_type: 'custom',
+    label: '',
+    starts_at: new Date(startsMs).toISOString(),
+    ends_at: new Date(endsMs).toISOString(),
+    board_ids: [boards.value[colIdx].id],
+  }
+  insertError.value = ''
+}
+
+function cancelInsert() {
+  insertForm.value = null
+  insertError.value = ''
+}
+
+async function confirmInsert() {
+  if (!insertForm.value) return
+  insertSaving.value = true
+  insertError.value = ''
+  try {
+    const body = await auth.apiFetch(`/api/sessions/${insertForm.value.sessionId}/blocks`, {
+      method: 'POST',
+      body: JSON.stringify({
+        block_type: insertForm.value.block_type,
+        label: insertForm.value.label || null,
+        starts_at: insertForm.value.starts_at,
+        ends_at: insertForm.value.ends_at,
+        board_ids: insertForm.value.board_ids,
+      }),
+    })
+    if (body?.block) applyBlockUpdate(body.block)
+    flashBlock(body?.block?.id, body?.conflicts)
+    insertForm.value = null
+    await loadConflicts()
+  } catch (err) {
+    insertError.value = err.message || t('scheduler.edit.save_failed')
+  } finally {
+    insertSaving.value = false
+  }
+}
+
+function requestDelete(blockId, e) {
+  if (e) {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+  pendingDeleteId.value = blockId
+}
+function cancelDelete() {
+  pendingDeleteId.value = null
+}
+async function confirmDelete(blockId) {
+  deleteSaving.value = true
+  try {
+    await auth.apiFetch(`/api/blocks/${blockId}`, { method: 'DELETE' })
+    // Drop the block locally for instant feedback; the socket
+    // refetch reconciles a moment later.
+    for (const session of sessions.value) {
+      const before = session.blocks?.length || 0
+      session.blocks = (session.blocks || []).filter((b) => b.id !== blockId)
+      if (session.blocks.length !== before) break
+    }
+    pendingDeleteId.value = null
+    await loadConflicts()
+  } catch (err) {
+    editSaveError.value = err.message || t('scheduler.edit.save_failed')
+  } finally {
+    deleteSaving.value = false
+  }
+}
+
+// Duplicate-session modal.
+function openDuplicate(session) {
+  // Pre-fill the date picker with session_date + 1 day so the
+  // common-case "shift everything forward 24h for tomorrow"
+  // flow is a single click.
+  const baseDay = session.session_date
+    ? new Date(session.session_date)
+    : new Date()
+  baseDay.setUTCDate(baseDay.getUTCDate() + 1)
+  duplicateDate.value = baseDay.toISOString().slice(0, 10)
+  duplicateError.value = ''
+  duplicateOpen.value = session
+}
+function cancelDuplicate() {
+  duplicateOpen.value = null
+  duplicateError.value = ''
+}
+async function confirmDuplicate() {
+  if (!duplicateOpen.value) return
+  duplicateSaving.value = true
+  duplicateError.value = ''
+  try {
+    const body = await auth.apiFetch(
+      `/api/sessions/${duplicateOpen.value.id}/duplicate`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ target_date: duplicateDate.value }),
+      },
+    )
+    duplicateOpen.value = null
+    // Splice the new session in; the socket emit will round-trip
+    // the same set on every other tab.
+    if (body?.session) {
+      sessions.value = [...sessions.value, body.session].sort(
+        (a, b) => new Date(a.session_date) - new Date(b.session_date),
+      )
+      // Best-effort scroll to the new session so the operator sees
+      // it appear rather than having to scroll the page.
+      nextTick(() => {
+        const el = document.querySelector(`[data-session-id="${body.session.id}"]`)
+        if (el?.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    } else {
+      // Fallback: full reload if the server didn't return the row.
+      await load()
+    }
+    await loadConflicts()
+  } catch (err) {
+    duplicateError.value = err.message || t('scheduler.edit.duplicate_failed')
+  } finally {
+    duplicateSaving.value = false
+  }
+}
 </script>
 
 <template>
@@ -426,6 +778,10 @@ async function undismiss(c) {
             {{ $t('scheduler.conflicts.open_drawer_clean') }}
           </span>
         </button>
+        <label class="scheduler-edit-toggle" :title="editMode ? $t('scheduler.edit.toggle_hint_on') : $t('scheduler.edit.toggle_hint_off')">
+          <input type="checkbox" v-model="editMode">
+          <span>{{ editMode ? $t('scheduler.edit.toggle_on') : $t('scheduler.edit.toggle_off') }}</span>
+        </label>
         <div class="scheduler-ics">
           <a :href="webcalUrl" class="btn btn-ghost btn-sm">
             {{ $t('scheduler.subscribe_ics') }}
@@ -437,6 +793,11 @@ async function undismiss(c) {
       </div>
     </div>
 
+    <div v-if="editMode" class="scheduler-edit-hint">
+      {{ $t('scheduler.edit.snap_hint') }}
+      <span v-if="editSaveError" class="scheduler-edit-error">— {{ editSaveError }}</span>
+    </div>
+
     <h1 class="scheduler-title">{{ $t('scheduler.title') }}</h1>
     <p class="scheduler-sub">{{ $t('scheduler.subtitle') }}</p>
 
@@ -446,13 +807,26 @@ async function undismiss(c) {
       {{ $t('scheduler.empty') }}
     </div>
 
-    <section v-for="session in sessions" :key="session.id" class="scheduler-session">
+    <section
+      v-for="session in sessions"
+      :key="session.id"
+      class="scheduler-session"
+      :data-session-id="session.id"
+    >
       <div class="scheduler-session-head">
         <div class="scheduler-session-title">{{ session.name }}</div>
         <div class="scheduler-session-meta">
           {{ formatDate(session.session_date) }}
           <span v-if="session.pool"> · {{ session.pool }}</span>
         </div>
+        <button
+          v-if="editMode"
+          type="button"
+          class="btn btn-ghost btn-sm scheduler-session-duplicate"
+          @click="openDuplicate(session)"
+        >
+          {{ $t('scheduler.edit.duplicate') }}
+        </button>
       </div>
 
       <div v-if="!session.blocks || !session.blocks.length" class="scheduler-status">
@@ -490,7 +864,10 @@ async function undismiss(c) {
 
           <div
             class="scheduler-grid-body"
+            :class="{ 'is-edit-mode': editMode }"
+            :data-session-body="session.id"
             :style="{ height: `${timelineHeight(session)}px` }"
+            @click="onGridClick($event, session)"
           >
             <!-- Gridlines: one absolutely-positioned hairline per
                  30-min boundary so the operator can eyeball any
@@ -522,10 +899,30 @@ async function undismiss(c) {
                 conflictSeverityForBlock(block.id) === 'hard' ? 'has-conflict-hard' : '',
                 conflictSeverityForBlock(block.id) === 'soft' ? 'has-conflict-soft' : '',
                 highlightBlockId === block.id ? 'is-highlighted' : '',
+                editFlashBlockId === block.id && editFlashSeverity === 'hard' ? 'is-flash-hard' : '',
+                editFlashBlockId === block.id && editFlashSeverity === 'soft' ? 'is-flash-soft' : '',
+                editFlashBlockId === block.id && !editFlashSeverity ? 'is-flash-ok' : '',
+                editMode ? 'is-editable' : '',
+                dragState && dragState.blockId === block.id ? 'is-dragging' : '',
               ]"
-              :style="blockStyle(block, session)"
+              :style="blockStyleWithPreview(block, session)"
               v-tip="block.notes || ''"
+              @mousedown="editMode ? dragger.startMove($event, block) : null"
             >
+              <!-- Resize handles (top + bottom) are only mounted in
+                   edit mode so they don't capture pointer events
+                   on the read-only surface. -->
+              <div
+                v-if="editMode"
+                class="scheduler-block-handle handle-top"
+                @mousedown.stop="dragger.startResizeTop($event, block)"
+              ></div>
+              <div
+                v-if="editMode"
+                class="scheduler-block-handle handle-bottom"
+                @mousedown.stop="dragger.startResizeBottom($event, block)"
+              ></div>
+
               <div class="scheduler-block-time">
                 {{ formatTime(block.starts_at) }} – {{ formatTime(block.ends_at) }}
               </div>
@@ -542,11 +939,110 @@ async function undismiss(c) {
               <div v-if="block.event_name && block.event_name !== block.label" class="scheduler-block-sub">
                 {{ block.event_name }}
               </div>
+
+              <!-- Edit-mode delete affordance. Visible on hover via
+                   .scheduler-block:hover .scheduler-block-delete in
+                   the stylesheet below. -->
+              <template v-if="editMode">
+                <button
+                  v-if="pendingDeleteId !== block.id"
+                  type="button"
+                  class="scheduler-block-delete"
+                  :aria-label="$t('scheduler.edit.delete_block')"
+                  @click.stop="requestDelete(block.id, $event)"
+                  @mousedown.stop
+                >✕</button>
+                <div
+                  v-else
+                  class="scheduler-block-delete-confirm"
+                  @click.stop
+                  @mousedown.stop
+                >
+                  <span>{{ $t('scheduler.edit.delete_confirm') }}</span>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-xs"
+                    :disabled="deleteSaving"
+                    @click.stop="cancelDelete"
+                  >{{ $t('scheduler.edit.delete_no') }}</button>
+                  <button
+                    type="button"
+                    class="btn btn-primary btn-xs"
+                    :disabled="deleteSaving"
+                    @click.stop="confirmDelete(block.id)"
+                  >{{ $t('scheduler.edit.delete_yes') }}</button>
+                </div>
+              </template>
             </div>
           </div>
         </div>
       </div>
     </section>
+
+    <!-- Inline insert form. Mounted at page level rather than per-
+         session so it can overlay any timeline. The form's session
+         id pins it to the right session. -->
+    <div v-if="insertForm" class="scheduler-insert-backdrop" @click.self="cancelInsert">
+      <div class="scheduler-insert-card" @click.stop>
+        <div class="scheduler-insert-title">{{ $t('scheduler.edit.insert_title') }}</div>
+        <label class="scheduler-insert-row">
+          <span>Type</span>
+          <select v-model="insertForm.block_type" class="input">
+            <option value="warmup">{{ $t('scheduler.block_type.warmup') }}</option>
+            <option value="event_start">{{ $t('scheduler.block_type.event_start') }}</option>
+            <option value="break">{{ $t('scheduler.block_type.break') }}</option>
+            <option value="ceremony">{{ $t('scheduler.block_type.ceremony') }}</option>
+            <option value="custom">{{ $t('scheduler.block_type.custom') }}</option>
+          </select>
+        </label>
+        <label class="scheduler-insert-row">
+          <span>Label</span>
+          <input
+            class="input"
+            type="text"
+            v-model="insertForm.label"
+            :placeholder="$t('scheduler.edit.insert_label_placeholder')"
+          >
+        </label>
+        <div class="scheduler-insert-window">
+          {{ $t('scheduler.edit.insert_starts') }}
+          {{ formatTime(insertForm.starts_at) }}
+          —
+          {{ $t('scheduler.edit.insert_ends') }}
+          {{ formatTime(insertForm.ends_at) }}
+        </div>
+        <div v-if="insertError" class="msg msg-error">{{ insertError }}</div>
+        <div class="scheduler-insert-actions">
+          <button type="button" class="btn btn-ghost btn-sm" :disabled="insertSaving" @click="cancelInsert">
+            {{ $t('scheduler.edit.insert_cancel') }}
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" :disabled="insertSaving" @click="confirmInsert">
+            {{ $t('scheduler.edit.insert_create') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Duplicate-session modal -->
+    <div v-if="duplicateOpen" class="scheduler-insert-backdrop" @click.self="cancelDuplicate">
+      <div class="scheduler-insert-card" @click.stop>
+        <div class="scheduler-insert-title">{{ $t('scheduler.edit.duplicate_title') }}</div>
+        <p class="scheduler-insert-blurb">{{ $t('scheduler.edit.duplicate_blurb') }}</p>
+        <label class="scheduler-insert-row">
+          <span>{{ $t('scheduler.edit.duplicate_target_label') }}</span>
+          <input class="input" type="date" v-model="duplicateDate">
+        </label>
+        <div v-if="duplicateError" class="msg msg-error">{{ duplicateError }}</div>
+        <div class="scheduler-insert-actions">
+          <button type="button" class="btn btn-ghost btn-sm" :disabled="duplicateSaving" @click="cancelDuplicate">
+            {{ $t('scheduler.edit.duplicate_cancel') }}
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" :disabled="duplicateSaving" @click="confirmDuplicate">
+            {{ $t('scheduler.edit.duplicate_confirm') }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- =========================================================
          Conflicts drawer — Phase 2.
@@ -1106,5 +1602,186 @@ async function undismiss(c) {
     max-height: 60vh;
     border-radius: 8px 8px 0 0;
   }
+}
+
+/* ----- Phase 3 — edit mode ----- */
+.scheduler-edit-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 12px;
+  color: var(--muted, #ccc);
+  cursor: pointer;
+  user-select: none;
+}
+.scheduler-edit-hint {
+  margin: 0 0 0.75rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 12px;
+  color: var(--muted, #aaa);
+  background: var(--panel-elev, #222);
+  border: 1px dashed var(--border, #444);
+  border-radius: 4px;
+}
+.scheduler-edit-error {
+  color: var(--red, #c33);
+  font-weight: 600;
+  margin-left: 0.25rem;
+}
+
+.scheduler-session-head {
+  position: relative;
+}
+.scheduler-session-duplicate {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.75rem;
+}
+
+.scheduler-grid-body.is-edit-mode {
+  cursor: crosshair;
+}
+.scheduler-block.is-editable {
+  cursor: grab;
+}
+.scheduler-block.is-editable.is-dragging {
+  cursor: grabbing;
+  opacity: 0.85;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+}
+
+.scheduler-block-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: ns-resize;
+  z-index: 2;
+  background: transparent;
+}
+.scheduler-block-handle.handle-top    { top: -3px; }
+.scheduler-block-handle.handle-bottom { bottom: -3px; }
+.scheduler-block.is-editable .scheduler-block-handle:hover {
+  background: rgba(76, 187, 204, 0.5);
+}
+
+/* Brief flash after a successful save — distinct from the persistent
+   outline applied by .has-conflict-* so the operator can see "I just
+   touched this and it landed in a conflict" even when the block was
+   already outlined for a different reason. */
+@keyframes scheduler-flash-hard {
+  0%   { box-shadow: 0 0 0 3px rgba(204, 51, 51, 0.9); }
+  100% { box-shadow: 0 0 0 0 rgba(204, 51, 51, 0); }
+}
+@keyframes scheduler-flash-soft {
+  0%   { box-shadow: 0 0 0 3px rgba(221, 153, 0, 0.9); }
+  100% { box-shadow: 0 0 0 0 rgba(221, 153, 0, 0); }
+}
+@keyframes scheduler-flash-ok {
+  0%   { box-shadow: 0 0 0 3px rgba(76, 187, 204, 0.9); }
+  100% { box-shadow: 0 0 0 0 rgba(76, 187, 204, 0); }
+}
+.scheduler-block.is-flash-hard { animation: scheduler-flash-hard 1.4s ease-out; }
+.scheduler-block.is-flash-soft { animation: scheduler-flash-soft 1.4s ease-out; }
+.scheduler-block.is-flash-ok   { animation: scheduler-flash-ok 1.4s ease-out; }
+
+/* Delete affordance — only visible on hover so the read-only view
+   in edit-off mode is byte-identical to Phase 2. */
+.scheduler-block-delete {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-elev, #222);
+  border: 1px solid var(--border, #555);
+  color: var(--red, #c33);
+  border-radius: 50%;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  z-index: 3;
+}
+.scheduler-block.is-editable:hover .scheduler-block-delete {
+  display: inline-flex;
+}
+.scheduler-block-delete-confirm {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: var(--panel-elev, #222);
+  border: 1px solid var(--border, #555);
+  border-radius: 4px;
+  padding: 2px 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  z-index: 3;
+  cursor: default;
+}
+.btn.btn-xs {
+  font-size: 10px;
+  padding: 2px 6px;
+  line-height: 1.2;
+}
+
+/* Insert + duplicate modal. Shared backdrop because they're never
+   open at the same time and the visual treatment matches. */
+.scheduler-insert-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.scheduler-insert-card {
+  background: var(--panel, #1a1a1a);
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  padding: 1.25rem;
+  min-width: 320px;
+  max-width: 440px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+}
+.scheduler-insert-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+.scheduler-insert-blurb {
+  font-size: 12px;
+  color: var(--muted, #aaa);
+  margin: 0 0 0.75rem;
+}
+.scheduler-insert-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 12px;
+}
+.scheduler-insert-row > span {
+  min-width: 70px;
+  color: var(--muted, #aaa);
+}
+.scheduler-insert-row .input {
+  flex: 1 1 auto;
+}
+.scheduler-insert-window {
+  font-size: 12px;
+  color: var(--muted, #aaa);
+  margin: 0.5rem 0;
+}
+.scheduler-insert-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
 }
 </style>

@@ -1,20 +1,39 @@
-// Sessions / Schedule routes — Phases 1 & 2.
+// Sessions / Schedule routes — Phases 1, 2 & 3.
 //
-//   GET    /api/meets/:meetId/sessions          sessions + inlined blocks (P1)
-//   GET    /api/meets/:meetId/schedule.ics      iCal feed, public (P1)
-//   GET    /api/meets/:meetId/conflicts         conflict report (P2)
-//   POST   /api/conflicts/dismiss               dismiss a conflict (P2, auth)
-//   DELETE /api/conflicts/dismiss/:id           un-dismiss a conflict (P2, auth)
+//   GET    /api/meets/:meetId/sessions               sessions + inlined blocks (P1)
+//   GET    /api/meets/:meetId/schedule.ics           iCal feed, public (P1)
+//   GET    /api/meets/:meetId/conflicts              conflict report (P2)
+//   POST   /api/conflicts/dismiss                    dismiss a conflict (P2, auth)
+//   DELETE /api/conflicts/dismiss/:id                un-dismiss a conflict (P2, auth)
+//   PUT    /api/sessions/:id                         edit session metadata (P3, auth)
+//   POST   /api/sessions/:id/duplicate               clone forward one day (P3, auth)
+//   POST   /api/sessions/:sessionId/blocks           insert a block (P3, auth)
+//   PUT    /api/blocks/:id                           edit a block (P3, auth)
+//   DELETE /api/blocks/:id                           delete a block (P3, auth)
+//   GET    /api/meets/:meetId/judges/availability    availability hint (P3)
 //
 // Phase 1 shipped the read-only timeline and the iCal feed. Phase 2
-// (this layer) adds the conflict detector + per-conflict dismissal
-// ledger described in docs/session-scheduler.md §5. The schema for
-// dismissed_conflicts was already created by migration 049, so
-// Phase 2 is API + lib only — no new migration.
+// added conflict detection + per-conflict dismissal (§5). Phase 3
+// (this layer) lights up manual editing per §2 of the design doc:
+// drag-to-reorder / resize / insert / delete on the timeline, the
+// "Duplicate to next day" action (§8.4), and a schedule-aware judge
+// availability hint backing the panel picker. The schema for all of
+// this was already created by migration 049, so Phase 3 is API + UI
+// only — no new migration.
 //
-// Phase 3 (drag-to-edit, duplicate-session) and Phase 4 (live
-// re-flow) will continue to extend this same file when their turn
-// comes; the data model is already in place for them.
+// EDIT-PATH CONFLICT RETURN
+// -------------------------
+// Every write that changes a block's window / boards / event /
+// session re-runs detectConflicts(meetId) and filters the result to
+// conflicts involving the just-touched block. We hand that subset
+// back inline so the front-end can flash the block and surface the
+// new entries in the drawer without a separate refetch round-trip.
+// The full /api/meets/:meetId/conflicts list still rebuilds on the
+// next drawer poll — the inline subset is a UX latency win, not a
+// new source of truth.
+//
+// Phase 4 (live re-flow) will continue to extend this file when its
+// turn comes; the schedule_block_shifts ledger is already in place.
 //
 // SEEDING
 // -------
@@ -548,6 +567,765 @@ module.exports = function createSessionsRouter({
       res.status(500).json({ error: "Internal server error" });
     } finally {
       client.release();
+    }
+  });
+
+  // -------------------------------------------------------------
+  // Phase 3 helpers
+  // -------------------------------------------------------------
+
+  // Pull a fresh inlined block row (event_name / event_height joined
+  // in the same shape as the GET /sessions payload). Used by the
+  // edit + insert endpoints to return the canonical post-write row
+  // without making the caller re-fetch the full session.
+  async function fetchBlockById(client, blockId) {
+    const r = await client.query(
+      `SELECT b.id, b.session_id, b.block_type, b.label,
+              b.starts_at, b.ends_at, b.board_ids, b.event_id,
+              b.actual_start_at, b.actual_end_at, b.notes,
+              b.created_at, b.updated_at,
+              e.name AS event_name, e.height AS event_height
+         FROM schedule_blocks b
+         LEFT JOIN events e ON e.id = b.event_id
+        WHERE b.id = $1`,
+      [blockId],
+    );
+    return r.rows[0] || null;
+  }
+
+  // Resolve the meet_id for a block via its session. Used to scope
+  // the post-write conflict re-detection and the socket emit.
+  async function meetIdForBlock(client, blockId) {
+    const r = await client.query(
+      `SELECT s.meet_id
+         FROM schedule_blocks b
+         JOIN sessions s ON s.id = b.session_id
+        WHERE b.id = $1`,
+      [blockId],
+    );
+    return r.rows[0]?.meet_id || null;
+  }
+  async function meetIdForSession(client, sessionId) {
+    const r = await client.query(
+      `SELECT meet_id FROM sessions WHERE id = $1`,
+      [sessionId],
+    );
+    return r.rows[0]?.meet_id || null;
+  }
+
+  // Run the conflict detector then filter to just the entries that
+  // mention `blockId`. Tolerates a missing detector return (empty
+  // array) so a downstream change to the detector shape doesn't
+  // break the write path.
+  async function conflictsTouchingBlock(client, meetId, blockId) {
+    try {
+      const all = await detectConflicts(meetId, client);
+      return all.filter(
+        (c) => c.block_a?.id === blockId || c.block_b?.id === blockId,
+      );
+    } catch (err) {
+      // Never let a detector failure roll back a successful write —
+      // the operator can still inspect the drawer to see conflicts.
+      console.error("[conflictsTouchingBlock]", err.message);
+      return [];
+    }
+  }
+
+  // board_ids comes in as an array of uuid strings (or null). We
+  // validate every entry is a uuid-shaped string and that all board
+  // ids resolve to non-archived rows in the org that owns the
+  // session's meet. Returns the cleaned uuid[] (deduplicated,
+  // order preserved) or throws with a message-suitable error.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  async function validateBoardIds(client, sessionId, raw) {
+    if (raw == null) return null; // means "don't touch"
+    if (!Array.isArray(raw)) throw new Error("board_ids must be an array");
+    const seen = new Set();
+    const cleaned = [];
+    for (const id of raw) {
+      if (typeof id !== "string" || !UUID_RE.test(id)) {
+        throw new Error("board_ids entries must be UUIDs");
+      }
+      if (!seen.has(id)) {
+        seen.add(id);
+        cleaned.push(id);
+      }
+    }
+    if (!cleaned.length) return [];
+    // Org-scope check: every board id must belong to the org that
+    // owns the parent meet. Skipping this lets a hostile client
+    // splice another federation's board into your session.
+    const orgRow = await client.query(
+      `SELECT m.org_id
+         FROM sessions s
+         JOIN meets m ON m.id = s.meet_id
+        WHERE s.id = $1`,
+      [sessionId],
+    );
+    if (!orgRow.rowCount) throw new Error("Session not found");
+    const orgId = orgRow.rows[0].org_id;
+    const valid = await client.query(
+      `SELECT id FROM boards
+        WHERE id = ANY($1::uuid[])
+          AND org_id = $2
+          AND archived_at IS NULL`,
+      [cleaned, orgId],
+    );
+    if (valid.rowCount !== cleaned.length) {
+      throw new Error("One or more board_ids are unknown or archived");
+    }
+    return cleaned;
+  }
+
+  // Optional event_id reference: must be in the same meet as the
+  // session, or null (which clears the link — useful when an
+  // event-start block is being re-purposed as a custom block).
+  async function validateEventId(client, sessionId, raw) {
+    if (raw == null) return { set: true, value: null };
+    if (typeof raw !== "string" || !UUID_RE.test(raw)) {
+      throw new Error("event_id must be a UUID or null");
+    }
+    const r = await client.query(
+      `SELECT e.id
+         FROM events e
+         JOIN sessions s ON s.id = $1
+        WHERE e.id = $2 AND e.meet_id = s.meet_id`,
+      [sessionId, raw],
+    );
+    if (!r.rowCount) {
+      throw new Error("event_id is not part of this meet");
+    }
+    return { set: true, value: raw };
+  }
+
+  const VALID_BLOCK_TYPES = ["warmup", "event_start", "break", "ceremony", "custom"];
+
+  function safeEmit(event, payload) {
+    if (!io || typeof io.emit !== "function") return;
+    try { io.emit(event, payload); } catch (_e) { /* best-effort */ }
+  }
+
+  // -------------------------------------------------------------
+  // PUT /api/blocks/:id                     (Phase 3, auth)
+  //
+  // Body: any subset of
+  //   { starts_at, ends_at, board_ids, label, notes, block_type,
+  //     event_id }
+  //
+  // Only the fields present on the request body are mutated. We
+  // intentionally don't accept actual_start_at / actual_end_at —
+  // those are written by the live re-flow flow in Phase 4 and don't
+  // belong on a manual-edit endpoint.
+  // -------------------------------------------------------------
+  router.put("/api/blocks/:id", editorGate, async (req, res) => {
+    const { id } = req.params;
+    if (!UUID_RE.test(id)) {
+      return res.status(400).json({ error: "Invalid block id" });
+    }
+    const body = req.body || {};
+    const sets = [];
+    const args = [];
+    let argIdx = 1;
+
+    const client = await pool.connect();
+    try {
+      const existing = await client.query(
+        `SELECT b.id, b.session_id, b.starts_at, b.ends_at,
+                s.meet_id
+           FROM schedule_blocks b
+           JOIN sessions s ON s.id = b.session_id
+          WHERE b.id = $1`,
+        [id],
+      );
+      if (!existing.rowCount) {
+        return res.status(404).json({ error: "Block not found" });
+      }
+      const row = existing.rows[0];
+      const sessionId = row.session_id;
+      const meetId = row.meet_id;
+
+      // ---- Field-by-field validation + SET clause assembly ----
+      let nextStartsAt = row.starts_at;
+      let nextEndsAt = row.ends_at;
+
+      if (body.starts_at !== undefined) {
+        const d = new Date(body.starts_at);
+        if (Number.isNaN(d.getTime())) {
+          return res.status(400).json({ error: "starts_at is not a valid timestamp" });
+        }
+        nextStartsAt = d;
+        sets.push(`starts_at = $${argIdx++}`);
+        args.push(d.toISOString());
+      }
+      if (body.ends_at !== undefined) {
+        const d = new Date(body.ends_at);
+        if (Number.isNaN(d.getTime())) {
+          return res.status(400).json({ error: "ends_at is not a valid timestamp" });
+        }
+        nextEndsAt = d;
+        sets.push(`ends_at = $${argIdx++}`);
+        args.push(d.toISOString());
+      }
+      if (new Date(nextEndsAt).getTime() <= new Date(nextStartsAt).getTime()) {
+        return res.status(400).json({ error: "ends_at must be after starts_at" });
+      }
+
+      if (body.label !== undefined) {
+        if (body.label !== null && typeof body.label !== "string") {
+          return res.status(400).json({ error: "label must be a string or null" });
+        }
+        sets.push(`label = $${argIdx++}`);
+        args.push(body.label == null ? null : body.label.slice(0, 160));
+      }
+
+      if (body.notes !== undefined) {
+        if (body.notes !== null && typeof body.notes !== "string") {
+          return res.status(400).json({ error: "notes must be a string or null" });
+        }
+        sets.push(`notes = $${argIdx++}`);
+        args.push(body.notes == null ? null : body.notes.slice(0, 4000));
+      }
+
+      if (body.block_type !== undefined) {
+        if (!VALID_BLOCK_TYPES.includes(body.block_type)) {
+          return res.status(400).json({ error: "block_type is invalid" });
+        }
+        sets.push(`block_type = $${argIdx++}`);
+        args.push(body.block_type);
+      }
+
+      if (body.board_ids !== undefined) {
+        let cleaned;
+        try {
+          cleaned = await validateBoardIds(client, sessionId, body.board_ids);
+        } catch (err) {
+          return res.status(400).json({ error: err.message });
+        }
+        sets.push(`board_ids = $${argIdx++}::uuid[]`);
+        args.push(cleaned || []);
+      }
+
+      if (body.event_id !== undefined) {
+        let ev;
+        try {
+          ev = await validateEventId(client, sessionId, body.event_id);
+        } catch (err) {
+          return res.status(400).json({ error: err.message });
+        }
+        sets.push(`event_id = $${argIdx++}`);
+        args.push(ev.value);
+      }
+
+      if (!sets.length) {
+        // No-op write — return the existing row + the touching
+        // conflicts so the caller gets a consistent response shape
+        // even when nothing changed.
+        const block = await fetchBlockById(client, id);
+        const conflicts = await conflictsTouchingBlock(client, meetId, id);
+        return res.json({ block, conflicts });
+      }
+
+      sets.push(`updated_at = now()`);
+      args.push(id);
+      await client.query(
+        `UPDATE schedule_blocks SET ${sets.join(", ")} WHERE id = $${argIdx}`,
+        args,
+      );
+
+      const block = await fetchBlockById(client, id);
+      // The detector is read-only, so we don't need a transaction
+      // around the UPDATE + detect pair. Run it after the write
+      // commits so the conflict set reflects the new values.
+      invalidateConflictCache(meetId);
+      const conflicts = await conflictsTouchingBlock(client, meetId, id);
+
+      safeEmit("schedule:block_updated", {
+        meet_id: meetId,
+        session_id: sessionId,
+        block,
+        conflicts,
+      });
+      res.json({ block, conflicts });
+    } catch (err) {
+      console.error("[PUT block]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    } finally {
+      client.release();
+    }
+  });
+
+  // -------------------------------------------------------------
+  // POST /api/sessions/:sessionId/blocks    (Phase 3, auth)
+  //
+  // Body: { block_type, label?, starts_at, ends_at, board_ids?,
+  //         event_id?, notes? }
+  // -------------------------------------------------------------
+  router.post("/api/sessions/:sessionId/blocks", editorGate, async (req, res) => {
+    const { sessionId } = req.params;
+    if (!UUID_RE.test(sessionId)) {
+      return res.status(400).json({ error: "Invalid session id" });
+    }
+    const body = req.body || {};
+    if (!VALID_BLOCK_TYPES.includes(body.block_type)) {
+      return res.status(400).json({ error: "block_type is required and must be valid" });
+    }
+    const starts = new Date(body.starts_at);
+    const ends = new Date(body.ends_at);
+    if (Number.isNaN(starts.getTime()) || Number.isNaN(ends.getTime())) {
+      return res.status(400).json({ error: "starts_at and ends_at are required ISO timestamps" });
+    }
+    if (ends.getTime() <= starts.getTime()) {
+      return res.status(400).json({ error: "ends_at must be after starts_at" });
+    }
+
+    const client = await pool.connect();
+    try {
+      const meetId = await meetIdForSession(client, sessionId);
+      if (!meetId) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      let boards;
+      try {
+        boards = await validateBoardIds(client, sessionId, body.board_ids ?? []);
+      } catch (err) {
+        return res.status(400).json({ error: err.message });
+      }
+
+      let eventId = null;
+      if (body.event_id !== undefined && body.event_id !== null) {
+        try {
+          const ev = await validateEventId(client, sessionId, body.event_id);
+          eventId = ev.value;
+        } catch (err) {
+          return res.status(400).json({ error: err.message });
+        }
+      }
+
+      const label = body.label == null ? null : String(body.label).slice(0, 160);
+      const notes = body.notes == null ? null : String(body.notes).slice(0, 4000);
+
+      const ins = await client.query(
+        `INSERT INTO schedule_blocks
+           (session_id, block_type, label, starts_at, ends_at,
+            board_ids, event_id, notes)
+         VALUES ($1, $2, $3, $4, $5, $6::uuid[], $7, $8)
+         RETURNING id`,
+        [
+          sessionId,
+          body.block_type,
+          label,
+          starts.toISOString(),
+          ends.toISOString(),
+          boards || [],
+          eventId,
+          notes,
+        ],
+      );
+      const blockId = ins.rows[0].id;
+      const block = await fetchBlockById(client, blockId);
+      invalidateConflictCache(meetId);
+      const conflicts = await conflictsTouchingBlock(client, meetId, blockId);
+
+      safeEmit("schedule:block_updated", {
+        meet_id: meetId,
+        session_id: sessionId,
+        block,
+        conflicts,
+        created: true,
+      });
+      res.status(201).json({ block, conflicts });
+    } catch (err) {
+      console.error("[POST blocks]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    } finally {
+      client.release();
+    }
+  });
+
+  // -------------------------------------------------------------
+  // DELETE /api/blocks/:id                  (Phase 3, auth)
+  //
+  // Soft-impact delete: just drops the row. The schedule_block_shifts
+  // FK cascades any audit rows for the block; Phase 3 doesn't read
+  // those, so the cascade is fine. dismissed_conflicts is also
+  // cascaded by the FK on (block_a_id, block_b_id) — which means a
+  // dismissal that referenced this block disappears with it, exactly
+  // the behaviour we want (the block is gone, the conflict is gone).
+  // -------------------------------------------------------------
+  router.delete("/api/blocks/:id", editorGate, async (req, res) => {
+    const { id } = req.params;
+    if (!UUID_RE.test(id)) {
+      return res.status(400).json({ error: "Invalid block id" });
+    }
+    const client = await pool.connect();
+    try {
+      const meetId = await meetIdForBlock(client, id);
+      if (!meetId) {
+        return res.status(404).json({ error: "Block not found" });
+      }
+      // Pull the session_id BEFORE the delete so the socket payload
+      // can route to the right tab without an extra round trip.
+      const sessRow = await client.query(
+        `SELECT session_id FROM schedule_blocks WHERE id = $1`,
+        [id],
+      );
+      const sessionId = sessRow.rows[0]?.session_id || null;
+      await client.query(`DELETE FROM schedule_blocks WHERE id = $1`, [id]);
+      invalidateConflictCache(meetId);
+      safeEmit("schedule:block_deleted", {
+        meet_id: meetId,
+        session_id: sessionId,
+        block_id: id,
+      });
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[DELETE block]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    } finally {
+      client.release();
+    }
+  });
+
+  // -------------------------------------------------------------
+  // PUT /api/sessions/:id                   (Phase 3, auth)
+  //
+  // Body: any subset of { name, session_date, pool, referee_user_id }
+  // -------------------------------------------------------------
+  router.put("/api/sessions/:id", editorGate, async (req, res) => {
+    const { id } = req.params;
+    if (!UUID_RE.test(id)) {
+      return res.status(400).json({ error: "Invalid session id" });
+    }
+    const body = req.body || {};
+    const sets = [];
+    const args = [];
+    let argIdx = 1;
+
+    if (body.name !== undefined) {
+      if (typeof body.name !== "string" || !body.name.trim()) {
+        return res.status(400).json({ error: "name must be a non-empty string" });
+      }
+      sets.push(`name = $${argIdx++}`);
+      args.push(body.name.slice(0, 120));
+    }
+    if (body.session_date !== undefined) {
+      // Accept either YYYY-MM-DD or an ISO timestamp; Postgres will
+      // cast either to ::date below. We reject obvious garbage early
+      // so the operator sees a friendlier 400 than a Postgres parse
+      // error bubbling out as a 500.
+      const s = String(body.session_date);
+      if (!/^\d{4}-\d{2}-\d{2}/.test(s)) {
+        return res.status(400).json({ error: "session_date must be YYYY-MM-DD" });
+      }
+      sets.push(`session_date = $${argIdx++}::date`);
+      args.push(s.slice(0, 10));
+    }
+    if (body.pool !== undefined) {
+      if (body.pool !== null && typeof body.pool !== "string") {
+        return res.status(400).json({ error: "pool must be a string or null" });
+      }
+      sets.push(`pool = $${argIdx++}`);
+      args.push(body.pool == null ? null : body.pool.slice(0, 80));
+    }
+    if (body.referee_user_id !== undefined) {
+      if (body.referee_user_id !== null && !UUID_RE.test(String(body.referee_user_id))) {
+        return res.status(400).json({ error: "referee_user_id must be a UUID or null" });
+      }
+      sets.push(`referee_user_id = $${argIdx++}`);
+      args.push(body.referee_user_id || null);
+    }
+
+    if (!sets.length) {
+      // No-op — return the current row so the caller gets a
+      // predictable shape even when no fields were sent.
+      const r = await pool.query(
+        `SELECT id, meet_id, name, session_date, pool,
+                referee_user_id, created_at, updated_at
+           FROM sessions WHERE id = $1`,
+        [id],
+      );
+      if (!r.rowCount) return res.status(404).json({ error: "Session not found" });
+      return res.json({ session: r.rows[0] });
+    }
+
+    sets.push("updated_at = now()");
+    args.push(id);
+    try {
+      const r = await pool.query(
+        `UPDATE sessions SET ${sets.join(", ")} WHERE id = $${argIdx}
+         RETURNING id, meet_id, name, session_date, pool,
+                   referee_user_id, created_at, updated_at`,
+        args,
+      );
+      if (!r.rowCount) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      const session = r.rows[0];
+      // Editing the session referee or its date can change the
+      // referee-conflict landscape — invalidate the cache so the
+      // next conflicts read recomputes.
+      invalidateConflictCache(session.meet_id);
+      safeEmit("schedule:block_updated", {
+        meet_id: session.meet_id,
+        session_id: session.id,
+        session_updated: true,
+      });
+      res.json({ session });
+    } catch (err) {
+      console.error("[PUT session]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // POST /api/sessions/:id/duplicate         (Phase 3, auth)
+  //
+  // Body: { target_date }
+  //
+  // §8.4: lift the whole session forward by `target_date -
+  // source.session_date`. Inside one transaction so a half-copied
+  // session never survives a mid-write error. Preserves board_ids
+  // (the new day uses the same physical boards) and the session
+  // name + pool + referee_user_id. Resets event_id and
+  // actual_start_at / actual_end_at on every cloned block — the
+  // new day's events haven't been created yet, and the cloned
+  // window is the *planned* time, not an observed one.
+  // -------------------------------------------------------------
+  router.post("/api/sessions/:id/duplicate", editorGate, async (req, res) => {
+    const { id } = req.params;
+    if (!UUID_RE.test(id)) {
+      return res.status(400).json({ error: "Invalid session id" });
+    }
+    const body = req.body || {};
+    const targetDateRaw = String(body.target_date || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDateRaw)) {
+      return res.status(400).json({ error: "target_date must be YYYY-MM-DD" });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const srcRes = await client.query(
+        `SELECT id, meet_id, name, session_date, pool, referee_user_id
+           FROM sessions WHERE id = $1`,
+        [id],
+      );
+      if (!srcRes.rowCount) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "Session not found" });
+      }
+      const src = srcRes.rows[0];
+
+      // Compute the delta in whole days so the timestamps shift by
+      // exactly that integer day count — using straight ms subtraction
+      // would inherit any DST offset between the source and target
+      // date if one of them straddled a transition. Reading both as
+      // YYYY-MM-DD strings keeps the arithmetic at calendar-day grain.
+      const srcDateStr = (src.session_date instanceof Date
+        ? src.session_date.toISOString().slice(0, 10)
+        : String(src.session_date).slice(0, 10));
+      const srcDay = Date.UTC(
+        Number(srcDateStr.slice(0, 4)),
+        Number(srcDateStr.slice(5, 7)) - 1,
+        Number(srcDateStr.slice(8, 10)),
+      );
+      const dstDay = Date.UTC(
+        Number(targetDateRaw.slice(0, 4)),
+        Number(targetDateRaw.slice(5, 7)) - 1,
+        Number(targetDateRaw.slice(8, 10)),
+      );
+      const deltaMs = dstDay - srcDay;
+      if (deltaMs === 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "target_date must differ from the source session date" });
+      }
+
+      // Clone the session row. We append "(copy)" only if the name
+      // doesn't already end with the new date — operators routinely
+      // run Day 1 → Day 2 → Day 3 from the same template and don't
+      // want a chain of "(copy) (copy)" suffixes.
+      const newSess = await client.query(
+        `INSERT INTO sessions (meet_id, name, session_date, pool, referee_user_id)
+         VALUES ($1, $2, $3::date, $4, $5)
+         RETURNING id, meet_id, name, session_date, pool,
+                   referee_user_id, created_at, updated_at`,
+        [
+          src.meet_id,
+          src.name,
+          targetDateRaw,
+          src.pool,
+          src.referee_user_id,
+        ],
+      );
+      const newSessionId = newSess.rows[0].id;
+
+      // Pull source blocks and copy each one with shifted windows.
+      // Single round-trip insert via INSERT … SELECT keeps the
+      // transaction short even on a multi-day championship session.
+      await client.query(
+        `INSERT INTO schedule_blocks
+           (session_id, block_type, label, starts_at, ends_at,
+            board_ids, event_id, actual_start_at, actual_end_at, notes)
+         SELECT $1,
+                block_type, label,
+                starts_at + ($2 || ' milliseconds')::interval,
+                ends_at   + ($2 || ' milliseconds')::interval,
+                board_ids,
+                NULL,         -- event_id reset — new day's events
+                              -- don't exist yet
+                NULL,         -- actual_start_at cleared
+                NULL,         -- actual_end_at cleared
+                notes
+           FROM schedule_blocks
+          WHERE session_id = $3`,
+        [newSessionId, String(deltaMs), id],
+      );
+
+      // Read the cloned blocks back so the response mirrors the
+      // shape /sessions returns (event_name / event_height joined
+      // — they'll all be null on a fresh clone, but the keys are
+      // present so the client doesn't have to special-case).
+      const blocksRes = await client.query(
+        `SELECT b.id, b.session_id, b.block_type, b.label,
+                b.starts_at, b.ends_at, b.board_ids, b.event_id,
+                b.actual_start_at, b.actual_end_at, b.notes,
+                b.created_at, b.updated_at,
+                e.name AS event_name, e.height AS event_height
+           FROM schedule_blocks b
+           LEFT JOIN events e ON e.id = b.event_id
+          WHERE b.session_id = $1
+          ORDER BY b.starts_at ASC, b.created_at ASC`,
+        [newSessionId],
+      );
+
+      await client.query("COMMIT");
+      invalidateConflictCache(src.meet_id);
+
+      const session = { ...newSess.rows[0], blocks: blocksRes.rows };
+      safeEmit("schedule:session_duplicated", {
+        meet_id: src.meet_id,
+        source_session_id: src.id,
+        session,
+      });
+      res.status(201).json({ session });
+    } catch (err) {
+      try { await client.query("ROLLBACK"); } catch { /* swallow */ }
+      console.error("[POST session/duplicate]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    } finally {
+      client.release();
+    }
+  });
+
+  // -------------------------------------------------------------
+  // GET /api/meets/:meetId/judges/availability   (Phase 3)
+  //
+  // Query: ?at=<iso>
+  //
+  // Returns availability hints for every judge eligible on this
+  // meet. A judge is "available" at `at` if they aren't on any
+  // event panel whose containing schedule_block covers `at`;
+  // otherwise we return the busy_until and the conflicting
+  // block's label so the picker can surface a useful tooltip.
+  //
+  // 5-second in-process cache mirrors the conflict report. The
+  // expensive part is the panel-join, and the picker pings this
+  // every time the panel opens — caching by (meetId, at-rounded)
+  // means a flurry of opens in a single drawer session resolves
+  // off the same plan.
+  // -------------------------------------------------------------
+  const availabilityCache = new Map(); // key -> { at: ms, value: any }
+  const AVAILABILITY_TTL_MS = 5000;
+  router.get("/api/meets/:meetId/judges/availability", maybeAuth, async (req, res) => {
+    const { meetId } = req.params;
+    const atRaw = req.query.at;
+    if (!atRaw) {
+      return res.status(400).json({ error: "Query param `at` is required (ISO timestamp)" });
+    }
+    const at = new Date(String(atRaw));
+    if (Number.isNaN(at.getTime())) {
+      return res.status(400).json({ error: "`at` is not a valid timestamp" });
+    }
+    // Round the cache key to the nearest minute so two rapid opens
+    // from the same panel-row collapse onto one cached plan even if
+    // the client used Date.now() to fill `at`.
+    const minuteKey = Math.floor(at.getTime() / 60000) * 60000;
+    const cacheKey = `${meetId}:${minuteKey}`;
+    const cached = availabilityCache.get(cacheKey);
+    if (cached && Date.now() - cached.at <= AVAILABILITY_TTL_MS) {
+      return res.json({ judges: cached.value, cached: true });
+    }
+
+    try {
+      const meetRes = await pool.query(
+        `SELECT id FROM meets WHERE id = $1`,
+        [meetId],
+      );
+      if (!meetRes.rowCount) {
+        return res.status(404).json({ error: "Meet not found" });
+      }
+
+      // For each judge currently on any event panel in this meet,
+      // find whether they're seated for an event whose schedule
+      // block covers `at`. We return both the available and busy
+      // judges so the client can render every row with a hint
+      // (defaulting unseen rows to 'available' falls to the front-
+      // end).
+      //
+      // The query joins event_judges → events → schedule_blocks via
+      // the block's event_id, then filters to blocks containing
+      // `at`. A judge can show up on multiple panels — we group by
+      // judge_id and pick the EARLIEST ends_at as the "busy_until"
+      // so the picker's tooltip points to the soonest opening.
+      const atIso = at.toISOString();
+      const busyRes = await pool.query(
+        `SELECT ej.judge_id,
+                MIN(b.ends_at) AS busy_until,
+                (
+                  SELECT COALESCE(bb.label, e2.name)
+                    FROM schedule_blocks bb
+                    JOIN events e2 ON e2.id = bb.event_id
+                    JOIN sessions ss ON ss.id = bb.session_id
+                    JOIN event_judges ej2 ON ej2.event_id = e2.id
+                                          AND ej2.judge_id = ej.judge_id
+                   WHERE ss.meet_id = $1
+                     AND bb.starts_at <= $2::timestamptz
+                     AND bb.ends_at   >  $2::timestamptz
+                   ORDER BY bb.ends_at ASC
+                   LIMIT 1
+                ) AS conflicting_event_label
+           FROM event_judges ej
+           JOIN events e ON e.id = ej.event_id
+           JOIN schedule_blocks b ON b.event_id = e.id
+           JOIN sessions s ON s.id = b.session_id
+          WHERE s.meet_id = $1
+            AND b.starts_at <= $2::timestamptz
+            AND b.ends_at   >  $2::timestamptz
+          GROUP BY ej.judge_id`,
+        [meetId, atIso],
+      );
+
+      const judges = busyRes.rows.map((r) => ({
+        judge_id: r.judge_id,
+        status: "busy",
+        busy_until: r.busy_until,
+        conflicting_event_label: r.conflicting_event_label,
+      }));
+      availabilityCache.set(cacheKey, { at: Date.now(), value: judges });
+      // Bound the cache so a long-lived process doesn't accumulate
+      // a per-minute entry indefinitely. 200 entries ≈ 200 minutes
+      // of distinct cache hits, far above the realistic working
+      // set for a single meet day.
+      if (availabilityCache.size > 200) {
+        const oldestKey = availabilityCache.keys().next().value;
+        availabilityCache.delete(oldestKey);
+      }
+      res.json({ judges, cached: false });
+    } catch (err) {
+      console.error("[GET availability]", err.message);
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
