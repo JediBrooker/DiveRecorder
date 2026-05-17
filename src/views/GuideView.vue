@@ -11,13 +11,20 @@
  *
  * Linked from:
  *   • Home (`/`) hero CTAs + footer
- *   • Dashboard (`/dashboard`) footer alongside the bug-report link
+ *   • Dashboard (`/dashboard`) footer + top-menu link
+ *   • Sign-in page footer
  *
  * Structure (matches the journey of a first-time user):
  *   1. What is DivingHQ?
  *   2. "I'm a …" — role-by-role cards
- *   3. Common first questions (FAQ-lite, 4 items)
+ *   3. Common first questions (FAQ-lite, 6 items)
  *   4. Where to go from here — link out to the full wiki
+ *
+ * i18n: all prose is `$t('guide.*')`. Strings containing
+ * <strong> use v-html (translation source is trusted — only
+ * our own locale files); strings containing in-app links use
+ * <i18n-t> with named slots so the RouterLink is preserved
+ * but the wording stays translatable.
  */
 import { RouterLink } from 'vue-router'
 
@@ -31,7 +38,7 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
       <RouterLink to="/" class="btn btn-ghost btn-sm">{{ $t('guide.back_to_home') }}</RouterLink>
       <a :href="WIKI" target="_blank" rel="noopener"
          class="btn btn-ghost btn-sm"
-         v-tip="'Detailed user guide on GitHub'">
+         v-tip="$t('guide.open_wiki_tip')">
         {{ $t('guide.open_wiki') }}
       </a>
     </div>
@@ -39,14 +46,10 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
     <!-- Hero -->
     <section class="guide-hero">
       <div class="guide-eyebrow">{{ $t('guide.title') }}</div>
-      <h1 class="guide-title">Welcome to <span class="guide-title-brand">Diving<span>HQ</span></span></h1>
-      <p class="guide-lede">
-        A platform for running diving meets — divers submit dive sheets,
-        judges score on phones, the operator drives the meet from a
-        Control Room, and the audience watches the scoreboard live.
-        This page is the five-minute primer. Pick your role below for the
-        path that fits.
-      </p>
+      <h1 class="guide-title">{{ $t('guide.hero_welcome_prefix') }}
+        <span class="guide-title-brand">Diving<span>HQ</span></span>
+      </h1>
+      <p class="guide-lede">{{ $t('guide.hero_lede') }}</p>
     </section>
 
     <!-- "I'm a …" — role cards -->
@@ -56,119 +59,96 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
       <div class="guide-roles">
         <article class="role-card">
           <div class="role-icon" aria-hidden="true">🏊</div>
-          <h3 class="role-name">Diver</h3>
-          <p class="role-desc">
-            You compete. You'll submit a dive sheet (which dives you'll
-            do, by round) before each event's entry deadline, then check
-            <strong>Meet Day View</strong> on the day to see your queue
-            position and what you need to score.
-          </p>
+          <h3 class="role-name">{{ $t('guide.role.diver.name') }}</h3>
+          <p class="role-desc" v-html="$t('guide.role.diver.desc')"></p>
           <ol class="role-steps">
-            <li>Sign in or accept the invite from your federation admin</li>
-            <li>Open <strong>Submit Dive Sheets</strong> and pick your dives per round</li>
-            <li>On meet day, open <strong>Meet Day View</strong> on your phone</li>
-            <li>Your scores + analytics live on <strong>My Profile</strong></li>
+            <li v-html="$t('guide.role.diver.step_1')"></li>
+            <li v-html="$t('guide.role.diver.step_2')"></li>
+            <li v-html="$t('guide.role.diver.step_3')"></li>
+            <li v-html="$t('guide.role.diver.step_4')"></li>
           </ol>
           <a :href="`${WIKI}/Diver-Portal`" target="_blank" rel="noopener"
-             class="role-cta">Diver guide ↗</a>
+             class="role-cta">{{ $t('guide.role.diver.cta') }}</a>
         </article>
 
         <article class="role-card">
           <div class="role-icon" aria-hidden="true">🧑‍⚖️</div>
-          <h3 class="role-name">Judge</h3>
-          <p class="role-desc">
-            You score dives on a phone. The active-diver name pops onto
-            your screen automatically; you tap in the score in
-            half-point increments and the result lands on the live
-            scoreboard within a second.
-          </p>
+          <h3 class="role-name">{{ $t('guide.role.judge.name') }}</h3>
+          <p class="role-desc" v-html="$t('guide.role.judge.desc')"></p>
           <ol class="role-steps">
-            <li>Sign in on your phone before the meet starts</li>
-            <li>Pick the active event from the dropdown</li>
-            <li>Wait for the active-diver banner; tap your score (0.0 – 10.0 in 0.5 steps)</li>
-            <li>If your wifi drops, scores queue locally and sync when it's back</li>
+            <li v-html="$t('guide.role.judge.step_1')"></li>
+            <li v-html="$t('guide.role.judge.step_2')"></li>
+            <li v-html="$t('guide.role.judge.step_3')"></li>
+            <li v-html="$t('guide.role.judge.step_4')"></li>
           </ol>
           <a :href="`${WIKI}/Judging`" target="_blank" rel="noopener"
-             class="role-cta">Judging guide ↗</a>
+             class="role-cta">{{ $t('guide.role.judge.cta') }}</a>
         </article>
 
         <article class="role-card">
           <div class="role-icon" aria-hidden="true">🎓</div>
-          <h3 class="role-name">Coach</h3>
-          <p class="role-desc">
-            You see your divers' history, analytics, and PBs in one
-            place — and you get a heads-up the moment one is about to
-            dive. Divers grant you read-only access from their profile;
-            once linked, they appear on your Coach Dashboard.
-          </p>
+          <h3 class="role-name">{{ $t('guide.role.coach.name') }}</h3>
+          <p class="role-desc" v-html="$t('guide.role.coach.desc')"></p>
           <ol class="role-steps">
-            <li>Ask each diver to add you as their coach (from their profile settings)</li>
-            <li>Open <strong>Coach Dashboard</strong> — linked divers, last + next dive, and a live <strong>Up-Next</strong> strip while meets run</li>
-            <li>Turn on <strong>"diver is up next" push alerts</strong> to get pinged when one of yours is N dives away from the board</li>
-            <li>Submit or edit a dive list on a diver's behalf, or <strong>withdraw</strong> them from an event if they need to scratch</li>
-            <li>Use <strong>Compare Divers</strong> to put two athletes side-by-side</li>
+            <li v-html="$t('guide.role.coach.step_1')"></li>
+            <li v-html="$t('guide.role.coach.step_2')"></li>
+            <li v-html="$t('guide.role.coach.step_3')"></li>
+            <li v-html="$t('guide.role.coach.step_4')"></li>
+            <li v-html="$t('guide.role.coach.step_5')"></li>
           </ol>
           <a :href="`${WIKI}/Diver-Portal#coach-access`" target="_blank" rel="noopener"
-             class="role-cta">Coach guide ↗</a>
+             class="role-cta">{{ $t('guide.role.coach.cta') }}</a>
         </article>
 
         <article class="role-card">
           <div class="role-icon" aria-hidden="true">🎮</div>
-          <h3 class="role-name">Meet Manager</h3>
-          <p class="role-desc">
-            You run the meet. Create events, build the roster, seat the
-            judging panel, then drive scoring from the
-            <strong>Control Room</strong> on the day — set the active
-            diver, run the shot clock, hold the meet, correct scores
-            when needed.
-          </p>
+          <h3 class="role-name">{{ $t('guide.role.meet_manager.name') }}</h3>
+          <p class="role-desc" v-html="$t('guide.role.meet_manager.desc')"></p>
           <ol class="role-steps">
-            <li>Open <strong>Meet Manager</strong> — create the meet + events</li>
-            <li>Open <strong>Schedule</strong> on the meet to plan warmups, event starts, breaks, boards, and conflict warnings</li>
-            <li>Import the roster (CSV) or invite divers individually</li>
-            <li>Seat judges via <strong>Assign Judges</strong> + pick a referee</li>
-            <li>On the day, drive scoring from <strong>Control Room</strong></li>
+            <li v-html="$t('guide.role.meet_manager.step_1')"></li>
+            <li v-html="$t('guide.role.meet_manager.step_2')"></li>
+            <li v-html="$t('guide.role.meet_manager.step_3')"></li>
+            <li v-html="$t('guide.role.meet_manager.step_4')"></li>
+            <li v-html="$t('guide.role.meet_manager.step_5')"></li>
           </ol>
           <a :href="`${WIKI}/Running-a-Meet`" target="_blank" rel="noopener"
-             class="role-cta">Control Room guide ↗</a>
+             class="role-cta">{{ $t('guide.role.meet_manager.cta') }}</a>
         </article>
 
         <article class="role-card">
           <div class="role-icon" aria-hidden="true">🏛️</div>
-          <h3 class="role-name">Org Admin</h3>
-          <p class="role-desc">
-            You set up the federation. Manage clubs, teams, users, and
-            roles. Every meet a meet manager creates rolls up to your
-            federation; you can also host international meets and
-            invite visiting federations.
-          </p>
+          <h3 class="role-name">{{ $t('guide.role.org_admin.name') }}</h3>
+          <p class="role-desc" v-html="$t('guide.role.org_admin.desc')"></p>
           <ol class="role-steps">
-            <li>Register your federation at <RouterLink to="/register-org">/register-org</RouterLink></li>
-            <li>Walk through the <strong>Setup Wizard</strong> — clubs, invites, first event</li>
-            <li>Grant roles in <strong>User Manager</strong> as your team grows</li>
-            <li>Check the <strong>Audit Log</strong> for any federation-wide activity</li>
+            <i18n-t keypath="guide.role.org_admin.step_1" tag="li">
+              <template #link>
+                <RouterLink to="/register-org">/register-org</RouterLink>
+              </template>
+            </i18n-t>
+            <li v-html="$t('guide.role.org_admin.step_2')"></li>
+            <li v-html="$t('guide.role.org_admin.step_3')"></li>
+            <li v-html="$t('guide.role.org_admin.step_4')"></li>
           </ol>
           <a :href="`${WIKI}/Quick-Start`" target="_blank" rel="noopener"
-             class="role-cta">Quick start ↗</a>
+             class="role-cta">{{ $t('guide.role.org_admin.cta') }}</a>
         </article>
 
         <article class="role-card">
           <div class="role-icon" aria-hidden="true">🌐</div>
-          <h3 class="role-name">Spectator</h3>
-          <p class="role-desc">
-            You watch. No login needed. Anyone can browse the
-            scoreboard, watch a live meet, dig into a diver's history,
-            or check whether a judge has scored your country higher
-            than the panel.
-          </p>
+          <h3 class="role-name">{{ $t('guide.role.spectator.name') }}</h3>
+          <p class="role-desc" v-html="$t('guide.role.spectator.desc')"></p>
           <ol class="role-steps">
-            <li>Open <RouterLink to="/scoreboard">Scoreboard &amp; Results</RouterLink></li>
-            <li>Pick any live event for the broadcast layout, or any completed meet for the recap</li>
-            <li>Tap any judge score chip → opens that judge's public analysis</li>
-            <li>Add to Home Screen (iOS / Android) for a faster, chromeless view</li>
+            <i18n-t keypath="guide.role.spectator.step_1" tag="li">
+              <template #link>
+                <RouterLink to="/scoreboard">{{ $t('guide.role.spectator.step_1_link') }}</RouterLink>
+              </template>
+            </i18n-t>
+            <li v-html="$t('guide.role.spectator.step_2')"></li>
+            <li v-html="$t('guide.role.spectator.step_3')"></li>
+            <li v-html="$t('guide.role.spectator.step_4')"></li>
           </ol>
           <a :href="`${WIKI}/Scoreboard`" target="_blank" rel="noopener"
-             class="role-cta">Scoreboard guide ↗</a>
+             class="role-cta">{{ $t('guide.role.spectator.cta') }}</a>
         </article>
       </div>
     </section>
@@ -178,109 +158,64 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
       <h2 class="guide-h2">{{ $t('guide.section_first_time') }}</h2>
 
       <dl class="guide-faq">
-        <dt>I just registered, but I can't sign in yet.</dt>
-        <dd>
-          Email verification first — click the link in the welcome email.
-          For non-diver roles (judge, coach, meet manager) your federation
-          admin also needs to approve you. Both should happen within
-          minutes; if you don't see the email after 10 minutes, check
-          spam, then ask your admin to confirm your account is active.
-        </dd>
+        <dt>{{ $t('guide.faq.register_q') }}</dt>
+        <dd v-html="$t('guide.faq.register_a')"></dd>
 
-        <dt>I'm a judge — what device should I use?</dt>
-        <dd>
-          Any modern phone with a browser works. iPhone 12 / Pixel 6
-          and newer is ideal. The view is mobile-first; you'll spend
-          the meet tapping numbers, so a phone you can grip
-          comfortably in one hand is the right call. WiFi is
-          preferred over 4G if the venue has it — your scores still
-          sync over 4G but the network round trip is noticeably
-          longer.
-        </dd>
+        <dt>{{ $t('guide.faq.judge_device_q') }}</dt>
+        <dd v-html="$t('guide.faq.judge_device_a')"></dd>
 
-        <dt>How does scoring work?</dt>
-        <dd>
-          Each judge scores a dive from <strong>0.0 to 10.0</strong>
-          in half-point steps. With a 5-judge panel, the highest and
-          lowest are dropped and the middle three are kept (the
-          "trim"). The kept scores are multiplied by the dive's
-          <strong>DD</strong> (Degree of Difficulty) to get the
-          dive's points. For synchro, three sub-panels score
-          different aspects (Exec A, Exec B, Sync) and the math
-          combines them per World Aquatics Article 8.
-        </dd>
+        <dt>{{ $t('guide.faq.scoring_q') }}</dt>
+        <dd v-html="$t('guide.faq.scoring_a')"></dd>
 
-        <dt>I want to project the scoreboard for our audience.</dt>
-        <dd>
-          Open any live event's scoreboard and use the
-          <strong>Broadcast</strong> view for a fullscreen, chromeless
-          layout suited to projectors and big TVs. Running multiple
-          events on the same display? Open <RouterLink to="/broadcast/all">/broadcast/all</RouterLink>
-          for a side-by-side multi-event grid. Streaming the scoreboard
-          to OBS, vMix, or Twitch? The broadcast page works as a browser
-          source — pick that option in the Control Room's
-          <strong>Broadcast</strong> chooser for the streaming-app setup
-          recipe.
-        </dd>
+        <dt>{{ $t('guide.faq.broadcast_q') }}</dt>
+        <i18n-t keypath="guide.faq.broadcast_a" tag="dd">
+          <template #broadcast_all_link>
+            <RouterLink to="/broadcast/all">/broadcast/all</RouterLink>
+          </template>
+        </i18n-t>
 
-        <dt>How do I plan a whole championship day?</dt>
-        <dd>
-          Add scheduled times to the meet's events, then open
-          <strong>Schedule</strong> from the meet page as an org admin
-          or meet manager. DivingHQ seeds a first plan with 45-minute
-          warmups, event blocks, and board assignments. Turn on
-          <strong>Edit mode</strong> to drag, resize, insert, delete,
-          or duplicate sessions; the conflicts drawer flags overlapping
-          boards, judges, divers, and referees. Coaches, divers, and
-          spectators can view the public timeline or subscribe to the
-          iCal feed.
-        </dd>
+        <dt>{{ $t('guide.faq.schedule_q') }}</dt>
+        <dd v-html="$t('guide.faq.schedule_a')"></dd>
 
-        <dt>How do I report a bug?</dt>
-        <dd>
-          Click the <strong>🐛 Report a bug</strong> link at the bottom
-          of the home page or your dashboard. It opens a pre-filled
-          GitHub issue ready for you to describe the problem. Screenshots
-          help a lot.
-        </dd>
+        <dt>{{ $t('guide.faq.bug_q') }}</dt>
+        <dd v-html="$t('guide.faq.bug_a')"></dd>
       </dl>
     </section>
 
     <!-- Where to next -->
     <section class="guide-section guide-next">
       <h2 class="guide-h2">{{ $t('guide.section_finding') }}</h2>
-      <p class="guide-next-lede">
-        Need the deep-dive version? The
-        <a :href="WIKI" target="_blank" rel="noopener">full wiki</a>
-        covers every screen, every role, every World Aquatics rule the
-        app encodes. The pages most worth bookmarking:
-      </p>
+      <i18n-t keypath="guide.next.lede" tag="p" class="guide-next-lede">
+        <template #wiki_link>
+          <a :href="WIKI" target="_blank" rel="noopener">{{ $t('guide.next.wiki_link_label') }}</a>
+        </template>
+      </i18n-t>
       <ul class="guide-next-list">
         <li>
-          <a :href="`${WIKI}/Features`" target="_blank" rel="noopener">Features by role</a>
-          — every feature in the app, indexed by who uses it
+          <a :href="`${WIKI}/Features`" target="_blank" rel="noopener">{{ $t('guide.next.bookmark_features') }}</a>
+          — {{ $t('guide.next.bookmark_features_desc') }}
         </li>
         <li>
-          <a :href="`${WIKI}/Quick-Start`" target="_blank" rel="noopener">Quick Start (10 min)</a>
-          — register a federation and run your first meet
+          <a :href="`${WIKI}/Quick-Start`" target="_blank" rel="noopener">{{ $t('guide.next.bookmark_quickstart') }}</a>
+          — {{ $t('guide.next.bookmark_quickstart_desc') }}
         </li>
         <li>
-          <a :href="`${WIKI}/Roles-and-Permissions`" target="_blank" rel="noopener">Roles &amp; permissions</a>
-          — what each role can and can't do
+          <a :href="`${WIKI}/Roles-and-Permissions`" target="_blank" rel="noopener">{{ $t('guide.next.bookmark_roles') }}</a>
+          — {{ $t('guide.next.bookmark_roles_desc') }}
         </li>
         <li>
-          <a :href="`${WIKI}/FAQ`" target="_blank" rel="noopener">FAQ &amp; troubleshooting</a>
-          — answers to "why is this greyed out / not showing"
+          <a :href="`${WIKI}/FAQ`" target="_blank" rel="noopener">{{ $t('guide.next.bookmark_faq') }}</a>
+          — {{ $t('guide.next.bookmark_faq_desc') }}
         </li>
         <li>
-          <a :href="`${WIKI}/Keyboard-Shortcuts`" target="_blank" rel="noopener">Keyboard shortcuts</a>
-          — ← / → / Space / T / F / R / H / L for the Control Room
+          <a :href="`${WIKI}/Keyboard-Shortcuts`" target="_blank" rel="noopener">{{ $t('guide.next.bookmark_shortcuts') }}</a>
+          — {{ $t('guide.next.bookmark_shortcuts_desc') }}
         </li>
       </ul>
 
       <div class="guide-cta-row">
-        <RouterLink to="/register" class="btn btn-primary">Create an account</RouterLink>
-        <RouterLink to="/scoreboard" class="btn btn-ghost">Browse scoreboard →</RouterLink>
+        <RouterLink to="/register" class="btn btn-primary">{{ $t('guide.next.cta_register') }}</RouterLink>
+        <RouterLink to="/scoreboard" class="btn btn-ghost">{{ $t('guide.next.cta_scoreboard') }}</RouterLink>
       </div>
     </section>
   </div>
@@ -414,6 +349,8 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
   border-left: 2px solid var(--border);
 }
 .guide-faq dd strong { color: var(--text); font-weight: 600; }
+.guide-faq dd a { color: var(--cyan); text-decoration: none; }
+.guide-faq dd a:hover { text-decoration: underline; }
 
 /* Where-to-next */
 .guide-next-lede {

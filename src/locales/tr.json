@@ -336,7 +336,99 @@
     "section_finding": "Bir şey bulma",
     "section_help": "Yardım al",
     "back_to_home": "← Ana sayfaya dön",
-    "open_wiki": "Tam wikiyi aç ↗"
+    "open_wiki": "Tam wikiyi aç ↗",
+    "open_wiki_tip": "Detailed user guide on GitHub",
+    "hero_welcome_prefix": "Welcome to",
+    "hero_lede": "A platform for running diving meets — divers submit dive sheets, judges score on phones, the operator drives the meet from a Control Room, and the audience watches the scoreboard live. This page is the five-minute primer. Pick your role below for the path that fits.",
+    "role": {
+      "diver": {
+        "name": "Diver",
+        "desc": "You compete. You'll submit a dive sheet (which dives you'll do, by round) before each event's entry deadline, then check <strong>Meet Day View</strong> on the day to see your queue position and what you need to score.",
+        "step_1": "Sign in or accept the invite from your federation admin",
+        "step_2": "Open <strong>Submit Dive Sheets</strong> and pick your dives per round",
+        "step_3": "On meet day, open <strong>Meet Day View</strong> on your phone",
+        "step_4": "Your scores + analytics live on <strong>My Profile</strong>",
+        "cta": "Diver guide ↗"
+      },
+      "judge": {
+        "name": "Judge",
+        "desc": "You score dives on a phone. The active-diver name pops onto your screen automatically; you tap in the score in half-point increments and the result lands on the live scoreboard within a second.",
+        "step_1": "Sign in on your phone before the meet starts",
+        "step_2": "Pick the active event from the dropdown",
+        "step_3": "Wait for the active-diver banner; tap your score (0.0 – 10.0 in 0.5 steps)",
+        "step_4": "If your wifi drops, scores queue locally and sync when it's back",
+        "cta": "Judging guide ↗"
+      },
+      "coach": {
+        "name": "Coach",
+        "desc": "You see your divers' history, analytics, and PBs in one place — and you get a heads-up the moment one is about to dive. Divers grant you read-only access from their profile; once linked, they appear on your Coach Dashboard.",
+        "step_1": "Ask each diver to add you as their coach (from their profile settings)",
+        "step_2": "Open <strong>Coach Dashboard</strong> — linked divers, last + next dive, and a live <strong>Up-Next</strong> strip while meets run",
+        "step_3": "Turn on <strong>\"diver is up next\" push alerts</strong> to get pinged when one of yours is N dives away from the board",
+        "step_4": "Submit or edit a dive list on a diver's behalf, or <strong>withdraw</strong> them from an event if they need to scratch",
+        "step_5": "Use <strong>Compare Divers</strong> to put two athletes side-by-side",
+        "cta": "Coach guide ↗"
+      },
+      "meet_manager": {
+        "name": "Meet Manager",
+        "desc": "You run the meet. Create events, build the roster, seat the judging panel, then drive scoring from the <strong>Control Room</strong> on the day — set the active diver, run the shot clock, hold the meet, correct scores when needed.",
+        "step_1": "Open <strong>Meet Manager</strong> — create the meet + events",
+        "step_2": "Open <strong>Schedule</strong> on the meet to plan warmups, event starts, breaks, boards, and conflict warnings",
+        "step_3": "Import the roster (CSV) or invite divers individually",
+        "step_4": "Seat judges via <strong>Assign Judges</strong> + pick a referee",
+        "step_5": "On the day, drive scoring from <strong>Control Room</strong>",
+        "cta": "Control Room guide ↗"
+      },
+      "org_admin": {
+        "name": "Org Admin",
+        "desc": "You set up the federation. Manage clubs, teams, users, and roles. Every meet a meet manager creates rolls up to your federation; you can also host international meets and invite visiting federations.",
+        "step_1": "Register your federation at {link}",
+        "step_2": "Walk through the <strong>Setup Wizard</strong> — clubs, invites, first event",
+        "step_3": "Grant roles in <strong>User Manager</strong> as your team grows",
+        "step_4": "Check the <strong>Audit Log</strong> for any federation-wide activity",
+        "cta": "Quick start ↗"
+      },
+      "spectator": {
+        "name": "Spectator",
+        "desc": "You watch. No login needed. Anyone can browse the scoreboard, watch a live meet, dig into a diver's history, or check whether a judge has scored your country higher than the panel.",
+        "step_1": "Open {link}",
+        "step_1_link": "Scoreboard & Results",
+        "step_2": "Pick any live event for the broadcast layout, or any completed meet for the recap",
+        "step_3": "Tap any judge score chip → opens that judge's public analysis",
+        "step_4": "Add to Home Screen (iOS / Android) for a faster, chromeless view",
+        "cta": "Scoreboard guide ↗"
+      }
+    },
+    "faq": {
+      "register_q": "I just registered, but I can't sign in yet.",
+      "register_a": "Email verification first — click the link in the welcome email. For non-diver roles (judge, coach, meet manager) your federation admin also needs to approve you. Both should happen within minutes; if you don't see the email after 10 minutes, check spam, then ask your admin to confirm your account is active.",
+      "judge_device_q": "I'm a judge — what device should I use?",
+      "judge_device_a": "Any modern phone with a browser works. iPhone 12 / Pixel 6 and newer is ideal. The view is mobile-first; you'll spend the meet tapping numbers, so a phone you can grip comfortably in one hand is the right call. WiFi is preferred over 4G if the venue has it — your scores still sync over 4G but the network round trip is noticeably longer.",
+      "scoring_q": "How does scoring work?",
+      "scoring_a": "Each judge scores a dive from <strong>0.0 to 10.0</strong> in half-point steps. With a 5-judge panel, the highest and lowest are dropped and the middle three are kept (the \"trim\"). The kept scores are multiplied by the dive's <strong>DD</strong> (Degree of Difficulty) to get the dive's points. For synchro, three sub-panels score different aspects (Exec A, Exec B, Sync) and the math combines them per World Aquatics Article 8.",
+      "broadcast_q": "I want to project the scoreboard for our audience.",
+      "broadcast_a": "Open any live event's scoreboard and use the <strong>Broadcast</strong> view for a fullscreen, chromeless layout suited to projectors and big TVs. Running multiple events on the same display? Open {broadcast_all_link} for a side-by-side multi-event grid. Streaming the scoreboard to OBS, vMix, or Twitch? The broadcast page works as a browser source — pick that option in the Control Room's <strong>Broadcast</strong> chooser for the streaming-app setup recipe.",
+      "schedule_q": "How do I plan a whole championship day?",
+      "schedule_a": "Add scheduled times to the meet's events, then open <strong>Schedule</strong> from the meet page as an org admin or meet manager. DivingHQ seeds a first plan with 45-minute warmups, event blocks, and board assignments. Turn on <strong>Edit mode</strong> to drag, resize, insert, delete, or duplicate sessions; the conflicts drawer flags overlapping boards, judges, divers, and referees. Coaches, divers, and spectators can view the public timeline or subscribe to the iCal feed.",
+      "bug_q": "How do I report a bug?",
+      "bug_a": "Click the <strong>🐛 Report a bug</strong> link at the bottom of the home page or your dashboard. It opens a pre-filled GitHub issue ready for you to describe the problem. Screenshots help a lot."
+    },
+    "next": {
+      "lede": "Need the deep-dive version? The {wiki_link} covers every screen, every role, every World Aquatics rule the app encodes. The pages most worth bookmarking:",
+      "wiki_link_label": "full wiki",
+      "bookmark_features": "Features by role",
+      "bookmark_features_desc": "every feature in the app, indexed by who uses it",
+      "bookmark_quickstart": "Quick Start (10 min)",
+      "bookmark_quickstart_desc": "register a federation and run your first meet",
+      "bookmark_roles": "Roles & permissions",
+      "bookmark_roles_desc": "what each role can and can't do",
+      "bookmark_faq": "FAQ & troubleshooting",
+      "bookmark_faq_desc": "answers to \"why is this greyed out / not showing\"",
+      "bookmark_shortcuts": "Keyboard shortcuts",
+      "bookmark_shortcuts_desc": "← / → / Space / T / F / R / H / L for the Control Room",
+      "cta_register": "Create an account",
+      "cta_scoreboard": "Browse scoreboard →"
+    }
   },
   "inbox": {
     "title": "Gelen Kutusu",
