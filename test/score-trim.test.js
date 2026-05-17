@@ -2,7 +2,7 @@
 // or a running server — just the algorithm in
 // src/composables/useScoreTrim.js. Catches drift in:
 //   * which scores get marked as dropped under each panel size
-//   * synchro sub-panel boundaries (9-judge vs 11-judge)
+//   * synchro sub-panel boundaries (7/9/11 judges)
 //   * tie-break stability (lowest judge_number wins on ties)
 //
 // We dynamically import() the ESM source from this CommonJS test
@@ -103,13 +103,14 @@ test("tie at the cut: lowest judge_number wins on the kept side", () => {
 });
 
 // =====================================================================
-// Synchro sub-panel boundaries — 7-judge: 1+2 exec A, 3+4 exec B,
-// 5..7 sync. 9-judge: 1+2 exec A, 3+4 exec B, 5..9 sync.
+// Synchro sub-panel boundaries — 7-judge: 4 execution judges
+// (1+2 exec A, 3+4 exec B) and 3 sync judges (5..7).
+// 9-judge: 1+2 exec A, 3+4 exec B, 5..9 sync.
 // 11-judge: 1..3 exec A, 4..6 exec B, 7..11 sync. Drops are
 // computed WITHIN each sub-panel.
 // =====================================================================
 
-test("synchro 7-judge — exec and sync sub-panels keep all scores", () => {
+test("synchro 7-judge — 4 execution judges and 3 sync judges keep all scores", () => {
   const judges = panel([7, 8,    7, 8,    5, 7, 9]);
   const out = annotateJudgeRows(judges, 7, "synchro_pair");
   assert.deepEqual(out.map(o => o.dropped),

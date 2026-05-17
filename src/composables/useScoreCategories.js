@@ -31,7 +31,9 @@ export function trimCount(numJudges) {
 }
 
 // World Aquatics synchronised panel layout — which judges score
-// what role, by position. Returns null for non-synchro panels.
+// what role, by position. A 7-judge synchro panel is 4 execution
+// judges split 2+2 across the divers, plus 3 synchronisation
+// judges. Returns null for non-synchro panels.
 export function synchroJudgeGroups(numJudges) {
   if (numJudges === 7)  return { a: [1, 2],    b: [3, 4],    sync: [5, 6, 7] }
   if (numJudges === 9)  return { a: [1, 2],    b: [3, 4],    sync: [5, 6, 7, 8, 9] }

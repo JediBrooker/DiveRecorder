@@ -4,17 +4,24 @@
 //
 // Reads src/locales/en.json (the source of truth) and emits
 // translated dictionaries for every other supported locale by
-// asking Claude API to translate the leaf strings, preserving
+// asking an AI provider to translate the leaf strings, preserving
 // JSON structure + ICU MessageFormat placeholders verbatim.
 //
 // Usage:
+//   # OpenAI Responses API (default when OPENAI_API_KEY is set)
+//   OPENAI_API_KEY=sk-… node scripts/translate-locales.js --provider openai
+//
+//   # Pick the model your OpenAI account should use for translation
+//   OPENAI_API_KEY=sk-… OPENAI_MODEL=gpt-5-mini node scripts/translate-locales.js
+//
+//   # Anthropic Messages API (legacy/default when only ANTHROPIC_API_KEY is set)
 //   ANTHROPIC_API_KEY=sk-… node scripts/translate-locales.js
 //
 //   # Limit to specific locales
-//   ANTHROPIC_API_KEY=sk-… node scripts/translate-locales.js --locales es,fr
+//   OPENAI_API_KEY=sk-… node scripts/translate-locales.js --provider openai --locales es,fr
 //
 //   # Don't overwrite — write to .new.json side-files for diff/proofread
-//   ANTHROPIC_API_KEY=sk-… node scripts/translate-locales.js --diff
+//   OPENAI_API_KEY=sk-… node scripts/translate-locales.js --provider openai --diff
 //
 //   # Dry-run: report what WOULD be translated without making API
 //   # calls or writing files. No API key needed.
@@ -34,7 +41,7 @@
 // Design notes:
 //
 // • We send the WHOLE flattened dictionary in ONE prompt per locale.
-//   At <2000 keys this fits comfortably in a single Claude call,
+//   At <2000 keys this fits comfortably in a single model call,
 //   keeps surrounding-key context (so e.g. "Submit" near "Save"
 //   gets the right verb tense), and costs ~$0.02 per locale.
 //
@@ -83,14 +90,21 @@ const TARGET_LANGUAGES = {
 
 const args = process.argv.slice(2);
 const filterLocales = parseListArg(args, "--locales");
+const providerArg = parseValueArg(args, "--provider");
+const modelArg = parseValueArg(args, "--model");
 const diffMode = args.includes("--diff");
 const force = args.includes("--force");
 const dryRun = args.includes("--dry-run");
 
 async function main() {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const provider = resolveProvider(providerArg);
+  const model = resolveModel(provider, modelArg);
+  const apiKey = provider === "openai"
+    ? process.env.OPENAI_API_KEY
+    : process.env.ANTHROPIC_API_KEY;
   if (!apiKey && !dryRun) {
-    fail("ANTHROPIC_API_KEY env var is required. Use --dry-run to preview without an API key.");
+    const envName = provider === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY";
+    fail(`${envName} env var is required for --provider ${provider}. Use --dry-run to preview without an API key.`);
   }
 
   const sourceFile = path.join(LOCALES_DIR, `${SOURCE_LOCALE}.json`);
@@ -99,6 +113,7 @@ async function main() {
   }
   const sourceJson = JSON.parse(fs.readFileSync(sourceFile, "utf8"));
   console.log(`Source: ${SOURCE_LOCALE}.json (${countLeaves(sourceJson)} strings)`);
+  console.log(`Provider: ${provider}${model ? ` (${model})` : ""}`);
 
   const targets = Object.entries(TARGET_LANGUAGES).filter(([code]) =>
     !filterLocales.length || filterLocales.includes(code));
@@ -137,7 +152,11 @@ async function main() {
         continue;
       }
       console.log(`+ ${code}.json — ${note}, translating just those…`);
-      const translated = await translateSubset(sourceJson, todo, code, languageName, apiKey);
+      const translated = await translateSubset(sourceJson, todo, code, languageName, {
+        provider,
+        apiKey,
+        model,
+      });
       const merged = deepMerge(existing, translated);
       fs.writeFileSync(outFile, JSON.stringify(merged, null, 2) + "\n");
       console.log(`✓ ${code}.json — merged ${todo.length} key(s)`);
@@ -149,19 +168,24 @@ async function main() {
       continue;
     }
     console.log(`→ Translating ${code} (${languageName})…`);
-    const translated = await translateWhole(sourceJson, code, languageName, apiKey);
+    const translated = await translateWhole(sourceJson, code, languageName, {
+      provider,
+      apiKey,
+      model,
+    });
     fs.writeFileSync(outFile, JSON.stringify(translated, null, 2) + "\n");
     console.log(`✓ ${path.basename(outFile)} — wrote ${countLeaves(translated)} strings`);
   }
 
-  console.log(dryRun ? "\nDry-run complete. Re-run without --dry-run (and with ANTHROPIC_API_KEY set) to execute." : "\nDone.");
+  const keyName = provider === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY";
+  console.log(dryRun ? `\nDry-run complete. Re-run without --dry-run (and with ${keyName} set) to execute.` : "\nDone.");
   if (diffMode) {
     console.log("Tip: diff the .new.json files against the current dictionaries");
     console.log("     before promoting them with `mv src/locales/{xx,xx}.new.json src/locales/xx.json`.");
   }
 }
 
-async function translateWhole(source, locale, languageName, apiKey) {
+async function translateWhole(source, locale, languageName, context) {
   const prompt = [
     `Translate the following JSON dictionary from English into ${languageName}.`,
     ``,
@@ -177,25 +201,70 @@ async function translateWhole(source, locale, languageName, apiKey) {
     JSON.stringify(source, null, 2),
   ].join("\n");
 
-  const text = await callClaude(prompt, apiKey);
+  const text = await callAiProvider(prompt, context);
   const json = safeJsonParse(text);
   if (!json || typeof json !== "object") {
-    fail(`Claude returned malformed JSON for locale ${locale}:\n${text.slice(0, 500)}…`);
+    fail(`${context.provider} returned malformed JSON for locale ${locale}:\n${text.slice(0, 500)}…`);
   }
   return json;
 }
 
-async function translateSubset(source, missingPaths, locale, languageName, apiKey) {
+async function translateSubset(source, missingPaths, locale, languageName, context) {
   // Build a minimal subset object containing just the missing
   // paths. Translate that, then merge with the existing dict.
   const subset = {};
   for (const pathArr of missingPaths) {
     setAtPath(subset, pathArr, getAtPath(source, pathArr));
   }
-  return translateWhole(subset, locale, languageName, apiKey);
+  return translateWhole(subset, locale, languageName, context);
 }
 
-async function callClaude(prompt, apiKey) {
+async function callAiProvider(prompt, context) {
+  if (context.provider === "openai") {
+    return callOpenAI(prompt, context.apiKey, context.model);
+  }
+  return callClaude(prompt, context.apiKey, context.model);
+}
+
+async function callOpenAI(prompt, apiKey, model) {
+  // Uses the OpenAI Responses API through native fetch so the repo
+  // doesn't need an SDK dependency just for translation maintenance.
+  const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
+  const maxOutputTokens = parsePositiveInt(process.env.TRANSLATE_MAX_TOKENS, 12000);
+  const res = await fetch(`${baseUrl}/responses`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      input: [
+        {
+          role: "user",
+          content: [{ type: "input_text", text: prompt }],
+        },
+      ],
+      max_output_tokens: maxOutputTokens,
+      text: { format: { type: "json_object" } },
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    fail(`OpenAI API ${res.status}: ${body.slice(0, 500)}`);
+  }
+  const body = await res.json();
+  if (body?.error) {
+    fail(`OpenAI API error: ${JSON.stringify(body.error).slice(0, 500)}`);
+  }
+  const text = extractOpenAIText(body);
+  if (!text) {
+    fail(`OpenAI API returned no text:\n${JSON.stringify(body).slice(0, 500)}`);
+  }
+  return text;
+}
+
+async function callClaude(prompt, apiKey, model) {
   // Use the public Anthropic messages API. Model picked for cost +
   // quality on short translation tasks. Increase max_tokens if a
   // future dictionary outgrows the default.
@@ -207,8 +276,8 @@ async function callClaude(prompt, apiKey) {
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "claude-3-5-sonnet-latest",
-      max_tokens: 8192,
+      model,
+      max_tokens: parsePositiveInt(process.env.TRANSLATE_MAX_TOKENS, 8192),
       messages: [{ role: "user", content: prompt }],
     }),
   });
@@ -225,6 +294,48 @@ async function callClaude(prompt, apiKey) {
 }
 
 // ---------- Helpers ----------
+
+function resolveProvider(arg) {
+  const requested = (arg || process.env.TRANSLATE_PROVIDER || "").trim().toLowerCase();
+  if (requested) {
+    if (requested === "openai" || requested === "anthropic") return requested;
+    fail(`Unknown translation provider "${requested}". Use --provider openai or --provider anthropic.`);
+  }
+  if (process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY) return "openai";
+  return "anthropic";
+}
+
+function resolveModel(provider, arg) {
+  if (arg) return arg;
+  if (provider === "openai") {
+    return process.env.OPENAI_MODEL || process.env.OPENAI_TRANSLATE_MODEL || "gpt-5-mini";
+  }
+  return process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-latest";
+}
+
+function extractOpenAIText(body) {
+  if (typeof body?.output_text === "string" && body.output_text.trim()) {
+    return body.output_text;
+  }
+  const chunks = [];
+  for (const item of body?.output || []) {
+    if (item?.type === "message") {
+      for (const part of item.content || []) {
+        if (part?.type === "output_text" && typeof part.text === "string") {
+          chunks.push(part.text);
+        }
+      }
+    } else if (item?.type === "output_text" && typeof item.text === "string") {
+      chunks.push(item.text);
+    }
+  }
+  return chunks.join("\n").trim();
+}
+
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 function safeJsonParse(text) {
   // Strip markdown code fences if the model added them.
@@ -313,6 +424,12 @@ function parseListArg(args, flag) {
   const idx = args.indexOf(flag);
   if (idx === -1 || !args[idx + 1]) return [];
   return args[idx + 1].split(",").map(s => s.trim()).filter(Boolean);
+}
+
+function parseValueArg(args, flag) {
+  const idx = args.indexOf(flag);
+  if (idx === -1 || !args[idx + 1]) return null;
+  return args[idx + 1];
 }
 
 function fail(msg) {

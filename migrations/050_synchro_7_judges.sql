@@ -1,8 +1,9 @@
 -- =============================================================
 -- MIGRATION 050 — 7-JUDGE SYNCHRO PANELS
 --
--- Allows synchronised events to use the 7-judge 2/2/3 execution
--- and synchronisation grouping. The events.number_of_judges
+-- Allows synchronised events to use the 7-judge layout: four
+-- execution judges split 2+2, plus three synchronisation judges.
+-- The events.number_of_judges
 -- CHECK already allowed 7; this updates the scoring function so
 -- the grouped synchro path scores those panels directly.
 -- =============================================================

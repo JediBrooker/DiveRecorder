@@ -994,7 +994,8 @@ $$;
 
 -- =============================================================
 -- WORLD AQUATICS DIVE POINTS — SYNCHRO
--- 7-judge:  j1+j2 exec A, j3+j4 exec B, j5..j7 sync; all count.
+-- 7-judge:  four execution judges (j1+j2 exec A, j3+j4 exec B)
+--           plus three synchronisation judges (j5..j7); all count.
 -- 9-judge:  j1+j2 exec A, j3+j4 exec B, j5..j9 sync (drop hi+lo,
 --           keep middle 3) — both exec scores keep, no drops.
 -- 11-judge: j1..j3 exec A (keep middle 1), j4..j6 exec B (keep

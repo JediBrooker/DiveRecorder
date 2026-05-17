@@ -275,18 +275,25 @@ DivingHQ ships with **25 supported languages** — English source plus 24 transl
 
 ### Adding more languages or refreshing translations
 
-A Node script wraps the Anthropic API for AI-assisted translation work:
+A Node script wraps either the OpenAI Responses API or the Anthropic
+Messages API for AI-assisted translation work:
 
 ```bash
-# Translate any new English keys into every locale at once
-ANTHROPIC_API_KEY=sk-… npm run translate
+# Translate any new English keys into every locale at once using OpenAI
+OPENAI_API_KEY=sk-… npm run translate -- --provider openai
+
+# Pick a specific OpenAI model if needed
+OPENAI_API_KEY=sk-… OPENAI_MODEL=gpt-5-mini npm run translate -- --provider openai
 
 # Refresh a subset of locales
-ANTHROPIC_API_KEY=sk-… npm run translate -- --locales fr,de,zh
+OPENAI_API_KEY=sk-… npm run translate -- --provider openai --locales fr,de,zh
 
 # Side-file mode — writes .new.json next to each locale so you can
 # diff + proofread before promoting
-ANTHROPIC_API_KEY=sk-… npm run translate -- --diff
+OPENAI_API_KEY=sk-… npm run translate -- --provider openai --diff
+
+# Legacy Anthropic mode remains available
+ANTHROPIC_API_KEY=sk-… npm run translate -- --provider anthropic
 ```
 
 The script is idempotent — already-translated keys are skipped unless `--force` is passed, and the JSON structure / placeholders / `{'@'}` escape sequences are preserved verbatim.
@@ -616,7 +623,7 @@ The licensed official on deck. They don't score dives themselves — they superv
 - View the live ScoreboardView for any event they're assigned to
 - Read the per-event `score_audit_log` to see who entered or changed each score
 - Authorise a score correction (the audit row records them as the actor)
-- Confirm synchro panels have valid exec/sync subgroups (7, 9 or 11 judges)
+- Confirm synchro panels have valid exec/sync subgroups (7 judges = 4 execution / 3 synchronisation; 9 or 11 judges use the larger sync layouts)
 - See the full panel composition in `event_judges` before the event starts
 
 ### `judge` — Scoring panel member
@@ -844,7 +851,9 @@ failing run is reproducible, and a demo run is repeatable.
 | `MM_WORKFLOW_HOLD_MS` | int (ms) | `0` / `2500` in `E2E_DEMO=1` | Dwell between each click of the 4-state pre-meet button (red → orange → yellow → green) |
 
 Synchro defaults to **11 judges** for the headed walkthrough; app
-configuration supports 7, 9 or 11 judge synchro panels.
+configuration supports 7, 9 or 11 judge synchro panels. A 7-judge
+synchro panel is four execution judges split 2+2 across the divers,
+plus three synchronisation judges.
 
 #### `judge.spec.js` — `J_*`
 
