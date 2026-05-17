@@ -16,6 +16,21 @@
 //   # Don't overwrite — write to .new.json side-files for diff/proofread
 //   ANTHROPIC_API_KEY=sk-… node scripts/translate-locales.js --diff
 //
+//   # Dry-run: report what WOULD be translated without making API
+//   # calls or writing files. No API key needed.
+//   node scripts/translate-locales.js --dry-run --locales fr,de,it
+//
+// What counts as "needs translation":
+//   1. Keys that are entirely absent from a locale file (rare — the
+//      seed script copies the en.json structure into every locale).
+//   2. Keys whose value EQUALS the English source — i.e. an
+//      English placeholder waiting to be translated. The detector
+//      treats these as untranslated and re-fills them in the next
+//      run.
+//
+// Anything else (a hand-translated value that happens not to match
+// the English) is left alone unless --force is passed.
+//
 // Design notes:
 //
 // • We send the WHOLE flattened dictionary in ONE prompt per locale.
@@ -70,11 +85,12 @@ const args = process.argv.slice(2);
 const filterLocales = parseListArg(args, "--locales");
 const diffMode = args.includes("--diff");
 const force = args.includes("--force");
+const dryRun = args.includes("--dry-run");
 
 async function main() {
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    fail("ANTHROPIC_API_KEY env var is required.");
+  if (!apiKey && !dryRun) {
+    fail("ANTHROPIC_API_KEY env var is required. Use --dry-run to preview without an API key.");
   }
 
   const sourceFile = path.join(LOCALES_DIR, `${SOURCE_LOCALE}.json`);
@@ -94,30 +110,51 @@ async function main() {
     );
 
     if (!diffMode && !force && fs.existsSync(outFile)) {
-      // Compare to source — if every key is already present we
-      // ASSUME hand-translated and skip unless --force. New keys
-      // added to en.json since the last run will still get filled.
+      // Detect work to do. Two categories:
+      //   - missing: key entirely absent from the locale file
+      //   - english_stuck: value equals the English source (i.e. a
+      //     placeholder waiting to be translated). The seed script
+      //     fills every untranslated key with its English value so
+      //     the JSON structure stays in sync; this detector picks
+      //     those up so re-running the translator on a partly-
+      //     hand-translated file finishes the job without nuking
+      //     the hand work.
       const existing = safeParse(outFile);
       const missing = findMissingKeys(sourceJson, existing);
-      if (!missing.length) {
-        console.log(`✓ ${code}.json — up to date (${countLeaves(existing)} keys)`);
+      const englishStuck = findEnglishStuckKeys(sourceJson, existing);
+      const todo = [...missing, ...englishStuck];
+      if (!todo.length) {
+        console.log(`✓ ${code}.json — fully translated (${countLeaves(existing)} keys)`);
         continue;
       }
-      console.log(`+ ${code}.json — ${missing.length} missing key(s), translating just those…`);
-      const translated = await translateSubset(sourceJson, missing, code, languageName, apiKey);
+      const note = missing.length && englishStuck.length
+        ? `${missing.length} missing + ${englishStuck.length} english-stuck`
+        : missing.length
+          ? `${missing.length} missing`
+          : `${englishStuck.length} english-stuck`;
+      if (dryRun) {
+        console.log(`  ${code}.json — ${note} (would translate ${todo.length} key(s))`);
+        continue;
+      }
+      console.log(`+ ${code}.json — ${note}, translating just those…`);
+      const translated = await translateSubset(sourceJson, todo, code, languageName, apiKey);
       const merged = deepMerge(existing, translated);
       fs.writeFileSync(outFile, JSON.stringify(merged, null, 2) + "\n");
-      console.log(`✓ ${code}.json — merged ${missing.length} new key(s)`);
+      console.log(`✓ ${code}.json — merged ${todo.length} key(s)`);
       continue;
     }
 
+    if (dryRun) {
+      console.log(`  ${code}.json — file missing, would translate full ${countLeaves(sourceJson)} keys`);
+      continue;
+    }
     console.log(`→ Translating ${code} (${languageName})…`);
     const translated = await translateWhole(sourceJson, code, languageName, apiKey);
     fs.writeFileSync(outFile, JSON.stringify(translated, null, 2) + "\n");
     console.log(`✓ ${path.basename(outFile)} — wrote ${countLeaves(translated)} strings`);
   }
 
-  console.log("\nDone.");
+  console.log(dryRun ? "\nDry-run complete. Re-run without --dry-run (and with ANTHROPIC_API_KEY set) to execute." : "\nDone.");
   if (diffMode) {
     console.log("Tip: diff the .new.json files against the current dictionaries");
     console.log("     before promoting them with `mv src/locales/{xx,xx}.new.json src/locales/xx.json`.");
@@ -226,6 +263,20 @@ function findMissingKeys(source, target) {
     if (getAtPath(target, pathArr) === undefined) missing.push(pathArr);
   });
   return missing;
+}
+
+// Detect keys whose value in the target matches the English
+// source — i.e. an English placeholder waiting to be translated.
+// Skips keys that don't exist in the target at all (those are
+// already caught by findMissingKeys, so don't double-report).
+function findEnglishStuckKeys(source, target) {
+  const stuck = [];
+  walk(source, (pathArr, sourceVal) => {
+    const targetVal = getAtPath(target, pathArr);
+    if (targetVal === undefined) return;
+    if (targetVal === sourceVal) stuck.push(pathArr);
+  });
+  return stuck;
 }
 
 function getAtPath(obj, pathArr) {
