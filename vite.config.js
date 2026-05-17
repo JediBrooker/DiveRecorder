@@ -34,5 +34,16 @@ export default defineConfig({
       '/socket.io': { target: 'http://localhost:3000', ws: true },
     },
   },
-  build: { outDir: 'dist' },
+  build: {
+    outDir: 'dist',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-vue': ['vue', 'vue-router', 'pinia'],
+          'vendor-i18n': ['vue-i18n'],
+          'vendor-socket': ['socket.io-client'],
+        },
+      },
+    },
+  },
 })
