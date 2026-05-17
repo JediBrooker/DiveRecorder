@@ -337,6 +337,11 @@ function parsePositiveInt(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function isSymbolOnly(value) {
+  const withoutPlaceholders = value.replace(/\{[^}]+\}/g, "");
+  return !/\p{L}|\p{N}/u.test(withoutPlaceholders);
+}
+
 function safeJsonParse(text) {
   // Strip markdown code fences if the model added them.
   const cleaned = text
@@ -385,6 +390,7 @@ function findEnglishStuckKeys(source, target) {
   walk(source, (pathArr, sourceVal) => {
     const targetVal = getAtPath(target, pathArr);
     if (targetVal === undefined) return;
+    if (typeof sourceVal === "string" && isSymbolOnly(sourceVal)) return;
     if (targetVal === sourceVal) stuck.push(pathArr);
   });
   return stuck;
