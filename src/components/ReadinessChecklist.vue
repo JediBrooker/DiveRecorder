@@ -65,8 +65,10 @@ const remaining  = computed(() => total.value - doneCount.value)
         role="button"
       >
         <span class="readiness-check" aria-hidden="true">{{ item.done ? '☑' : '☐' }}</span>
-        <span class="readiness-label">{{ item.label }}</span>
-        <span v-if="!item.done && item.hint" class="readiness-hint">{{ item.hint }}</span>
+        <span class="readiness-copy">
+          <span class="readiness-label">{{ item.label }}</span>
+          <span v-if="!item.done && item.hint" class="readiness-hint">{{ item.hint }}</span>
+        </span>
         <span v-if="!item.done && item.onFix" class="readiness-fix">Fix →</span>
       </li>
     </ul>
@@ -79,12 +81,19 @@ const remaining  = computed(() => total.value - doneCount.value)
 
 <style scoped>
 .readiness {
+  align-self: stretch;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   background: var(--surface, #0f172a);
   border: 1px solid var(--border, #1e293b);
   border-left: 4px solid #f59e0b;
   border-radius: var(--radius, 6px);
   padding: 0.85rem 1rem;
   margin-bottom: 1rem;
+  letter-spacing: 0;
+  text-transform: none;
   transition: border-color 0.2s, padding 0.2s;
 }
 .readiness-ready { border-left-color: var(--green, #10b981); }
@@ -92,12 +101,23 @@ const remaining  = computed(() => total.value - doneCount.value)
 
 .readiness-header {
   display: flex; align-items: center; gap: 0.85rem;
+  min-width: 0;
   font-family: var(--font-display, sans-serif);
   font-size: 12px; font-weight: 700;
   letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--text-2, #cbd5e1);
 }
-.readiness-title { display: inline-flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+.readiness-title {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.readiness-title > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .readiness-title strong { color: var(--text, #f8fafc); font-size: 13px; }
 .readiness-emoji { font-size: 14px; }
 
@@ -117,14 +137,21 @@ const remaining  = computed(() => total.value - doneCount.value)
 .readiness-list {
   list-style: none; padding: 0; margin: 0.85rem 0 0.1rem 0;
   display: flex; flex-direction: column; gap: 0.35rem;
+  min-width: 0;
 }
 
 .readiness-row {
-  display: flex; align-items: center; gap: 0.7rem;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.15rem 0.65rem;
+  min-width: 0;
   padding: 0.45rem 0.55rem;
   border-radius: var(--radius, 6px);
   font-family: var(--font-mono, monospace);
   font-size: 13px;
+  letter-spacing: 0;
+  text-transform: none;
   color: var(--text-2, #cbd5e1);
   transition: background 0.1s, color 0.1s;
 }
@@ -142,14 +169,29 @@ const remaining  = computed(() => total.value - doneCount.value)
 }
 .readiness-check { font-size: 15px; flex-shrink: 0; width: 18px; text-align: center; }
 .readiness-row.is-done .readiness-check { color: var(--green, #10b981); }
-.readiness-label { flex: 0 0 auto; font-weight: 600; }
+.readiness-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  text-align: left;
+}
+.readiness-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
 .readiness-hint  {
-  flex: 1 1 auto; min-width: 0;
+  display: block;
+  min-width: 0;
   font-size: 11px; color: var(--text-3, #94a3b8);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .readiness-fix {
-  flex-shrink: 0;
+  justify-self: end;
   font-family: var(--font-display, sans-serif);
   font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
   color: var(--cyan, #06b6d4);

@@ -38,12 +38,14 @@
      left over and is internally min-width: 0 so the active-
      diver block can shrink past the badge column when a window
      is narrow. */
-  grid-template-columns: 350px 1fr 350px;
+  grid-template-columns: minmax(280px, 350px) minmax(0, 1fr) minmax(280px, 350px);
   grid-template-rows: 1fr;              /* row fills the grid container's height */
+  min-width: 0;
 }
 .ctrl-panel {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   border-right: 1px solid var(--border);
 }
 .ctrl-panel:last-child {
@@ -51,6 +53,7 @@
   border-left: 1px solid var(--border);
 }
 .panel-head {
+  min-width: 0;
   font-family: var(--font-display);
   font-size: 10px;
   font-weight: 700;
@@ -78,6 +81,9 @@
   gap: 0.55rem;
   text-align: center;
 }
+.pre-meet-head > .readiness {
+  align-self: stretch;
+}
 .pre-meet-actions {
   display: flex; align-items: center; justify-content: center;
   gap: 0.5rem; flex-wrap: wrap;
@@ -92,6 +98,7 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
+  min-width: 0;
   margin-bottom: 0.75rem;
   padding: 4px;
   background: var(--bg-3);
@@ -143,12 +150,14 @@
   line-height: 1.45;
 }
 .panel-body {
+  min-width: 0;
   padding: 1rem;
 }
 
 .ctrl-centre {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 .active-zone {
   display: flex;
