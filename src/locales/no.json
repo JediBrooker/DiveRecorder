@@ -545,5 +545,16 @@
     "pending": "Venter",
     "approved": "Godkjent",
     "denied": "Avslått"
+  },
+  "scheduler": {
+    "subtitle": "Tidslinje for oppvarminger, øvelser, pauser og seremonier for dette stevnet.",
+    "empty": "Det finnes ingen økter ennå. Legg til planlagte tider for stevnets øvelser, og åpne deretter denne siden som stevneleder for å opprette den første planen.",
+    "manager_link_tip": "Åpne stevnets tidslinje, konfliktpanel, redigeringsverktøy og iCal-strøm",
+    "edit": {
+      "insert_type_label": "Type",
+      "insert_event_label": "Tilknyttet øvelse",
+      "insert_event_none": "Velg en øvelse",
+      "insert_label": "Etikett"
+    }
   }
 }

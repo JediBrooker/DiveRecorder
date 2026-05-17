@@ -545,5 +545,16 @@
     "pending": "Väntar",
     "approved": "Godkänd",
     "denied": "Avslagen"
+  },
+  "scheduler": {
+    "subtitle": "Tidslinje för uppvärmningar, grenar, pauser och ceremonier för den här tävlingen.",
+    "empty": "Det finns inga pass ännu. Lägg till schemalagda tider på tävlingens grenar och öppna sedan den här sidan som tävlingsansvarig för att skapa den första planen.",
+    "manager_link_tip": "Öppna tävlingens tidslinje, konfliktpanel, redigeringsverktyg och iCal-flöde",
+    "edit": {
+      "insert_type_label": "Typ",
+      "insert_event_label": "Länkad gren",
+      "insert_event_none": "Välj en gren",
+      "insert_label": "Etikett"
+    }
   }
 }

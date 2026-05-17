@@ -3,7 +3,13 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useSocket } from '@/composables/useSocket'
-import { annotatedScores, groupedSynchroScoresForDisplay, trimCount, synchroJudgeGroups } from '@/composables/useScoreCategories'
+import {
+  annotatedScores,
+  groupedSynchroScoresForDisplay,
+  trimCount,
+  synchroGroupDropCount,
+  synchroJudgeGroups,
+} from '@/composables/useScoreCategories'
 import { diveDescription } from '@/composables/useDiveLabel'
 import { cachedFetch } from '@/lib/idbCache'
 import { fmtDate } from '@/lib/format'
@@ -323,10 +329,9 @@ function judgeForIndex(judgeNumbers, i) {
 // Map a chip's slot inside a synchro role group back to the
 // real judge. groupedSynchroScoresForDisplay emits `scores`
 // arrays in role order (Exec A → Exec B → Sync), but the
-// underlying panel positions are fixed by World Aquatics — see
-// synchroJudgeGroups: 9-judge synchro → a [1,2], b [3,4],
-// sync [5..9]; 11-judge synchro → a [1..3], b [4..6],
-// sync [7..11]. We re-derive the panel position from role + i.
+// underlying panel positions are fixed by the synchro panel size:
+// 7/9 use 2/2 exec groups; 11 uses 3/3 exec groups. We re-derive
+// the panel position from role + i.
 function judgeForSynchro(historyRow, role, i) {
   const numJudges = currentEvent.value?.number_of_judges
   const groups = synchroJudgeGroups(numJudges)
@@ -817,10 +822,19 @@ function pairLabel(row) {
 }
 
 function panelMultiplier(numJudges, isSynchro) {
-  // Synchro 9/11 collapse to a 9-judge equivalent after the
-  // calc_event_dive_points 3/n_kept rescale; individual events
-  // multiply by the post-trim kept count.
-  if (isSynchro) return 9
+  // Synchro points are (kept grouped score sum) × DD × 0.6.
+  // If every judge scored X, the effective multiplier is the
+  // number of kept grouped scores × 0.6. This keeps the catch-up
+  // projection aligned with calc_synchro_dive_points for 7/9/11.
+  if (isSynchro) {
+    const groups = synchroJudgeGroups(numJudges)
+    if (!groups) return Math.max(1, (parseInt(numJudges) || 5) * 0.6)
+    const kept = Object.entries(groups).reduce((sum, [role, judges]) => {
+      const drop = synchroGroupDropCount(role, parseInt(numJudges) || 0)
+      return sum + Math.max(0, judges.length - drop * 2)
+    }, 0)
+    return Math.max(1, kept * 0.6)
+  }
   const drop = trimCount(numJudges)
   return Math.max(1, (parseInt(numJudges) || 5) - 2 * drop)
 }

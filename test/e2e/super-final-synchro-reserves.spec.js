@@ -113,7 +113,7 @@ test("super-final synchro reserve replacement: pool listing + swap", async ({ re
     adminToken: fedHost.adminToken,
     name: "E2E SR Synchro 3m",
     height: "3m",
-    number_of_judges: 9,           // synchro requires 9 or 11
+    number_of_judges: 9,           // synchro supports 7, 9 or 11
     total_rounds: 3,
     event_format: "final",
     event_type: "synchro_pair",

@@ -545,5 +545,16 @@
     "pending": "In sospeso",
     "approved": "Approvata",
     "denied": "Rifiutata"
+  },
+  "scheduler": {
+    "subtitle": "Cronologia di riscaldamenti, gare, pause e cerimonie per questo meeting.",
+    "empty": "Nessuna sessione ancora. Aggiungi gli orari alle gare del meeting, poi apri questa pagina come responsabile del meeting per creare il primo piano.",
+    "manager_link_tip": "Apri cronologia del meeting, pannello conflitti, strumenti di modifica e feed iCal",
+    "edit": {
+      "insert_type_label": "Tipo",
+      "insert_event_label": "Gara collegata",
+      "insert_event_none": "Scegli una gara",
+      "insert_label": "Etichetta"
+    }
   }
 }

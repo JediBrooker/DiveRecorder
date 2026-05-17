@@ -45,18 +45,12 @@
 //
 // SEEDING
 // -------
-// Both boards and sessions are seeded *lazily* on the first GET
-// rather than backfilled by the migration. Federations that
-// never look at the scheduler pay no schema cost and don't get
-// surprise rows. The seed runs inside a single transaction per
-// request; if two managers hit the page simultaneously, the
-// SELECT-then-INSERT race is harmless — the second writer just
-// finds the same rows already there (boards are unique by
-// (org, pool, height, label); sessions de-dupe by checking COUNT
-// before inserting, and a re-seed after a prior partial would
-// add another session row, which the operator can delete in
-// phase 3 — Phase 1 has no edit affordance for that, but no
-// running meet ever hits this code path twice).
+// Sessions are seeded *lazily* the first time a meet editor opens
+// the scheduler, rather than backfilled by the migration. Public
+// reads never create rows. The seed runs inside a transaction and
+// takes a per-meet advisory lock before it checks for existing
+// sessions, so two managers opening the page simultaneously do
+// not duplicate the day plan.
 //
 // EVENT-DURATION ESTIMATE
 // -----------------------
@@ -78,10 +72,11 @@ const {
   stampActualStart,
   REFLOW_NOISE_THRESHOLD_MS,
 } = require("../lib/schedule-reflow");
+const { recordAudit, auditFromReq } = require("../lib/audit");
 
-// Default warmup length the WA rulebook expects in front of
-// every competition event. Editable per-block in phase 3 — for
-// now it's the auto-seed value.
+// Default operator warmup length in front of every competition
+// event. Editable per-block in phase 3 — for now it's the
+// auto-seed value.
 const WARMUP_MINUTES = 45;
 
 // Fallback when an event has zero competitor_dive_lists rows
@@ -151,6 +146,98 @@ module.exports = function createSessionsRouter({
     res.status(503).json({
       error: "Conflict dismissal requires an authenticated configuration",
     }));
+
+  function userCanEditMeet(req, meet) {
+    if (!req.user || !meet) return false;
+    if (req.user.is_system_admin) return true;
+    if (String(meet.org_id) !== String(req.user.org_id)) return false;
+    const roles = req.user.org_roles || [];
+    return roles.includes("org_admin") || roles.includes("meet_manager");
+  }
+
+  async function requireMeetEdit(client, req, res, meetId) {
+    const r = await client.query(
+      `SELECT id, org_id, name FROM meets WHERE id = $1`,
+      [meetId],
+    );
+    if (!r.rowCount) {
+      res.status(404).json({ error: "Meet not found" });
+      return null;
+    }
+    const meet = r.rows[0];
+    if (!userCanEditMeet(req, meet)) {
+      res.status(403).json({ error: "You cannot edit this meet schedule" });
+      return null;
+    }
+    return meet;
+  }
+
+  async function requireSessionEdit(client, req, res, sessionId) {
+    const r = await client.query(
+      `SELECT s.id AS session_id, s.name AS session_name,
+              m.id, m.org_id, m.name
+         FROM sessions s
+         JOIN meets m ON m.id = s.meet_id
+        WHERE s.id = $1`,
+      [sessionId],
+    );
+    if (!r.rowCount) {
+      res.status(404).json({ error: "Session not found" });
+      return null;
+    }
+    const row = r.rows[0];
+    const meet = { id: row.id, org_id: row.org_id, name: row.name };
+    if (!userCanEditMeet(req, meet)) {
+      res.status(403).json({ error: "You cannot edit this meet schedule" });
+      return null;
+    }
+    return { meet, session_id: row.session_id, session_name: row.session_name };
+  }
+
+  async function requireBlockEdit(client, req, res, blockId) {
+    const r = await client.query(
+      `SELECT b.id AS block_id, b.session_id, b.label, b.starts_at, b.ends_at,
+              s.meet_id,
+              m.org_id, m.name AS meet_name
+         FROM schedule_blocks b
+         JOIN sessions s ON s.id = b.session_id
+         JOIN meets m ON m.id = s.meet_id
+        WHERE b.id = $1`,
+      [blockId],
+    );
+    if (!r.rowCount) {
+      res.status(404).json({ error: "Block not found" });
+      return null;
+    }
+    const row = r.rows[0];
+    const meet = { id: row.meet_id, org_id: row.org_id, name: row.meet_name };
+    if (!userCanEditMeet(req, meet)) {
+      res.status(403).json({ error: "You cannot edit this meet schedule" });
+      return null;
+    }
+    return { meet, block: row };
+  }
+
+  async function auditSchedule(db, req, {
+    meet,
+    entityType,
+    entityId,
+    entityName = null,
+    action,
+    metadata = null,
+    note = null,
+  }) {
+    await recordAudit(db, {
+      ...auditFromReq(req),
+      org_id: meet?.org_id || null,
+      entity_type: entityType,
+      entity_id: entityId || null,
+      entity_name: entityName,
+      action,
+      metadata,
+      note,
+    });
+  }
 
   // -------------------------------------------------------------
   // Seed helpers — both idempotent in the sense that they no-op
@@ -287,25 +374,39 @@ module.exports = function createSessionsRouter({
       await client.query("BEGIN");
 
       const meetRes = await client.query(
-        `SELECT id, org_id FROM meets WHERE id = $1`,
+        `SELECT id, org_id, name FROM meets WHERE id = $1`,
         [meetId],
       );
       if (!meetRes.rowCount) {
         await client.query("ROLLBACK");
         return res.status(404).json({ error: "Meet not found" });
       }
-      const orgId = meetRes.rows[0].org_id;
+      const meet = meetRes.rows[0];
+      const orgId = meet.org_id;
+      const canSeed = userCanEditMeet(req, meet);
 
-      // Boards are an org-level concept. Seed them first so the
-      // session seed can resolve event.height → board_id.
-      await ensureBoardsForOrg(client, orgId);
-
-      const have = await client.query(
-        `SELECT 1 FROM sessions WHERE meet_id = $1 LIMIT 1`,
-        [meetId],
-      );
-      if (!have.rowCount) {
-        await seedSessionsForMeet(client, meetId, orgId);
+      if (canSeed) {
+        // Only authenticated meet editors create the initial board
+        // and session rows. Public schedule views are pure reads.
+        await client.query(
+          `SELECT pg_advisory_xact_lock(hashtext($1))`,
+          [`schedule-seed:${meetId}`],
+        );
+        await ensureBoardsForOrg(client, orgId);
+        const have = await client.query(
+          `SELECT 1 FROM sessions WHERE meet_id = $1 LIMIT 1`,
+          [meetId],
+        );
+        if (!have.rowCount) {
+          await seedSessionsForMeet(client, meetId, orgId);
+          await auditSchedule(client, req, {
+            meet,
+            entityType: "meet",
+            entityId: meet.id,
+            entityName: meet.name,
+            action: "schedule.seeded",
+          });
+        }
       }
 
       // Read back. Sessions ordered by session_date so the UI
@@ -347,6 +448,14 @@ module.exports = function createSessionsRouter({
         [orgId],
       );
 
+      const eventsRes = await client.query(
+        `SELECT id, name, height, board_id, scheduled_at, status
+           FROM events
+          WHERE meet_id = $1
+          ORDER BY scheduled_at ASC NULLS LAST, name ASC`,
+        [meetId],
+      );
+
       await client.query("COMMIT");
 
       const blocksBySession = new Map();
@@ -358,7 +467,7 @@ module.exports = function createSessionsRouter({
         ...s,
         blocks: blocksBySession.get(s.id) || [],
       }));
-      res.json({ sessions, boards: boardsRes.rows });
+      res.json({ sessions, boards: boardsRes.rows, events: eventsRes.rows });
     } catch (err) {
       if (client) {
         try { await client.query("ROLLBACK"); } catch { /* swallow */ }
@@ -443,29 +552,22 @@ module.exports = function createSessionsRouter({
   // -------------------------------------------------------------
   // GET /api/meets/:meetId/conflicts        (Phase 2)
   //
-  // Returns the full conflict report for a meet. Public read,
-  // same visibility as /sessions — the data is whatever the
-  // schedule already shows, just cross-correlated. 5-second
-  // in-process cache absorbs the timeline-drawer chatter.
+  // Returns the full conflict report for a meet. Editor-only:
+  // conflicts include judge/diver/referee names and operational
+  // warnings that are not part of the public schedule surface.
+  // 5-second in-process cache absorbs the timeline-drawer chatter.
   // -------------------------------------------------------------
-  router.get("/api/meets/:meetId/conflicts", maybeAuth, async (req, res) => {
+  router.get("/api/meets/:meetId/conflicts", editorGate, async (req, res) => {
     const { meetId } = req.params;
     try {
-      const cached = cachedConflicts(meetId);
+      const meet = await requireMeetEdit(pool, req, res, meetId);
+      if (!meet) return;
+
+      const cached = cachedConflicts(meet.id);
       if (cached) return res.json({ conflicts: cached, cached: true });
 
-      // Sanity-check the meet exists so a typo gets a 404 instead
-      // of silently returning {conflicts: []}.
-      const meetRes = await pool.query(
-        `SELECT id FROM meets WHERE id = $1`,
-        [meetId],
-      );
-      if (!meetRes.rowCount) {
-        return res.status(404).json({ error: "Meet not found" });
-      }
-
-      const conflicts = await detectConflicts(meetId, pool);
-      conflictCache.set(meetId, { at: Date.now(), value: conflicts });
+      const conflicts = await detectConflicts(meet.id, pool);
+      conflictCache.set(meet.id, { at: Date.now(), value: conflicts });
       res.json({ conflicts, cached: false });
     } catch (err) {
       console.error("[GET conflicts]", err.message);
@@ -528,6 +630,11 @@ module.exports = function createSessionsRouter({
         return res.status(400).json({ error: "Blocks must be in the same meet" });
       }
       const meetId = blocksRes.rows[0].meet_id;
+      const meet = await requireMeetEdit(client, req, res, meetId);
+      if (!meet) {
+        await client.query("ROLLBACK");
+        return;
+      }
 
       const fp = await computeResourceFingerprint(client, {
         blockAId: aId,
@@ -554,11 +661,25 @@ module.exports = function createSessionsRouter({
                    resource_fingerprint, dismissed_by, dismissed_at, reason`,
         [meetId, aId, bId, kind, fp, req.user?.id || null, reason],
       );
+      const row = inserted.rows[0];
+
+      await auditSchedule(client, req, {
+        meet,
+        entityType: "schedule_conflict",
+        entityId: row.id,
+        entityName: kind,
+        action: "schedule.conflict_dismissed",
+        metadata: {
+          block_a_id: aId,
+          block_b_id: bId,
+          resource_kind: kind,
+        },
+        note: reason,
+      });
 
       await client.query("COMMIT");
       invalidateConflictCache(meetId);
 
-      const row = inserted.rows[0];
       // Tell every connected client that the conflict landscape
       // moved. The drawer subscribes and refetches; spectators
       // just ignore it. Best-effort — a missing io shouldn't
@@ -567,7 +688,6 @@ module.exports = function createSessionsRouter({
         if (io && typeof io.emit === "function") {
           io.emit("schedule:conflict_dismissed", {
             meet_id: meetId,
-            dismissal: row,
             action: "dismiss",
           });
         }
@@ -604,26 +724,6 @@ module.exports = function createSessionsRouter({
       [blockId],
     );
     return r.rows[0] || null;
-  }
-
-  // Resolve the meet_id for a block via its session. Used to scope
-  // the post-write conflict re-detection and the socket emit.
-  async function meetIdForBlock(client, blockId) {
-    const r = await client.query(
-      `SELECT s.meet_id
-         FROM schedule_blocks b
-         JOIN sessions s ON s.id = b.session_id
-        WHERE b.id = $1`,
-      [blockId],
-    );
-    return r.rows[0]?.meet_id || null;
-  }
-  async function meetIdForSession(client, sessionId) {
-    const r = await client.query(
-      `SELECT meet_id FROM sessions WHERE id = $1`,
-      [sessionId],
-    );
-    return r.rows[0]?.meet_id || null;
   }
 
   // Run the conflict detector then filter to just the entries that
@@ -744,9 +844,11 @@ module.exports = function createSessionsRouter({
     try {
       const existing = await client.query(
         `SELECT b.id, b.session_id, b.starts_at, b.ends_at,
-                s.meet_id
+                b.label, b.block_type, s.meet_id,
+                m.org_id, m.name AS meet_name
            FROM schedule_blocks b
            JOIN sessions s ON s.id = b.session_id
+           JOIN meets m ON m.id = s.meet_id
           WHERE b.id = $1`,
         [id],
       );
@@ -756,6 +858,10 @@ module.exports = function createSessionsRouter({
       const row = existing.rows[0];
       const sessionId = row.session_id;
       const meetId = row.meet_id;
+      const meet = { id: meetId, org_id: row.org_id, name: row.meet_name };
+      if (!userCanEditMeet(req, meet)) {
+        return res.status(403).json({ error: "You cannot edit this meet schedule" });
+      }
 
       // ---- Field-by-field validation + SET clause assembly ----
       let nextStartsAt = row.starts_at;
@@ -844,6 +950,16 @@ module.exports = function createSessionsRouter({
         `UPDATE schedule_blocks SET ${sets.join(", ")} WHERE id = $${argIdx}`,
         args,
       );
+      await auditSchedule(client, req, {
+        meet,
+        entityType: "schedule_block",
+        entityId: id,
+        entityName: row.label,
+        action: "schedule.block_updated",
+        metadata: {
+          fields: Object.keys(body).filter((key) => body[key] !== undefined),
+        },
+      });
 
       const block = await fetchBlockById(client, id);
       // The detector is read-only, so we don't need a transaction
@@ -855,8 +971,7 @@ module.exports = function createSessionsRouter({
       safeEmit("schedule:block_updated", {
         meet_id: meetId,
         session_id: sessionId,
-        block,
-        conflicts,
+        block_id: block.id,
       });
       res.json({ block, conflicts });
     } catch (err) {
@@ -893,10 +1008,9 @@ module.exports = function createSessionsRouter({
 
     const client = await pool.connect();
     try {
-      const meetId = await meetIdForSession(client, sessionId);
-      if (!meetId) {
-        return res.status(404).json({ error: "Session not found" });
-      }
+      const access = await requireSessionEdit(client, req, res, sessionId);
+      if (!access) return;
+      const meetId = access.meet.id;
 
       let boards;
       try {
@@ -936,6 +1050,18 @@ module.exports = function createSessionsRouter({
         ],
       );
       const blockId = ins.rows[0].id;
+      await auditSchedule(client, req, {
+        meet: access.meet,
+        entityType: "schedule_block",
+        entityId: blockId,
+        entityName: label,
+        action: "schedule.block_created",
+        metadata: {
+          session_id: sessionId,
+          block_type: body.block_type,
+          event_id: eventId,
+        },
+      });
       const block = await fetchBlockById(client, blockId);
       invalidateConflictCache(meetId);
       const conflicts = await conflictsTouchingBlock(client, meetId, blockId);
@@ -943,8 +1069,7 @@ module.exports = function createSessionsRouter({
       safeEmit("schedule:block_updated", {
         meet_id: meetId,
         session_id: sessionId,
-        block,
-        conflicts,
+        block_id: block.id,
         created: true,
       });
       res.status(201).json({ block, conflicts });
@@ -973,18 +1098,23 @@ module.exports = function createSessionsRouter({
     }
     const client = await pool.connect();
     try {
-      const meetId = await meetIdForBlock(client, id);
-      if (!meetId) {
-        return res.status(404).json({ error: "Block not found" });
-      }
-      // Pull the session_id BEFORE the delete so the socket payload
-      // can route to the right tab without an extra round trip.
-      const sessRow = await client.query(
-        `SELECT session_id FROM schedule_blocks WHERE id = $1`,
-        [id],
-      );
-      const sessionId = sessRow.rows[0]?.session_id || null;
+      const access = await requireBlockEdit(client, req, res, id);
+      if (!access) return;
+      const meetId = access.meet.id;
+      const sessionId = access.block.session_id;
       await client.query(`DELETE FROM schedule_blocks WHERE id = $1`, [id]);
+      await auditSchedule(client, req, {
+        meet: access.meet,
+        entityType: "schedule_block",
+        entityId: id,
+        entityName: access.block.label,
+        action: "schedule.block_deleted",
+        metadata: {
+          session_id: sessionId,
+          starts_at: access.block.starts_at,
+          ends_at: access.block.ends_at,
+        },
+      });
       invalidateConflictCache(meetId);
       safeEmit("schedule:block_deleted", {
         meet_id: meetId,
@@ -1049,6 +1179,15 @@ module.exports = function createSessionsRouter({
       args.push(body.referee_user_id || null);
     }
 
+    let access;
+    try {
+      access = await requireSessionEdit(pool, req, res, id);
+      if (!access) return;
+    } catch (err) {
+      console.error("[PUT session gate]", err.message);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+
     if (!sets.length) {
       // No-op — return the current row so the caller gets a
       // predictable shape even when no fields were sent.
@@ -1075,6 +1214,16 @@ module.exports = function createSessionsRouter({
         return res.status(404).json({ error: "Session not found" });
       }
       const session = r.rows[0];
+      await auditSchedule(pool, req, {
+        meet: access.meet,
+        entityType: "session",
+        entityId: session.id,
+        entityName: session.name,
+        action: "schedule.session_updated",
+        metadata: {
+          fields: Object.keys(body).filter((key) => body[key] !== undefined),
+        },
+      });
       // Editing the session referee or its date can change the
       // referee-conflict landscape — invalidate the cache so the
       // next conflicts read recomputes.
@@ -1121,8 +1270,11 @@ module.exports = function createSessionsRouter({
       await client.query("BEGIN");
 
       const srcRes = await client.query(
-        `SELECT id, meet_id, name, session_date, pool, referee_user_id
-           FROM sessions WHERE id = $1`,
+        `SELECT s.id, s.meet_id, s.name, s.session_date, s.pool, s.referee_user_id,
+                m.org_id, m.name AS meet_name
+           FROM sessions s
+           JOIN meets m ON m.id = s.meet_id
+          WHERE s.id = $1`,
         [id],
       );
       if (!srcRes.rowCount) {
@@ -1130,6 +1282,11 @@ module.exports = function createSessionsRouter({
         return res.status(404).json({ error: "Session not found" });
       }
       const src = srcRes.rows[0];
+      const meet = { id: src.meet_id, org_id: src.org_id, name: src.meet_name };
+      if (!userCanEditMeet(req, meet)) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ error: "You cannot edit this meet schedule" });
+      }
 
       // Compute the delta in whole days so the timestamps shift by
       // exactly that integer day count — using straight ms subtraction
@@ -1212,6 +1369,18 @@ module.exports = function createSessionsRouter({
           ORDER BY b.starts_at ASC, b.created_at ASC`,
         [newSessionId],
       );
+      await auditSchedule(client, req, {
+        meet,
+        entityType: "session",
+        entityId: newSessionId,
+        entityName: newSess.rows[0].name,
+        action: "schedule.session_duplicated",
+        metadata: {
+          source_session_id: src.id,
+          target_date: targetDateRaw,
+          block_count: blocksRes.rowCount,
+        },
+      });
 
       await client.query("COMMIT");
       invalidateConflictCache(src.meet_id);
@@ -1220,7 +1389,7 @@ module.exports = function createSessionsRouter({
       safeEmit("schedule:session_duplicated", {
         meet_id: src.meet_id,
         source_session_id: src.id,
-        session,
+        session_id: session.id,
       });
       res.status(201).json({ session });
     } catch (err) {
@@ -1251,7 +1420,7 @@ module.exports = function createSessionsRouter({
   // -------------------------------------------------------------
   const availabilityCache = new Map(); // key -> { at: ms, value: any }
   const AVAILABILITY_TTL_MS = 5000;
-  router.get("/api/meets/:meetId/judges/availability", maybeAuth, async (req, res) => {
+  router.get("/api/meets/:meetId/judges/availability", editorGate, async (req, res) => {
     const { meetId } = req.params;
     const atRaw = req.query.at;
     if (!atRaw) {
@@ -1272,13 +1441,8 @@ module.exports = function createSessionsRouter({
     }
 
     try {
-      const meetRes = await pool.query(
-        `SELECT id FROM meets WHERE id = $1`,
-        [meetId],
-      );
-      if (!meetRes.rowCount) {
-        return res.status(404).json({ error: "Meet not found" });
-      }
+      const meet = await requireMeetEdit(pool, req, res, meetId);
+      if (!meet) return;
 
       // For each judge currently on any event panel in this meet,
       // find whether they're seated for an event whose schedule
@@ -1411,6 +1575,11 @@ module.exports = function createSessionsRouter({
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      const meet = await requireMeetEdit(client, req, res, meetId);
+      if (!meet) {
+        await client.query("ROLLBACK");
+        return;
+      }
 
       // Lock the candidate rows + verify ownership via the parent
       // session. SELECT FOR UPDATE serialises against any concurrent
@@ -1495,6 +1664,19 @@ module.exports = function createSessionsRouter({
         shiftedBlockIds.push(row.id);
       }
 
+      await auditSchedule(client, req, {
+        meet,
+        entityType: "meet",
+        entityId: meetId,
+        entityName: meet.name,
+        action: "schedule.shifted",
+        metadata: {
+          block_ids: shiftedBlockIds,
+          delta_seconds: deltaSeconds,
+        },
+        note: reason,
+      });
+
       await client.query("COMMIT");
       invalidateConflictCache(meetId);
 
@@ -1542,7 +1724,26 @@ module.exports = function createSessionsRouter({
   // -------------------------------------------------------------
   router.delete("/api/conflicts/dismiss/:id", editorGate, async (req, res) => {
     const { id } = req.params;
+    if (!UUID_RE.test(id)) {
+      return res.status(400).json({ error: "Invalid dismissal id" });
+    }
     try {
+      const existing = await pool.query(
+        `SELECT dc.id, dc.meet_id, dc.block_a_id, dc.block_b_id, dc.resource_kind,
+                m.org_id, m.name AS meet_name
+           FROM dismissed_conflicts dc
+           JOIN meets m ON m.id = dc.meet_id
+          WHERE dc.id = $1`,
+        [id],
+      );
+      if (!existing.rowCount) {
+        return res.status(404).json({ error: "Dismissal not found" });
+      }
+      const rowBefore = existing.rows[0];
+      const meet = { id: rowBefore.meet_id, org_id: rowBefore.org_id, name: rowBefore.meet_name };
+      if (!userCanEditMeet(req, meet)) {
+        return res.status(403).json({ error: "You cannot edit this meet schedule" });
+      }
       const r = await pool.query(
         `DELETE FROM dismissed_conflicts WHERE id = $1
          RETURNING id, meet_id, block_a_id, block_b_id, resource_kind`,
@@ -1552,12 +1753,23 @@ module.exports = function createSessionsRouter({
         return res.status(404).json({ error: "Dismissal not found" });
       }
       const row = r.rows[0];
+      await auditSchedule(pool, req, {
+        meet,
+        entityType: "schedule_conflict",
+        entityId: row.id,
+        entityName: row.resource_kind,
+        action: "schedule.conflict_undismissed",
+        metadata: {
+          block_a_id: row.block_a_id,
+          block_b_id: row.block_b_id,
+          resource_kind: row.resource_kind,
+        },
+      });
       invalidateConflictCache(row.meet_id);
       try {
         if (io && typeof io.emit === "function") {
           io.emit("schedule:conflict_dismissed", {
             meet_id: row.meet_id,
-            dismissal: row,
             action: "undismiss",
           });
         }

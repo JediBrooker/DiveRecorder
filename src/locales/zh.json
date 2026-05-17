@@ -545,5 +545,16 @@
   },
   "locale": {
     "switcher_label": "语言"
+  },
+  "scheduler": {
+    "subtitle": "本场赛事的热身、项目、休息和仪式时间线。",
+    "empty": "还没有场次。请先为赛事项目添加计划时间，然后以赛事管理员身份打开此页面来生成初始计划。",
+    "manager_link_tip": "打开赛事时间线、冲突面板、编辑工具和 iCal 订阅",
+    "edit": {
+      "insert_type_label": "类型",
+      "insert_event_label": "关联项目",
+      "insert_event_none": "选择项目",
+      "insert_label": "标签"
+    }
   }
 }

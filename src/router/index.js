@@ -140,10 +140,9 @@ const routes = [
     component: () => import('@/views/MeetView.vue'),
   },
   {
-    // Session scheduler (read-only timeline + .ics — Phase 1).
-    // See docs/session-scheduler.md. Public for now — same
-    // visibility surface as the .ics feed it links to; later
-    // phases add edit affordances behind requiresAuth.
+    // Session scheduler. Public viewers get the timeline + .ics
+    // feed; same-org org admins and meet managers see conflict
+    // and edit affordances inside the view.
     path: '/meet/:meetId/schedule',
     component: () => import('@/views/SchedulerView.vue'),
   },

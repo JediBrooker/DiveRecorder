@@ -545,5 +545,16 @@
     "pending": "Pendente",
     "approved": "Aprovado",
     "denied": "Recusado"
+  },
+  "scheduler": {
+    "subtitle": "Linha temporal de aquecimentos, provas, pausas e cerimónias deste encontro.",
+    "empty": "Ainda não há sessões. Adicione horas programadas às provas do encontro e abra esta página como gestor do encontro para criar o primeiro plano.",
+    "manager_link_tip": "Abrir a linha temporal do encontro, painel de conflitos, ferramentas de edição e feed iCal",
+    "edit": {
+      "insert_type_label": "Tipo",
+      "insert_event_label": "Prova associada",
+      "insert_event_none": "Escolher uma prova",
+      "insert_label": "Etiqueta"
+    }
   }
 }

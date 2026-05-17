@@ -43,10 +43,9 @@ const VARIANTS = ["individual", "synchro_pair", "team"];
 const VARIANT  = process.env.MM_VARIANT
   || VARIANTS[Math.floor(Math.random() * VARIANTS.length)];
 
-// Synchro panels are 9 or 11 (World Aquatics gate); everything else is 5.
-// Synchro defaults to 11 so the bigger panel layout (Exec A 1-3,
-// Exec B 4-6, Sync 7-11) is exercised on every run — the 9-panel
-// shape is structurally a strict subset.
+// Synchro supports 7, 9 or 11 judges; everything else is 5.
+// The walkthrough defaults to 11 so the bigger panel layout
+// (Exec A 1-3, Exec B 4-6, Sync 7-11) is exercised on every run.
 const NUM_JUDGES = VARIANT === "synchro_pair" ? 11 : 5;
 
 // Random board height. The dive directory has 101/201/301 at

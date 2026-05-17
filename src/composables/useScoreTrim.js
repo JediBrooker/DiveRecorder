@@ -18,6 +18,7 @@ import {
   scoreCategory,
   trimCount,
   synchroJudgeGroups,
+  synchroGroupDropCount,
 } from './useScoreCategories.js'
 
 /**
@@ -38,11 +39,12 @@ export function annotateJudgeRows(judges, numJudges, eventType) {
   if (eventType === 'synchro_pair') {
     const groups = synchroJudgeGroups(numJudges)
     if (groups) {
-      // Drop within each sub-panel: 3-judge exec keeps middle (drop 1+1),
-      // 5-judge sync drops 1+1, 2-judge exec keeps both.
-      for (const subPanel of [groups.a, groups.b, groups.sync]) {
+      // Drop within each sub-panel. 7-judge synchro keeps its
+      // 2/2/3 grouping intact; 9/11 panels trim the larger sync
+      // group, and 11 also trims each 3-judge exec group.
+      for (const [role, subPanel] of Object.entries(groups)) {
         const size = subPanel.length
-        const dropCount = (size === 5 || size === 3) ? 1 : 0
+        const dropCount = synchroGroupDropCount(role, numJudges)
         if (dropCount > 0 && size > dropCount * 2) {
           dropEndsByJudgeNumber(rows, subPanel, dropCount, dropCount)
         }

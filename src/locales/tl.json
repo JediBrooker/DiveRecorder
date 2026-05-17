@@ -545,5 +545,16 @@
   },
   "locale": {
     "switcher_label": "Wika"
+  },
+  "scheduler": {
+    "subtitle": "Timeline ng mga warmup, event, pahinga, at seremonya para sa meet na ito.",
+    "empty": "Wala pang mga session. Magdagdag ng nakaiskedyul na oras sa mga event ng meet, pagkatapos buksan ang pahinang ito bilang meet manager para gawin ang unang plano.",
+    "manager_link_tip": "Buksan ang timeline ng meet, drawer ng conflict, mga tool sa pag-edit, at iCal feed",
+    "edit": {
+      "insert_type_label": "Uri",
+      "insert_event_label": "Naka-link na event",
+      "insert_event_none": "Pumili ng event",
+      "insert_label": "Label"
+    }
   }
 }

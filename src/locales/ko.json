@@ -545,5 +545,16 @@
   },
   "locale": {
     "switcher_label": "언어"
+  },
+  "scheduler": {
+    "subtitle": "이 대회의 워밍업, 경기, 휴식, 시상식 타임라인입니다.",
+    "empty": "아직 세션이 없습니다. 대회 경기의 예정 시간을 추가한 뒤, 미트 매니저로 이 페이지를 열어 첫 계획을 생성하세요.",
+    "manager_link_tip": "대회 타임라인, 충돌 패널, 편집 도구 및 iCal 피드 열기",
+    "edit": {
+      "insert_type_label": "유형",
+      "insert_event_label": "연결된 경기",
+      "insert_event_none": "경기 선택",
+      "insert_label": "라벨"
+    }
   }
 }

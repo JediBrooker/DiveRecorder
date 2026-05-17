@@ -103,10 +103,18 @@ test("tie at the cut: lowest judge_number wins on the kept side", () => {
 });
 
 // =====================================================================
-// Synchro sub-panel boundaries — 9-judge: 1+2 exec A, 3+4 exec B,
-// 5..9 sync. 11-judge: 1..3 exec A, 4..6 exec B, 7..11 sync. Drops
-// are computed WITHIN each sub-panel.
+// Synchro sub-panel boundaries — 7-judge: 1+2 exec A, 3+4 exec B,
+// 5..7 sync. 9-judge: 1+2 exec A, 3+4 exec B, 5..9 sync.
+// 11-judge: 1..3 exec A, 4..6 exec B, 7..11 sync. Drops are
+// computed WITHIN each sub-panel.
 // =====================================================================
+
+test("synchro 7-judge — exec and sync sub-panels keep all scores", () => {
+  const judges = panel([7, 8,    7, 8,    5, 7, 9]);
+  const out = annotateJudgeRows(judges, 7, "synchro_pair");
+  assert.deepEqual(out.map(o => o.dropped),
+    [false, false, false, false, false, false, false]);
+});
 
 test("synchro 9-judge — exec sub-panels keep both, sync drops 1+1", () => {
   const judges = panel([7, 8,    7, 8,    5, 6, 7, 8, 9]);

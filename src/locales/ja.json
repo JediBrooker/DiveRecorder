@@ -545,5 +545,16 @@
   },
   "locale": {
     "switcher_label": "言語"
+  },
+  "scheduler": {
+    "subtitle": "この大会のウォームアップ、競技、休憩、セレモニーのタイムラインです。",
+    "empty": "まだセッションがありません。大会の各競技に予定時刻を追加し、ミートマネージャーとしてこのページを開くと最初の計画を作成できます。",
+    "manager_link_tip": "大会タイムライン、競合ドロワー、編集ツール、iCal フィードを開く",
+    "edit": {
+      "insert_type_label": "種類",
+      "insert_event_label": "リンクされた競技",
+      "insert_event_none": "競技を選択",
+      "insert_label": "ラベル"
+    }
   }
 }

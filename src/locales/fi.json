@@ -545,5 +545,16 @@
     "pending": "Odottaa",
     "approved": "Hyväksytty",
     "denied": "Hylätty"
+  },
+  "scheduler": {
+    "subtitle": "Tämän kilpailun verryttelyjen, lajien, taukojen ja seremonioiden aikajana.",
+    "empty": "Istuntoja ei ole vielä. Lisää kilpailun lajeille aikataulut ja avaa tämä sivu kilpailun järjestäjänä ensimmäisen suunnitelman luomiseksi.",
+    "manager_link_tip": "Avaa kilpailun aikajana, ristiriitapaneeli, muokkaustyökalut ja iCal-syöte",
+    "edit": {
+      "insert_type_label": "Tyyppi",
+      "insert_event_label": "Linkitetty laji",
+      "insert_event_none": "Valitse laji",
+      "insert_label": "Nimiö"
+    }
   }
 }

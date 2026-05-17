@@ -545,5 +545,16 @@
     "pending": "Oczekujący",
     "approved": "Zatwierdzony",
     "denied": "Odrzucony"
+  },
+  "scheduler": {
+    "subtitle": "Harmonogram rozgrzewek, konkurencji, przerw i ceremonii dla tych zawodów.",
+    "empty": "Nie ma jeszcze sesji. Dodaj zaplanowane godziny do konkurencji, a potem otwórz tę stronę jako menedżer zawodów, aby utworzyć pierwszy plan.",
+    "manager_link_tip": "Otwórz harmonogram zawodów, panel konfliktów, narzędzia edycji i kanał iCal",
+    "edit": {
+      "insert_type_label": "Typ",
+      "insert_event_label": "Powiązana konkurencja",
+      "insert_event_none": "Wybierz konkurencję",
+      "insert_label": "Etykieta"
+    }
   }
 }

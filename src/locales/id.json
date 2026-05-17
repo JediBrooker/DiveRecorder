@@ -545,5 +545,16 @@
   },
   "locale": {
     "switcher_label": "Bahasa"
+  },
+  "scheduler": {
+    "subtitle": "Linimasa pemanasan, nomor lomba, jeda, dan seremoni untuk meet ini.",
+    "empty": "Belum ada sesi. Tambahkan waktu terjadwal pada nomor lomba meet, lalu buka halaman ini sebagai manajer meet untuk membuat rencana pertama.",
+    "manager_link_tip": "Buka linimasa meet, panel konflik, alat edit, dan feed iCal",
+    "edit": {
+      "insert_type_label": "Jenis",
+      "insert_event_label": "Nomor terkait",
+      "insert_event_none": "Pilih nomor",
+      "insert_label": "Label"
+    }
   }
 }

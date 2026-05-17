@@ -545,5 +545,16 @@
     "pending": "Függőben",
     "approved": "Jóváhagyva",
     "denied": "Elutasítva"
+  },
+  "scheduler": {
+    "subtitle": "Az esemény bemelegítéseinek, versenyszámainak, szüneteinek és ceremóniáinak idővonala.",
+    "empty": "Még nincsenek szakaszok. Adj tervezett időpontokat a verseny versenyszámaihoz, majd nyisd meg ezt az oldalt versenyvezetőként az első terv létrehozásához.",
+    "manager_link_tip": "A verseny idővonalának, konfliktuspaneljének, szerkesztőeszközeinek és iCal-hírcsatornájának megnyitása",
+    "edit": {
+      "insert_type_label": "Típus",
+      "insert_event_label": "Kapcsolt versenyszám",
+      "insert_event_none": "Válassz versenyszámot",
+      "insert_label": "Címke"
+    }
   }
 }

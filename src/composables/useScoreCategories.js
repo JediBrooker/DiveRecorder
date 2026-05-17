@@ -33,9 +33,16 @@ export function trimCount(numJudges) {
 // World Aquatics synchronised panel layout — which judges score
 // what role, by position. Returns null for non-synchro panels.
 export function synchroJudgeGroups(numJudges) {
+  if (numJudges === 7)  return { a: [1, 2],    b: [3, 4],    sync: [5, 6, 7] }
   if (numJudges === 9)  return { a: [1, 2],    b: [3, 4],    sync: [5, 6, 7, 8, 9] }
   if (numJudges === 11) return { a: [1, 2, 3], b: [4, 5, 6], sync: [7, 8, 9, 10, 11] }
   return null
+}
+
+export function synchroGroupDropCount(role, numJudges) {
+  if (numJudges === 11 && (role === 'a' || role === 'b')) return 1
+  if ((numJudges === 9 || numJudges === 11) && role === 'sync') return 1
+  return 0
 }
 
 // Returns the role of a single judge, or null if outside a
@@ -65,12 +72,9 @@ export function annotatedSynchroScores(scoresStr, numJudges) {
     return annotatedScores(scoresStr, numJudges)
   }
   const dropped = new Set()
-  for (const judgeNumbers of [groups.a, groups.b, groups.sync]) {
+  for (const [role, judgeNumbers] of Object.entries(groups)) {
     const size = judgeNumbers.length
-    let dropCount = 0
-    if (size === 5) dropCount = 1            // 5-judge sync: drop high+low
-    else if (size === 3) dropCount = 1       // 3-judge exec (11-panel): drop high+low, keep middle 1
-    // size === 2 (exec in 9-panel): no drops — both scores count
+    const dropCount = synchroGroupDropCount(role, numJudges)
     if (dropCount > 0 && size > dropCount * 2) {
       const indexed = judgeNumbers
         .map(jn => ({ idx: jn - 1, val: values[jn - 1] }))

@@ -583,7 +583,7 @@ function competitorOrder(competitorId) {
 
 // =========================================================
 // SYNCHRO PANEL HELPERS
-// Surface "is this a synchro event?" and the WA judge groupings
+// Surface "is this a synchro event?" and the judge groupings
 // once so every place that needs them — history cards, the live
 // judge-tile grid, the dive-total calc — reads from the same
 // source. groupedSynchroScoresForDisplay / synchroJudgeGroups
@@ -594,10 +594,10 @@ const isSynchroEvent = computed(() =>
   currentEvent.value?.event_type === 'synchro_pair',
 )
 // { a: [1,2,...], b: [...], sync: [...] } when synchro AND the
-// panel size is 9 or 11 (WA-recognised); null otherwise. The
-// centre grid groups its tiles via this; the history rendering
-// uses groupedSynchroScoresForDisplay (which wraps the same
-// helper) so the chips stay in WA order.
+// panel size is 7, 9 or 11; null otherwise. The centre grid
+// groups its tiles via this; the history rendering uses
+// groupedSynchroScoresForDisplay (which wraps the same helper)
+// so the chips stay in the official panel order.
 const liveSynchroGroups = computed(() => {
   if (!isSynchroEvent.value) return null
   return synchroJudgeGroups(parseInt(currentEvent.value?.number_of_judges) || 0)
@@ -647,29 +647,8 @@ const liveDiveTotal = computed(() => {
   const trimSum = annotated
     .filter(j => !j.dropped)
     .reduce((sum, j) => sum + j.value, 0)
-  // Synchro multiplies the kept-execution contribution by 3/n_a
-  // and the kept-sync contribution by 3/n_sync to get a 6-judge
-  // equivalent before × DD. The scoreboard's
-  // calc_event_dive_points handles this server-side; here we
-  // approximate so the operator sees "≈" not "exact". Implement
-  // the same scaling for parity. For 9-panel: a/b 1+1 → kept 1+1
-  // (sum × 3 / 2 each) + sync 1+1+3 → kept 3 (sum × 3 / 3); the
-  // scaling factor per group is 3/(group size − dropCount × 2).
   if (!isSynchroEvent.value) return trimSum * dd
-  const groups = synchroJudgeGroups(need)
-  if (!groups) return trimSum * dd
-  // For each group, sum kept × scaleFactor where scaleFactor = 3
-  // / count_kept. Mirrors the SQL in calc_event_dive_points.
-  const arr = annotated   // index aligned to judge_number-1
-  let scaled = 0
-  for (const set of [groups.a, groups.b, groups.sync]) {
-    const kept = set
-      .map(jn => arr[jn - 1])
-      .filter(j => j && !j.dropped)
-    if (!kept.length) continue
-    scaled += (kept.reduce((s, j) => s + j.value, 0) / kept.length) * 3
-  }
-  return scaled * dd
+  return trimSum * dd * 0.6
 })
 
 // =========================================================
@@ -1266,9 +1245,9 @@ const preFlightSummary = computed(() => {
   // deserves a second look before going Live.
   const warnings = []
   const judgeCount = parseInt(ev.number_of_judges) || 0
-  if (ev.event_type === 'synchro_pair' && judgeCount < 9) {
+  if (ev.event_type === 'synchro_pair' && ![7, 9, 11].includes(judgeCount)) {
     warnings.push(
-      `Synchro panel size is ${judgeCount}; the World Aquatics rule expects 9 or 11 to fill the Exec A / Exec B / Sync sub-panels.`,
+      `Synchro panel size is ${judgeCount}; use 7, 9 or 11 to fill the Exec A / Exec B / Sync sub-panels.`,
     )
   }
   if (incompleteDivers.length) {

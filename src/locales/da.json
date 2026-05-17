@@ -545,5 +545,16 @@
     "pending": "Afventer",
     "approved": "Godkendt",
     "denied": "Afvist"
+  },
+  "scheduler": {
+    "subtitle": "Tidslinje for opvarmninger, konkurrencer, pauser og ceremonier for dette stævne.",
+    "empty": "Der er ingen sessioner endnu. Tilføj planlagte tidspunkter til stævnets konkurrencer, og åbn derefter denne side som stævneleder for at oprette den første plan.",
+    "manager_link_tip": "Åbn stævnets tidslinje, konfliktpanel, redigeringsværktøjer og iCal-feed",
+    "edit": {
+      "insert_type_label": "Type",
+      "insert_event_label": "Tilknyttet konkurrence",
+      "insert_event_none": "Vælg en konkurrence",
+      "insert_label": "Etiket"
+    }
   }
 }

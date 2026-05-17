@@ -315,12 +315,12 @@ module.exports = function createEventsRouter({
       }
     }
 
-    // Synchronised pairs require 9 or 11 judges (the only panel
-    // sizes World Aquatics defines exec/sync judge groups for).
+    // Synchronised pairs use exec/sync judge groups, so only panel
+    // sizes with a defined grouping are accepted.
     const type = event_type || "individual";
-    if (type === "synchro_pair" && ![9, 11].includes(number_of_judges)) {
+    if (type === "synchro_pair" && ![7, 9, 11].includes(number_of_judges)) {
       return res.status(400).json({
-        error: "Synchronised pair events require 9 or 11 judges",
+        error: "Synchronised pair events require 7, 9 or 11 judges",
       });
     }
     // Validate event_format. Six valid stages:
@@ -537,9 +537,9 @@ module.exports = function createEventsRouter({
     const nextJudgeCount = hasOwn(body, "number_of_judges")
       ? Number(number_of_judges)
       : Number(currentEvent?.number_of_judges);
-    if (nextEventType === "synchro_pair" && ![9, 11].includes(nextJudgeCount)) {
+    if (nextEventType === "synchro_pair" && ![7, 9, 11].includes(nextJudgeCount)) {
       return res.status(400).json({
-        error: "Synchronised pair events require 9 or 11 judges",
+        error: "Synchronised pair events require 7, 9 or 11 judges",
       });
     }
     if (event_format && !["preliminary", "semifinal", "final",

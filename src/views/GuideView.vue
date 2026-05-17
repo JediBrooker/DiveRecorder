@@ -122,6 +122,7 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
           </p>
           <ol class="role-steps">
             <li>Open <strong>Meet Manager</strong> — create the meet + events</li>
+            <li>Open <strong>Schedule</strong> on the meet to plan warmups, event starts, breaks, boards, and conflict warnings</li>
             <li>Import the roster (CSV) or invite divers individually</li>
             <li>Seat judges via <strong>Assign Judges</strong> + pick a referee</li>
             <li>On the day, drive scoring from <strong>Control Room</strong></li>
@@ -205,6 +206,19 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
           dive's points. For synchro, three sub-panels score
           different aspects (Exec A, Exec B, Sync) and the math
           combines them per World Aquatics Article 8.
+        </dd>
+
+        <dt>How do I plan a whole championship day?</dt>
+        <dd>
+          Add scheduled times to the meet's events, then open
+          <strong>Schedule</strong> from the meet page as an org admin
+          or meet manager. DivingHQ seeds a first plan with 45-minute
+          warmups, event blocks, and board assignments. Turn on
+          <strong>Edit mode</strong> to drag, resize, insert, delete,
+          or duplicate sessions; the conflicts drawer flags overlapping
+          boards, judges, divers, and referees. Coaches, divers, and
+          spectators can view the public timeline or subscribe to the
+          iCal feed.
         </dd>
 
         <dt>How do I report a bug?</dt>

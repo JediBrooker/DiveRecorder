@@ -545,5 +545,16 @@
     "pending": "En attente",
     "approved": "Approuvée",
     "denied": "Refusée"
+  },
+  "scheduler": {
+    "subtitle": "Planning des échauffements, épreuves, pauses et cérémonies de cette rencontre.",
+    "empty": "Aucune session pour le moment. Ajoutez des horaires aux épreuves, puis ouvrez cette page en tant que responsable de rencontre pour générer le premier planning.",
+    "manager_link_tip": "Ouvrir le planning de la rencontre, le volet des conflits, les outils de modification et le flux iCal",
+    "edit": {
+      "insert_type_label": "Type",
+      "insert_event_label": "Épreuve liée",
+      "insert_event_none": "Choisir une épreuve",
+      "insert_label": "Libellé"
+    }
   }
 }

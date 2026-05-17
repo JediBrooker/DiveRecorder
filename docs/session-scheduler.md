@@ -41,7 +41,7 @@ The scheduler is the layer that turns the existing
   end), downstream blocks slip by the delta. Operator confirms or
   overrides each shift; nothing moves silently.
 - Read access for everyone (public schedule page); write access for
-  meet managers, referees, and meet controllers.
+  same-org org admins and meet managers.
 - **iCal export** per meet so operators, coaches, and federations
   can subscribe in Outlook / Apple Calendar / Google Calendar. Re-flow
   events propagate automatically (a calendar subscription re-fetches
@@ -67,8 +67,8 @@ in slices, each useful on its own:
   Data model lands (sessions, blocks, boards, dismissed-conflicts).
   UI is a single page per meet-day showing blocks on a vertical
   timeline. Blocks are seeded from `events.scheduled_at` plus
-  warmup windows auto-inferred from the WA rulebook (45-min warmup
-  before each event, editable in phase 3). Public `.ics` endpoint
+  default warmup windows (45-min warmup before each event, editable
+  in phase 3). Public `.ics` endpoint
   ships with this phase so coaches can subscribe immediately.
 - **Phase 2 — Conflict detection (≈1 week).**
   Add judge/board/diver conflict warnings on the timeline view and at
@@ -404,8 +404,9 @@ DELETE /api/blocks/:id
          it now participates in.
 
 GET    /api/meets/:meetId/conflicts
-       — full conflict report for the meet. Used by the conflicts
-         drawer and by the public schedule (to badge problem times).
+       — editor-only full conflict report for the meet. Used by the
+         conflicts drawer; includes judge/diver/referee labels and is
+         not exposed to anonymous public schedule viewers.
 
 POST   /api/blocks/:id/reflow
        — triggered when an event completes. Body: {delta_seconds,
@@ -445,9 +446,9 @@ the eventual implementation:
    stays in place for `events.height` and the dive picker; the new
    `boards` table is additive. Worth the extra v1 cost — re-fitting
    later would be a painful migration.
-2. **Edit access.** Meet managers, referees, and meet controllers
-   can all create and edit schedules. Same gate as today's Control
-   Room actions; no new role.
+2. **Edit access.** Same-org org admins and meet managers can create
+   and edit schedules. Everyone else can use the public timeline and
+   iCal feed.
 3. **Warmup defaults: auto-seed + editable.** 45-min warmup block
    inserted before every event when a session is created. Operator
    can drag, resize, or delete any of them. Described in §4.1.

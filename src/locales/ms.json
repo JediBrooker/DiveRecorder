@@ -545,5 +545,16 @@
   },
   "locale": {
     "switcher_label": "Bahasa"
+  },
+  "scheduler": {
+    "subtitle": "Garis masa pemanasan, acara, rehat dan upacara untuk kejohanan ini.",
+    "empty": "Tiada sesi lagi. Tambahkan masa berjadual pada acara kejohanan, kemudian buka halaman ini sebagai pengurus kejohanan untuk menjana pelan pertama.",
+    "manager_link_tip": "Buka garis masa kejohanan, panel konflik, alat suntingan dan suapan iCal",
+    "edit": {
+      "insert_type_label": "Jenis",
+      "insert_event_label": "Acara dipautkan",
+      "insert_event_none": "Pilih acara",
+      "insert_label": "Label"
+    }
   }
 }

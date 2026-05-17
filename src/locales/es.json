@@ -545,5 +545,16 @@
   },
   "locale": {
     "switcher_label": "Idioma"
+  },
+  "scheduler": {
+    "subtitle": "Cronograma de calentamientos, eventos, descansos y ceremonias de este encuentro.",
+    "empty": "Todavía no hay sesiones. Añade horas programadas a los eventos del encuentro y abre esta página como gestor del encuentro para crear el primer plan.",
+    "manager_link_tip": "Abrir el cronograma del encuentro, el panel de conflictos, las herramientas de edición y el feed iCal",
+    "edit": {
+      "insert_type_label": "Tipo",
+      "insert_event_label": "Evento vinculado",
+      "insert_event_none": "Elige un evento",
+      "insert_label": "Etiqueta"
+    }
   }
 }

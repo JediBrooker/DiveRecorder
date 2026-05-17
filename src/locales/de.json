@@ -545,5 +545,16 @@
     "pending": "Ausstehend",
     "approved": "Genehmigt",
     "denied": "Abgelehnt"
+  },
+  "scheduler": {
+    "subtitle": "Zeitplan für Einschwimmen, Wettkämpfe, Pausen und Zeremonien dieses Meetings.",
+    "empty": "Noch keine Sessions. Fügen Sie den Wettkämpfen geplante Zeiten hinzu und öffnen Sie diese Seite als Meeting-Manager, um den ersten Plan zu erstellen.",
+    "manager_link_tip": "Meeting-Zeitplan, Konfliktleiste, Bearbeitungswerkzeuge und iCal-Feed öffnen",
+    "edit": {
+      "insert_type_label": "Typ",
+      "insert_event_label": "Verknüpfter Wettkampf",
+      "insert_event_none": "Wettkampf auswählen",
+      "insert_label": "Bezeichnung"
+    }
   }
 }

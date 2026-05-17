@@ -69,6 +69,14 @@ const loading = ref(false)
 const error = ref('')
 const sessions = ref([])
 const boards = ref([])
+const meetEvents = ref([])
+
+const canEditSchedule = computed(() => {
+  if (!auth.user) return false
+  if (auth.user.is_system_admin) return true
+  const roles = auth.user.org_roles || []
+  return roles.includes('org_admin') || roles.includes('meet_manager')
+})
 
 // Phase 2 — conflict state.
 const conflicts = ref([])           // raw response from /conflicts
@@ -97,6 +105,12 @@ const GRIDLINE_HEIGHT = PIXELS_PER_MINUTE * MINUTES_PER_GRIDLINE
 const editMode = ref(false)
 const LS_EDIT_MODE = 'scheduler.editMode'
 watch(editMode, (v) => writePref(LS_EDIT_MODE, v))
+watch(canEditSchedule, (ok) => {
+  if (!ok) {
+    editMode.value = false
+    drawerOpen.value = false
+  }
+})
 
 // Per-block flash-after-save signal. Holds the block id of the
 // row that should briefly pulse red/amber based on whether it
@@ -151,11 +165,12 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const r = await fetch(`/api/meets/${meetId.value}/sessions`)
-    const body = await r.json().catch(() => null)
-    if (!r.ok) throw new Error(body?.error || `Server returned ${r.status}`)
+    const body = auth.token
+      ? await auth.apiFetch(`/api/meets/${meetId.value}/sessions`)
+      : await fetchJson(`/api/meets/${meetId.value}/sessions`)
     sessions.value = Array.isArray(body?.sessions) ? body.sessions : []
     boards.value = Array.isArray(body?.boards) ? body.boards : []
+    meetEvents.value = Array.isArray(body?.events) ? body.events : []
   } catch (err) {
     error.value = err.message || t('scheduler.load_failed')
   } finally {
@@ -169,12 +184,16 @@ async function load() {
 
 async function loadConflicts() {
   if (!meetId.value) return
+  if (!canEditSchedule.value) {
+    conflicts.value = []
+    conflictsError.value = ''
+    conflictsLoading.value = false
+    return
+  }
   conflictsLoading.value = true
   conflictsError.value = ''
   try {
-    const r = await fetch(`/api/meets/${meetId.value}/conflicts`)
-    const body = await r.json().catch(() => null)
-    if (!r.ok) throw new Error(body?.error || `Server returned ${r.status}`)
+    const body = await auth.apiFetch(`/api/meets/${meetId.value}/conflicts`)
     conflicts.value = Array.isArray(body?.conflicts) ? body.conflicts : []
   } catch (err) {
     conflictsError.value = err.message || t('scheduler.conflicts.load_failed')
@@ -183,12 +202,18 @@ async function loadConflicts() {
   }
 }
 
+async function fetchJson(url, options = {}) {
+  const r = await fetch(url, options)
+  const body = await r.json().catch(() => null)
+  if (!r.ok) throw new Error(body?.error || `Server returned ${r.status}`)
+  return body
+}
+
 watch(() => route.params.meetId, () => load(), { immediate: true })
 onMounted(() => {
   drawerOpen.value = readPref(LS_DRAWER_OPEN, false)
   showDismissed.value = readPref(LS_SHOW_DISMISSED, false)
-  editMode.value = readPref(LS_EDIT_MODE, false)
-  if (meetId.value) load()
+  editMode.value = canEditSchedule.value && readPref(LS_EDIT_MODE, false)
 })
 
 // Socket subscription — refetch on schedule:conflict_dismissed for
@@ -353,6 +378,33 @@ function formatRelative(d) {
 function boardLabel(board) {
   if (board.label) return `${board.height} · ${board.label}`
   return board.height
+}
+
+const insertEventOptions = computed(() =>
+  meetEvents.value
+    .slice()
+    .sort((a, b) => {
+      const at = a.scheduled_at ? new Date(a.scheduled_at).getTime() : Infinity
+      const bt = b.scheduled_at ? new Date(b.scheduled_at).getTime() : Infinity
+      return at - bt || String(a.name).localeCompare(String(b.name))
+    }),
+)
+
+function eventLabel(ev) {
+  if (!ev) return ''
+  const bits = [ev.name]
+  if (ev.height) bits.push(ev.height)
+  if (ev.status) bits.push(ev.status)
+  return bits.join(' · ')
+}
+
+function onInsertEventChange() {
+  if (!insertForm.value?.event_id) return
+  const ev = meetEvents.value.find((item) => item.id === insertForm.value.event_id)
+  if (!ev) return
+  if (!insertForm.value.label) insertForm.value.label = ev.name
+  const boardId = ev.board_id || boards.value.find((b) => b.height === ev.height)?.id
+  if (boardId) insertForm.value.board_ids = [boardId]
 }
 
 // block_type → tone class on the card. Maps to a small CSS
@@ -621,7 +673,7 @@ function blockStyleWithPreview(block, session) {
 // (the block stops propagation in its mousedown handler) and the
 // no-boards case (operator has no columns to fill in yet).
 function onGridClick(e, session) {
-  if (!editMode.value) return
+  if (!editMode.value || !canEditSchedule.value) return
   if (!boards.value.length) return
   // The block's mousedown handler stops propagation, so a click
   // that bubbles to the grid body is definitively on empty space.
@@ -646,6 +698,7 @@ function onGridClick(e, session) {
     sessionId: session.id,
     block_type: 'custom',
     label: '',
+    event_id: null,
     starts_at: new Date(startsMs).toISOString(),
     ends_at: new Date(endsMs).toISOString(),
     board_ids: [boards.value[colIdx].id],
@@ -668,6 +721,9 @@ async function confirmInsert() {
       body: JSON.stringify({
         block_type: insertForm.value.block_type,
         label: insertForm.value.label || null,
+        event_id: insertForm.value.block_type === 'event_start'
+          ? (insertForm.value.event_id || null)
+          : null,
         starts_at: insertForm.value.starts_at,
         ends_at: insertForm.value.ends_at,
         board_ids: insertForm.value.board_ids,
@@ -777,6 +833,7 @@ async function confirmDuplicate() {
       </RouterLink>
       <div class="scheduler-nav-right">
         <button
+          v-if="canEditSchedule"
           type="button"
           class="btn btn-ghost btn-sm scheduler-drawer-toggle"
           :class="{ 'has-warnings': activeConflicts.length > 0 }"
@@ -789,7 +846,11 @@ async function confirmDuplicate() {
             {{ $t('scheduler.conflicts.open_drawer_clean') }}
           </span>
         </button>
-        <label class="scheduler-edit-toggle" :title="editMode ? $t('scheduler.edit.toggle_hint_on') : $t('scheduler.edit.toggle_hint_off')">
+        <label
+          v-if="canEditSchedule"
+          class="scheduler-edit-toggle"
+          v-tip="editMode ? $t('scheduler.edit.toggle_hint_on') : $t('scheduler.edit.toggle_hint_off')"
+        >
           <input type="checkbox" v-model="editMode">
           <span>{{ editMode ? $t('scheduler.edit.toggle_on') : $t('scheduler.edit.toggle_off') }}</span>
         </label>
@@ -804,7 +865,7 @@ async function confirmDuplicate() {
       </div>
     </div>
 
-    <div v-if="editMode" class="scheduler-edit-hint">
+    <div v-if="editMode && canEditSchedule" class="scheduler-edit-hint">
       {{ $t('scheduler.edit.snap_hint') }}
       <span v-if="editSaveError" class="scheduler-edit-error">— {{ editSaveError }}</span>
     </div>
@@ -831,7 +892,7 @@ async function confirmDuplicate() {
           <span v-if="session.pool"> · {{ session.pool }}</span>
         </div>
         <button
-          v-if="editMode"
+          v-if="editMode && canEditSchedule"
           type="button"
           class="btn btn-ghost btn-sm scheduler-session-duplicate"
           @click="openDuplicate(session)"
@@ -875,7 +936,7 @@ async function confirmDuplicate() {
 
           <div
             class="scheduler-grid-body"
-            :class="{ 'is-edit-mode': editMode }"
+            :class="{ 'is-edit-mode': editMode && canEditSchedule }"
             :data-session-body="session.id"
             :style="{ height: `${timelineHeight(session)}px` }"
             @click="onGridClick($event, session)"
@@ -913,23 +974,23 @@ async function confirmDuplicate() {
                 editFlashBlockId === block.id && editFlashSeverity === 'hard' ? 'is-flash-hard' : '',
                 editFlashBlockId === block.id && editFlashSeverity === 'soft' ? 'is-flash-soft' : '',
                 editFlashBlockId === block.id && !editFlashSeverity ? 'is-flash-ok' : '',
-                editMode ? 'is-editable' : '',
+                editMode && canEditSchedule ? 'is-editable' : '',
                 dragState && dragState.blockId === block.id ? 'is-dragging' : '',
               ]"
               :style="blockStyleWithPreview(block, session)"
               v-tip="block.notes || ''"
-              @mousedown="editMode ? dragger.startMove($event, block) : null"
+              @mousedown="editMode && canEditSchedule ? dragger.startMove($event, block) : null"
             >
               <!-- Resize handles (top + bottom) are only mounted in
                    edit mode so they don't capture pointer events
                    on the read-only surface. -->
               <div
-                v-if="editMode"
+                v-if="editMode && canEditSchedule"
                 class="scheduler-block-handle handle-top"
                 @mousedown.stop="dragger.startResizeTop($event, block)"
               ></div>
               <div
-                v-if="editMode"
+                v-if="editMode && canEditSchedule"
                 class="scheduler-block-handle handle-bottom"
                 @mousedown.stop="dragger.startResizeBottom($event, block)"
               ></div>
@@ -941,7 +1002,7 @@ async function confirmDuplicate() {
                 <span
                   v-if="conflictSeverityForBlock(block.id)"
                   class="scheduler-block-warn"
-                  :title="conflictSeverityForBlock(block.id) === 'hard'
+                  v-tip="conflictSeverityForBlock(block.id) === 'hard'
                     ? $t('scheduler.conflicts.marker_tooltip_hard')
                     : $t('scheduler.conflicts.marker_tooltip_soft')"
                 >⚠</span>
@@ -954,7 +1015,7 @@ async function confirmDuplicate() {
               <!-- Edit-mode delete affordance. Visible on hover via
                    .scheduler-block:hover .scheduler-block-delete in
                    the stylesheet below. -->
-              <template v-if="editMode">
+              <template v-if="editMode && canEditSchedule">
                 <button
                   v-if="pendingDeleteId !== block.id"
                   type="button"
@@ -997,7 +1058,7 @@ async function confirmDuplicate() {
       <div class="scheduler-insert-card" @click.stop>
         <div class="scheduler-insert-title">{{ $t('scheduler.edit.insert_title') }}</div>
         <label class="scheduler-insert-row">
-          <span>Type</span>
+          <span>{{ $t('scheduler.edit.insert_type_label') }}</span>
           <select v-model="insertForm.block_type" class="input">
             <option value="warmup">{{ $t('scheduler.block_type.warmup') }}</option>
             <option value="event_start">{{ $t('scheduler.block_type.event_start') }}</option>
@@ -1006,8 +1067,21 @@ async function confirmDuplicate() {
             <option value="custom">{{ $t('scheduler.block_type.custom') }}</option>
           </select>
         </label>
+        <label v-if="insertForm.block_type === 'event_start'" class="scheduler-insert-row">
+          <span>{{ $t('scheduler.edit.insert_event_label') }}</span>
+          <select v-model="insertForm.event_id" class="input" @change="onInsertEventChange">
+            <option :value="null">{{ $t('scheduler.edit.insert_event_none') }}</option>
+            <option
+              v-for="ev in insertEventOptions"
+              :key="ev.id"
+              :value="ev.id"
+            >
+              {{ eventLabel(ev) }}
+            </option>
+          </select>
+        </label>
         <label class="scheduler-insert-row">
-          <span>Label</span>
+          <span>{{ $t('scheduler.edit.insert_label') }}</span>
           <input
             class="input"
             type="text"
@@ -1061,7 +1135,7 @@ async function confirmDuplicate() {
          so it stays visible while the operator scrolls between
          sessions on a multi-day meet.
          ========================================================= -->
-    <aside v-if="drawerOpen" class="scheduler-drawer">
+    <aside v-if="drawerOpen && canEditSchedule" class="scheduler-drawer">
       <div class="scheduler-drawer-head">
         <div class="scheduler-drawer-title">
           {{ $t('scheduler.conflicts.drawer_title') }}

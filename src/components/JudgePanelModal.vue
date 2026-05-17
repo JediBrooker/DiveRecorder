@@ -339,7 +339,7 @@ function warningNames(c) {
                   <span
                     v-if="meetId && eventScheduledAt"
                     :class="['jpm-availability', judgeAvailability(j.id).status === 'available' ? 'is-available' : 'is-busy']"
-                    :title="judgeAvailability(j.id).conflicting_event_label || ''"
+                    v-tip="judgeAvailability(j.id).conflicting_event_label || ''"
                   >
                     <template v-if="judgeAvailability(j.id).status === 'available'">
                       {{ t('scheduler.availability.available') }}

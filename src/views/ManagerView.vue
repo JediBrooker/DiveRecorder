@@ -1004,9 +1004,9 @@ async function assignEventToMeet(event, meetId) {
 
 async function createEvent() {
   formErr.value = ''
-  // Synchro panels must be 9 or 11 — preempt the server error
-  if (createType.value === 'synchro_pair' && ![9, 11].includes(parseInt(createJudges.value))) {
-    formErr.value = 'Synchronised pair events require 9 or 11 judges'
+  // Synchro panels must have a defined exec/sync grouping.
+  if (createType.value === 'synchro_pair' && ![7, 9, 11].includes(parseInt(createJudges.value))) {
+    formErr.value = 'Synchronised pair events require 7, 9 or 11 judges'
     return
   }
   if (!createRoundDives.value.length) {
@@ -1173,8 +1173,8 @@ async function openEdit(ev) {
 
 async function saveEdit() {
   editErr.value = ''
-  if (editType.value === 'synchro_pair' && ![9, 11].includes(parseInt(editJudges.value))) {
-    editErr.value = 'Synchronised pair events require 9 or 11 judges'
+  if (editType.value === 'synchro_pair' && ![7, 9, 11].includes(parseInt(editJudges.value))) {
+    editErr.value = 'Synchronised pair events require 7, 9 or 11 judges'
     return
   }
   try {
@@ -1669,7 +1669,7 @@ onUnmounted(() => {
           <select class="select" v-model="createJudges">
             <option v-if="createType !== 'synchro_pair'" value="3">3 Judges</option>
             <option v-if="createType !== 'synchro_pair'" value="5">5 Judges</option>
-            <option v-if="createType !== 'synchro_pair'" value="7">7 Judges</option>
+            <option value="7">7 Judges</option>
             <option value="9">9 Judges</option>
             <option value="11">11 Judges</option>
           </select>
@@ -2326,7 +2326,7 @@ onUnmounted(() => {
           <select class="select" v-model="editJudges">
             <option v-if="editType !== 'synchro_pair'" value="3">3 Judges</option>
             <option v-if="editType !== 'synchro_pair'" value="5">5 Judges</option>
-            <option v-if="editType !== 'synchro_pair'" value="7">7 Judges</option>
+            <option value="7">7 Judges</option>
             <option value="9">9 Judges</option>
             <option value="11">11 Judges</option>
           </select>

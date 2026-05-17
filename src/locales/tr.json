@@ -545,5 +545,16 @@
   },
   "locale": {
     "switcher_label": "Dil"
+  },
+  "scheduler": {
+    "subtitle": "Bu müsabaka için ısınmalar, etkinlikler, molalar ve törenler zaman çizelgesi.",
+    "empty": "Henüz oturum yok. Müsabaka etkinliklerine planlanan saatler ekleyin, ardından ilk planı oluşturmak için bu sayfayı müsabaka yöneticisi olarak açın.",
+    "manager_link_tip": "Müsabaka zaman çizelgesini, çakışma panelini, düzenleme araçlarını ve iCal akışını aç",
+    "edit": {
+      "insert_type_label": "Tür",
+      "insert_event_label": "Bağlı etkinlik",
+      "insert_event_none": "Etkinlik seç",
+      "insert_label": "Etiket"
+    }
   }
 }

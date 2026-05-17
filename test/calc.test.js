@@ -123,6 +123,22 @@ test("synchro: 9-judge panel, no drops on exec, drop high+low on sync", async (t
   assert.equal(v, 61.2);
 });
 
+test("synchro: 7-judge panel, all grouped scores count", async (t) => {
+  if (!dbReachable) return t.skip("DB not reachable");
+  // Judges 1-2 score Diver A exec, 3-4 score Diver B, 5-7 sync.
+  // Exec A: 7+8 = 15
+  // Exec B: 6+7 = 13
+  // Sync: 5+7+9 = 21
+  // Sum = 49, × DD 2.0 × 0.6 = 58.8
+  const v = await synchroValue(
+    [1, 2, 3, 4, 5, 6, 7],
+    [7, 8, 6, 7, 5, 7, 9],
+    7,
+    2.0,
+  );
+  assert.equal(v, 58.8);
+});
+
 test("synchro: 11-judge panel, middle 1 of 3 exec, middle 3 of 5 sync", async (t) => {
   if (!dbReachable) return t.skip("DB not reachable");
   // Judges 1-3 exec A, 4-6 exec B, 7-11 sync.

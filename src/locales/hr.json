@@ -545,5 +545,16 @@
   },
   "locale": {
     "switcher_label": "Jezik"
+  },
+  "scheduler": {
+    "subtitle": "Vremenska crta zagrijavanja, disciplina, pauza i ceremonija za ovo natjecanje.",
+    "empty": "Još nema sesija. Dodajte zakazana vremena disciplinama natjecanja, zatim otvorite ovu stranicu kao voditelj natjecanja za izradu prvog plana.",
+    "manager_link_tip": "Otvori vremensku crtu natjecanja, ladicu sukoba, alate za uređivanje i iCal sažetak",
+    "edit": {
+      "insert_type_label": "Vrsta",
+      "insert_event_label": "Povezana disciplina",
+      "insert_event_none": "Odaberite disciplinu",
+      "insert_label": "Oznaka"
+    }
   }
 }

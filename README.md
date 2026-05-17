@@ -106,7 +106,7 @@ A **role-aware home** with a tabbed layout. The header carries the user's name +
 
 #### Meet Manager
 
-The operator's event-configuration surface. Left column is the New Event form (event type, gender, board height, panel size, rounds, optional age group + per-round DD caps). Right column is **status-aware**: each event row's primary action reflects what to do next — `Open Control Room →` for Upcoming, `🔴 LIVE — Open` (subtle pulse) for Live, `View Results` for Completed. Edit / Audit Log / Import Roster / Delete demote into a `⋯` overflow menu so the primary affordance dominates. A **search box + status filter chips** (`Upcoming / Live / Completed`, with per-chip counts) above the list keeps a season's worth of meets scannable. Save a fully-built event configuration as a template once, apply to a new event with one click. Events that bundle into a meet share a public landing page and a printable PDF program.
+The operator's event-configuration surface. Left column is the New Event form (event type, gender, board height, panel size, rounds, optional age group + per-round DD caps). Right column is **status-aware**: each event row's primary action reflects what to do next — `Open Control Room →` for Upcoming, `🔴 LIVE — Open` (subtle pulse) for Live, `View Results` for Completed. Edit / Audit Log / Import Roster / Delete demote into a `⋯` overflow menu so the primary affordance dominates. A **search box + status filter chips** (`Upcoming / Live / Completed`, with per-chip counts) above the list keeps a season's worth of meets scannable. Save a fully-built event configuration as a template once, apply to a new event with one click. Events that bundle into a meet share a public landing page, printable PDF program, and **Schedule** timeline for planning warmups, event starts, breaks, ceremonies, board usage, judge availability, and conflict warnings. Same-org org admins and meet managers can seed/edit schedules; spectators, coaches, and divers use the public timeline or subscribe to the iCal feed.
 
 For age-grouped meets that follow real-world bulletin formats — Diving NSW's "4 dives @ 7.6 from 4 different groups + 4 unlimited from 4 groups" — the form has a **Round structure editor**: define one or more sections, each with its own round count, optional DD-sum cap, and an optional **Min different groups** count. The min-groups field is independent of the section's round count, so an operator can express the canonical "5 dives from 5 different groups" pattern *and* looser variants like "5 dives drawn from at least 4 groups" (one group may repeat). The rules ride on `events.round_rules` (JSONB) and feed the diver portal's live validator + the server's submit-list gate (see migration 038).
 
@@ -616,7 +616,7 @@ The licensed official on deck. They don't score dives themselves — they superv
 - View the live ScoreboardView for any event they're assigned to
 - Read the per-event `score_audit_log` to see who entered or changed each score
 - Authorise a score correction (the audit row records them as the actor)
-- Confirm synchro panels have valid exec/sync subgroups (9 or 11 judges)
+- Confirm synchro panels have valid exec/sync subgroups (7, 9 or 11 judges)
 - See the full panel composition in `event_judges` before the event starts
 
 ### `judge` — Scoring panel member
@@ -843,8 +843,8 @@ failing run is reproducible, and a demo run is repeatable.
 | `MM_FINAL_HOLD_MS` | int (ms) | `0` / `4000` in `E2E_DEMO=1` | Hold on the recap screen at the end before teardown |
 | `MM_WORKFLOW_HOLD_MS` | int (ms) | `0` / `2500` in `E2E_DEMO=1` | Dwell between each click of the 4-state pre-meet button (red → orange → yellow → green) |
 
-Synchro defaults to **11 judges**; that's not env-overridable —
-the panel size is a function of `MM_VARIANT`.
+Synchro defaults to **11 judges** for the headed walkthrough; app
+configuration supports 7, 9 or 11 judge synchro panels.
 
 #### `judge.spec.js` — `J_*`
 
@@ -864,6 +864,7 @@ Synchro panel layout the test judge maps into:
 
 | `NUM_JUDGES` | Exec A | Exec B | Synchronisation |
 |---|---|---|---|
+| 7 | 1, 2 | 3, 4 | 5–7 |
 | 9 (only via explicit setup) | 1, 2 | 3, 4 | 5–9 |
 | 11 (default) | 1, 2, 3 | 4, 5, 6 | 7–11 |
 
