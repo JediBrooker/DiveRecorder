@@ -3052,38 +3052,58 @@ onUnmounted(() => {
       class="ops-broadcast-exit"
       v-tip="'Exit broadcast mode'"
     >✕</RouterLink>
-    <!-- Header -->
+    <!-- Header — 3-column grid (left / centre / right). Switched
+         from flex + absolute-positioned centre to grid because the
+         left group (logo + event picker + connection chip) used to
+         overflow into the absolutely-positioned centre meet name
+         on narrower viewports, hiding the title behind the
+         "CONNECTED" pill. With grid the three regions occupy real
+         columns and can never overlap. -->
     <div class="ctrl-header">
-      <div style="display:flex;align-items:center;gap:1.5rem">
+      <!-- Left: brand + connection chip. Picker moved out of the
+           left group into the centre so the page title (event
+           name) reads as the page title it actually is. -->
+      <div class="ctrl-header-left">
         <RouterLink to="/dashboard" class="app-logo" style="font-size:16px">DIVING<span>HQ</span></RouterLink>
-        <select class="event-select-sm" v-model="selectedEventId" @change="onEventChange">
-          <option value="">— Select Event —</option>
-          <option v-for="ev in events" :key="ev.id" :value="ev.id">{{ ev.name }}</option>
-        </select>
         <span class="conn-badge"
               v-tip="socket.isConnected.value
                 ? 'Live socket connection healthy — score events are streaming in real time'
                 : 'Re-establishing socket connection — incoming scores are queued until this turns green'">
           <span class="status-dot" :class="{ connected: socket.isConnected.value }"></span>
-          <span>{{ socket.isConnected.value ? 'Connected' : 'Connecting' }}</span>
+          <span class="conn-badge-label">{{ socket.isConnected.value ? 'Connected' : 'Connecting' }}</span>
         </span>
       </div>
-      <!-- Header context — meet name centred. Page-chrome
-           secondary actions (Hold / Broadcast / Dashboard) move
-           into the ⋯ overflow menu on the right so the resting
-           header reads: logo · event picker · connection · meet
-           · ⋯ · Finalise(when applicable). Hold gets a separate
-           visible status pill when active so the operator can
-           see at a glance the meet is paused without opening the
-           menu. -->
+      <!-- Centre: event picker dressed as the page title. Native
+           <select> styled to look like a clickable heading — large
+           display font, chevron affordance, hover/focus border.
+           Reads as both "this is the current event" and "tap to
+           switch". Meet name + status pill drop into a subtitle
+           row beneath. Secondary actions (Hold / Broadcast /
+           Dashboard) live in the ⋯ menu on the right. -->
       <div class="ctrl-header-ctx">
-        <span class="ctx-meet">{{ meetName }}</span>
-        <!-- Event status pill — same colour vocabulary as the
-             dashboard pulse strip so an operator never has to
-             ask "what stage is this in?". Hidden until an event
-             is selected; the picker on the left is the prompt
-             when none is. -->
-        <StatusPill v-if="currentEvent?.status" :status="currentEvent.status" size="sm" />
+        <div class="event-title-row">
+          <div class="event-title-wrap">
+            <select class="event-title-select"
+                    v-model="selectedEventId"
+                    @change="onEventChange"
+                    v-tip="'Switch to a different event'">
+              <option value="">— Select Event —</option>
+              <option v-for="ev in events" :key="ev.id" :value="ev.id">{{ ev.name }}</option>
+            </select>
+            <span class="event-title-chevron" aria-hidden="true">▾</span>
+          </div>
+          <!-- Status pill — same colour vocabulary as the dashboard
+               pulse strip. Hidden until an event is selected; the
+               picker is the prompt when none is. -->
+          <StatusPill v-if="currentEvent?.status" :status="currentEvent.status" size="sm" />
+        </div>
+        <!-- Meet subtitle — drop the meet name (and an explicit
+             "venue / federation" subtitle pattern) under the event
+             title so the page chrome reads page-title → context
+             rather than fighting for the centre with the title. -->
+        <div v-if="meetName && meetName !== currentEvent?.name" class="event-title-meta">
+          {{ meetName }}
+        </div>
       </div>
       <div class="ctrl-header-right">
         <!-- Hold-active glance pill: shows ONLY while held. Click

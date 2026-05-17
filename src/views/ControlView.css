@@ -7,20 +7,27 @@
   min-height: 100vh;
 }
 .ctrl-header {
-  display: flex;
+  /* 3-column grid. Left and right tracks are `minmax(0, 1fr)` so
+     they happily shrink to make room for the centre title; the
+     centre track is `auto` so it sizes to its content. Previously
+     this was flex + an absolutely-positioned centre, which let
+     the left group's connection chip slide on top of the meet
+     title at viewport widths around 1300-1400px (the screenshot
+     bug). With grid the three regions are real columns and can
+     never overlap. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
+  gap: 1rem;
   padding: 0.875rem 1.5rem;
   border-bottom: 1px solid var(--border);
   background: var(--bg-2);
   flex-shrink: 0;
-  /* Anchor for the absolutely-positioned .ctrl-header-ctx so
-     the meet name sits at the viewport's horizontal centre,
-     not the centre of the leftover space between the left and
-     right groups (which would shift left when the right group
-     was empty, e.g. mid-meet when no Finalise button was
-     showing). */
-  position: relative;
+}
+.ctrl-header-left {
+  display: flex; align-items: center; gap: 1rem;
+  justify-self: start;
+  min-width: 0;
 }
 .ctrl-body {
   flex: 1;                              /* fill the layout vertically */
@@ -2369,43 +2376,131 @@
 }
 
 /* =========================================================
-   Header context — meet name + round/diver position badges
+   Header centre — event picker styled as the page title, with
+   meet name as subtitle. The picker is a native <select> dressed
+   as a heading: large display font, subtle hover/focus affordance,
+   chevron to signal "this is a dropdown". Sitting in the grid's
+   middle column means the title is always centred in the page
+   and can never be hidden by the left group's connection chip.
    ========================================================= */
 .ctrl-header-ctx {
-  /* Absolutely centred on the header so the meet name's
-     horizontal position is anchored to the viewport, not to
-     the gap between the left and right header groups.
-     Previously was flex: 1 + justify-content: center, which
-     centred the name between the groups — visually off-axis
-     whenever the two groups had different content widths
-     (left group is fixed: logo + picker + connection chip;
-     right group toggles between empty / one button / two
-     buttons). */
-  position: absolute;
-  left: 50%; top: 50%;
-  transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center;
+  justify-self: center;
+  gap: 0.15rem;
+  min-width: 0;
+  /* Cap so a very long event name truncates inside the <select>
+     rather than blowing the centre column wider than the page. */
+  max-width: min(60vw, 640px);
+}
+.event-title-row {
   display: flex; align-items: center; gap: 0.6rem;
-  /* Cap so a very long meet name truncates via the ellipsis
-     on .ctx-meet rather than overlapping the side groups. */
-  max-width: min(50vw, 600px);
-  /* Header chrome lives behind / around the centred name; let
-     mouse events pass through the empty space of the ctx box
-     to anything beneath. The text itself re-enables pointer
-     events so a future :hover tooltip still works. */
+  min-width: 0;
+  width: 100%;
+  justify-content: center;
+}
+.event-title-wrap {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+.event-title-select {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: transparent;
+  /* Transparent border at rest reserves space for the hover
+     border so the title doesn't shift left/right when the
+     operator hovers over it. */
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  /* Logical properties so RTL languages (ar) get the chevron
+     padding on the correct edge automatically. */
+  padding-block: 0.4rem;
+  padding-inline-start: 0.85rem;
+  padding-inline-end: 2rem;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  transition: border-color 0.12s, background 0.12s;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.event-title-select:hover {
+  border-color: var(--border-2);
+  background: var(--bg-3);
+}
+.event-title-select:focus-visible {
+  border-color: var(--cyan);
+  background: var(--cyan-dim);
+}
+.event-title-select option {
+  background: var(--bg-1);
+  color: var(--text);
+  font-style: normal;
+}
+.event-title-chevron {
+  position: absolute;
+  /* Logical property — sits on the trailing edge in both LTR and
+     RTL. In Arabic the chevron lands on the left, matching the
+     padding-inline-end on the select. */
+  inset-inline-end: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
   pointer-events: none;
+  color: var(--cyan);
+  font-size: 14px;
+  line-height: 1;
 }
-.ctx-meet {
-  font-family: var(--font-display); font-size: 16px; font-weight: 700;
-  letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-3);
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  pointer-events: auto;
+.event-title-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.ctx-badge {
-  font-family: var(--font-display); font-size: 10px; font-weight: 900;
-  letter-spacing: 0.18em; text-transform: uppercase;
-  padding: 0.2rem 0.5rem; border-radius: 3px;
-  background: var(--bg-3); border: 1px solid var(--border); color: var(--text-2);
-  flex-shrink: 0;
+
+/* Conn-badge in the redesigned header — tighten the label on
+   narrow screens so the centre title always has room to breathe.
+   The dot stays visible at all sizes; the "CONNECTED" label drops
+   below the 1200px breakpoint where the title would otherwise
+   start to feel cramped. */
+.ctrl-header .conn-badge { flex-shrink: 0; }
+@media (max-width: 1200px) {
+  .conn-badge-label { display: none; }
+}
+
+/* Header right column — sized by content, ends of column. */
+.ctrl-header-right {
+  justify-self: end;
+}
+
+/* On narrow viewports, fold the header into two rows: the
+   logo+conn / right buttons stay in place but the centre title
+   spans the full width on its own row so a long event name
+   doesn't shove the side groups off-screen. */
+@media (max-width: 720px) {
+  .ctrl-header {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "left right"
+      "centre centre";
+    row-gap: 0.5rem;
+  }
+  .ctrl-header-left   { grid-area: left; }
+  .ctrl-header-right  { grid-area: right; }
+  .ctrl-header-ctx    { grid-area: centre; max-width: 100%; }
+  .event-title-select { font-size: 15px; }
 }
 
 /* =========================================================
