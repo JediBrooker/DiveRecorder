@@ -204,6 +204,9 @@ module.exports = function createUsersRouter({
 
   router.post("/api/role-requests/:id/review", requireOrgAdmin, async (req, res) => {
     const { decision } = req.body || {}; // 'approved' | 'rejected'
+    if (!["approved", "rejected"].includes(decision)) {
+      return res.status(400).json({ error: "decision must be 'approved' or 'rejected'" });
+    }
     const client = await pool.connect();
     try {
       await client.query("BEGIN");

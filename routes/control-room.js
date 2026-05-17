@@ -862,8 +862,8 @@ module.exports = function createControlRoomRouter({
           );
           if (recovery.matched) {
             await pool.query(
-              `UPDATE users SET totp_recovery_codes = $1 WHERE id = $2`,
-              [recovery.remainingHashes, user.id],
+              `UPDATE users SET totp_recovery_codes = $1::jsonb WHERE id = $2`,
+              [JSON.stringify(recovery.remainingHashes), user.id],
             );
             accepted = true;
           }
@@ -873,8 +873,8 @@ module.exports = function createControlRoomRouter({
       // Referee role check.
       const roleQ = await pool.query(
         `SELECT 1 FROM user_org_roles
-         WHERE user_id = $1 AND role = 'referee' LIMIT 1`,
-        [user.id],
+         WHERE user_id = $1 AND org_id = $2 AND role = 'referee' LIMIT 1`,
+        [user.id, ev.rows[0].org_id],
       );
       if (!roleQ.rows.length) {
         return res.status(403).json({ error: "User is not a referee" });

@@ -89,7 +89,6 @@ const MIME_TO_EXT = {
   'image/png':     'png',
   'image/jpeg':    'jpg',
   'image/webp':    'webp',
-  'image/svg+xml': 'svg',
 }
 const MAX_BYTES = 1024 * 1024
 async function onFilePicked(e) {
@@ -98,7 +97,7 @@ async function onFilePicked(e) {
   if (!file) return
   if (!MIME_TO_EXT[file.type]) {
     showError(
-      `Unsupported file type "${file.type}". Use PNG, JPEG, WebP, or SVG.`,
+      `Unsupported file type "${file.type}". Use PNG, JPEG, or WebP.`,
     )
     return
   }
@@ -266,7 +265,7 @@ async function saveRotation(e) {
       <input
         ref="fileInput"
         type="file"
-        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+        accept="image/png,image/jpeg,image/webp"
         style="display:none"
         @change="onFilePicked"
       >

@@ -592,6 +592,7 @@ app.use(require("./routes/users")({
 // =============================================================
 app.use(require("./routes/meets")({
   pool,
+  optionalAuth,
   requireMeetEditor,
   requireEventManager,
 }));
@@ -669,7 +670,12 @@ app.use(require("./routes/control-room")({
 // since it's per-diver state, not scoreboard-related.
 // =============================================================
 
-app.use(require("./routes/scoreboard")({ pool, scoreboardCache, metrics }));
+app.use(require("./routes/scoreboard")({
+  pool,
+  scoreboardCache,
+  metrics,
+  optionalAuth,
+}));
 
 // =============================================================
 // SCORE CORRECTION + AUDIT LOG

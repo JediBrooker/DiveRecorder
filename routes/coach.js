@@ -398,7 +398,10 @@ module.exports = function createCoachRouter({
     try {
       const r = await pool.query(
         `WITH my_divers AS (
-           SELECT diver_id FROM coach_diver_links WHERE coach_id = $1
+           SELECT u.id AS diver_id, u.org_id
+             FROM coach_diver_links link
+             JOIN users u ON u.id = link.diver_id
+            WHERE link.coach_id = $1
          ),
          entered AS (
            SELECT DISTINCT e.id AS event_id, COUNT(DISTINCT cdl.competitor_id) AS squad_count
@@ -408,6 +411,21 @@ module.exports = function createCoachRouter({
               AND cdl.withdrawn_at IS NULL
               AND e.status IN ('Upcoming', 'Live')
             GROUP BY e.id
+         ),
+         open_for_entry AS (
+           SELECT DISTINCT e.id AS event_id
+             FROM events e
+            WHERE e.status = 'Upcoming'
+              AND (e.entries_close_at IS NULL OR e.entries_close_at > now())
+              AND (e.dive_list_locks_at IS NULL OR e.dive_list_locks_at > now())
+              AND EXISTS (
+                SELECT 1 FROM my_divers md
+                 WHERE md.org_id = e.org_id
+                    OR EXISTS (
+                      SELECT 1 FROM event_participating_orgs epo
+                       WHERE epo.event_id = e.id AND epo.org_id = md.org_id
+                    )
+              )
          )
          SELECT e.id AS event_id, e.name AS event_name,
                 e.height, e.event_type, e.status,
@@ -419,6 +437,7 @@ module.exports = function createCoachRouter({
            LEFT JOIN meets m ON m.id = e.meet_id
            LEFT JOIN entered ent ON ent.event_id = e.id
           WHERE e.id IN (SELECT event_id FROM entered)
+             OR e.id IN (SELECT event_id FROM open_for_entry)
           ORDER BY
             CASE e.status WHEN 'Live' THEN 0 WHEN 'Upcoming' THEN 1 ELSE 2 END,
             COALESCE(e.entries_close_at, e.scheduled_at, e.created_at) ASC`,
@@ -458,17 +477,41 @@ module.exports = function createCoachRouter({
   // -------------------------------------------------------------
   router.get("/api/coach/dive-lists/:event_id", verifyToken, async (req, res) => {
     try {
-      const [evRes, prescribedRes, diverRes] = await Promise.all([
-        pool.query(
-          `SELECT e.id, e.name, e.height, e.event_type, e.status,
-                  e.total_rounds, e.round_rules,
-                  e.entries_close_at, e.dive_list_locks_at,
-                  e.meet_id, m.name AS meet_name
-             FROM events e
-             LEFT JOIN meets m ON m.id = e.meet_id
-            WHERE e.id = $1`,
-          [req.params.event_id],
-        ),
+      const evRes = await pool.query(
+        `SELECT e.id, e.name, e.height, e.event_type, e.status,
+                e.org_id, e.total_rounds, e.round_rules,
+                e.entries_close_at, e.dive_list_locks_at,
+                e.meet_id, m.name AS meet_name
+           FROM events e
+           LEFT JOIN meets m ON m.id = e.meet_id
+          WHERE e.id = $1`,
+        [req.params.event_id],
+      );
+      if (!evRes.rows.length) {
+        return res.status(404).json({ error: "Event not found" });
+      }
+      const event = evRes.rows[0];
+
+      const eligible = await pool.query(
+        `SELECT 1
+           FROM coach_diver_links link
+           JOIN users u ON u.id = link.diver_id
+          WHERE link.coach_id = $1
+            AND (
+              u.org_id = $2
+              OR EXISTS (
+                SELECT 1 FROM event_participating_orgs epo
+                 WHERE epo.event_id = $3 AND epo.org_id = u.org_id
+              )
+            )
+          LIMIT 1`,
+        [req.user.id, event.org_id, req.params.event_id],
+      );
+      if (!eligible.rows.length) {
+        return res.status(403).json({ error: "No linked divers are eligible for this event" });
+      }
+
+      const [prescribedRes, diverRes] = await Promise.all([
         pool.query(
           `SELECT round_number, dive_id, height
              FROM event_round_dives
@@ -486,6 +529,13 @@ module.exports = function createCoachRouter({
                JOIN organisations o ON o.id = u.org_id
                LEFT JOIN clubs cl ON cl.id = u.club_id
               WHERE link.coach_id = $1
+                AND (
+                  u.org_id = $3
+                  OR EXISTS (
+                    SELECT 1 FROM event_participating_orgs epo
+                     WHERE epo.event_id = $2 AND epo.org_id = u.org_id
+                  )
+                )
            ),
            diver_dives AS (
              SELECT cdl.competitor_id,
@@ -525,14 +575,10 @@ module.exports = function createCoachRouter({
             GROUP BY md.id, md.full_name, md.country_code,
                      md.club_name, md.club_code, md.org_id
             ORDER BY md.full_name`,
-          [req.user.id, req.params.event_id],
+          [req.user.id, req.params.event_id, event.org_id],
         ),
       ]);
 
-      if (!evRes.rows.length) {
-        return res.status(404).json({ error: "Event not found" });
-      }
-      const event = evRes.rows[0];
       res.json({
         event: {
           id: event.id,

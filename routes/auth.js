@@ -620,7 +620,7 @@ module.exports = function createAuthRouter({
     const cleanOrgName  = safeText(org_name, 100);
     const cleanFullName = safeText(full_name, 100);
     const cleanSlug     = safeText(slug, 60);
-    const cleanUsername = safeText(username, 60);
+    const cleanUsername = safeText(username, 50);
     if (!cleanOrgName)  return res.status(400).json({ error: "Organisation name is required" });
     if (!cleanFullName) return res.status(400).json({ error: "Full name is required" });
     if (!cleanSlug)     return res.status(400).json({ error: "Slug is required" });
@@ -634,6 +634,11 @@ module.exports = function createAuthRouter({
       });
     }
     if (!cleanUsername) return res.status(400).json({ error: "Username is required" });
+    if (!/^[a-zA-Z0-9._-]{2,50}$/.test(cleanUsername)) {
+      return res.status(400).json({
+        error: "Username must be 2-50 characters of letters, digits, dot, underscore, or hyphen",
+      });
+    }
     const pwErr = validatePassword(password);
     if (pwErr) return res.status(400).json({ error: pwErr });
     // Email max-length: users.email is varchar(254) in init.sql;
@@ -744,15 +749,17 @@ module.exports = function createAuthRouter({
       const hash = await bcrypt.hash(new_password, 12);
       await client.query("UPDATE users SET password = $1 WHERE id = $2", [hash, user.id]);
       // Migration 021: invalidate every other session this user
-      // has open on other devices. The current session's JWT is
-      // already accurate at the new tv (we're issuing nothing
-      // here), but other tabs/devices need to log in again.
+      // has open on other devices. Then issue a replacement JWT
+      // carrying the new token_version so this request doesn't
+      // strand its own tab on a stale token.
       if (typeof bumpTokenVersion === "function") {
         await bumpTokenVersion(client, user.id);
       }
       await client.query("COMMIT");
       sendPasswordChangedEmail(user.id).catch(() => {});
-      res.json({ ok: true });
+      const payload = await buildTokenPayload(user.id);
+      const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+      res.json({ ok: true, token, ...payload });
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
       console.error("[Change Password Error]", err.message);

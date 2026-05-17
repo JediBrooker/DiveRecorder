@@ -432,13 +432,14 @@ async function savePassword() {
   }
   pwSaving.value = true
   try {
-    await auth.apiFetch('/api/users/me/password', {
+    const data = await auth.apiFetch('/api/users/me/password', {
       method: 'PUT',
       body: JSON.stringify({
         current_password: pwCurrent.value,
         new_password:     pwNew.value,
       }),
     })
+    if (data?.token) auth.saveSession(data)
     pwSuccess.value = true
     setTimeout(() => { pwEditing.value = false; pwSuccess.value = false }, 1200)
   } catch (err) {

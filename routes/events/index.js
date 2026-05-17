@@ -71,6 +71,10 @@ function validateRoundDivesShape(round_dives) {
   return { valid: true };
 }
 
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj || {}, key);
+}
+
 module.exports = function createEventsRouter({
   pool,
   JWT_SECRET,
@@ -405,6 +409,7 @@ module.exports = function createEventsRouter({
   // nullable timestamp.
   // -------------------------------------------------------------
   router.put("/api/events/:id", requireEventManager(), async (req, res) => {
+    const body = req.body || {};
     const {
       name, gender, number_of_judges, total_rounds, height, event_type,
       age_group, scheduled_at, event_format, parent_event_id, advance_count,
@@ -422,8 +427,25 @@ module.exports = function createEventsRouter({
       //   []        → clear all prescribed dives for this event
       //   [...slots]→ replace the existing rows
       round_dives,
-    } = req.body || {};
-    if (event_type === "synchro_pair" && ![9, 11].includes(number_of_judges)) {
+    } = body;
+    let currentEvent;
+    try {
+      const current = await pool.query(
+        "SELECT event_type, number_of_judges, total_rounds FROM events WHERE id = $1",
+        [req.params.id],
+      );
+      currentEvent = current.rows[0];
+    } catch (err) {
+      console.error("[Update Event Current Read Error]", err.message);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+    const nextEventType = hasOwn(body, "event_type")
+      ? event_type
+      : currentEvent?.event_type;
+    const nextJudgeCount = hasOwn(body, "number_of_judges")
+      ? Number(number_of_judges)
+      : Number(currentEvent?.number_of_judges);
+    if (nextEventType === "synchro_pair" && ![9, 11].includes(nextJudgeCount)) {
       return res.status(400).json({
         error: "Synchronised pair events require 9 or 11 judges",
       });
@@ -444,7 +466,7 @@ module.exports = function createEventsRouter({
     const effectiveTotalRoundsForRules =
       Array.isArray(round_dives) && round_dives.length
         ? round_dives.length
-        : total_rounds;
+        : (hasOwn(body, "total_rounds") ? total_rounds : currentEvent?.total_rounds);
     if (round_rules != null) {
       const rrCheck = require("../../lib/round-rules")
         .validateRoundRules(round_rules, effectiveTotalRoundsForRules);
@@ -498,42 +520,54 @@ module.exports = function createEventsRouter({
       const totalRoundsForUpdate =
         Array.isArray(round_dives) && round_dives.length
           ? round_dives.length
-          : (total_rounds || null);
+          : (hasOwn(body, "total_rounds") ? (total_rounds || null) : null);
+      const heightClearedByMixed = hasOwn(body, "is_mixed_height") && !!is_mixed_height;
+      const heightUntouched = !hasOwn(body, "height") && !heightClearedByMixed;
+      const heightValue = heightClearedByMixed
+        ? null
+        : (hasOwn(body, "height") ? (height || null) : null);
+      const ageGroupUntouched = !hasOwn(body, "age_group");
+      const parentUntouched = !hasOwn(body, "parent_event_id");
+      const ddLimitValueUntouched = !hasOwn(body, "dd_limit_value");
+      const scheduledUntouched = !hasOwn(body, "scheduled_at");
       const r = await client.query(
         `UPDATE events SET
            name             = COALESCE($1, name),
            gender           = COALESCE($2, gender),
            number_of_judges = COALESCE($3, number_of_judges),
            total_rounds     = COALESCE($4, total_rounds),
-           height           = $5,
-           event_type       = COALESCE($6, event_type),
-           age_group        = $7,
-           event_format     = COALESCE($8, event_format),
-           parent_event_id  = $9,
-           advance_count    = COALESCE($10, advance_count),
-           dd_limit_rounds  = COALESCE($11, dd_limit_rounds),
-           dd_limit_value   = $12,
-           scheduled_at     = $13,
-           entries_close_at = CASE WHEN $14::boolean THEN entries_close_at ELSE $15::timestamptz END,
-           enforce_referee_signoff = CASE WHEN $19::boolean THEN enforce_referee_signoff ELSE $20::boolean END,
-           is_mixed_height         = CASE WHEN $21::boolean THEN is_mixed_height         ELSE $22::boolean END,
-           round_rules             = CASE WHEN $23::boolean THEN round_rules ELSE $24::jsonb END
-         WHERE id=$16 AND ($17::boolean OR org_id=$18) RETURNING *`,
+           height           = CASE WHEN $5::boolean THEN height ELSE $6::numeric END,
+           event_type       = COALESCE($7, event_type),
+           age_group        = CASE WHEN $8::boolean THEN age_group ELSE $9 END,
+           event_format     = COALESCE($10, event_format),
+           parent_event_id  = CASE WHEN $11::boolean THEN parent_event_id ELSE $12::uuid END,
+           advance_count    = COALESCE($13, advance_count),
+           dd_limit_rounds  = COALESCE($14, dd_limit_rounds),
+           dd_limit_value   = CASE WHEN $15::boolean THEN dd_limit_value ELSE $16::numeric END,
+           scheduled_at     = CASE WHEN $17::boolean THEN scheduled_at ELSE $18::timestamptz END,
+           entries_close_at = CASE WHEN $19::boolean THEN entries_close_at ELSE $20::timestamptz END,
+           enforce_referee_signoff = CASE WHEN $24::boolean THEN enforce_referee_signoff ELSE $25::boolean END,
+           is_mixed_height         = CASE WHEN $26::boolean THEN is_mixed_height         ELSE $27::boolean END,
+           round_rules             = CASE WHEN $28::boolean THEN round_rules ELSE $29::jsonb END
+         WHERE id=$21 AND ($22::boolean OR org_id=$23) RETURNING *`,
         [
           name || null,
           gender || null,
           number_of_judges || null,
           totalRoundsForUpdate,
-          // Mixed-board: clobber height to NULL even if the
-          // caller sent a value, so the column doesn't lie.
-          is_mixed_height ? null : (height || null),
+          heightUntouched,
+          heightValue,
           event_type || null,
+          ageGroupUntouched,
           age_group ?? null,
           event_format || null,
+          parentUntouched,
           parent_event_id ?? null,
           advance_count || null,
           dd_limit_rounds ?? null,
+          ddLimitValueUntouched,
           dd_limit_value ?? null,
+          scheduledUntouched,
           scheduled_at ?? null,
           closeUntouched,
           closeValue,

@@ -16,11 +16,34 @@ const express = require("express");
 
 module.exports = function createMeetsRouter({
   pool,
+  optionalAuth,
   requireMeetEditor,
   requireEventManager,
 }) {
   if (!pool) throw new Error("createMeetsRouter requires { pool, … }");
   const router = express.Router();
+  const maybeAuth = optionalAuth || ((req, _res, next) => next());
+
+  function hasOwn(obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj || {}, key);
+  }
+
+  async function requireEditableMeet(db, req, res) {
+    const r = await db.query(
+      "SELECT id, org_id FROM meets WHERE id = $1",
+      [req.params.id],
+    );
+    if (!r.rows.length) {
+      res.status(404).json({ error: "Meet not found" });
+      return null;
+    }
+    const meet = r.rows[0];
+    if (!req.user?.is_system_admin && meet.org_id !== req.user?.org_id) {
+      res.status(403).json({ error: "Cannot manage meets in other organisations" });
+      return null;
+    }
+    return meet;
+  }
 
   // Sponsor URL hardening. The sponsor_link_url field renders into
   // a Vue :href binding on the public meet detail page, so any
@@ -86,7 +109,7 @@ module.exports = function createMeetsRouter({
 
   // Public meet detail — meet metadata + every event nested
   // inside, in a shape suitable for the public landing page.
-  router.get("/api/meets/:id", async (req, res) => {
+  router.get("/api/meets/:id", maybeAuth, async (req, res) => {
     try {
       const meetRes = await pool.query(
         `SELECT m.*, o.name AS org_name, o.country_code, o.id AS org_id
@@ -97,6 +120,25 @@ module.exports = function createMeetsRouter({
       );
       if (!meetRes.rows.length)
         return res.status(404).json({ error: "Meet not found" });
+      const meetRow = meetRes.rows[0];
+      const callerOrgId = req.user?.org_id || null;
+      const canSeePrivate =
+        !!req.user?.is_system_admin || (callerOrgId && callerOrgId === meetRow.org_id);
+      const visibleSql = canSeePrivate
+        ? "e.meet_id = $1"
+        : callerOrgId
+          ? `e.meet_id = $1
+             AND (
+               e.status IN ('Live','Completed')
+               OR EXISTS (
+                 SELECT 1 FROM event_participating_orgs epo_vis
+                  WHERE epo_vis.event_id = e.id AND epo_vis.org_id = $2
+               )
+             )`
+          : "e.meet_id = $1 AND e.status IN ('Live','Completed')";
+      const visibleParams = callerOrgId && !canSeePrivate
+        ? [req.params.id, callerOrgId]
+        : [req.params.id];
       const eventsRes = await pool.query(
         `SELECT e.id, e.name, e.gender, e.height, e.total_rounds,
                 e.number_of_judges, e.event_type, e.status, e.created_at,
@@ -106,7 +148,7 @@ module.exports = function createMeetsRouter({
            SELECT COUNT(DISTINCT s.competitor_id) AS competitor_count
            FROM scores s WHERE s.event_id = e.id
          ) stat ON true
-         WHERE e.meet_id = $1
+         WHERE ${visibleSql}
          ORDER BY
            CASE e.status
              WHEN 'Live'      THEN 0
@@ -114,7 +156,7 @@ module.exports = function createMeetsRouter({
              WHEN 'Completed' THEN 2
            END,
            e.created_at ASC`,
-        [req.params.id],
+        visibleParams,
       );
       // Union of every other federation invited onto any event
       // in this meet — drives the "🌐 Participating: AUS NZL FIJ"
@@ -127,9 +169,9 @@ module.exports = function createMeetsRouter({
            FROM event_participating_orgs epo
            JOIN events e        ON e.id = epo.event_id
            JOIN organisations o ON o.id = epo.org_id
-          WHERE e.meet_id = $1
+          WHERE ${visibleSql}
           ORDER BY o.country_code NULLS LAST, o.name`,
-        [req.params.id],
+        visibleParams,
       );
       // Multi-sponsor logos (migration 045). Same shape as the
       // dedicated GET /api/meets/:id/sponsor-logos endpoint so
@@ -144,7 +186,6 @@ module.exports = function createMeetsRouter({
           ORDER BY slot_number ASC`,
         [req.params.id],
       );
-      const meetRow = meetRes.rows[0];
       let logos = logosRes.rows.map((row) => ({
         id:          row.id,
         meet_id:     row.meet_id,
@@ -217,29 +258,45 @@ module.exports = function createMeetsRouter({
       name, venue, start_date, end_date, description,
       sponsor_name, sponsor_logo_url, sponsor_link_url,
     } = req.body || {};
-    const safeLogo = rejectIfUnsafeUrl(res, "sponsor_logo_url", sponsor_logo_url);
-    if (safeLogo === false) return;
-    const safeLink = rejectIfUnsafeUrl(res, "sponsor_link_url", sponsor_link_url);
-    if (safeLink === false) return;
+    const body = req.body || {};
+    const updates = [];
+    const params = [];
+    function setField(column, value) {
+      params.push(value);
+      updates.push(`${column} = $${params.length}`);
+    }
+    if (hasOwn(body, "name")) {
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Meet name is required" });
+      }
+      setField("name", name.trim());
+    }
+    if (hasOwn(body, "venue")) setField("venue", venue || null);
+    if (hasOwn(body, "start_date")) setField("start_date", start_date || null);
+    if (hasOwn(body, "end_date")) setField("end_date", end_date || null);
+    if (hasOwn(body, "description")) setField("description", description || null);
+    if (hasOwn(body, "sponsor_name")) setField("sponsor_name", sponsor_name || null);
+    if (hasOwn(body, "sponsor_logo_url")) {
+      const safeLogo = rejectIfUnsafeUrl(res, "sponsor_logo_url", sponsor_logo_url);
+      if (safeLogo === false) return;
+      setField("sponsor_logo_url", safeLogo);
+    }
+    if (hasOwn(body, "sponsor_link_url")) {
+      const safeLink = rejectIfUnsafeUrl(res, "sponsor_link_url", sponsor_link_url);
+      if (safeLink === false) return;
+      setField("sponsor_link_url", safeLink);
+    }
+    if (!updates.length) {
+      return res.status(400).json({ error: "No updatable fields in body" });
+    }
     try {
+      if (!(await requireEditableMeet(pool, req, res))) return;
+      params.push(req.params.id);
       const r = await pool.query(
-        `UPDATE meets SET
-           name = COALESCE($1, name),
-           venue = $2,
-           start_date = $3,
-           end_date = $4,
-           description = $5,
-           sponsor_name = $6,
-           sponsor_logo_url = $7,
-           sponsor_link_url = $8
-         WHERE id = $9 AND org_id = $10
+        `UPDATE meets SET ${updates.join(", ")}
+         WHERE id = $${params.length}
          RETURNING *`,
-        [
-          name?.trim() || null, venue || null,
-          start_date || null, end_date || null, description || null,
-          sponsor_name || null, safeLogo, safeLink,
-          req.params.id, req.user.org_id,
-        ],
+        params,
       );
       if (!r.rows.length) return res.status(404).json({ error: "Meet not found" });
       res.json(r.rows[0]);
@@ -251,9 +308,10 @@ module.exports = function createMeetsRouter({
 
   router.delete("/api/meets/:id", requireMeetEditor, async (req, res) => {
     try {
+      if (!(await requireEditableMeet(pool, req, res))) return;
       const r = await pool.query(
-        "DELETE FROM meets WHERE id = $1 AND org_id = $2 RETURNING id",
-        [req.params.id, req.user.org_id],
+        "DELETE FROM meets WHERE id = $1 RETURNING id",
+        [req.params.id],
       );
       if (!r.rows.length) return res.status(404).json({ error: "Meet not found" });
       // ON DELETE SET NULL on events.meet_id means the events
@@ -312,7 +370,7 @@ module.exports = function createMeetsRouter({
   //          → metadata + image URLs, ordered by slot
   //   POST /api/meets/:id/sponsor-logos
   //          ?alt_text=…&link_url=…
-  //          Content-Type: image/(png|jpeg|webp|svg+xml)
+  //          Content-Type: image/(png|jpeg|webp)
   //          Body: raw image bytes (≤1MB)
   //   PUT  /api/meets/:id/sponsor-logos/:logoId
   //          { alt_text?, link_url? }
@@ -333,13 +391,13 @@ module.exports = function createMeetsRouter({
 
   // Whitelist of MIME types we accept. Raster types go through
   // sharp for validation + auto-resize so a 4K logo doesn't
-  // bloat the table; SVG bypasses sharp because re-encoding
-  // vector to raster is the wrong move.
+  // bloat the table. SVG upload is intentionally blocked because
+  // browser SVG execution rules are too sharp-edged for first-
+  // party uploaded sponsor content.
   const SPONSOR_LOGO_MIMES = new Set([
     "image/png",
     "image/jpeg",
     "image/webp",
-    "image/svg+xml",
   ]);
   const SPONSOR_LOGO_MAX_BYTES = 1024 * 1024;          // 1MB
   const SPONSOR_LOGO_MAX_DIMENSION = 600;              // long-edge px
@@ -454,11 +512,12 @@ module.exports = function createMeetsRouter({
     "/api/meets/:id/sponsor-logos",
     requireMeetEditor,
     express.raw({
-      type: ["image/png", "image/jpeg", "image/webp", "image/svg+xml"],
+      type: ["image/png", "image/jpeg", "image/webp"],
       limit: SPONSOR_LOGO_MAX_BYTES,
     }),
     async (req, res) => {
       try {
+        if (!(await requireEditableMeet(pool, req, res))) return;
         const mime = (req.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
         if (!SPONSOR_LOGO_MIMES.has(mime)) {
           return res.status(400).json({
@@ -474,32 +533,29 @@ module.exports = function createMeetsRouter({
           });
         }
 
-        // For raster formats, pipe through sharp so we (a)
-        // verify it parses, (b) auto-resize the long edge to
-        // SPONSOR_LOGO_MAX_DIMENSION so a 4K logo doesn't
-        // burn 800KB in the table. SVG bypasses sharp.
+        // Pipe through sharp so we (a) verify it parses, (b)
+        // auto-resize the long edge to SPONSOR_LOGO_MAX_DIMENSION
+        // so a 4K logo doesn't burn 800KB in the table.
         let bytes = req.body;
         let finalMime = mime;
-        if (mime !== "image/svg+xml") {
-          try {
-            const sharp = require("sharp");
-            const pipeline = sharp(req.body, { failOnError: true })
-              .resize({
-                width: SPONSOR_LOGO_MAX_DIMENSION,
-                height: SPONSOR_LOGO_MAX_DIMENSION,
-                fit: "inside",
-                withoutEnlargement: true,
-              });
-            // Re-encode in the source format. PNG/JPEG/WebP all
-            // round-trip cleanly through sharp.
-            if (mime === "image/png")  bytes = await pipeline.png().toBuffer();
-            if (mime === "image/jpeg") bytes = await pipeline.jpeg({ quality: 88 }).toBuffer();
-            if (mime === "image/webp") bytes = await pipeline.webp({ quality: 88 }).toBuffer();
-          } catch (err) {
-            return res.status(400).json({
-              error: `Image could not be decoded: ${err.message}`,
+        try {
+          const sharp = require("sharp");
+          const pipeline = sharp(req.body, { failOnError: true })
+            .resize({
+              width: SPONSOR_LOGO_MAX_DIMENSION,
+              height: SPONSOR_LOGO_MAX_DIMENSION,
+              fit: "inside",
+              withoutEnlargement: true,
             });
-          }
+          // Re-encode in the source format. PNG/JPEG/WebP all
+          // round-trip cleanly through sharp.
+          if (mime === "image/png")  bytes = await pipeline.png().toBuffer();
+          if (mime === "image/jpeg") bytes = await pipeline.jpeg({ quality: 88 }).toBuffer();
+          if (mime === "image/webp") bytes = await pipeline.webp({ quality: 88 }).toBuffer();
+        } catch (err) {
+          return res.status(400).json({
+            error: `Image could not be decoded: ${err.message}`,
+          });
         }
 
         const altText = req.query.alt_text ? String(req.query.alt_text).slice(0, 255) : null;
@@ -572,6 +628,10 @@ module.exports = function createMeetsRouter({
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
+        if (!(await requireEditableMeet(client, req, res))) {
+          await client.query("ROLLBACK");
+          return;
+        }
         const owned = await client.query(
           `SELECT id FROM meet_sponsor_logos
             WHERE meet_id = $1 AND id = ANY($2::uuid[])`,
@@ -618,6 +678,7 @@ module.exports = function createMeetsRouter({
     requireMeetEditor,
     async (req, res) => {
       try {
+        if (!(await requireEditableMeet(pool, req, res))) return;
         const updates = {};
         if ("alt_text" in (req.body || {})) {
           updates.alt_text = req.body.alt_text
@@ -679,6 +740,7 @@ module.exports = function createMeetsRouter({
     requireMeetEditor,
     async (req, res) => {
       try {
+        if (!(await requireEditableMeet(pool, req, res))) return;
         const r = await pool.query(
           `DELETE FROM meet_sponsor_logos
             WHERE meet_id = $1 AND id = $2
@@ -704,6 +766,7 @@ module.exports = function createMeetsRouter({
     requireMeetEditor,
     async (req, res) => {
       try {
+        if (!(await requireEditableMeet(pool, req, res))) return;
         const n = parseInt(req.body?.sponsor_rotation_seconds, 10);
         if (!Number.isInteger(n) || n < 0 || n > 60) {
           return res.status(400).json({

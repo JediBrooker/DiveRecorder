@@ -34,6 +34,134 @@ module.exports = function createTeamsRouter({
   if (!pool) throw new Error("createTeamsRouter requires { pool, … }");
   const router = express.Router();
 
+  function httpErr(status, message, violations = null) {
+    const err = new Error(message);
+    err.status = status;
+    if (violations) err.violations = violations;
+    return err;
+  }
+
+  async function ensureTeamEligibleForEvent(client, event, teamOrgId, actor) {
+    if (actor.is_system_admin || event.org_id === teamOrgId) return;
+    const part = await client.query(
+      `SELECT 1 FROM event_participating_orgs
+        WHERE event_id = $1 AND org_id = $2`,
+      [event.id, teamOrgId],
+    );
+    if (!part.rows.length) {
+      throw httpErr(403, "This team's federation isn't on the event's participating list");
+    }
+  }
+
+  async function validateTeamDivesForEvent(client, event, rawDives) {
+    const totalRounds = Number(event.total_rounds) || null;
+    const rows = [];
+    const seenByCompetitor = new Map();
+    for (const raw of rawDives) {
+      const rn = Number(raw?.round_number);
+      if (!Number.isInteger(rn) || rn < 1) {
+        throw httpErr(400, "Each dive needs an integer round_number ≥ 1");
+      }
+      if (totalRounds && rn > totalRounds) {
+        throw httpErr(400, `round_number ${rn} exceeds total_rounds ${totalRounds}`);
+      }
+      if (!raw?.dive_id) {
+        throw httpErr(400, "Each dive needs a dive_id");
+      }
+      const key = raw.competitor_id;
+      if (!seenByCompetitor.has(key)) seenByCompetitor.set(key, new Set());
+      const seenRounds = seenByCompetitor.get(key);
+      if (seenRounds.has(rn)) {
+        throw httpErr(400, `Duplicate round_number ${rn} for one team member`);
+      }
+      seenRounds.add(rn);
+      rows.push({ ...raw, round_number: rn });
+    }
+
+    const ids = [...new Set(rows.map((d) => d.dive_id))];
+    const heightVal = event.height ? parseFloat(event.height) : null;
+    const validIds = await client.query(
+      `SELECT id, dive_code, dd, height FROM dive_directory
+       WHERE id = ANY($1::uuid[])
+         AND ($2::numeric IS NULL OR height = $2)`,
+      [ids, heightVal],
+    );
+    const okMap = new Map(validIds.rows.map((row) => [row.id, row]));
+    for (const d of rows) {
+      if (!okMap.has(d.dive_id)) {
+        throw httpErr(400, `dive_id ${d.dive_id} is not in the dive directory at this event's height`);
+      }
+    }
+
+    const prescribed = await client.query(
+      `SELECT round_number, dive_id, height
+         FROM event_round_dives
+        WHERE event_id = $1`,
+      [event.id],
+    );
+    if (prescribed.rows.length) {
+      const byRound = new Map(prescribed.rows.map((slot) => [slot.round_number, slot]));
+      const violations = [];
+      for (const d of rows) {
+        const slot = byRound.get(d.round_number);
+        if (!slot) continue;
+        if (slot.dive_id && slot.dive_id !== d.dive_id) {
+          violations.push(`Round ${d.round_number} is operator-prescribed; submit the assigned dive only`);
+          continue;
+        }
+        if (!slot.dive_id && slot.height != null) {
+          const dir = okMap.get(d.dive_id);
+          if (dir && Number(dir.height) !== Number(slot.height)) {
+            violations.push(`Round ${d.round_number} requires a ${slot.height}m board dive`);
+          }
+        }
+      }
+      if (violations.length) {
+        throw httpErr(400, "Dive list violates the event's prescribed dives", violations);
+      }
+    }
+
+    if (event.round_rules) {
+      const { validateDiveList } = require("../lib/round-rules");
+      const grouped = new Map();
+      for (const d of rows) {
+        if (!grouped.has(d.competitor_id)) grouped.set(d.competitor_id, []);
+        grouped.get(d.competitor_id).push(d);
+      }
+      for (const list of grouped.values()) {
+        const enriched = list.map((d) => {
+          const dir = okMap.get(d.dive_id);
+          return {
+            round_number: d.round_number,
+            dive_id: d.dive_id,
+            dive_code: dir?.dive_code,
+            dd: dir?.dd,
+          };
+        });
+        const check = validateDiveList(event.round_rules, enriched);
+        if (!check.valid) {
+          throw httpErr(400, "Dive list violates the event's round rules", check.errors);
+        }
+      }
+    }
+
+    if (event.event_type === "synchro_pair") {
+      const partnersByCompetitor = new Map();
+      for (const d of rows) {
+        if (!d.partner_id || d.partner_id === d.competitor_id) {
+          throw httpErr(400, "A different partner is required for synchronised events");
+        }
+        const prior = partnersByCompetitor.get(d.competitor_id);
+        if (prior && prior !== d.partner_id) {
+          throw httpErr(400, "Synchro partner must be consistent across a diver's rounds");
+        }
+        partnersByCompetitor.set(d.competitor_id, d.partner_id);
+      }
+    }
+
+    return rows;
+  }
+
   // Teams in an org with member counts.
   router.get("/api/orgs/:id/teams", requireMeetEditor, async (req, res) => {
     if (!req.user.is_system_admin && req.params.id !== req.user.org_id) {
@@ -218,9 +346,10 @@ module.exports = function createTeamsRouter({
         );
         if (!target.rows.length)
           return res.status(404).json({ error: "Team not found" });
+        const teamOrgId = target.rows[0].org_id;
         if (
           !req.user.is_system_admin &&
-          target.rows[0].org_id !== req.user.org_id
+          teamOrgId !== req.user.org_id
         ) {
           return res
             .status(403)
@@ -235,6 +364,11 @@ module.exports = function createTeamsRouter({
         const gate = await loadEventForEntries(client, event_id);
         if (gate.error) {
           return res.status(gate.status).json({ error: gate.error });
+        }
+        try {
+          await ensureTeamEligibleForEvent(client, gate.event, teamOrgId, req.user);
+        } catch (err) {
+          return res.status(err.status || 500).json({ error: err.message });
         }
 
         // All competitor_id and partner_id values must belong to
@@ -266,6 +400,14 @@ module.exports = function createTeamsRouter({
               .json({ error: "Each dive needs a dive_id and round_number" });
           }
         }
+        let validatedDives;
+        try {
+          validatedDives = await validateTeamDivesForEvent(client, gate.event, dives);
+        } catch (err) {
+          const body = { error: err.message };
+          if (err.violations) body.violations = err.violations;
+          return res.status(err.status || 500).json(body);
+        }
 
         await client.query("BEGIN");
         // Replace existing rows for this (team, event)
@@ -274,7 +416,7 @@ module.exports = function createTeamsRouter({
            WHERE team_id = $1 AND event_id = $2`,
           [req.params.teamId, event_id],
         );
-        for (const d of dives) {
+        for (const d of validatedDives) {
           await client.query(
             `INSERT INTO competitor_dive_lists
                (event_id, competitor_id, partner_id, team_id, dive_id, round_number)

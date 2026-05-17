@@ -20,26 +20,57 @@
 const express = require("express");
 const { publicId } = require("../lib/public-id");
 
-module.exports = function createScoreboardRouter({ pool, scoreboardCache, metrics }) {
+module.exports = function createScoreboardRouter({
+  pool,
+  scoreboardCache,
+  metrics,
+  optionalAuth,
+}) {
   const router = express.Router();
+  const maybeAuth = optionalAuth || ((req, _res, next) => next());
 
-  router.get("/api/scoreboard/:eventId", async (req, res) => {
+  async function ensureScoreboardVisible(req, res, eventId) {
+    const ev = await pool.query(
+      "SELECT id, org_id, status FROM events WHERE id = $1",
+      [eventId],
+    );
+    if (!ev.rows.length) {
+      res.status(404).json({ error: "Event not found" });
+      return false;
+    }
+    const event = ev.rows[0];
+    if (["Live", "Completed"].includes(event.status)) return true;
+    if (req.user?.is_system_admin || req.user?.org_id === event.org_id) return true;
+    if (req.user?.org_id) {
+      const part = await pool.query(
+        `SELECT 1 FROM event_participating_orgs
+          WHERE event_id = $1 AND org_id = $2`,
+        [eventId, req.user.org_id],
+      );
+      if (part.rows.length) return true;
+    }
+    res.status(404).json({ error: "Event not found" });
+    return false;
+  }
+
+  router.get("/api/scoreboard/:eventId", maybeAuth, async (req, res) => {
     const eventId = req.params.eventId;
     // Cache lookup. ?cache=skip forces a rebuild — useful when a
     // referee has just corrected a score via the HTTP path and
     // wants to see the result reflected immediately (the HTTP
     // correction handler also calls invalidate(), so this is
     // belt-and-braces).
-    if (scoreboardCache && req.query.cache !== "skip") {
-      const hit = scoreboardCache.get(eventId);
-      if (hit) {
-        metrics?.scoreboardCacheHits.inc();
-        res.set("X-Scoreboard-Cache", "hit");
-        return res.json(hit);
-      }
-    }
-    metrics?.scoreboardCacheMisses.inc();
     try {
+      if (!(await ensureScoreboardVisible(req, res, eventId))) return;
+      if (scoreboardCache && req.query.cache !== "skip") {
+        const hit = scoreboardCache.get(eventId);
+        if (hit) {
+          metrics?.scoreboardCacheHits.inc();
+          res.set("X-Scoreboard-Cache", "hit");
+          return res.json(hit);
+        }
+      }
+      metrics?.scoreboardCacheMisses.inc();
       const [st, hi, up, panel] = await Promise.all([
         // Standings: per-dive points (trimmed × DD × scaling) summed
         // across all of a competitor's dives in the event.
@@ -315,8 +346,9 @@ module.exports = function createScoreboardRouter({ pool, scoreboardCache, metric
   // cumulative totals and the movement (change in rank) since the
   // previous round. Used by the scoreboard to render ↑/↓ arrows
   // next to the standings.
-  router.get("/api/scoreboard/:eventId/leaderboard", async (req, res) => {
+  router.get("/api/scoreboard/:eventId/leaderboard", maybeAuth, async (req, res) => {
     try {
+      if (!(await ensureScoreboardVisible(req, res, req.params.eventId))) return;
       const r = await pool.query(
         `WITH dive_totals AS (
            SELECT s.competitor_id, s.round_number,
