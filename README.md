@@ -9,10 +9,12 @@ A multi-tenant diving competition scoring app. Real-time judge scoring over WebS
 Built around five audiences:
 
 - **Divers** — Diver Portal for building and submitting dive lists per event (with World Aquatics DD lookup, height filter, synchro partner autocomplete), plus a personal profile with PBs, score-trend sparkline, average DD, best single dive, and a customisable analytics dashboard with 10+ widgets.
-- **Coaches** — A `coach` role with a per-coach roster of linked divers and one-click access to each diver's profile.
+- **Coaches** — A `coach` role with a per-coach roster of linked divers, on-behalf-of dive-list submission, a real-time "your diver is up next" push alert, and one-click access to each diver's profile.
 - **Meet operators** — Control room view advances divers, broadcasts state to judges and the public scoreboard, finalises events. 60-second shot clock, hold/resume, score correction, queue reorder, late entry, audit-logged referee actions.
 - **Judges** — Single-purpose phone-friendly view that submits scores back to the server in real time. Synchro panels see role hints (Exec A / Exec B / Sync) so they know which judging slot they're filling. **Judge Analysis** (`/judge-profile`) gives every judge a self-service dashboard showing how their scoring tracks against the panel-kept mean (post World Aquatics trim, PART FOUR Article 13) — overall bias, drop rate (with high vs low split), and breakdowns per board height, dive group, country, club, individual diver, round, and DD difficulty. Fully customisable widget catalogue, mirroring the diver dashboard pattern.
 - **Spectators** — Public scoreboard with current performer, live standings, per-round leaderboard with movement arrows, public meet landing pages, and an archive of completed meets.
+
+**🌍 25 languages, switchable in-app.** The whole UI is internationalized — English source plus 24 translations (Spanish, French, German, Italian, Portuguese, Polish, Russian, Ukrainian, Finnish, Swedish, Danish, Norwegian, Hungarian, Croatian, Serbian, Mandarin Chinese, Japanese, Korean, Indonesian, Malay, Tagalog, Arabic, Turkish, Greek). A flag-prefixed dropdown in the header lets any user pick their language; the choice persists across sign-in / sign-out and across devices when signed in. Arabic gets full RTL layout flipping. See [Languages & Translation](https://github.com/JediBrooker/DivingHQ/wiki/Languages) for the full list and how the AI-assisted translation pipeline works.
 
 ---
 
@@ -22,6 +24,7 @@ Built around five audiences:
 - [Screenshots](#screenshots)
 - [Tech stack](#tech-stack)
 - [Features](#features)
+- [Languages](#languages)
 - [Local setup](#local-setup)
 - [Production deploy](#production-deploy)
 - [Project structure](#project-structure)
@@ -216,7 +219,7 @@ The referee's sign-off page. Pre-meet, the meet manager generates a 6-digit hand
 <details>
 <summary><h2 id="tech-stack">Tech stack</h2></summary>
 
-- **Frontend**: Vue 3 (Composition API, `<script setup>`), Vite 6, Vue Router, Pinia
+- **Frontend**: Vue 3 (Composition API, `<script setup>`), Vite 6, Vue Router, Pinia, vue-i18n@11 (25 locales, build-time AST precompilation via `@intlify/unplugin-vue-i18n` so no eval-based message compiler ships to the browser — keeps the strict `script-src 'self'` CSP intact)
 - **Backend**: Node 18+, Express 5, Socket.IO 4, [`pg`](https://node-postgres.com/), `pdfkit`, `nodemailer`
 - **Auth**: JSON Web Tokens, bcrypt password hashing, password-reset email flow with single-use tokens
 - **Database**: PostgreSQL 14+ with `uuid-ossp` and `pgcrypto`
@@ -237,6 +240,52 @@ The complete feature inventory now lives in the wiki, with two views over the sa
 - **[Features → By section](https://github.com/JediBrooker/DivingHQ/wiki/Features#by-section)** — same features inverted, grouped by app surface (Auth, Meet setup, Control Room, Judging, Scoreboard, Diver Portal, Admin Tasks, PDF/CSV exports, Notifications, Keyboard shortcuts, Performance + offline).
 
 The README used to inline this list; the wiki page keeps deep-links to the user guide and is easier to keep in sync as features land.
+
+---
+
+</details>
+
+<details>
+<summary><h2 id="languages">Languages</h2></summary>
+
+DivingHQ ships with **25 supported languages** — English source plus 24 translations. A flag-prefixed dropdown in the header on the Home page, the Login page, and the Dashboard lets any user switch language. The choice persists to `localStorage`, applies to every page in the app, and survives sign-in / sign-out.
+
+| Region | Languages |
+|---|---|
+| 🌍 Western Europe | 🇬🇧 English · 🇪🇸 Spanish · 🇫🇷 French · 🇩🇪 German · 🇮🇹 Italian · 🇵🇹 Portuguese |
+| 🌍 Northern Europe | 🇫🇮 Finnish · 🇸🇪 Swedish · 🇩🇰 Danish · 🇳🇴 Norwegian |
+| 🌍 Central / Eastern Europe | 🇵🇱 Polish · 🇭🇷 Croatian · 🇷🇸 Serbian · 🇭🇺 Hungarian · 🇬🇷 Greek · 🇹🇷 Turkish |
+| 🌍 East Slavic | 🇷🇺 Russian · 🇺🇦 Ukrainian |
+| 🌏 East Asia | 🇨🇳 Mandarin Chinese · 🇯🇵 Japanese · 🇰🇷 Korean |
+| 🌏 Southeast Asia | 🇮🇩 Bahasa Indonesia · 🇲🇾 Bahasa Melayu · 🇵🇭 Tagalog |
+| 🌍 Middle East | 🇸🇦 Arabic *(RTL — full right-to-left layout flip)* |
+
+### How it works
+
+- **Source of truth**: `src/locales/en.json` (~459 keys grouped into per-page namespaces — `auth.*`, `home.*`, `dashboard.*`, `coach.*`, `scoreboard.*`, `control.*`, `manager.*`, etc.). Every other locale file has an identical key shape (verified programmatically in CI — 25 × 459 = 11,475 strings, zero structural drift).
+- **No runtime eval**: `@intlify/unplugin-vue-i18n` precompiles every JSON dictionary into AST functions at build time so the browser never invokes vue-i18n's parser. This keeps the strict `script-src 'self'` CSP intact (the alternative — runtime JIT compilation — uses `new Function` and gets blocked).
+- **RTL handling**: Arabic carries an `rtl: true` flag in `SUPPORTED_LOCALES`; `setLocale()` syncs `<html dir="rtl">` and `<html lang="ar">` in lockstep with the i18n state. The existing layout uses logical CSS (flex, `padding-inline-end`, `inset-inline-end`) so the whole page mirrors cleanly without per-component changes.
+- **First-visit auto-detect**: `navigator.language` prefix is matched against `SUPPORTED_LOCALES` on first visit — a phone set to `fr-FR` lands on French, set to `ja` lands on Japanese, etc. Falls back to English.
+
+### Adding more languages or refreshing translations
+
+A Node script wraps the Anthropic API for AI-assisted translation work:
+
+```bash
+# Translate any new English keys into every locale at once
+ANTHROPIC_API_KEY=sk-… npm run translate
+
+# Refresh a subset of locales
+ANTHROPIC_API_KEY=sk-… npm run translate -- --locales fr,de,zh
+
+# Side-file mode — writes .new.json next to each locale so you can
+# diff + proofread before promoting
+ANTHROPIC_API_KEY=sk-… npm run translate -- --diff
+```
+
+The script is idempotent — already-translated keys are skipped unless `--force` is passed, and the JSON structure / placeholders / `{'@'}` escape sequences are preserved verbatim.
+
+For deeper detail (vue-i18n message format, the unplugin alternative builds, how the locale state hydrates), see the wiki: [Languages & Translation ↗](https://github.com/JediBrooker/DivingHQ/wiki/Languages).
 
 ---
 
