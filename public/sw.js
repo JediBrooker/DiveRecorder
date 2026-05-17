@@ -37,7 +37,11 @@
 // filenames are unchanged, so without a cache-version bump
 // returning PWA users would keep seeing the old icon from
 // their shell cache until natural eviction.
-const CACHE = "divinghq-shell-v6";
+// v6 → v7: i18n landed, swapping the bundle entry point and
+// invalidating every previously-cached asset hash. Bumping the
+// cache forces returning PWA users to re-fetch the shell on
+// next visit instead of getting a blank page from stale hashes.
+const CACHE = "divinghq-shell-v7";
 const SHELL = [
   "/",
   "/index.html",
