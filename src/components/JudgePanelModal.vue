@@ -44,6 +44,20 @@ const loading   = ref(false)
 const saving    = ref(false)
 const errorMsg  = ref('')
 
+// Phase 3 — schedule-aware availability hints. Map of judge_id →
+// { status: 'available' | 'busy', busy_until?: iso,
+//   conflicting_event_label?: string }. Populated by an opt-in
+// call to /api/meets/:meetId/judges/availability when both
+// meetId and eventScheduledAt are known. Non-blocking: a missing
+// or busy judge can still be picked (matches Phase 2's posture).
+const availability = ref(new Map())
+const availabilityLoading = ref(false)
+// Reactive timestamp this panel is being assigned for. Resolved
+// off the event's schedule block (or events.scheduled_at as a
+// fallback) — declared as a ref so loadAvailability can re-run
+// without a closure refactor.
+const eventScheduledAt = ref(null)
+
 const assignedCount = computed(() => panel.value.filter(Boolean).length)
 const inPanelIds    = computed(() => new Set(panel.value.filter(Boolean).map(j => j.id)))
 const canSave       = computed(() => assignedCount.value === props.panelSize && !saving.value)
@@ -81,11 +95,59 @@ async function loadData() {
         }
       })
     }
+
+    // Phase 3 — schedule-aware availability. Two preconditions:
+    // a meetId on the modal (passed by Phase 2 callers) and a
+    // scheduled_at on the event. Without either we silently skip
+    // the call; the picker still works, judges just don't show
+    // a badge. Reading scheduled_at via the existing event
+    // endpoint avoids adding a second round-trip to /sessions.
+    if (props.meetId) {
+      try {
+        const ev = await auth.apiFetch(`/api/events/${props.eventId}`)
+        const at = ev?.scheduled_at || null
+        eventScheduledAt.value = at
+        if (at) await loadAvailability(at)
+      } catch { /* availability is informational — never fail load */ }
+    }
   } catch (err) {
     errorMsg.value = err.message || 'Failed to load judges.'
   } finally {
     loading.value = false
   }
+}
+
+async function loadAvailability(atIso) {
+  if (!props.meetId || !atIso) return
+  availabilityLoading.value = true
+  try {
+    const body = await auth.apiFetch(
+      `/api/meets/${props.meetId}/judges/availability?at=${encodeURIComponent(atIso)}`
+    )
+    const map = new Map()
+    for (const row of (body?.judges || [])) {
+      map.set(row.judge_id, row)
+    }
+    availability.value = map
+  } catch {
+    availability.value = new Map()
+  } finally {
+    availabilityLoading.value = false
+  }
+}
+
+function judgeAvailability(judgeId) {
+  // Default to "available" when we either don't have data yet or
+  // the API didn't return a busy row for this judge. Matches the
+  // server contract: only busy judges come back in the payload.
+  const row = availability.value.get(judgeId)
+  if (!row) return { status: 'available' }
+  return row
+}
+
+function formatAvailabilityTime(iso) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 // Re-fetch each time the modal opens so a panel change made
@@ -268,6 +330,24 @@ function warningNames(c) {
                 <div class="jpm-judge-name">
                   {{ j.full_name }}
                   <span v-if="j.country_code" class="jpm-judge-country">{{ j.country_code }}</span>
+                  <!-- Phase 3 availability badge — only rendered
+                       when the parent passed a meetId and the event
+                       has a scheduled_at. The picker treats it as a
+                       non-blocking hint; busy judges remain pickable
+                       to keep parity with Phase 2's "warning, no
+                       veto" posture. -->
+                  <span
+                    v-if="meetId && eventScheduledAt"
+                    :class="['jpm-availability', judgeAvailability(j.id).status === 'available' ? 'is-available' : 'is-busy']"
+                    :title="judgeAvailability(j.id).conflicting_event_label || ''"
+                  >
+                    <template v-if="judgeAvailability(j.id).status === 'available'">
+                      {{ t('scheduler.availability.available') }}
+                    </template>
+                    <template v-else>
+                      {{ t('scheduler.availability.busy', { time: formatAvailabilityTime(judgeAvailability(j.id).busy_until) }) }}
+                    </template>
+                  </span>
                 </div>
                 <div v-if="j.org_name" class="jpm-judge-org">{{ j.org_name }}</div>
               </div>
@@ -540,5 +620,25 @@ function warningNames(c) {
   gap: 0.5rem;
   justify-content: flex-end;
   flex-wrap: wrap;
+}
+
+.jpm-availability {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 0.05rem 0.4rem;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+.jpm-availability.is-available {
+  color: var(--green, #10b981);
+  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(16, 185, 129, 0.08);
+}
+.jpm-availability.is-busy {
+  color: var(--amber, #d90);
+  border-color: rgba(221, 153, 0, 0.4);
+  background: rgba(221, 153, 0, 0.08);
 }
 </style>

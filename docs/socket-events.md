@@ -29,6 +29,9 @@ that's intentional, but every privileged event must call
 | `venue.scoreboard_state`  | Canonical venue payload from `lib/venue-state.js` | Emitted to `venue:<event_id>` subscribers after subscribe, active-diver changes, score changes, score announce, hold, and resume. Used by hardware bridges. |
 | `unauthorized`            | `{ reason: 'not_authenticated' \| 'insufficient_role' }` | A privileged event was attempted by an anonymous or under-roled socket. |
 | `schedule:conflict_dismissed` | `{ meet_id, dismissal: { id, block_a_id, block_b_id, resource_kind, … }, action: 'dismiss' \| 'undismiss' }` | A scheduler conflict was dismissed or un-dismissed via the Phase 2 dismissal API. Drawer clients refetch `/api/meets/:id/conflicts` on receipt. Public broadcast — payload mirrors the public conflict report. |
+| `schedule:block_updated`      | `{ meet_id, session_id, block?, conflicts?, created?, session_updated? }` | A Phase 3 manual edit landed (`PUT /api/blocks/:id`, `POST /api/sessions/:sessionId/blocks`, or `PUT /api/sessions/:id`). Other timeline tabs refetch `/sessions` and update inline. `conflicts` is the post-edit subset that mentions the touched block — the front-end uses it to flash the card red/amber without a separate conflict round-trip. Public broadcast. |
+| `schedule:block_deleted`      | `{ meet_id, session_id, block_id }` | A schedule block was deleted via `DELETE /api/blocks/:id`. Other tabs drop the row and refetch conflicts. Public broadcast. |
+| `schedule:session_duplicated` | `{ meet_id, source_session_id, session }` | A session was cloned forward via `POST /api/sessions/:id/duplicate`. `session.blocks` is inlined. Other tabs splice the new session into the list. Public broadcast. |
 
 ---
 
