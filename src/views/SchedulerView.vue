@@ -1,24 +1,38 @@
 <script setup>
-// Session Scheduler — Phase 1, read-only.
+// Session Scheduler — Phases 1 & 2.
 //
-// Renders the day-timeline mock from docs/session-scheduler.md §4.1:
-// a vertical timeline (30-min gridlines) with one column per board,
-// blocks anchored to their windows by absolute positioning. Nothing
-// here is editable — no drag, no resize, no insert. The only
-// affordance beyond viewing is the "Subscribe (.ics)" link, which
-// hands the public iCal feed to the operating-system calendar
-// client.
+// Phase 1 (already shipped): vertical timeline (30-min gridlines)
+// with one column per board, blocks anchored to their windows by
+// absolute positioning. Read-only — no drag, no resize, no insert.
 //
-// Phases 2-4 (conflicts overlay, drag-to-edit, live re-flow modal)
-// will extend this same view rather than spawning new ones —
-// keeps the spectator-facing route URL stable.
+// Phase 2 (this revision): conflict overlay + drawer.
+//   * Blocks participating in an active (non-dismissed) conflict
+//     pick up a coloured outline (red for hard, amber for soft)
+//     and a ⚠ marker, matching docs/session-scheduler.md §4.1.
+//   * Collapsible drawer on the right lists conflicts grouped
+//     by severity. Each entry has Jump-to-block, Dismiss
+//     (with optional reason), and (when "show dismissed" is on)
+//     Un-dismiss. Drawer open-state + show-dismissed toggle
+//     persist per-user in localStorage.
+//   * Subscribes to the `schedule:conflict_dismissed` socket
+//     event and refetches /conflicts on receipt so multi-tab
+//     dismissals propagate live.
+//
+// Phases 3-4 (drag-to-edit, duplicate-session, live re-flow)
+// continue to extend this same file — the read-only positioning
+// in Phase 1 + 2 doesn't change in Phase 3 (only the affordances
+// on top of it do).
 
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { useAuthStore } from '@/stores/auth'
+import { useSocket } from '@/composables/useSocket'
 
 const route = useRoute()
 const { t } = useI18n()
+const auth = useAuthStore()
+const socket = useSocket({ spectator: true })
 
 const meetId = computed(() => route.params.meetId)
 
@@ -27,6 +41,21 @@ const error = ref('')
 const sessions = ref([])
 const boards = ref([])
 
+// Phase 2 — conflict state.
+const conflicts = ref([])           // raw response from /conflicts
+const conflictsLoading = ref(false)
+const conflictsError = ref('')
+const drawerOpen = ref(false)
+const showDismissed = ref(false)
+const dismissingId = ref(null)      // composite key of the row currently
+                                    // in the "type a reason" inline form
+const dismissReason = ref('')
+const dismissPending = ref(false)
+const dismissError = ref('')
+const highlightBlockId = ref(null)  // block to flash when "Jump to block"
+                                    // is clicked — cleared after the
+                                    // animation lands.
+
 // Visual constants. Pixels per minute defines how tall each block
 // renders; the 30-minute gridline cadence and column widths come
 // off of it. Tweak these together — the gridline drawer assumes
@@ -34,6 +63,28 @@ const boards = ref([])
 const PIXELS_PER_MINUTE = 1.6
 const MINUTES_PER_GRIDLINE = 30
 const GRIDLINE_HEIGHT = PIXELS_PER_MINUTE * MINUTES_PER_GRIDLINE
+
+// LocalStorage keys for the QoL prefs. Mirrors the locale-switcher
+// pattern in src/i18n/index.js — a single namespace, one key per
+// preference, JSON-encoded so we can extend later without a
+// migration. Read once at mount, written on toggle.
+const LS_DRAWER_OPEN = 'scheduler.drawerOpen'
+const LS_SHOW_DISMISSED = 'scheduler.showDismissed'
+
+function readPref(key, fallback) {
+  if (typeof window === 'undefined') return fallback
+  try {
+    const raw = window.localStorage.getItem(key)
+    if (raw == null) return fallback
+    return JSON.parse(raw)
+  } catch { return fallback }
+}
+function writePref(key, value) {
+  if (typeof window === 'undefined') return
+  try { window.localStorage.setItem(key, JSON.stringify(value)) } catch { /* ignore quota */ }
+}
+watch(drawerOpen, (v) => writePref(LS_DRAWER_OPEN, v))
+watch(showDismissed, (v) => writePref(LS_SHOW_DISMISSED, v))
 
 async function load() {
   if (!meetId.value) return
@@ -50,10 +101,48 @@ async function load() {
   } finally {
     loading.value = false
   }
+  // Conflicts are independent of /sessions but always paired with
+  // it in the UI — fire them after we have block ids to map
+  // against.
+  await loadConflicts()
+}
+
+async function loadConflicts() {
+  if (!meetId.value) return
+  conflictsLoading.value = true
+  conflictsError.value = ''
+  try {
+    const r = await fetch(`/api/meets/${meetId.value}/conflicts`)
+    const body = await r.json().catch(() => null)
+    if (!r.ok) throw new Error(body?.error || `Server returned ${r.status}`)
+    conflicts.value = Array.isArray(body?.conflicts) ? body.conflicts : []
+  } catch (err) {
+    conflictsError.value = err.message || t('scheduler.conflicts.load_failed')
+  } finally {
+    conflictsLoading.value = false
+  }
 }
 
 watch(() => route.params.meetId, () => load(), { immediate: true })
-onMounted(() => { if (meetId.value) load() })
+onMounted(() => {
+  drawerOpen.value = readPref(LS_DRAWER_OPEN, false)
+  showDismissed.value = readPref(LS_SHOW_DISMISSED, false)
+  if (meetId.value) load()
+})
+
+// Socket subscription — refetch on schedule:conflict_dismissed for
+// any meet we care about. Filtered to our meet to avoid
+// gratuitous refetches when a different meet's dismissal
+// broadcasts through the shared socket pool.
+function onConflictDismissed(payload) {
+  if (!payload || !meetId.value) return
+  if (payload.meet_id && payload.meet_id !== meetId.value) return
+  loadConflicts()
+}
+socket.on('schedule:conflict_dismissed', onConflictDismissed)
+onUnmounted(() => {
+  socket.off('schedule:conflict_dismissed', onConflictDismissed)
+})
 
 // The .ics URL is a same-origin path so the browser can hand it
 // off to the OS calendar client. We expose it both as a plain
@@ -170,6 +259,13 @@ function formatDate(d) {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   })
 }
+function formatRelative(d) {
+  if (!d) return ''
+  const date = new Date(d)
+  return date.toLocaleString([], {
+    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+  })
+}
 
 function boardLabel(board) {
   if (board.label) return `${board.height} · ${board.label}`
@@ -182,21 +278,162 @@ function boardLabel(board) {
 function blockToneClass(block) {
   return `block-${block.block_type || 'custom'}`
 }
+
+// -----------------------------------------------------------------
+// Conflict derivations
+// -----------------------------------------------------------------
+
+// Active conflicts (not dismissed) — what the marker / outline /
+// counter use. Dismissed ones land in the drawer's "Dismissed"
+// section only when the toggle is on.
+const activeConflicts = computed(() =>
+  conflicts.value.filter((c) => !c.dismissed),
+)
+const dismissedConflicts = computed(() =>
+  conflicts.value.filter((c) => c.dismissed),
+)
+const hardConflicts = computed(() =>
+  activeConflicts.value.filter((c) => c.severity === 'hard'),
+)
+const softConflicts = computed(() =>
+  activeConflicts.value.filter((c) => c.severity === 'soft'),
+)
+
+// Map of blockId → 'hard' | 'soft' for fast lookup at render
+// time. Hard wins over soft (a block with both gets the red
+// outline, not the amber).
+const blockConflictMap = computed(() => {
+  const out = new Map()
+  for (const c of activeConflicts.value) {
+    for (const blockId of [c.block_a.id, c.block_b.id]) {
+      const existing = out.get(blockId)
+      if (existing === 'hard') continue
+      out.set(blockId, c.severity)
+    }
+  }
+  return out
+})
+
+function conflictSeverityForBlock(blockId) {
+  return blockConflictMap.value.get(blockId) || null
+}
+
+function conflictKey(c) {
+  return `${c.block_a.id}|${c.block_b.id}|${c.resource_kind}`
+}
+
+function isEditing(c) {
+  return dismissingId.value === conflictKey(c)
+}
+
+function kindLabel(kind) {
+  return t(`scheduler.conflicts.kind_${kind}`)
+}
+
+function conflictNames(c) {
+  return (c.resource_labels || [])
+    .filter((s) => s && s.trim())
+    .join(', ') || '—'
+}
+
+function blockHeading(b) {
+  return b.label || b.event_name || t(`scheduler.block_type.${b.block_type}`)
+}
+
+// "Jump to block": scroll the matching block card into view, then
+// flash a highlight ring. The watch on highlightBlockId clears it
+// after a short window so a second click on the same row re-fires
+// the animation.
+function jumpToBlock(blockId) {
+  if (!blockId) return
+  nextTick(() => {
+    const el = document.querySelector(`[data-block-id="${blockId}"]`)
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+    highlightBlockId.value = blockId
+    setTimeout(() => {
+      if (highlightBlockId.value === blockId) highlightBlockId.value = null
+    }, 1800)
+  })
+}
+
+function openDismissForm(c) {
+  dismissingId.value = conflictKey(c)
+  dismissReason.value = ''
+  dismissError.value = ''
+}
+function cancelDismiss() {
+  dismissingId.value = null
+  dismissReason.value = ''
+  dismissError.value = ''
+}
+
+async function confirmDismiss(c) {
+  dismissPending.value = true
+  dismissError.value = ''
+  try {
+    await auth.apiFetch('/api/conflicts/dismiss', {
+      method: 'POST',
+      body: JSON.stringify({
+        block_a_id: c.block_a.id,
+        block_b_id: c.block_b.id,
+        resource_kind: c.resource_kind,
+        reason: dismissReason.value.trim() || undefined,
+      }),
+    })
+    cancelDismiss()
+    // The socket emit will refetch on every tab; do an immediate
+    // refetch here too in case sockets are still reconnecting.
+    await loadConflicts()
+  } catch (err) {
+    dismissError.value = err.message || t('scheduler.conflicts.load_failed')
+  } finally {
+    dismissPending.value = false
+  }
+}
+
+async function undismiss(c) {
+  if (!c.dismissal?.id) return
+  try {
+    await auth.apiFetch(`/api/conflicts/dismiss/${c.dismissal.id}`, {
+      method: 'DELETE',
+    })
+    await loadConflicts()
+  } catch (err) {
+    conflictsError.value = err.message || t('scheduler.conflicts.load_failed')
+  }
+}
 </script>
 
 <template>
-  <div class="scheduler-wrap">
+  <div class="scheduler-wrap" :class="{ 'has-drawer': drawerOpen }">
     <div class="scheduler-nav">
       <RouterLink :to="`/meet/${meetId}`" class="btn btn-ghost btn-sm">
         {{ $t('scheduler.back_to_meet') }}
       </RouterLink>
-      <div class="scheduler-ics">
-        <a :href="webcalUrl" class="btn btn-ghost btn-sm">
-          {{ $t('scheduler.subscribe_ics') }}
-        </a>
-        <a :href="icsUrl" class="scheduler-ics-download" target="_blank" rel="noopener">
-          {{ $t('scheduler.download_ics') }}
-        </a>
+      <div class="scheduler-nav-right">
+        <button
+          type="button"
+          class="btn btn-ghost btn-sm scheduler-drawer-toggle"
+          :class="{ 'has-warnings': activeConflicts.length > 0 }"
+          @click="drawerOpen = !drawerOpen"
+        >
+          <span v-if="activeConflicts.length">
+            {{ $t('scheduler.conflicts.open_drawer', { n: activeConflicts.length }) }}
+          </span>
+          <span v-else>
+            {{ $t('scheduler.conflicts.open_drawer_clean') }}
+          </span>
+        </button>
+        <div class="scheduler-ics">
+          <a :href="webcalUrl" class="btn btn-ghost btn-sm">
+            {{ $t('scheduler.subscribe_ics') }}
+          </a>
+          <a :href="icsUrl" class="scheduler-ics-download" target="_blank" rel="noopener">
+            {{ $t('scheduler.download_ics') }}
+          </a>
+        </div>
       </div>
     </div>
 
@@ -278,7 +515,14 @@ function blockToneClass(block) {
             <div
               v-for="block in session.blocks"
               :key="block.id"
-              :class="['scheduler-block', blockToneClass(block)]"
+              :data-block-id="block.id"
+              :class="[
+                'scheduler-block',
+                blockToneClass(block),
+                conflictSeverityForBlock(block.id) === 'hard' ? 'has-conflict-hard' : '',
+                conflictSeverityForBlock(block.id) === 'soft' ? 'has-conflict-soft' : '',
+                highlightBlockId === block.id ? 'is-highlighted' : '',
+              ]"
               :style="blockStyle(block, session)"
               v-tip="block.notes || ''"
             >
@@ -286,6 +530,13 @@ function blockToneClass(block) {
                 {{ formatTime(block.starts_at) }} – {{ formatTime(block.ends_at) }}
               </div>
               <div class="scheduler-block-label">
+                <span
+                  v-if="conflictSeverityForBlock(block.id)"
+                  class="scheduler-block-warn"
+                  :title="conflictSeverityForBlock(block.id) === 'hard'
+                    ? $t('scheduler.conflicts.marker_tooltip_hard')
+                    : $t('scheduler.conflicts.marker_tooltip_soft')"
+                >⚠</span>
                 {{ block.label || $t(`scheduler.block_type.${block.block_type}`) }}
               </div>
               <div v-if="block.event_name && block.event_name !== block.label" class="scheduler-block-sub">
@@ -296,6 +547,218 @@ function blockToneClass(block) {
         </div>
       </div>
     </section>
+
+    <!-- =========================================================
+         Conflicts drawer — Phase 2.
+         Mounted at the page level (not inside .scheduler-session)
+         so it stays visible while the operator scrolls between
+         sessions on a multi-day meet.
+         ========================================================= -->
+    <aside v-if="drawerOpen" class="scheduler-drawer">
+      <div class="scheduler-drawer-head">
+        <div class="scheduler-drawer-title">
+          {{ $t('scheduler.conflicts.drawer_title') }}
+          <span v-if="activeConflicts.length" class="scheduler-drawer-count">
+            ({{ activeConflicts.length }})
+          </span>
+        </div>
+        <div class="scheduler-drawer-controls">
+          <label class="scheduler-drawer-toggle-label">
+            <input type="checkbox" v-model="showDismissed">
+            {{ showDismissed ? $t('scheduler.conflicts.hide_dismissed') : $t('scheduler.conflicts.show_dismissed') }}
+          </label>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm"
+            @click="drawerOpen = false"
+            :aria-label="$t('scheduler.conflicts.close_drawer')"
+          >✕</button>
+        </div>
+      </div>
+
+      <div class="scheduler-drawer-body">
+        <div v-if="conflictsLoading" class="scheduler-status">
+          {{ $t('scheduler.conflicts.loading') }}
+        </div>
+        <div v-else-if="conflictsError" class="scheduler-status scheduler-error">
+          {{ conflictsError }}
+        </div>
+
+        <template v-else>
+          <!-- Hard conflicts -->
+          <div v-if="hardConflicts.length" class="scheduler-drawer-section">
+            <div class="scheduler-drawer-section-head section-hard">
+              {{ $t('scheduler.conflicts.section_hard') }} ({{ hardConflicts.length }})
+            </div>
+            <div
+              v-for="c in hardConflicts"
+              :key="conflictKey(c)"
+              class="scheduler-conflict-card severity-hard"
+            >
+              <div class="scheduler-conflict-kind">{{ kindLabel(c.resource_kind) }}</div>
+              <div class="scheduler-conflict-resource">
+                {{ $t('scheduler.conflicts.resource_label', { kind: kindLabel(c.resource_kind), names: conflictNames(c) }) }}
+              </div>
+              <div class="scheduler-conflict-blocks">
+                <div>
+                  <div class="scheduler-conflict-block-label">{{ blockHeading(c.block_a) }}</div>
+                  <div class="scheduler-conflict-block-sub">
+                    {{ $t('scheduler.conflicts.session_label', { name: c.block_a.session_name || '' }) }}
+                    · {{ formatTime(c.block_a.starts_at) }}–{{ formatTime(c.block_a.ends_at) }}
+                  </div>
+                </div>
+                <div class="scheduler-conflict-arrow">{{ $t('scheduler.conflicts.pair_separator') }}</div>
+                <div>
+                  <div class="scheduler-conflict-block-label">{{ blockHeading(c.block_b) }}</div>
+                  <div class="scheduler-conflict-block-sub">
+                    {{ $t('scheduler.conflicts.session_label', { name: c.block_b.session_name || '' }) }}
+                    · {{ formatTime(c.block_b.starts_at) }}–{{ formatTime(c.block_b.ends_at) }}
+                  </div>
+                </div>
+              </div>
+              <div v-if="!isEditing(c)" class="scheduler-conflict-actions">
+                <button type="button" class="btn btn-ghost btn-sm" @click="jumpToBlock(c.block_a.id)">
+                  {{ $t('scheduler.conflicts.jump_to_a') }}
+                </button>
+                <button type="button" class="btn btn-ghost btn-sm" @click="jumpToBlock(c.block_b.id)">
+                  {{ $t('scheduler.conflicts.jump_to_b') }}
+                </button>
+                <button type="button" class="btn btn-ghost btn-sm" @click="openDismissForm(c)">
+                  {{ $t('scheduler.conflicts.dismiss') }}
+                </button>
+              </div>
+              <div v-else class="scheduler-conflict-dismiss-form">
+                <textarea
+                  class="input"
+                  rows="2"
+                  :placeholder="$t('scheduler.conflicts.dismiss_reason_placeholder')"
+                  v-model="dismissReason"
+                  :disabled="dismissPending"
+                ></textarea>
+                <div v-if="dismissError" class="msg msg-error">{{ dismissError }}</div>
+                <div class="scheduler-conflict-actions">
+                  <button type="button" class="btn btn-ghost btn-sm" @click="cancelDismiss" :disabled="dismissPending">
+                    {{ $t('scheduler.conflicts.dismiss_cancel') }}
+                  </button>
+                  <button type="button" class="btn btn-primary btn-sm" @click="confirmDismiss(c)" :disabled="dismissPending">
+                    {{ $t('scheduler.conflicts.dismiss_confirm') }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Soft warnings -->
+          <div v-if="softConflicts.length" class="scheduler-drawer-section">
+            <div class="scheduler-drawer-section-head section-soft">
+              {{ $t('scheduler.conflicts.section_soft') }} ({{ softConflicts.length }})
+            </div>
+            <div
+              v-for="c in softConflicts"
+              :key="conflictKey(c)"
+              class="scheduler-conflict-card severity-soft"
+            >
+              <div class="scheduler-conflict-kind">{{ kindLabel(c.resource_kind) }}</div>
+              <div class="scheduler-conflict-resource">
+                {{ $t('scheduler.conflicts.resource_label', { kind: kindLabel(c.resource_kind), names: conflictNames(c) }) }}
+              </div>
+              <div class="scheduler-conflict-blocks">
+                <div>
+                  <div class="scheduler-conflict-block-label">{{ blockHeading(c.block_a) }}</div>
+                  <div class="scheduler-conflict-block-sub">
+                    {{ $t('scheduler.conflicts.session_label', { name: c.block_a.session_name || '' }) }}
+                    · {{ formatTime(c.block_a.starts_at) }}–{{ formatTime(c.block_a.ends_at) }}
+                  </div>
+                </div>
+                <div class="scheduler-conflict-arrow">{{ $t('scheduler.conflicts.pair_separator') }}</div>
+                <div>
+                  <div class="scheduler-conflict-block-label">{{ blockHeading(c.block_b) }}</div>
+                  <div class="scheduler-conflict-block-sub">
+                    {{ $t('scheduler.conflicts.session_label', { name: c.block_b.session_name || '' }) }}
+                    · {{ formatTime(c.block_b.starts_at) }}–{{ formatTime(c.block_b.ends_at) }}
+                  </div>
+                </div>
+              </div>
+              <div v-if="!isEditing(c)" class="scheduler-conflict-actions">
+                <button type="button" class="btn btn-ghost btn-sm" @click="jumpToBlock(c.block_a.id)">
+                  {{ $t('scheduler.conflicts.jump_to_a') }}
+                </button>
+                <button type="button" class="btn btn-ghost btn-sm" @click="jumpToBlock(c.block_b.id)">
+                  {{ $t('scheduler.conflicts.jump_to_b') }}
+                </button>
+                <button type="button" class="btn btn-ghost btn-sm" @click="openDismissForm(c)">
+                  {{ $t('scheduler.conflicts.dismiss') }}
+                </button>
+              </div>
+              <div v-else class="scheduler-conflict-dismiss-form">
+                <textarea
+                  class="input"
+                  rows="2"
+                  :placeholder="$t('scheduler.conflicts.dismiss_reason_placeholder')"
+                  v-model="dismissReason"
+                  :disabled="dismissPending"
+                ></textarea>
+                <div v-if="dismissError" class="msg msg-error">{{ dismissError }}</div>
+                <div class="scheduler-conflict-actions">
+                  <button type="button" class="btn btn-ghost btn-sm" @click="cancelDismiss" :disabled="dismissPending">
+                    {{ $t('scheduler.conflicts.dismiss_cancel') }}
+                  </button>
+                  <button type="button" class="btn btn-primary btn-sm" @click="confirmDismiss(c)" :disabled="dismissPending">
+                    {{ $t('scheduler.conflicts.dismiss_confirm') }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-if="!hardConflicts.length && !softConflicts.length"
+            class="scheduler-status"
+          >
+            {{ $t('scheduler.conflicts.none_active') }}
+          </div>
+
+          <!-- Dismissed (toggle) -->
+          <div v-if="showDismissed" class="scheduler-drawer-section">
+            <div class="scheduler-drawer-section-head section-dismissed">
+              {{ $t('scheduler.conflicts.section_dismissed') }} ({{ dismissedConflicts.length }})
+            </div>
+            <div v-if="!dismissedConflicts.length" class="scheduler-status">
+              {{ $t('scheduler.conflicts.none_dismissed') }}
+            </div>
+            <div
+              v-for="c in dismissedConflicts"
+              :key="conflictKey(c) + '-dismissed'"
+              class="scheduler-conflict-card severity-dismissed"
+            >
+              <div class="scheduler-conflict-kind">{{ kindLabel(c.resource_kind) }}</div>
+              <div class="scheduler-conflict-resource">
+                {{ $t('scheduler.conflicts.resource_label', { kind: kindLabel(c.resource_kind), names: conflictNames(c) }) }}
+              </div>
+              <div class="scheduler-conflict-blocks">
+                <div>{{ blockHeading(c.block_a) }} · {{ formatTime(c.block_a.starts_at) }}–{{ formatTime(c.block_a.ends_at) }}</div>
+                <div class="scheduler-conflict-arrow">{{ $t('scheduler.conflicts.pair_separator') }}</div>
+                <div>{{ blockHeading(c.block_b) }} · {{ formatTime(c.block_b.starts_at) }}–{{ formatTime(c.block_b.ends_at) }}</div>
+              </div>
+              <div v-if="c.dismissal" class="scheduler-conflict-dismissed-meta">
+                <div>{{ $t('scheduler.conflicts.dismissed_by_at', { when: formatRelative(c.dismissal.at) }) }}</div>
+                <div v-if="c.dismissal.reason">
+                  {{ $t('scheduler.conflicts.dismissed_reason', { reason: c.dismissal.reason }) }}
+                </div>
+              </div>
+              <div class="scheduler-conflict-actions">
+                <button type="button" class="btn btn-ghost btn-sm" @click="jumpToBlock(c.block_a.id)">
+                  {{ $t('scheduler.conflicts.jump_to_a') }}
+                </button>
+                <button type="button" class="btn btn-ghost btn-sm" @click="undismiss(c)">
+                  {{ $t('scheduler.conflicts.undismiss') }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </aside>
   </div>
 </template>
 
@@ -313,6 +776,12 @@ function blockToneClass(block) {
   gap: 0.5rem;
   margin-bottom: 1rem;
 }
+.scheduler-nav-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
 .scheduler-ics {
   display: flex;
   align-items: center;
@@ -322,6 +791,11 @@ function blockToneClass(block) {
   font-size: 12px;
   color: var(--muted, #888);
   text-decoration: underline;
+}
+
+.scheduler-drawer-toggle.has-warnings {
+  border-color: var(--red, #c33);
+  color: var(--red, #c33);
 }
 
 .scheduler-title {
@@ -439,6 +913,9 @@ function blockToneClass(block) {
   background: rgba(76, 187, 204, 0.15);
   color: var(--fg, #eee);
   box-sizing: border-box;
+  transition: outline-color 0.2s, box-shadow 0.2s;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
 }
 .scheduler-block-time {
   font-size: 10px;
@@ -449,6 +926,13 @@ function blockToneClass(block) {
   font-weight: 600;
   line-height: 1.15;
 }
+.scheduler-block-warn {
+  display: inline-block;
+  margin-right: 2px;
+  color: var(--red, #c33);
+  font-weight: 700;
+}
+.has-conflict-soft .scheduler-block-warn { color: var(--amber, #d90); }
 .scheduler-block-sub {
   font-size: 11px;
   color: var(--muted, #aaa);
@@ -463,4 +947,164 @@ function blockToneClass(block) {
 .block-break      { border-left-color: #888; background: rgba(136, 136, 136, 0.15); }
 .block-ceremony   { border-left-color: #c6a; background: rgba(204, 102, 170, 0.18); }
 .block-custom     { border-left-color: #6c6; background: rgba(102, 204, 102, 0.15); }
+
+/* Conflict outlines. Hard wins over soft via specificity order. */
+.scheduler-block.has-conflict-soft {
+  outline-color: var(--amber, #d90);
+}
+.scheduler-block.has-conflict-hard {
+  outline-color: var(--red, #c33);
+  outline-width: 2px;
+}
+.scheduler-block.is-highlighted {
+  box-shadow: 0 0 0 3px var(--cyan, #4cb), 0 0 16px 4px rgba(76, 187, 204, 0.6);
+}
+
+/* ----- Drawer ----- */
+.scheduler-drawer {
+  position: fixed;
+  top: 70px;
+  right: 12px;
+  width: 360px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 90px);
+  background: var(--panel-elev, #222);
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 50;
+}
+.scheduler-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid var(--border, #333);
+  background: var(--panel, #1a1a1a);
+}
+.scheduler-drawer-title {
+  font-weight: 700;
+  font-size: 14px;
+}
+.scheduler-drawer-count {
+  margin-left: 0.25rem;
+  color: var(--red, #c33);
+  font-weight: 700;
+}
+.scheduler-drawer-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.scheduler-drawer-toggle-label {
+  font-size: 11px;
+  color: var(--muted, #aaa);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: pointer;
+  user-select: none;
+}
+.scheduler-drawer-body {
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+.scheduler-drawer-section {
+  border-bottom: 1px solid var(--border, #333);
+}
+.scheduler-drawer-section-head {
+  padding: 0.4rem 0.85rem;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted, #aaa);
+  background: var(--panel, #1a1a1a);
+}
+.section-hard       { color: var(--red, #c33); }
+.section-soft       { color: var(--amber, #d90); }
+.section-dismissed  { color: var(--muted, #888); }
+
+.scheduler-conflict-card {
+  padding: 0.6rem 0.85rem;
+  border-left: 3px solid transparent;
+  border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.05));
+}
+.scheduler-conflict-card.severity-hard      { border-left-color: var(--red, #c33); }
+.scheduler-conflict-card.severity-soft      { border-left-color: var(--amber, #d90); }
+.scheduler-conflict-card.severity-dismissed {
+  border-left-color: var(--muted, #555);
+  opacity: 0.75;
+}
+.scheduler-conflict-kind {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted, #888);
+  margin-bottom: 2px;
+}
+.scheduler-conflict-resource {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+.scheduler-conflict-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 12px;
+  color: var(--muted, #ccc);
+  margin-bottom: 0.5rem;
+}
+.scheduler-conflict-block-label {
+  font-weight: 600;
+  color: var(--fg, #eee);
+}
+.scheduler-conflict-block-sub {
+  font-size: 11px;
+  color: var(--muted, #888);
+}
+.scheduler-conflict-arrow {
+  color: var(--muted, #666);
+  font-size: 12px;
+  text-align: center;
+}
+.scheduler-conflict-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.scheduler-conflict-dismiss-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+}
+.scheduler-conflict-dismiss-form .input {
+  font-size: 12px;
+  padding: 0.35rem 0.45rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+.scheduler-conflict-dismissed-meta {
+  font-size: 11px;
+  color: var(--muted, #888);
+  margin: 0.25rem 0 0.5rem;
+}
+
+@media (max-width: 900px) {
+  .scheduler-drawer {
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100%;
+    max-height: 60vh;
+    border-radius: 8px 8px 0 0;
+  }
+}
 </style>

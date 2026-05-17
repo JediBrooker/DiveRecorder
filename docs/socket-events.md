@@ -28,6 +28,7 @@ that's intentional, but every privileged event must call
 | `meet_resumed`            | `{ event_id }` | Operator resumes the meet. |
 | `venue.scoreboard_state`  | Canonical venue payload from `lib/venue-state.js` | Emitted to `venue:<event_id>` subscribers after subscribe, active-diver changes, score changes, score announce, hold, and resume. Used by hardware bridges. |
 | `unauthorized`            | `{ reason: 'not_authenticated' \| 'insufficient_role' }` | A privileged event was attempted by an anonymous or under-roled socket. |
+| `schedule:conflict_dismissed` | `{ meet_id, dismissal: { id, block_a_id, block_b_id, resource_kind, … }, action: 'dismiss' \| 'undismiss' }` | A scheduler conflict was dismissed or un-dismissed via the Phase 2 dismissal API. Drawer clients refetch `/api/meets/:id/conflicts` on receipt. Public broadcast — payload mirrors the public conflict report. |
 
 ---
 

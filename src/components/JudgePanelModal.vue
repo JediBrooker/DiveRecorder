@@ -8,6 +8,8 @@
 // the readiness check ticks green.
 
 import { ref, computed, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 
 const props = defineProps({
@@ -15,11 +17,25 @@ const props = defineProps({
   eventId:   { type: [Number, String], default: null },
   panelSize: { type: Number, default: 5 },
   eventName: { type: String, default: '' },
+  // Phase 2 — when provided, the modal queries the meet's
+  // conflict report after save and shows a non-blocking warning
+  // for any conflict involving this event's panel. Optional so
+  // callers in older surfaces (legacy AssignJudgesView) keep
+  // working without modification.
+  meetId:    { type: [Number, String], default: null },
 })
 
 const emit = defineEmits(['close', 'saved'])
 
 const auth = useAuthStore()
+const router = useRouter()
+const { t } = useI18n()
+
+// Phase 2 — post-save conflict warnings. Populated by the
+// optional check after a successful POST /api/events/:id/judges.
+// Always non-blocking: the save has already gone through by the
+// time the operator sees these; they're informational.
+const conflictWarnings = ref([])  // Conflict[] involving this event
 
 const allJudges = ref([])       // eligible judges (event-scoped if available)
 const panel     = ref([])       // length = panelSize, slots are judge objects or null
@@ -105,18 +121,68 @@ async function save() {
   if (!canSave.value || !props.eventId) return
   saving.value = true
   errorMsg.value = ''
+  conflictWarnings.value = []
   try {
     await auth.apiFetch(`/api/events/${props.eventId}/judges`, {
       method: 'POST',
       body:   JSON.stringify({ judgeIds: panel.value.map(j => j.id) }),
     })
     emit('saved')
-    emit('close')
+
+    // Phase 2 — non-blocking conflict surfacing. We refetch the
+    // meet's conflict report after the save, filter to entries
+    // involving this event's panel, and if any are active
+    // (non-dismissed) keep the modal open with a warning banner.
+    // The user can dismiss the warning or jump to the scheduler;
+    // the panel save itself has already succeeded.
+    if (props.meetId) {
+      try {
+        const body = await auth.apiFetch(`/api/meets/${props.meetId}/conflicts`)
+        const list = Array.isArray(body?.conflicts) ? body.conflicts : []
+        // Match by event_id — for judge conflicts, both blocks
+        // are event_start blocks and at least one points to the
+        // event we just saved.
+        const eventId = String(props.eventId)
+        conflictWarnings.value = list.filter((c) => {
+          if (c.dismissed) return false
+          if (c.resource_kind !== 'judge') return false
+          return (
+            String(c.block_a.event_id || '') === eventId ||
+            String(c.block_b.event_id || '') === eventId
+          )
+        })
+      } catch { /* informational only — never fail the save */ }
+    }
+
+    if (!conflictWarnings.value.length) {
+      emit('close')
+    }
   } catch (err) {
     errorMsg.value = err.message || 'Failed to save panel.'
   } finally {
     saving.value = false
   }
+}
+
+function dismissWarning() {
+  conflictWarnings.value = []
+  emit('close')
+}
+
+function viewInScheduler() {
+  conflictWarnings.value = []
+  emit('close')
+  if (props.meetId) {
+    router.push(`/meet/${props.meetId}/schedule`)
+  }
+}
+
+function formatBlockTime(d) {
+  return new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function warningNames(c) {
+  return (c.resource_labels || []).filter((s) => s && s.trim()).join(', ') || '—'
 }
 </script>
 
@@ -140,6 +206,44 @@ async function save() {
       </div>
 
       <div v-if="errorMsg" class="msg msg-error jpm-error">{{ errorMsg }}</div>
+
+      <!-- Phase 2 — post-save conflict warning. The panel save
+           has already succeeded by the time this shows; we keep
+           the modal open just long enough for the operator to
+           jump to the scheduler or dismiss. -->
+      <div v-if="conflictWarnings.length" class="msg msg-warn jpm-conflict-warn">
+        <div class="jpm-conflict-heading">
+          {{ t('scheduler.conflicts.judge_modal_heading') }}
+        </div>
+        <div class="jpm-conflict-blurb">
+          {{ t('scheduler.conflicts.judge_modal_blurb') }}
+        </div>
+        <ul class="jpm-conflict-list">
+          <li v-for="c in conflictWarnings" :key="`${c.block_a.id}|${c.block_b.id}`">
+            <strong>{{ warningNames(c) }}</strong>
+            —
+            {{ c.block_a.label || c.block_a.event_name }}
+            ({{ formatBlockTime(c.block_a.starts_at) }})
+            ↔
+            {{ c.block_b.label || c.block_b.event_name }}
+            ({{ formatBlockTime(c.block_b.starts_at) }})
+          </li>
+        </ul>
+        <div class="jpm-conflict-actions">
+          <button type="button" class="btn btn-ghost btn-sm" @click="dismissWarning">
+            {{ t('scheduler.conflicts.judge_modal_dismiss') }}
+          </button>
+          <button
+            v-if="meetId"
+            type="button"
+            class="btn btn-primary btn-sm"
+            @click="viewInScheduler"
+          >
+            {{ t('scheduler.conflicts.judge_modal_view') }}
+          </button>
+        </div>
+      </div>
+
       <div v-if="loading" class="jpm-loading">Loading judges…</div>
 
       <div v-else class="jpm-grid">
@@ -411,5 +515,30 @@ async function save() {
   justify-content: flex-end;
   gap: 0.5rem;
   margin-top: 1.25rem;
+}
+
+.jpm-conflict-warn {
+  margin-bottom: 1rem;
+  border-left: 3px solid var(--amber, #d90);
+}
+.jpm-conflict-heading {
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+.jpm-conflict-blurb {
+  font-size: 12px;
+  color: var(--text-2, #ccc);
+  margin-bottom: 0.5rem;
+}
+.jpm-conflict-list {
+  margin: 0 0 0.5rem;
+  padding-left: 1.25rem;
+  font-size: 12px;
+}
+.jpm-conflict-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 </style>

@@ -606,7 +606,16 @@ app.use(require("./routes/meets")({
 // Phase 1 is read-only; phase 2-4 (conflicts, manual edit, live
 // re-flow) extend this same file. See docs/session-scheduler.md.
 // =============================================================
-app.use(require("./routes/sessions")({ pool, optionalAuth }));
+app.use(require("./routes/sessions")({
+  pool,
+  optionalAuth,
+  // Phase 2 wires the dismissal endpoints and the
+  // schedule:conflict_dismissed socket emit; Phase 1 callers
+  // only used { pool, optionalAuth } so passing these is
+  // additive.
+  requireMeetEditor,
+  io,
+}));
 
 // =============================================================
 // EVENT ROUTES

@@ -3366,6 +3366,7 @@ onUnmounted(() => {
       :event-id="selectedEventId"
       :panel-size="currentEvent?.number_of_judges || 5"
       :event-name="currentEvent?.name || ''"
+      :meet-id="currentEvent?.meet_id || null"
       @close="judgePanelModalOpen = false"
       @saved="refreshJudgePanel"
     />

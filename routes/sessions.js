@@ -1,13 +1,20 @@
-// Sessions / Schedule routes — Phase 1 (read-only timeline + iCal).
+// Sessions / Schedule routes — Phases 1 & 2.
 //
-//   GET    /api/meets/:meetId/sessions       sessions + inlined blocks
-//   GET    /api/meets/:meetId/schedule.ics   iCal feed (public)
+//   GET    /api/meets/:meetId/sessions          sessions + inlined blocks (P1)
+//   GET    /api/meets/:meetId/schedule.ics      iCal feed, public (P1)
+//   GET    /api/meets/:meetId/conflicts         conflict report (P2)
+//   POST   /api/conflicts/dismiss               dismiss a conflict (P2, auth)
+//   DELETE /api/conflicts/dismiss/:id           un-dismiss a conflict (P2, auth)
 //
-// Phase 1 deliberately ships read-only. Conflict detection
-// (phase 2), drag-to-edit and the duplicate-session action
-// (phase 3), and live re-flow (phase 4) all extend this same
-// route file when their turn comes; the data model is already in
-// place for them — see migration 049 and docs/session-scheduler.md.
+// Phase 1 shipped the read-only timeline and the iCal feed. Phase 2
+// (this layer) adds the conflict detector + per-conflict dismissal
+// ledger described in docs/session-scheduler.md §5. The schema for
+// dismissed_conflicts was already created by migration 049, so
+// Phase 2 is API + lib only — no new migration.
+//
+// Phase 3 (drag-to-edit, duplicate-session) and Phase 4 (live
+// re-flow) will continue to extend this same file when their turn
+// comes; the data model is already in place for them.
 //
 // SEEDING
 // -------
@@ -35,6 +42,10 @@
 //   app.use(require('./routes/sessions')({ pool, optionalAuth }))
 
 const express = require("express");
+const {
+  detectConflicts,
+  computeResourceFingerprint,
+} = require("../lib/schedule-conflicts");
 
 // Default warmup length the WA rulebook expects in front of
 // every competition event. Editable per-block in phase 3 — for
@@ -56,10 +67,58 @@ const SECONDS_PER_DIVE = 90;
 // outlier and the operator can add a board manually later.
 const SEEDED_BOARD_HEIGHTS = ["1m", "3m", "5m", "7.5m", "10m"];
 
-module.exports = function createSessionsRouter({ pool, optionalAuth }) {
+// In-process cache for the conflict detector. The timeline drawer
+// re-renders on every block-hover and the modal flow can ask for
+// the full conflict list multiple times in quick succession; this
+// absorbs that chatter without hammering the planner. 5 seconds is
+// short enough that a freshly dismissed conflict shows up on the
+// next drawer poll — the explicit `socket emit` after dismissal
+// also drops the cache so updates feel instant on the original
+// tab.
+const CONFLICT_CACHE_TTL_MS = 5000;
+const conflictCache = new Map(); // meetId -> { at: ms, value: Conflict[] }
+
+function cachedConflicts(meetId) {
+  const entry = conflictCache.get(meetId);
+  if (!entry) return null;
+  if (Date.now() - entry.at > CONFLICT_CACHE_TTL_MS) {
+    conflictCache.delete(meetId);
+    return null;
+  }
+  return entry.value;
+}
+
+function invalidateConflictCache(meetId) {
+  if (!meetId) {
+    conflictCache.clear();
+    return;
+  }
+  conflictCache.delete(meetId);
+}
+
+module.exports = function createSessionsRouter({
+  pool,
+  optionalAuth,
+  // Phase 2 additions — optional so the Phase 1 callsite (no auth /
+  // no socket) still works if someone keeps the old signature, but
+  // server.js wires them all in now so the conflict dismiss + emit
+  // surface is live.
+  requireMeetEditor,
+  io,
+} = {}) {
   if (!pool) throw new Error("createSessionsRouter requires { pool, … }");
   const router = express.Router();
   const maybeAuth = optionalAuth || ((req, _res, next) => next());
+
+  // The dismiss endpoints need an auth gate. requireMeetEditor is
+  // an array of middleware (role check + TOTP gate) — falls back
+  // to a 503 if the host wired the router without it, so a
+  // partially-configured deploy fails loudly instead of silently
+  // accepting unauth'd dismissals.
+  const editorGate = requireMeetEditor || ((_req, res) =>
+    res.status(503).json({
+      error: "Conflict dismissal requires an authenticated configuration",
+    }));
 
   // -------------------------------------------------------------
   // Seed helpers — both idempotent in the sense that they no-op
@@ -349,6 +408,185 @@ module.exports = function createSessionsRouter({ pool, optionalAuth }) {
     }
   });
 
+  // -------------------------------------------------------------
+  // GET /api/meets/:meetId/conflicts        (Phase 2)
+  //
+  // Returns the full conflict report for a meet. Public read,
+  // same visibility as /sessions — the data is whatever the
+  // schedule already shows, just cross-correlated. 5-second
+  // in-process cache absorbs the timeline-drawer chatter.
+  // -------------------------------------------------------------
+  router.get("/api/meets/:meetId/conflicts", maybeAuth, async (req, res) => {
+    const { meetId } = req.params;
+    try {
+      const cached = cachedConflicts(meetId);
+      if (cached) return res.json({ conflicts: cached, cached: true });
+
+      // Sanity-check the meet exists so a typo gets a 404 instead
+      // of silently returning {conflicts: []}.
+      const meetRes = await pool.query(
+        `SELECT id FROM meets WHERE id = $1`,
+        [meetId],
+      );
+      if (!meetRes.rowCount) {
+        return res.status(404).json({ error: "Meet not found" });
+      }
+
+      const conflicts = await detectConflicts(meetId, pool);
+      conflictCache.set(meetId, { at: Date.now(), value: conflicts });
+      res.json({ conflicts, cached: false });
+    } catch (err) {
+      console.error("[GET conflicts]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // POST /api/conflicts/dismiss            (Phase 2, auth)
+  //
+  // Body: { block_a_id, block_b_id, resource_kind, reason? }
+  //
+  // The CHECK constraint on dismissed_conflicts requires
+  // block_a_id < block_b_id (so (a,b) and (b,a) collapse to one
+  // row). We normalise client input here so the operator can
+  // dismiss from either "side" of the pair without surprises.
+  //
+  // The resource fingerprint is computed server-side from the
+  // current membership of the resource — we never trust whatever
+  // the client may have posted. The point of the fingerprint
+  // (§5) is to resurface the conflict when membership shifts, so
+  // it has to be derived from authoritative data, not the
+  // potentially-stale view the operator clicked on.
+  // -------------------------------------------------------------
+  router.post("/api/conflicts/dismiss", editorGate, async (req, res) => {
+    const body = req.body || {};
+    let aId = body.block_a_id;
+    let bId = body.block_b_id;
+    const kind = body.resource_kind;
+    const reason = typeof body.reason === "string" ? body.reason.slice(0, 1000) : null;
+
+    if (!aId || !bId || aId === bId) {
+      return res.status(400).json({ error: "block_a_id and block_b_id are required and must differ" });
+    }
+    if (!["judge", "board", "diver", "referee"].includes(kind)) {
+      return res.status(400).json({ error: "resource_kind must be one of judge|board|diver|referee" });
+    }
+    // Normalise pair order — UUID string compare matches Postgres'
+    // uuid < operator (lexicographic on canonical form).
+    if (aId > bId) [aId, bId] = [bId, aId];
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const blocksRes = await client.query(
+        `SELECT b.id, s.meet_id
+           FROM schedule_blocks b
+           JOIN sessions s ON s.id = b.session_id
+          WHERE b.id = ANY($1::uuid[])`,
+        [[aId, bId]],
+      );
+      if (blocksRes.rowCount !== 2) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: "One or both blocks not found" });
+      }
+      const meetIds = new Set(blocksRes.rows.map((r) => r.meet_id));
+      if (meetIds.size !== 1) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ error: "Blocks must be in the same meet" });
+      }
+      const meetId = blocksRes.rows[0].meet_id;
+
+      const fp = await computeResourceFingerprint(client, {
+        blockAId: aId,
+        blockBId: bId,
+        resourceKind: kind,
+      });
+
+      // ON CONFLICT (block_a_id, block_b_id, resource_kind)
+      // refreshes the fingerprint + reason for re-dismissals
+      // (operator dismissed it, the membership changed and the
+      // conflict resurfaced, they're dismissing the new version).
+      const inserted = await client.query(
+        `INSERT INTO dismissed_conflicts
+           (meet_id, block_a_id, block_b_id, resource_kind,
+            resource_fingerprint, dismissed_by, reason)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (block_a_id, block_b_id, resource_kind)
+         DO UPDATE SET
+           resource_fingerprint = EXCLUDED.resource_fingerprint,
+           dismissed_by         = EXCLUDED.dismissed_by,
+           dismissed_at         = now(),
+           reason               = EXCLUDED.reason
+         RETURNING id, meet_id, block_a_id, block_b_id, resource_kind,
+                   resource_fingerprint, dismissed_by, dismissed_at, reason`,
+        [meetId, aId, bId, kind, fp, req.user?.id || null, reason],
+      );
+
+      await client.query("COMMIT");
+      invalidateConflictCache(meetId);
+
+      const row = inserted.rows[0];
+      // Tell every connected client that the conflict landscape
+      // moved. The drawer subscribes and refetches; spectators
+      // just ignore it. Best-effort — a missing io shouldn't
+      // fail the dismissal.
+      try {
+        if (io && typeof io.emit === "function") {
+          io.emit("schedule:conflict_dismissed", {
+            meet_id: meetId,
+            dismissal: row,
+            action: "dismiss",
+          });
+        }
+      } catch (_e) { /* best-effort */ }
+
+      res.json({ dismissal: row });
+    } catch (err) {
+      try { await client.query("ROLLBACK"); } catch { /* swallow */ }
+      console.error("[POST conflicts/dismiss]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    } finally {
+      client.release();
+    }
+  });
+
+  // -------------------------------------------------------------
+  // DELETE /api/conflicts/dismiss/:id      (Phase 2, auth)
+  //
+  // Un-dismiss a conflict. Drops the dismissed_conflicts row by
+  // id and emits a refresh socket event so other tabs see the
+  // restored warning immediately.
+  // -------------------------------------------------------------
+  router.delete("/api/conflicts/dismiss/:id", editorGate, async (req, res) => {
+    const { id } = req.params;
+    try {
+      const r = await pool.query(
+        `DELETE FROM dismissed_conflicts WHERE id = $1
+         RETURNING id, meet_id, block_a_id, block_b_id, resource_kind`,
+        [id],
+      );
+      if (!r.rowCount) {
+        return res.status(404).json({ error: "Dismissal not found" });
+      }
+      const row = r.rows[0];
+      invalidateConflictCache(row.meet_id);
+      try {
+        if (io && typeof io.emit === "function") {
+          io.emit("schedule:conflict_dismissed", {
+            meet_id: row.meet_id,
+            dismissal: row,
+            action: "undismiss",
+          });
+        }
+      } catch (_e) { /* best-effort */ }
+      res.json({ message: "Dismissal removed", dismissal: row });
+    } catch (err) {
+      console.error("[DELETE conflicts/dismiss]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   return router;
 };
 
@@ -471,3 +709,7 @@ function foldLine(line) {
 }
 
 module.exports.__test__ = { renderIcs, escapeText, formatIcsUtc, foldLine };
+module.exports.__internals__ = {
+  invalidateConflictCache,
+  CONFLICT_CACHE_TTL_MS,
+};
