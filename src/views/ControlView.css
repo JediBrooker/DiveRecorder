@@ -662,9 +662,9 @@
 .sponsor-branding-modal { max-width: min(96vw, 720px) !important; }
 .sponsor-branding-body { padding: 0.75rem 1rem 1rem; }
 
-/* Broadcast chooser modal — three big tappable rows so the
+/* Broadcast chooser modal — big tappable rows so the
    operator picks the right destination at a glance. */
-.broadcast-chooser { max-width: min(96vw, 640px) !important; }
+.broadcast-chooser { max-width: min(96vw, 760px) !important; }
 .broadcast-chooser-body {
   display: flex;
   flex-direction: column;
@@ -939,6 +939,60 @@
   color: var(--cyan);
 }
 
+.venue-bridge-instructions {
+  max-height: min(72vh, 760px);
+  overflow-y: auto;
+}
+.venue-command-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.venue-command-block {
+  padding: 0.75rem;
+  background: var(--bg-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm, 4px);
+}
+.venue-command-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.75rem;
+  align-items: start;
+  margin-bottom: 0.55rem;
+}
+.venue-command-title {
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--text-1);
+}
+.venue-command-head p {
+  margin: 0.2rem 0 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-3);
+}
+.venue-command {
+  margin: 0;
+  padding: 0.65rem 0.7rem;
+  background: var(--bg-3);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 4px;
+  color: var(--cyan);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.venue-command code {
+  font: inherit;
+  color: inherit;
+}
+
 .obs-instructions .broadcast-picker-actions .btn.disabled {
   opacity: 0.5;
   pointer-events: none;
@@ -947,6 +1001,7 @@
 @media (max-width: 480px) {
   .obs-url-row { grid-template-columns: 1fr; }
   .obs-url-copy { width: 100%; }
+  .venue-command-head { grid-template-columns: 1fr; }
 }
 
 .lb-backdrop { position: fixed; inset: 0; background: rgba(3,7,18,0.95); backdrop-filter: blur(12px); z-index: 300; }

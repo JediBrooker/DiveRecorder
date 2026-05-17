@@ -18,6 +18,18 @@ MDP. In practice that means:
 
 ## Run
 
+The friendliest path is from the Control Room:
+
+1. Open the event in **Control Room**.
+2. Click the header **...** menu.
+3. Click **Broadcast**.
+4. Choose **Venue hardware — Daktronics bridge...**.
+5. Copy the test command first, then the UDP or JSON command that matches
+   the venue setup.
+
+The panel fills in the current event id and app URL so the operator does
+not need to hunt for either value.
+
 Safe dry run:
 
 ```bash

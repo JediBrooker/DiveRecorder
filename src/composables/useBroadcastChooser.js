@@ -1,7 +1,7 @@
-/* Broadcast chooser — state for the 4-flavour ⋯ → 📺 Broadcast…
+/* Broadcast chooser — state for the ⋯ → 📺 Broadcast…
  * modal in Control Room.
  *
- * Four flavours surfaced to the operator:
+ * Five flavours surfaced to the operator:
  *   1. Operator broadcast (this screen, kiosk layout) — handled
  *      inline in the template via a RouterLink, no composable
  *      state needed beyond `broadcastChoiceOpen`.
@@ -16,6 +16,9 @@
  *      with the chroma-key overlay URL (`/scoreboard/<id>?overlay=1`)
  *      and step-by-step Browser Source setup so the operator can
  *      composite the live scoreboard into their broadcast graphics.
+ *   5. Venue hardware bridge → ControlView owns the event-specific
+ *      Daktronics command panel locally because it does not need
+ *      event-list picker state.
  *
  * Lifted out of ControlView.vue when that file crossed 7,500
  * lines and reading it through cost real agent tokens. The state

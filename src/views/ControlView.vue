@@ -79,11 +79,12 @@ const lbRows = ref([])
 // the button that flips this is gated on currentEvent.status.
 const judgeRankingOpen = ref(false)
 
-// Broadcast launcher state — the chooser modal's 3-flavour
-// shape lives in @/composables/useBroadcastChooser. closeHeaderMenu
-// is a closure capturing `headerMenuOpen` (declared further down
-// the file); it's safe because the callback only fires after
-// user interaction, by which time the binding is initialized.
+// Broadcast launcher state — the chooser modal's projector /
+// stream overlay choices live in @/composables/useBroadcastChooser.
+// `closeHeaderMenu` is a closure capturing `headerMenuOpen`,
+// which is declared further down the file. It's safe because the
+// callback only fires after user interaction, by which time the
+// binding is initialized.
 const {
   broadcastChoiceOpen,
   broadcastPickerOpen,
@@ -130,6 +131,51 @@ async function copyObsUrl() {
     obsCopyState.value = 'failed'
   }
   setTimeout(() => { obsCopyState.value = 'idle' }, 1800)
+}
+
+// Venue hardware bridge instructions — option 5 in the
+// Broadcast chooser. The browser cannot start a process on the
+// venue laptop, so this panel turns the selected event into
+// copyable bridge commands and a direct diagnostic URL.
+const daktronicsInstructionsOpen = ref(false)
+const daktronicsCopyState = ref('') // '' | 'dry' | 'udp' | 'json' | 'snapshot' | 'failed'
+const bridgeAppUrl = computed(() => (
+  typeof window !== 'undefined' && window.location
+    ? window.location.origin
+    : ''
+))
+const venueStateUrl = computed(() => {
+  const id = currentEvent.value?.id
+  if (!id || !bridgeAppUrl.value) return ''
+  return `${bridgeAppUrl.value}/api/venue/scoreboard-state/${id}`
+})
+const bridgeBaseCommand = computed(() => {
+  const id = currentEvent.value?.id
+  if (!id || !bridgeAppUrl.value) return ''
+  return `npm run venue:daktronics -- --app-url ${bridgeAppUrl.value} --event-id ${id}`
+})
+const daktronicsDryRunCommand = computed(() => (
+  bridgeBaseCommand.value ? `${bridgeBaseCommand.value} --once` : ''
+))
+const daktronicsUdpCommand = computed(() => (
+  bridgeBaseCommand.value
+    ? `${bridgeBaseCommand.value} --transport udp --host 192.168.0.255 --broadcast --data-source 0`
+    : ''
+))
+const daktronicsJsonCommand = computed(() => (
+  bridgeBaseCommand.value
+    ? `${bridgeBaseCommand.value} --transport tcp --host 192.168.1.50 --port 21000 --format json`
+    : ''
+))
+async function copyDaktronicsText(kind, text) {
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    daktronicsCopyState.value = kind
+  } catch {
+    daktronicsCopyState.value = 'failed'
+  }
+  setTimeout(() => { daktronicsCopyState.value = '' }, 1800)
 }
 
 // Sponsor branding modal — hosts the SponsorLogosManager from
@@ -3464,14 +3510,11 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Broadcast chooser. Three flavours covering the realistic
-         operator scenarios: kiosk this screen, open audience
-         view for THIS event in a new window, or open the
-         multi-event grid (subset-pickable) in a new window for
-         a venue projector that needs to show multiple concurrent
-         events at once. -->
+    <!-- Broadcast chooser. Covers the realistic operator scenarios:
+         kiosk this screen, audience projector, multi-event projector,
+         streaming overlay, and venue hardware bridge setup. -->
     <div v-if="broadcastChoiceOpen" class="lb-backdrop"
-         @mousedown.self="broadcastChoiceOpen = false; broadcastPickerOpen = false; obsInstructionsOpen = false">
+         @mousedown.self="broadcastChoiceOpen = false; broadcastPickerOpen = false; obsInstructionsOpen = false; daktronicsInstructionsOpen = false">
       <div class="lb-modal broadcast-chooser">
         <div class="lb-header">
           <div>
@@ -3479,16 +3522,18 @@ onUnmounted(() => {
             <div class="lb-event">
               <template v-if="broadcastPickerOpen">Tick the events to project, then Open</template>
               <template v-else-if="obsInstructionsOpen">Stream the live scoreboard into OBS or another broadcast tool</template>
+              <template v-else-if="daktronicsInstructionsOpen">Send live meet data to a Daktronics venue board</template>
               <template v-else>Pick what to broadcast and where</template>
             </div>
           </div>
           <button class="btn btn-ghost btn-sm"
-                  @click="broadcastChoiceOpen = false; broadcastPickerOpen = false; obsInstructionsOpen = false">Close</button>
+                  @click="broadcastChoiceOpen = false; broadcastPickerOpen = false; obsInstructionsOpen = false; daktronicsInstructionsOpen = false">Close</button>
         </div>
         <!-- Default chooser body. Hidden while either sub-panel
-             (multi-event picker, OBS instructions) is open so the
-             operator sees one panel at a time. -->
-        <div v-if="!broadcastPickerOpen && !obsInstructionsOpen" class="lb-body broadcast-chooser-body">
+             (multi-event picker, OBS instructions, venue hardware
+             instructions) is open so the operator sees one panel
+             at a time. -->
+        <div v-if="!broadcastPickerOpen && !obsInstructionsOpen && !daktronicsInstructionsOpen" class="lb-body broadcast-chooser-body">
           <!-- 1. Operator broadcast — inline on this screen. -->
           <RouterLink
             to="/control?broadcast=1"
@@ -3569,6 +3614,26 @@ onUnmounted(() => {
                 Streamlabs, vMix, or any tool that supports a
                 Browser Source. Opens a how-to with the chroma-key
                 overlay URL to paste into your stream.
+              </div>
+            </div>
+          </button>
+
+          <!-- 5. Venue hardware bridge setup. Expands an inline
+               panel with copyable commands for the local bridge
+               process that feeds Daktronics RTD / ERTD ingest. -->
+          <button class="broadcast-option"
+                  type="button"
+                  :disabled="!currentEvent"
+                  @click="daktronicsInstructionsOpen = true">
+            <div class="broadcast-option-glyph">▣</div>
+            <div class="broadcast-option-text">
+              <div class="broadcast-option-title">
+                Venue hardware — Daktronics bridge…
+              </div>
+              <div class="broadcast-option-desc">
+                Feed this event to All Sport Pro / Data Studio / Show
+                Control RTD workflows. Opens setup steps and copyable
+                commands for the venue bridge laptop.
               </div>
             </div>
           </button>
@@ -3727,6 +3792,151 @@ onUnmounted(() => {
                :class="{ disabled: !obsOverlayUrl }"
                @click="!obsOverlayUrl && $event.preventDefault()">
               Preview overlay ↗
+            </a>
+          </div>
+        </div>
+
+        <!-- Daktronics / venue hardware setup panel: appears when
+             the operator clicks option 5. This does not launch the
+             bridge from the browser; it gives the venue technician
+             the exact event-specific command to run on the bridge
+             laptop connected to the display network. -->
+        <div v-else-if="daktronicsInstructionsOpen" class="lb-body obs-instructions venue-bridge-instructions">
+          <p class="obs-lead">
+            Use this when the venue has a Daktronics workflow that accepts
+            RTD / ERTD data. Run the bridge on the laptop connected to the
+            scoreboard network; DivingHQ keeps driving the meet from this
+            Control Room.
+          </p>
+
+          <div class="obs-url-block">
+            <label class="obs-url-label">Diagnostic snapshot for
+              <strong>{{ currentEvent?.name || 'this event' }}</strong></label>
+            <div class="obs-url-row">
+              <input class="obs-url-input"
+                     type="text"
+                     readonly
+                     :value="venueStateUrl"
+                     @focus="$event.target.select()">
+              <button class="btn btn-primary btn-sm obs-url-copy"
+                      type="button"
+                      @click="copyDaktronicsText('snapshot', venueStateUrl)">
+                <template v-if="daktronicsCopyState === 'snapshot'">✓ Copied</template>
+                <template v-else-if="daktronicsCopyState === 'failed'">Copy failed</template>
+                <template v-else>Copy</template>
+              </button>
+            </div>
+            <p class="obs-url-hint">
+              Open this URL first to confirm the selected event is publishing
+              venue state before you point a board at it.
+            </p>
+          </div>
+
+          <div class="venue-command-grid">
+            <section class="venue-command-block">
+              <div class="venue-command-head">
+                <div>
+                  <div class="venue-command-title">1. Test output</div>
+                  <p>Print one RTD frame in Terminal without touching the board.</p>
+                </div>
+                <button class="btn btn-ghost btn-sm" type="button"
+                        @click="copyDaktronicsText('dry', daktronicsDryRunCommand)">
+                  <template v-if="daktronicsCopyState === 'dry'">✓ Copied</template>
+                  <template v-else>Copy</template>
+                </button>
+              </div>
+              <pre class="venue-command"><code>{{ daktronicsDryRunCommand }}</code></pre>
+            </section>
+
+            <section class="venue-command-block">
+              <div class="venue-command-head">
+                <div>
+                  <div class="venue-command-title">2. All Sport Pro / ERTD UDP</div>
+                  <p>Default venue-board mode. Change host and data-source to match the Daktronics setup.</p>
+                </div>
+                <button class="btn btn-ghost btn-sm" type="button"
+                        @click="copyDaktronicsText('udp', daktronicsUdpCommand)">
+                  <template v-if="daktronicsCopyState === 'udp'">✓ Copied</template>
+                  <template v-else>Copy</template>
+                </button>
+              </div>
+              <pre class="venue-command"><code>{{ daktronicsUdpCommand }}</code></pre>
+            </section>
+
+            <section class="venue-command-block">
+              <div class="venue-command-head">
+                <div>
+                  <div class="venue-command-title">Optional: JSON over TCP</div>
+                  <p>Use only if the venue's Data Studio workflow expects JSON fields.</p>
+                </div>
+                <button class="btn btn-ghost btn-sm" type="button"
+                        @click="copyDaktronicsText('json', daktronicsJsonCommand)">
+                  <template v-if="daktronicsCopyState === 'json'">✓ Copied</template>
+                  <template v-else>Copy</template>
+                </button>
+              </div>
+              <pre class="venue-command"><code>{{ daktronicsJsonCommand }}</code></pre>
+            </section>
+          </div>
+
+          <ol class="obs-steps">
+            <li class="obs-step">
+              <span class="obs-step-num">1</span>
+              <div class="obs-step-text">
+                <div class="obs-step-title">Prepare the bridge laptop</div>
+                <div class="obs-step-desc">
+                  Install the app dependencies once with <strong>npm install</strong>.
+                  Keep this laptop on the same network as the Daktronics ingest.
+                </div>
+              </div>
+            </li>
+            <li class="obs-step">
+              <span class="obs-step-num">2</span>
+              <div class="obs-step-text">
+                <div class="obs-step-title">Run the test command</div>
+                <div class="obs-step-desc">
+                  It should print one fixed-width RTD line. If it fails,
+                  check the app URL and that this event exists.
+                </div>
+              </div>
+            </li>
+            <li class="obs-step">
+              <span class="obs-step-num">3</span>
+              <div class="obs-step-text">
+                <div class="obs-step-title">Start the UDP bridge</div>
+                <div class="obs-step-desc">
+                  Match <strong>--data-source</strong> to the ERTD source in
+                  All Sport Pro. Source 0 sends to 21000; source 4 sends to
+                  21040.
+                </div>
+              </div>
+            </li>
+            <li class="obs-step">
+              <span class="obs-step-num">4</span>
+              <div class="obs-step-text">
+                <div class="obs-step-title">Leave it running</div>
+                <div class="obs-step-desc">
+                  The bridge sends an initial snapshot, listens for every
+                  live score update, and repeats the latest frame once per
+                  second for RTD consumers.
+                </div>
+              </div>
+            </li>
+          </ol>
+
+          <div class="obs-help-note">
+            Fixed-digit MDP panels still need venue-specific Daktronics
+            configuration. This bridge feeds the RTD / ERTD data source
+            used by All Sport Pro, Data Studio, Show Control, and DMP
+            template workflows.
+          </div>
+
+          <div class="broadcast-picker-actions">
+            <button class="btn btn-ghost" type="button"
+                    @click="daktronicsInstructionsOpen = false">← Back</button>
+            <a class="btn btn-primary" target="_blank" rel="noopener"
+               href="https://github.com/JediBrooker/DivingHQ/wiki/Venue-Integration">
+              Open guide ↗
             </a>
           </div>
         </div>
