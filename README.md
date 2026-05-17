@@ -241,6 +241,12 @@ The complete feature inventory now lives in the wiki, with two views over the sa
 
 The README used to inline this list; the wiki page keeps deep-links to the user guide and is easier to keep in sync as features land.
 
+The app also ships a venue hardware bridge for Daktronics workflows:
+`npm run venue:daktronics` subscribes to the existing
+`venue.scoreboard_state` payload and writes fixed-width RTD or JSON frames
+to UDP, TCP, stdout, files, or a serial device. See
+[`docs/venue-daktronics-bridge.md`](./docs/venue-daktronics-bridge.md).
+
 ---
 
 </details>
@@ -721,6 +727,7 @@ If you're a paying customer or running a production federation, urgent issues ca
 | `npm run lint` | Syntax-check `server.js` |
 | `npm test` | Node's built-in test runner against `test/*.test.js` |
 | `npm run test:e2e` | Playwright end-to-end suite — see below |
+| `npm run venue:daktronics` | Run the Daktronics RTD/ERTD venue bridge CLI |
 
 ---
 

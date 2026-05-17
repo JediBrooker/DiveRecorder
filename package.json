@@ -9,12 +9,13 @@
     "preview": "vite preview",
     "start": "node server.js",
     "lint": "node --check server.js",
-    "test": "node --test test/syntax.test.js test/calc.test.js test/score-trim.test.js test/dive-label.test.js test/integration.test.js",
-    "test:safe": "node --test test/syntax.test.js test/calc.test.js test/score-trim.test.js test/dive-label.test.js",
+    "test": "node --test test/syntax.test.js test/calc.test.js test/score-trim.test.js test/dive-label.test.js test/venue-daktronics-bridge.test.js test/integration.test.js",
+    "test:safe": "node --test test/syntax.test.js test/calc.test.js test/score-trim.test.js test/dive-label.test.js test/venue-daktronics-bridge.test.js",
     "test:e2e": "playwright test",
     "test:e2e:headed": "PW_SLOWMO=300 playwright test --headed",
     "migrate": "node scripts/migrate.js",
-    "translate": "node scripts/translate-locales.js"
+    "translate": "node scripts/translate-locales.js",
+    "venue:daktronics": "node scripts/venue-daktronics-bridge.js"
   },
   "keywords": [],
   "author": "",
