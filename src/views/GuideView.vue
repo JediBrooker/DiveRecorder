@@ -97,14 +97,16 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
           <h3 class="role-name">Coach</h3>
           <p class="role-desc">
             You see your divers' history, analytics, and PBs in one
-            place. Divers grant you read-only access from their profile;
-            once linked, they show up on your Coach Dashboard.
+            place — and you get a heads-up the moment one is about to
+            dive. Divers grant you read-only access from their profile;
+            once linked, they appear on your Coach Dashboard.
           </p>
           <ol class="role-steps">
             <li>Ask each diver to add you as their coach (from their profile settings)</li>
-            <li>Open <strong>Coach Dashboard</strong> — every linked diver appears</li>
-            <li>Use <strong>Compare Divers</strong> to put two side-by-side</li>
-            <li>Save dive list templates and share them with your athletes</li>
+            <li>Open <strong>Coach Dashboard</strong> — linked divers, last + next dive, and a live <strong>Up-Next</strong> strip while meets run</li>
+            <li>Turn on <strong>"diver is up next" push alerts</strong> to get pinged when one of yours is N dives away from the board</li>
+            <li>Submit or edit a dive list on a diver's behalf, or <strong>withdraw</strong> them from an event if they need to scratch</li>
+            <li>Use <strong>Compare Divers</strong> to put two athletes side-by-side</li>
           </ol>
           <a :href="`${WIKI}/Diver-Portal#coach-access`" target="_blank" rel="noopener"
              class="role-cta">Coach guide ↗</a>
@@ -206,6 +208,19 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
           dive's points. For synchro, three sub-panels score
           different aspects (Exec A, Exec B, Sync) and the math
           combines them per World Aquatics Article 8.
+        </dd>
+
+        <dt>I want to project the scoreboard for our audience.</dt>
+        <dd>
+          Open any live event's scoreboard and use the
+          <strong>Broadcast</strong> view for a fullscreen, chromeless
+          layout suited to projectors and big TVs. Running multiple
+          events on the same display? Open <RouterLink to="/broadcast/all">/broadcast/all</RouterLink>
+          for a side-by-side multi-event grid. Streaming the scoreboard
+          to OBS, vMix, or Twitch? The broadcast page works as a browser
+          source — pick that option in the Control Room's
+          <strong>Broadcast</strong> chooser for the streaming-app setup
+          recipe.
         </dd>
 
         <dt>How do I plan a whole championship day?</dt>

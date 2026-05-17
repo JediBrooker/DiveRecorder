@@ -275,8 +275,10 @@ A non-exhaustive checklist:
 | A SQL function | `init.sql`, all migrations that touch it, `test/calc.test.js` if there's a closed-form test |
 | `KNOWN_WIDGETS` (diver) | `WIDGET_CATALOG` in `src/views/DiverProfileView.vue` |
 | `KNOWN_WIDGETS` in `routes/judge-analytics.js` | `JUDGE_WIDGET_CATALOG` in `src/views/JudgeProfileView.vue` |
-| A socket event | `socketRequireRole` gate, every consumer (`socket.on('eventName')` grep) |
+| A socket event | `socketRequireRole` gate, every consumer (`socket.on('eventName')` grep), `docs/socket-events.md` |
 | Anything in `src/composables/` | The handful of consumers, since composables aren't auto-typed |
+| A user-visible feature, screen, or role capability (e.g. coach phases, scheduler, broadcast modes) | `src/views/GuideView.vue` — the in-app `/guide` primer should still describe what each role does. Linked from the dashboard top menu, footer, sign-in page, and home hero. Most prose is hardcoded English today; if you add new `$t('guide.*')` keys, also drop the English source into `src/locales/en.json` and run `node scripts/translate-locales.js` to fill the other 24 locales. |
+| Adding any new `$t('…')` key | The same key must exist in `src/locales/en.json` AND every other locale file under `src/locales/` (the loader falls back to `en` but the user sees the raw key path when the *English* source is missing — see PR #6 / #7). The seed pattern is "copy the English value into every locale file; the next `translate-locales.js` run translates them in place." |
 
 ---
 
