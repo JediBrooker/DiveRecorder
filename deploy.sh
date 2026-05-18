@@ -19,10 +19,22 @@
 #     exit) if the service didn't actually come back up. CI / cron
 #     wrappers will see the failure.
 #
+# No-new-commits behaviour:
+#   When `git pull` is a no-op (HEAD didn't move), the install /
+#   build / migrate / test steps are SKIPPED (nothing changed on
+#   the code side; running them would just be heat) but the pm2
+#   restart + health check STILL RUN. This lets `./deploy.sh`
+#   double as a "reload the running process" command — useful
+#   after editing .env files, rotating log directories, or
+#   bouncing the process for any reason. If you don't want the
+#   restart in this case, pass `--no-restart-if-noop`.
+#
 # Usage:
-#     ./deploy.sh              — full deploy, fail closed on any error
-#     ./deploy.sh --skip-tests — emergency hotfix path; tests skipped
-#     ./deploy.sh --dry        — print every step, change nothing
+#     ./deploy.sh                       — full deploy, fail closed on any error
+#     ./deploy.sh --skip-tests          — emergency hotfix path; tests skipped
+#     ./deploy.sh --no-restart-if-noop  — exit early if there are no new commits
+#                                         (legacy behaviour from before May 2026)
+#     ./deploy.sh --dry                 — print every step, change nothing
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -36,10 +48,12 @@ HEALTH_TIMEOUT_S=10            # max time to wait for the service to come up
 # ---- Args -----------------------------------------------------
 SKIP_TESTS=0
 DRY_RUN=0
+NO_RESTART_IF_NOOP=0
 for arg in "$@"; do
   case "$arg" in
     --skip-tests) SKIP_TESTS=1 ;;
     --dry|--dry-run) DRY_RUN=1 ;;
+    --no-restart-if-noop) NO_RESTART_IF_NOOP=1 ;;
     *) echo "[deploy] unknown arg: $arg"; exit 2 ;;
   esac
 done
@@ -95,73 +109,88 @@ run git fetch --quiet
 run git pull --ff-only
 
 NEW_SHA="$(git rev-parse --short HEAD)"
-# Skip the no-op shortcut on dry-run — the dry-run intentionally
-# didn't pull, so HEAD hasn't moved. We still want to show every
-# downstream step that *would* have run.
+# Detect the no-op case (pull was a fast-forward to the same SHA).
+# Dry-run never pulls, so HEAD won't have moved — we still want
+# to show every downstream step that WOULD have run, so don't
+# treat dry-run as a no-op.
+NOOP=0
 if [[ $DRY_RUN -eq 0 && "$PREV_SHA" == "$NEW_SHA" ]]; then
-  step "no new commits — nothing to deploy"
-  exit 0
-fi
-step "advancing ${PREV_SHA} → ${NEW_SHA}"
-
-# ---- 2. Install dependencies ----------------------------------
-# npm ci is faster, deterministic, and fails loud if package.json
-# and package-lock.json drift. We keep dev deps (Vite is a dev
-# dep that the build step needs).
-step "npm ci"
-run npm ci
-
-# ---- 3. Build SPA ---------------------------------------------
-# Build BEFORE migrate so a broken build doesn't leave the DB
-# advanced past code we can't ship.
-#
-# Heap bump: the precompiled vue-i18n dictionaries (25 locales ×
-# ~988 keys = 24,700 AST nodes baked into the bundle) push Vite's
-# memory ceiling on small VPSes. The default Node heap (~512 MB
-# on a 1 GB box) ran out partway through transforming
-# socket.io-client during a 2026-05-18 deploy. 4 GB is generous
-# headroom and only allocates lazily — the build process won't
-# actually use it all unless the bundle keeps growing. Override
-# via NODE_OPTIONS in the shell env if you want a different cap.
-step "npm run build"
-run env NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}" npm run build
-
-# ---- 4. Apply pending migrations ------------------------------
-# --dry first so the deploy log shows exactly what's about to
-# run before the writes happen. The runner is idempotent
-# (schema_meta.version + IF NOT EXISTS guards) so an accidental
-# re-run is a no-op.
-#
-# Migrate runs BEFORE tests because new code commonly adds
-# columns its own logic queries; running the test suite against
-# a DB one schema version behind would 500 on those queries.
-# Migrations in this repo are strictly additive (ADD COLUMN IF
-# NOT EXISTS, etc.), so the running PM2 process keeps serving
-# correctly against the new schema until restart at step 6.
-step "migrate (preview)"
-run npm run migrate -- --dry
-step "migrate (apply)"
-run npm run migrate
-
-# ---- 5. Tests --------------------------------------------------
-# `test:safe` deliberately excludes test/integration.test.js
-# because that test creates real orgs / users / events and
-# would pollute the production DB on every deploy. The remaining
-# tests are read-only:
-#   * syntax.test.js       boot test + parse + schema_version pin
-#   * calc.test.js         World Aquatics scoring vs Postgres UDF
-#   * score-trim.test.js   trim-rule parity
-# All three are valuable smoke tests — they catch the kind of
-# regression a deploy would otherwise ship blind.
-#
-# For full integration coverage, run `npm test` against a
-# DEDICATED test database (createdb divinghq_test, point
-# DB_DATABASE at it) — never against the production DB.
-if [[ $SKIP_TESTS -eq 0 ]]; then
-  step "npm run test:safe"
-  run npm run test:safe
+  NOOP=1
+  if [[ $NO_RESTART_IF_NOOP -eq 1 ]]; then
+    step "no new commits + --no-restart-if-noop — exiting"
+    exit 0
+  fi
+  step "no new commits — skipping install/build/migrate/test, will still restart"
 else
-  step "tests skipped (--skip-tests)"
+  step "advancing ${PREV_SHA} → ${NEW_SHA}"
+fi
+
+# Steps 2-5 only run when there are NEW commits. With no new
+# commits the on-disk bundle, dependency tree, schema, and tests
+# are already what's running — re-running them would just be
+# heat. We still fall through to the pm2 restart + health check
+# below so `./deploy.sh` can double as a "reload the running
+# process" command after .env / log-rotation / runtime tweaks.
+if [[ $NOOP -eq 0 ]]; then
+  # ---- 2. Install dependencies --------------------------------
+  # npm ci is faster, deterministic, and fails loud if package.json
+  # and package-lock.json drift. We keep dev deps (Vite is a dev
+  # dep that the build step needs).
+  step "npm ci"
+  run npm ci
+
+  # ---- 3. Build SPA -------------------------------------------
+  # Build BEFORE migrate so a broken build doesn't leave the DB
+  # advanced past code we can't ship.
+  #
+  # Heap bump: the precompiled vue-i18n dictionaries (25 locales ×
+  # ~988 keys = 24,700 AST nodes baked into the bundle) push Vite's
+  # memory ceiling on small VPSes. The default Node heap (~512 MB
+  # on a 1 GB box) ran out partway through transforming
+  # socket.io-client during a 2026-05-18 deploy. 4 GB is generous
+  # headroom and only allocates lazily — the build process won't
+  # actually use it all unless the bundle keeps growing. Override
+  # via NODE_OPTIONS in the shell env if you want a different cap.
+  step "npm run build"
+  run env NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}" npm run build
+
+  # ---- 4. Apply pending migrations ----------------------------
+  # --dry first so the deploy log shows exactly what's about to
+  # run before the writes happen. The runner is idempotent
+  # (schema_meta.version + IF NOT EXISTS guards) so an accidental
+  # re-run is a no-op.
+  #
+  # Migrate runs BEFORE tests because new code commonly adds
+  # columns its own logic queries; running the test suite against
+  # a DB one schema version behind would 500 on those queries.
+  # Migrations in this repo are strictly additive (ADD COLUMN IF
+  # NOT EXISTS, etc.), so the running PM2 process keeps serving
+  # correctly against the new schema until restart at step 6.
+  step "migrate (preview)"
+  run npm run migrate -- --dry
+  step "migrate (apply)"
+  run npm run migrate
+
+  # ---- 5. Tests -----------------------------------------------
+  # `test:safe` deliberately excludes test/integration.test.js
+  # because that test creates real orgs / users / events and
+  # would pollute the production DB on every deploy. The remaining
+  # tests are read-only:
+  #   * syntax.test.js       boot test + parse + schema_version pin
+  #   * calc.test.js         World Aquatics scoring vs Postgres UDF
+  #   * score-trim.test.js   trim-rule parity
+  # All three are valuable smoke tests — they catch the kind of
+  # regression a deploy would otherwise ship blind.
+  #
+  # For full integration coverage, run `npm test` against a
+  # DEDICATED test database (createdb divinghq_test, point
+  # DB_DATABASE at it) — never against the production DB.
+  if [[ $SKIP_TESTS -eq 0 ]]; then
+    step "npm run test:safe"
+    run npm run test:safe
+  else
+    step "tests skipped (--skip-tests)"
+  fi
 fi
 
 # ---- 6. Restart service ---------------------------------------
