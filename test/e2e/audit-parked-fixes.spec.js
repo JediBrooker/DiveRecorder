@@ -244,16 +244,15 @@ test("/synchro-reserve-pool only returns same-gender synchro events", async ({ r
   const { orgId, adminToken } = await setup.createOrgAndAdmin(request);
 
   // Create a meet to hang both H2H + synchro events on.
+  // The endpoint contract is fixed: POST /api/meets returns 201
+  // with `{ id, ... }`. If that shape ever changes we want this
+  // test to fail loudly, not silently skip — fail-loud was the
+  // entire point of the audit-parked-fixes suite.
   const meetRes = await request.post("/api/meets", {
     headers: { Authorization: `Bearer ${adminToken}` },
     data: { name: "Mixed Gender Meet", venue: "Pool" },
   });
-  if (meetRes.status() !== 201) {
-    // older fixtures may use a different field — skip and tear down
-    await setup.deleteOrg(orgId);
-    test.skip(true, "Meet endpoint shape changed; gender-filter test deferred.");
-    return;
-  }
+  expect(meetRes.status()).toBe(201);
   const meet = await meetRes.json();
 
   // Create both Male and Female synchro events at the meet.
