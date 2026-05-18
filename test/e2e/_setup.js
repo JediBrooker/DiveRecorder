@@ -345,6 +345,55 @@ async function setEventStatus(request, { adminToken, eventId, status }) {
   }
 }
 
+// Insert a coach_diver_links row. The link is scoped to an org
+// — the coach.js routes' tenant-boundary check requires the link's
+// org_id to match the event's org_id, so callers that want to
+// exercise the cross-federation gate pass the event's org here
+// rather than the coach's home org.
+async function linkCoach({ coachId, diverId, orgId, note = null }) {
+  const r = await pool.query(
+    `INSERT INTO coach_diver_links (coach_id, diver_id, org_id, note)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (coach_id, diver_id)
+     DO UPDATE SET org_id = EXCLUDED.org_id, note = EXCLUDED.note
+     RETURNING id`,
+    [coachId, diverId, orgId, note],
+  );
+  return { linkId: r.rows[0].id };
+}
+
+// Insert one judge's score for a (event, competitor, round, dive).
+// Returns the new scores.id so tests of PUT /api/scores/:id have a
+// stable handle. ON CONFLICT keeps re-runs idempotent — re-submits
+// with a different value update in place rather than colliding on
+// the UNIQUE (event, competitor, round, judge).
+async function insertScore({
+  eventId, competitorId, judgeId, diveId, roundNumber, score,
+}) {
+  const r = await pool.query(
+    `INSERT INTO scores (event_id, competitor_id, judge_id, dive_id, round_number, score)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (event_id, competitor_id, round_number, judge_id)
+     DO UPDATE SET score = EXCLUDED.score, dive_id = EXCLUDED.dive_id
+     RETURNING id`,
+    [eventId, competitorId, judgeId, diveId, roundNumber, score],
+  );
+  return r.rows[0].id;
+}
+
+// Mark a user as a manager of a specific event. Score correction
+// (PUT /api/scores/:id) gates non-org-admin callers on this row —
+// a referee role alone isn't enough; they must also be on the
+// event's manager list.
+async function addEventManager({ eventId, userId }) {
+  await pool.query(
+    `INSERT INTO event_managers (event_id, user_id)
+     VALUES ($1, $2)
+     ON CONFLICT DO NOTHING`,
+    [eventId, userId],
+  );
+}
+
 // Direct DB cleanup for a parallel-safe per-test teardown.
 // Cascades through the FKs (events, dive lists, scores, etc),
 // EXCEPT for users.org_id which is ON DELETE RESTRICT to keep a
@@ -550,6 +599,9 @@ module.exports = {
   insertDiveList,
   pickDiveId,
   setEventStatus,
+  linkCoach,
+  insertScore,
+  addEventManager,
   deleteOrg,
   installDialogDelay,
   installClickHighlight,

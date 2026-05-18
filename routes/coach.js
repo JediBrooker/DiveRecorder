@@ -580,7 +580,11 @@ module.exports = function createCoachRouter({
                       'description',  dd.description
                     ) ORDER BY dd.round_number
                   ) FILTER (WHERE dd.round_number IS NOT NULL), '[]'::json) AS dives,
-                  MAX(dd.partner_id)   AS partner_id,
+                  /* MAX(uuid) isn't defined in PostgreSQL; cast through
+                     text so this aggregate parses. A diver has at most
+                     one synchro partner per event so the "max" is
+                     just "the single non-null value, or null". */
+                  MAX(dd.partner_id::text)::uuid AS partner_id,
                   MAX(dd.partner_name) AS partner_name,
                   MAX(dd.confirmed_at) AS confirmed_at,
                   MAX(dd.withdrawn_at) AS withdrawn_at,
