@@ -24,9 +24,12 @@ module.exports = function createCompetitorRouter({
   requireOrgRole,
   bulkWriteLimiter,
   loadEventForEntries,
+  push, // optional — when present, drives synchro consent notifications
 }) {
   if (!pool) throw new Error("createCompetitorRouter requires { pool, … }");
   const router = express.Router();
+  const submitDiveList = require("../lib/dive-list-submit");
+  const { writeSynchroBothSides } = submitDiveList;
 
   router.post(
     "/api/competitor/submit-list",
@@ -49,22 +52,38 @@ module.exports = function createCompetitorRouter({
 
         // All validation + insert lives in lib/dive-list-submit.js
         // so the coach-on-behalf-of endpoint can reuse it.
-        const submitDiveList = require("../lib/dive-list-submit");
-        await submitDiveList({
+        const result = await submitDiveList({
           client,
           event: gate.event,
           actor: {
             id: req.user.id,
             org_id: req.user.org_id,
             is_system_admin: req.user.is_system_admin,
+            full_name: req.user.full_name,
           },
           competitorId:    req.user.id,
           competitorOrgId: req.user.org_id,
           partnerId:       partner_id,
           dives,
+          push,
         });
 
         await client.query("COMMIT");
+        // Synchro consent (migration 051) — surface the
+        // pending/auto-confirmed status so the SPA can switch
+        // between "Submitted" and "Waiting for partner" toasts.
+        if (result?.pairing?.status === "pending") {
+          return res.json({
+            message: "Pairing request sent — waiting for partner",
+            pairing: result.pairing,
+          });
+        }
+        if (result?.pairing?.status === "auto_confirmed") {
+          return res.json({
+            message: "Synchro pairing confirmed",
+            pairing: result.pairing,
+          });
+        }
         res.json({ message: "Dive list submitted" });
       } catch (err) {
         await client.query("ROLLBACK");
@@ -472,6 +491,192 @@ module.exports = function createCompetitorRouter({
       res.status(500).json({ error: "Internal server error" });
     }
   });
+
+  // -------------------------------------------------------------
+  // SYNCHRO PARTNER CONSENT ENDPOINTS (migration 051)
+  //
+  // The synchro submit path defers competitor_dive_lists writes
+  // until both divers agree. These three endpoints surface the
+  // pending state to the invitee and let them respond.
+  // -------------------------------------------------------------
+
+  // GET /api/competitor/pending-pairings
+  // Pending synchro invites where the caller is the invitee.
+  router.get(
+    "/api/competitor/pending-pairings",
+    verifyToken,
+    async (req, res) => {
+      try {
+        const r = await pool.query(
+          `SELECT p.id,
+                  p.event_id,
+                  p.requester_id,
+                  p.created_at,
+                  u.full_name AS requester_name,
+                  e.name      AS event_name,
+                  e.event_type::text AS event_type,
+                  e.height    AS event_height
+             FROM pending_partner_pairings p
+             JOIN users  u ON u.id = p.requester_id
+             JOIN events e ON e.id = p.event_id
+            WHERE p.partner_id = $1
+              AND p.status     = 'pending'
+            ORDER BY p.created_at DESC`,
+          [req.user.id],
+        );
+        res.json(r.rows);
+      } catch (err) {
+        console.error("[Pending Pairings Error]", err.message);
+        res.status(500).json({ error: "Internal server error" });
+      }
+    },
+  );
+
+  // POST /api/competitor/pairings/:id/accept
+  // Invitee accepts. Inserts competitor_dive_lists rows for BOTH
+  // divers using the requester's stored proposal.
+  router.post(
+    "/api/competitor/pairings/:id/accept",
+    verifyToken,
+    requireOrgRole(["diver"]),
+    async (req, res) => {
+      const pairingId = req.params.id;
+      const client    = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const r = await client.query(
+          `SELECT id, event_id, requester_id, partner_id, status, dives
+             FROM pending_partner_pairings
+            WHERE id = $1
+            FOR UPDATE`,
+          [pairingId],
+        );
+        if (!r.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ error: "Pairing not found" });
+        }
+        const pairing = r.rows[0];
+        // Only the invitee may accept.
+        if (pairing.partner_id !== req.user.id) {
+          await client.query("ROLLBACK");
+          return res
+            .status(403)
+            .json({ error: "Only the invited diver can accept this pairing" });
+        }
+        if (pairing.status !== "pending") {
+          await client.query("ROLLBACK");
+          return res
+            .status(409)
+            .json({ error: `Pairing already ${pairing.status}` });
+        }
+
+        // Flip the row and write both sides in one transaction.
+        await client.query(
+          `UPDATE pending_partner_pairings
+              SET status       = 'accepted',
+                  responded_at = NOW()
+            WHERE id = $1`,
+          [pairingId],
+        );
+        await writeSynchroBothSides(client, {
+          eventId:     pairing.event_id,
+          requesterId: pairing.requester_id,
+          partnerId:   pairing.partner_id,
+          dives:       pairing.dives || [],
+        });
+
+        await client.query("COMMIT");
+
+        if (push && typeof push.sendNotification === "function") {
+          push.sendNotification([pairing.requester_id], {
+            category: "synchro.partner_invite",
+            title: "Synchro partner confirmed",
+            body: `${req.user.full_name || "Your partner"} accepted your pairing request`,
+            data: {
+              event_id:   pairing.event_id,
+              pairing_id: pairing.id,
+              kind:       "accepted",
+            },
+          }).catch((err) =>
+            console.error("[synchro] accept push failed", err.message),
+          );
+        }
+
+        res.json({ ok: true, pairing_id: pairing.id, status: "accepted" });
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        if (err.status) {
+          return res.status(err.status).json({ error: err.message });
+        }
+        console.error("[Pairing Accept Error]", err.message);
+        res.status(500).json({ error: "Internal server error" });
+      } finally {
+        client.release();
+      }
+    },
+  );
+
+  // POST /api/competitor/pairings/:id/decline
+  // Invitee declines. No competitor_dive_lists writes; just flip
+  // the row's status so the requester can be notified.
+  router.post(
+    "/api/competitor/pairings/:id/decline",
+    verifyToken,
+    requireOrgRole(["diver"]),
+    async (req, res) => {
+      const pairingId = req.params.id;
+      try {
+        const r = await pool.query(
+          `SELECT id, event_id, requester_id, partner_id, status
+             FROM pending_partner_pairings
+            WHERE id = $1`,
+          [pairingId],
+        );
+        if (!r.rows.length) {
+          return res.status(404).json({ error: "Pairing not found" });
+        }
+        const pairing = r.rows[0];
+        if (pairing.partner_id !== req.user.id) {
+          return res
+            .status(403)
+            .json({ error: "Only the invited diver can decline this pairing" });
+        }
+        if (pairing.status !== "pending") {
+          return res
+            .status(409)
+            .json({ error: `Pairing already ${pairing.status}` });
+        }
+
+        await pool.query(
+          `UPDATE pending_partner_pairings
+              SET status       = 'declined',
+                  responded_at = NOW()
+            WHERE id = $1`,
+          [pairingId],
+        );
+
+        if (push && typeof push.sendNotification === "function") {
+          push.sendNotification([pairing.requester_id], {
+            category: "synchro.partner_invite",
+            title: "Synchro pairing declined",
+            body: `${req.user.full_name || "Your partner"} declined the pairing`,
+            data: {
+              event_id:   pairing.event_id,
+              pairing_id: pairing.id,
+              kind:       "declined",
+            },
+          }).catch((err) =>
+            console.error("[synchro] decline push failed", err.message),
+          );
+        }
+
+        res.json({ ok: true, pairing_id: pairing.id, status: "declined" });
+      } catch (err) {
+        console.error("[Pairing Decline Error]", err.message);
+        res.status(500).json({ error: "Internal server error" });
+      }
+    },
+  );
 
   return router;
 };

@@ -773,6 +773,7 @@ app.use(require("./routes/competitor")({
   requireOrgRole,
   bulkWriteLimiter,
   loadEventForEntries,
+  push,
 }));
 
 // =============================================================

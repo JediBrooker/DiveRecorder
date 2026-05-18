@@ -697,6 +697,7 @@ module.exports = function createCoachRouter({
             id: req.user.id,
             org_id: req.user.org_id,
             is_system_admin: req.user.is_system_admin,
+            full_name: req.user.full_name,
           },
           competitorId:    diver_id,
           competitorOrgId: diver.org_id,
