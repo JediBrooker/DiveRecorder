@@ -36,18 +36,34 @@ module.exports = function createCoachRouter({
   const router = express.Router();
 
   // Helper: assert that the logged-in coach has a coach_diver_links
-  // row for the target diver. Returns the diver row (with org_id)
-  // on success; throws an http-shaped error otherwise.
-  async function requireCoachLink(coachId, diverId) {
+  // row for the target diver WITHIN the given event's org. Returns
+  // the diver row (with org_id) on success; throws an http-shaped
+  // error otherwise.
+  //
+  // Tenant-boundary note: `coach_diver_links` is scoped per-org —
+  // the same coach/diver pair can have separate link rows in
+  // different federations. Asking only "is there ANY link?" let a
+  // coach with one legitimate link in Org A act on that diver in
+  // Org B's events, where the coach has no granted authority.
+  // The third arg (the event's org_id) is required and parameterised
+  // into the SELECT so the link MUST be in the same org as the
+  // event being acted on.
+  async function requireCoachLink(coachId, diverId, eventOrgId) {
+    if (!eventOrgId) {
+      const err = new Error("requireCoachLink: eventOrgId is required");
+      err.status = 500;
+      throw err;
+    }
     const r = await pool.query(
       `SELECT u.id, u.org_id, u.full_name
          FROM coach_diver_links link
          JOIN users u ON u.id = link.diver_id
-        WHERE link.coach_id = $1 AND link.diver_id = $2`,
-      [coachId, diverId],
+        WHERE link.coach_id = $1 AND link.diver_id = $2
+          AND link.org_id   = $3`,
+      [coachId, diverId, eventOrgId],
     );
     if (!r.rows.length) {
-      const err = new Error("You aren't linked to this diver as a coach");
+      const err = new Error("You aren't linked to this diver as a coach in this event's federation");
       err.status = 403;
       throw err;
     }
@@ -579,6 +595,33 @@ module.exports = function createCoachRouter({
         ),
       ]);
 
+      // Cross-federation body-field leak guard. Even though the
+      // eligibility check above lets a coach see the diver-list
+      // shape for any event their linked divers COULD enter, we
+      // don't want to surface the event's `round_rules`,
+      // `prescribed_rounds`, or per-diver `partner_name` to a coach
+      // in another federation UNTIL one of their divers has actually
+      // been entered (a competitor_dive_lists row exists). Otherwise
+      // any coach with a single multi-fed link could fingerprint
+      // every event in every other org's calendar.
+      const sameOrg = event.org_id === req.user.org_id;
+      const anyEntered = diverRes.rows.some(
+        (row) => Array.isArray(row.dives) && row.dives.length > 0,
+      );
+      const exposeBodyFields = sameOrg || anyEntered;
+
+      const divers = exposeBodyFields
+        ? diverRes.rows
+        : diverRes.rows.map((row) => ({
+            ...row,
+            // No linked divers entered AND we're cross-fed —
+            // strip partner_name (it can identify another federation's
+            // pairings) but keep the basic id+name so the picker still
+            // works.
+            partner_id: null,
+            partner_name: null,
+          }));
+
       res.json({
         event: {
           id: event.id,
@@ -587,14 +630,14 @@ module.exports = function createCoachRouter({
           event_type: event.event_type,
           status: event.status,
           total_rounds: event.total_rounds,
-          round_rules: event.round_rules,
+          round_rules: exposeBodyFields ? event.round_rules : null,
           entries_close_at: event.entries_close_at,
           dive_list_locks_at: event.dive_list_locks_at,
           meet_id: event.meet_id,
           meet_name: event.meet_name,
-          prescribed_rounds: prescribedRes.rows,
+          prescribed_rounds: exposeBodyFields ? prescribedRes.rows : [],
         },
-        divers: diverRes.rows,
+        divers,
       });
     } catch (err) {
       console.error("[Coach Dive Lists Error]", err.message);
@@ -624,20 +667,23 @@ module.exports = function createCoachRouter({
       try {
         await client.query("BEGIN");
 
-        // Coach → diver link gate.
-        let diver;
-        try {
-          diver = await requireCoachLink(req.user.id, diver_id);
-        } catch (err) {
-          await client.query("ROLLBACK");
-          return res.status(err.status || 500).json({ error: err.message });
-        }
-
-        // Event still accepting entries.
+        // Load the event first — we need its org_id so the coach
+        // link gate can be scoped to the right federation. Otherwise
+        // a coach with a link in Org A could act on the diver in Org
+        // B's events (cross-tenant leak).
         const gate = await loadEventForEntries(client, event_id);
         if (gate.error) {
           await client.query("ROLLBACK");
           return res.status(gate.status).json({ error: gate.error });
+        }
+
+        // Coach → diver link gate, scoped to the event's org.
+        let diver;
+        try {
+          diver = await requireCoachLink(req.user.id, diver_id, gate.event.org_id);
+        } catch (err) {
+          await client.query("ROLLBACK");
+          return res.status(err.status || 500).json({ error: err.message });
         }
 
         await submitDiveList({
@@ -718,18 +764,11 @@ module.exports = function createCoachRouter({
       try {
         await client.query("BEGIN");
 
-        // Coach → diver link gate.
-        let diver;
-        try {
-          diver = await requireCoachLink(req.user.id, diver_id);
-        } catch (err) {
-          await client.query("ROLLBACK");
-          return res.status(err.status || 500).json({ error: err.message });
-        }
-
-        // Event-status gate. Completed events are frozen; refuse.
+        // Event-status gate. Load the event first so we have its
+        // org_id for the link check below (tenant scoping) and so
+        // we can refuse withdrawal from Completed events.
         const ev = await client.query(
-          `SELECT id, name, status FROM events WHERE id = $1`,
+          `SELECT id, name, status, org_id FROM events WHERE id = $1`,
           [event_id],
         );
         if (!ev.rows.length) {
@@ -741,6 +780,17 @@ module.exports = function createCoachRouter({
           return res.status(409).json({
             error: "Event is Completed — withdrawing now would rewrite history",
           });
+        }
+
+        // Coach → diver link gate, scoped to the event's org so a
+        // coach with a link in Org A can't withdraw the diver from
+        // Org B's event.
+        let diver;
+        try {
+          diver = await requireCoachLink(req.user.id, diver_id, ev.rows[0].org_id);
+        } catch (err) {
+          await client.query("ROLLBACK");
+          return res.status(err.status || 500).json({ error: err.message });
         }
 
         // Mark every (un-withdrawn) row for this diver in this
