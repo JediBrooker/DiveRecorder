@@ -835,13 +835,13 @@
     "dd_total": "Kabuuang DD",
     "validate_warning": "May ilang round na hindi nakatugon sa mga panuntunan ng event. Ayusin ang mga ito bago isumite.",
     "pairings": {
-      "banner_title": "Pending synchro pairing invitations",
-      "invite_template": "{requester} invited you to pair on {event}",
-      "accept": "Accept",
-      "decline": "Decline",
-      "empty": "No pending invitations",
-      "accepted_toast": "Pairing confirmed with {requester}",
-      "declined_toast": "Pairing declined"
+      "banner_title": "Mga nakabinbing imbitasyon sa synchro pairing",
+      "invite_template": "Inimbitahan ka ni {requester} na maging kapareha sa {event}",
+      "accept": "Tanggapin",
+      "decline": "Tanggihan",
+      "empty": "Walang nakabinbing imbitasyon",
+      "accepted_toast": "Nakumpirma ang pairing kasama si {requester}",
+      "declined_toast": "Tinanggihan ang pairing"
     }
   },
   "meet_day": {
