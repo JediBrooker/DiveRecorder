@@ -33,8 +33,15 @@ module.exports = function createVenueRouter({ pool }) {
     try {
       const activePayload = liveState.activeDivers[event_id] || null;
       const onHoldReason  = liveState.meetHolds[event_id]?.reason || null;
+      // HTTP snapshot is read-only — DO NOT advance the per-event
+      // sequence counter. The bridge boots with this HTTP fetch
+      // then subscribes to socket emits; if this read bumped the
+      // counter, the very next socket emit would be at sequence+2
+      // rather than sequence+1, tripping the bridge's regression
+      // guard into a phantom re-sync on every reconnect.
       const state = await buildScoreboardState({
         pool, eventId: event_id, activePayload, onHoldReason,
+        stamp: false,
       });
       if (!state) return res.status(404).json({ error: "Event not found" });
       res.json(state);
