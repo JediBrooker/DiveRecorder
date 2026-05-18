@@ -24,6 +24,7 @@
 
 const express = require("express");
 const PDFDocument = require("pdfkit");
+const { t: serverTranslate } = require("../lib/server-i18n");
 
 // CSV escaping + spreadsheet-formula-injection guard.
 //
@@ -365,7 +366,7 @@ module.exports = function createPdfRouter({ pool }) {
       // ---------- Schedule list ----------
       doc.font("Helvetica-Bold").fontSize(11)
         .fillColor("#06b6d4")
-        .text("EVENT SCHEDULE", { characterSpacing: 3 });
+        .text(serverTranslate(req, "pdf.program.header_event_schedule").toUpperCase(), { characterSpacing: 3 });
       doc.moveDown(0.4);
       doc.lineWidth(0.5).strokeColor("#cbd5e1")
         .moveTo(50, doc.y).lineTo(545, doc.y).stroke();
@@ -433,7 +434,7 @@ module.exports = function createPdfRouter({ pool }) {
         if (include.has("judges") && ext.judges && ext.judges.length) {
           doc.moveDown(0.5);
           doc.font("Helvetica-Bold").fontSize(9).fillColor("#06b6d4")
-            .text("JUDGE PANEL", { characterSpacing: 2 });
+            .text(serverTranslate(req, "pdf.program.header_judge_panel").toUpperCase(), { characterSpacing: 2 });
           doc.font("Helvetica").fontSize(9).fillColor("#334155");
           for (const j of ext.judges) {
             if (doc.y > 760) doc.addPage();
@@ -450,14 +451,14 @@ module.exports = function createPdfRouter({ pool }) {
         if (include.has("dive_lists") && ext.diveLists && ext.diveLists.length) {
           doc.moveDown(0.5);
           doc.font("Helvetica-Bold").fontSize(9).fillColor("#06b6d4")
-            .text("DIVE LISTS", { characterSpacing: 2 });
+            .text(serverTranslate(req, "pdf.program.header_dive_lists").toUpperCase(), { characterSpacing: 2 });
           let inReserves = false;
           for (const diver of ext.diveLists) {
             if (doc.y > 740) doc.addPage();
             if (diver.is_reserve && !inReserves) {
               doc.moveDown(0.3);
               doc.font("Helvetica-Bold").fontSize(8).fillColor("#94a3b8")
-                .text("RESERVES", { characterSpacing: 2 });
+                .text(serverTranslate(req, "pdf.program.header_reserves").toUpperCase(), { characterSpacing: 2 });
               inReserves = true;
             }
             doc.font("Helvetica-Bold").fontSize(10).fillColor("#0f172a");
