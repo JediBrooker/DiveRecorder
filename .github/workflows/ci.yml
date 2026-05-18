@@ -172,8 +172,15 @@ jobs:
       # itself via webServer — no separate "start the app" step.
       # process.env.CI flips the config to retries=2 + GitHub
       # reporter + single worker.
+      #
+      # E2E_FULL=1 unlocks the three largest specs that the local
+      # default skips for speed (meet-manager / judge / scoreboard-
+      # ui — ~1600 LOC of behavioural coverage). CI runs the
+      # superset; local devs keep the fast suite.
       - name: Run e2e
         if: github.event.inputs.update_snapshots != 'true'
+        env:
+          E2E_FULL: "1"
         run: npm run test:e2e
 
       # When dispatched with update_snapshots=true, run Playwright

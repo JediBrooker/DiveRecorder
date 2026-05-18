@@ -231,6 +231,13 @@ async function callOpenAI(prompt, apiKey, model) {
   // Uses the OpenAI Responses API through native fetch so the repo
   // doesn't need an SDK dependency just for translation maintenance.
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
+  // Validate the base URL against an allowlist so a poisoned .env
+  // (or stale shell rc) can't redirect the OPENAI_API_KEY at an
+  // attacker-controlled host. https: + openai.com (or localhost
+  // for tests / proxies) only. Override the allowlist if you have
+  // a legitimate enterprise endpoint via OPENAI_BASE_URL_ALLOW
+  // (comma-separated host suffixes).
+  validateOpenAIBaseUrl(baseUrl);
   const maxOutputTokens = parsePositiveInt(process.env.TRANSLATE_MAX_TOKENS, 12000);
   const res = await fetch(`${baseUrl}/responses`, {
     method: "POST",
@@ -306,12 +313,43 @@ function resolveProvider(arg) {
   return "anthropic";
 }
 
+function validateOpenAIBaseUrl(baseUrl) {
+  let parsed;
+  try { parsed = new URL(baseUrl); }
+  catch { fail(`OPENAI_BASE_URL is not a valid URL: ${baseUrl}`); }
+  if (parsed.protocol !== "https:" && parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") {
+    fail(`OPENAI_BASE_URL must be https:// (got ${parsed.protocol})`);
+  }
+  const allowed = [
+    "openai.com",
+    "azure.com",        // Azure OpenAI deployments
+    "localhost",
+    "127.0.0.1",
+  ];
+  const extra = (process.env.OPENAI_BASE_URL_ALLOW || "")
+    .split(",").map(s => s.trim()).filter(Boolean);
+  const host = parsed.hostname.toLowerCase();
+  const isAllowed = [...allowed, ...extra].some(suffix =>
+    host === suffix || host.endsWith(`.${suffix}`));
+  if (!isAllowed) {
+    fail(
+      `OPENAI_BASE_URL host '${host}' is not on the allowlist. ` +
+      `If this is an intentional enterprise endpoint, set OPENAI_BASE_URL_ALLOW=` +
+      `'<host-suffix>' (comma-separated) to include it.`,
+    );
+  }
+}
+
 function resolveModel(provider, arg) {
   if (arg) return arg;
   if (provider === "openai") {
     return process.env.OPENAI_MODEL || process.env.OPENAI_TRANSLATE_MODEL || "gpt-5-mini";
   }
-  return process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-latest";
+  // Default to the latest Sonnet — was claude-3-5-sonnet-latest
+  // until the 4.x line was promoted. Override with ANTHROPIC_MODEL
+  // env if a specific snapshot is needed (e.g. for reproducible
+  // re-runs across the same locale set).
+  return process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5";
 }
 
 function extractOpenAIText(body) {

@@ -268,7 +268,7 @@ DivingHQ ships with **25 supported languages** — English source plus 24 transl
 
 ### How it works
 
-- **Source of truth**: `src/locales/en.json` (~459 keys grouped into per-page namespaces — `auth.*`, `home.*`, `dashboard.*`, `coach.*`, `scoreboard.*`, `control.*`, `manager.*`, etc.). Every other locale file has an identical key shape (verified programmatically in CI — 25 × 459 = 11,475 strings, zero structural drift).
+- **Source of truth**: `src/locales/en.json` (~980 keys grouped into per-page namespaces — `auth.*`, `home.*`, `dashboard.*`, `coach.*`, `scoreboard.*`, `control.*`, `manager.*`, `audit.*`, `setup.wizard.*`, `user_manager.*`, etc.). Every other locale file has an identical key shape (verified programmatically in CI — 25 × 980 ≈ 24,500 strings, zero structural drift).
 - **No runtime eval**: `@intlify/unplugin-vue-i18n` precompiles every JSON dictionary into AST functions at build time so the browser never invokes vue-i18n's parser. This keeps the strict `script-src 'self'` CSP intact (the alternative — runtime JIT compilation — uses `new Function` and gets blocked).
 - **RTL handling**: Arabic carries an `rtl: true` flag in `SUPPORTED_LOCALES`; `setLocale()` syncs `<html dir="rtl">` and `<html lang="ar">` in lockstep with the i18n state. The existing layout uses logical CSS (flex, `padding-inline-end`, `inset-inline-end`) so the whole page mirrors cleanly without per-component changes.
 - **First-visit auto-detect**: `navigator.language` prefix is matched against `SUPPORTED_LOCALES` on first visit — a phone set to `fr-FR` lands on French, set to `ja` lands on Japanese, etc. Falls back to English.
