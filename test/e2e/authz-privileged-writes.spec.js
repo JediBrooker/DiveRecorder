@@ -240,6 +240,30 @@ test.describe.serial("Privileged writes — authz boundary", () => {
         [event.id, diver.userId],
       );
       expect(rows.rows.map((x) => x.round_number)).toEqual([1]);
+
+      // Audit row landed with the full payload — actor_id, org_id,
+      // and metadata are the fields that silently NULLed before
+      // commit 96caa22 fixed the recordAudit field-name mismatch.
+      const audit = await setup.pool.query(
+        `SELECT actor_id, org_id, entity_type, entity_id, metadata
+           FROM audit_log
+          WHERE entity_type = 'dive_list'
+            AND entity_id = $1
+            AND action = 'coach.submit_dive_list'
+          ORDER BY created_at DESC LIMIT 1`,
+        [diver.userId],
+      );
+      const row = audit.rows[0];
+      expect(row?.actor_id).toBe(coachOkUserId);
+      expect(row?.org_id).toBe(orgA.orgId);
+      expect(row?.entity_type).toBe("dive_list");
+      expect(row?.entity_id).toBe(diver.userId);
+      expect(row?.metadata).toMatchObject({
+        event_id: event.id,
+        coach_id: coachOkUserId,
+        diver_id: diver.userId,
+        dive_count: 1,
+      });
     });
 
     test("no link: stranger coach gets 403", async ({ request }) => {
@@ -364,23 +388,43 @@ test.describe.serial("Privileged writes — authz boundary", () => {
         expect(row.withdrawn_reason).toBe("shoulder injury");
       }
 
-      // Audit row written by the route via recordAudit(). The route
-      // passes its context object as `context` (rather than the
-      // `metadata` field recordAudit() reads) and uses
-      // `actor_user_id` (rather than `actor_id`) — both pre-existing
-      // shape mismatches in routes/coach.js that don't affect the
-      // authz gate, only the richness of the recorded payload. The
-      // ROW itself definitively lands, which is what matters for an
-      // authz/forensics regression test.
+      // Audit row written via recordAudit(). The route at commit
+      // 96caa22 fixed a long-standing field-name mismatch (was
+      // writing actor_user_id / context, but lib/audit.js reads
+      // actor_id / metadata, so both fields were silently NULL on
+      // every coach action since the feature shipped). This block
+      // tightens the assertion to ensure that fix doesn't regress —
+      // actor_id, org_id, metadata, entity_name, and note all
+      // need to land.
       const audit = await setup.pool.query(
-        `SELECT action FROM audit_log
+        `SELECT action, actor_id, org_id, entity_type, entity_id,
+                entity_name, note, metadata
+           FROM audit_log
           WHERE entity_type = 'dive_list'
             AND entity_id = $1
             AND action = 'coach.withdraw_dive_list'
           ORDER BY created_at DESC LIMIT 1`,
         [diver.userId],
       );
-      expect(audit.rows[0]?.action).toBe("coach.withdraw_dive_list");
+      const row = audit.rows[0];
+      expect(row?.action).toBe("coach.withdraw_dive_list");
+      expect(row?.actor_id).toBe(coachUserId);
+      expect(row?.org_id).toBe(orgA.orgId);
+      expect(row?.entity_type).toBe("dive_list");
+      expect(row?.entity_id).toBe(diver.userId);
+      // entity_name is the diver's display name — keep this lenient
+      // (the route resolves it from a join, so don't pin the exact
+      // shape if the helper changes).
+      expect(typeof row?.entity_name).toBe("string");
+      expect(row?.note).toBe("shoulder injury");
+      // metadata is a jsonb column — pg returns it as a parsed object
+      expect(row?.metadata).toMatchObject({
+        event_id: event.id,
+        coach_id: coachUserId,
+        diver_id: diver.userId,
+        row_count: 2,
+        reason: "shoulder injury",
+      });
     });
 
     test("already-withdrawn returns 409", async ({ request }) => {
