@@ -549,10 +549,18 @@ module.exports = function createAuthRouter({
 
       // Email verification is the gate; welcome message goes out
       // alongside it. Both are best-effort.
+      //
+      // 24h TTL (was 7d): defensive — limits the blast radius of
+      // a leaked verification link via email archives / Sentry
+      // breadcrumbs / mail forwards. A genuine user who misses
+      // the window can request a fresh link via re-registration
+      // or password reset; the cost of a slightly tighter expiry
+      // is far smaller than the cost of a week-long replay
+      // window for a leaked URL.
       const verifyToken = jwt.sign(
         { sub: newUserId, type: "email_verify" },
         JWT_SECRET,
-        { expiresIn: "7d" },
+        { expiresIn: "24h" },
       );
       if (typeof sendVerifyEmailEmail === "function") {
         sendVerifyEmailEmail(newUserId, verifyToken).catch(() => {});
@@ -686,10 +694,13 @@ module.exports = function createAuthRouter({
       // UPDATE-stamp email_verified_at directly — bypassing
       // proof-of-inbox-control on the highest-privilege account
       // in a fresh tenant.
+      // 24h TTL (was 7d): see /api/auth/register for the
+      // rationale — leaked verification links shouldn't be
+      // replayable for a week.
       const verifyToken = jwt.sign(
         { sub: userId, type: "email_verify" },
         JWT_SECRET,
-        { expiresIn: "7d" },
+        { expiresIn: "24h" },
       );
       if (typeof sendVerifyEmailEmail === "function") {
         sendVerifyEmailEmail(userId, verifyToken).catch(() => {});
