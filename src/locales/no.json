@@ -689,7 +689,7 @@
     "col_username": "Brukernavn",
     "col_org": "Organisasjon",
     "col_roles": "Roller",
-    "col_status": "Status",
+    "col_status": "Tilstand",
     "no_users_found": "Ingen brukere funnet",
     "no_roles": "Ingen roller",
     "edit_hint": "Rediger ›",
@@ -844,7 +844,16 @@
     "synchro_partner": "Synkronpartner",
     "pick_partner": "Velg en partner",
     "dd_total": "Total vanskelighetsgrad",
-    "validate_warning": "Noen runder oppfyller ikke øvelsens regler. Rett dem før du sender."
+    "validate_warning": "Noen runder oppfyller ikke øvelsens regler. Rett dem før du sender.",
+    "pairings": {
+      "banner_title": "Ventende synkroinvitasjoner",
+      "invite_template": "{requester} har invitert deg til synkro på {event}",
+      "accept": "Godta",
+      "decline": "Avslå",
+      "empty": "Ingen ventende invitasjoner",
+      "accepted_toast": "Par bekreftet med {requester}",
+      "declined_toast": "Invitasjon avslått"
+    }
   },
   "meet_day": {
     "page_label": "Stevnedag",

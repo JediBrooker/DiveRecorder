@@ -560,7 +560,7 @@
       "picker_select_none": "Egyik sem",
       "picker_open_btn": "Közvetítés megnyitása ({n})",
       "obs_lead_html_prefix": "Az eredménytábla beépített",
-      "obs_lead_chroma_key": "chroma-key overlay",
+      "obs_lead_chroma_key": "kromakulcsos átfedés",
       "obs_lead_html_suffix": "nézettel érkezik. Illessze be az alábbi URL-t az OBS Studio-ba (vagy bármilyen eszközbe, amely támogatja a Browser Source-t), és az aktív műugró, a pontszámok és a top 3 közvetlenül kompozitálódik a közvetítésébe — nincs extra telepítés, nincs plugin.",
       "obs_overlay_url_label_prefix": "Overlay URL ehhez:",
       "obs_overlay_event_fallback": "ez az esemény",
@@ -844,7 +844,16 @@
     "synchro_partner": "Szinkron partner",
     "pick_partner": "Válasszon partnert",
     "dd_total": "Összesített DD",
-    "validate_warning": "Néhány forduló nem felel meg a versenyszám szabályainak. Javítsa őket beküldés előtt."
+    "validate_warning": "Néhány forduló nem felel meg a versenyszám szabályainak. Javítsa őket beküldés előtt.",
+    "pairings": {
+      "banner_title": "Függőben lévő szinkronpár-meghívók",
+      "invite_template": "{requester} meghívott szinkronpárba a(z) {event} versenyre",
+      "accept": "Elfogadás",
+      "decline": "Elutasítás",
+      "empty": "Nincs függőben lévő meghívó",
+      "accepted_toast": "Pár megerősítve: {requester}",
+      "declined_toast": "Meghívó elutasítva"
+    }
   },
   "meet_day": {
     "page_label": "Versenynap",

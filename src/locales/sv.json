@@ -687,7 +687,7 @@
     "collapse_all": "Fäll ihop alla",
     "col_name": "Namn",
     "col_username": "Användarnamn",
-    "col_org": "Organisation",
+    "col_org": "Förbund",
     "col_roles": "Roller",
     "col_status": "Status",
     "no_users_found": "Inga användare hittades",
@@ -844,7 +844,16 @@
     "synchro_partner": "Synkronpartner",
     "pick_partner": "Välj en partner",
     "dd_total": "Total svårighetsgrad",
-    "validate_warning": "Vissa omgångar uppfyller inte grenens regler. Åtgärda dem innan du skickar."
+    "validate_warning": "Vissa omgångar uppfyller inte grenens regler. Åtgärda dem innan du skickar.",
+    "pairings": {
+      "banner_title": "Inväntande synkroinbjudningar",
+      "invite_template": "{requester} har bjudit in dig till synkro på {event}",
+      "accept": "Acceptera",
+      "decline": "Avböj",
+      "empty": "Inga inväntande inbjudningar",
+      "accepted_toast": "Par bekräftat med {requester}",
+      "declined_toast": "Inbjudan avböjd"
+    }
   },
   "meet_day": {
     "page_label": "Tävlingsdag",

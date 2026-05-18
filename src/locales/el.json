@@ -549,7 +549,7 @@
       "picker_select_none": "Κανένα",
       "picker_open_btn": "Άνοιγμα μετάδοσης ({n})",
       "obs_lead_html_prefix": "Ο πίνακας έρχεται με ενσωματωμένη προβολή",
-      "obs_lead_chroma_key": "chroma-key overlay",
+      "obs_lead_chroma_key": "επικάλυψη chroma-key",
       "obs_lead_html_suffix": ". Επικόλλησε το URL παρακάτω στο OBS Studio (ή σε οποιοδήποτε εργαλείο υποστηρίζει Browser Source) και ο ενεργός καταδύτης, οι βαθμοί και το top-3 θα συντίθενται απευθείας στη μετάδοσή σου — χωρίς επιπλέον εγκατάσταση, χωρίς plugin.",
       "obs_overlay_url_label_prefix": "URL overlay για",
       "obs_overlay_event_fallback": "αυτό το αγώνισμα",
@@ -833,7 +833,16 @@
     "synchro_partner": "Παρτενέρ συγχρονισμού",
     "pick_partner": "Επιλέξτε παρτενέρ",
     "dd_total": "Συνολικό DD",
-    "validate_warning": "Ορισμένοι γύροι δεν πληρούν τους κανόνες του αγωνίσματος. Διορθώστε τους πριν την υποβολή."
+    "validate_warning": "Ορισμένοι γύροι δεν πληρούν τους κανόνες του αγωνίσματος. Διορθώστε τους πριν την υποβολή.",
+    "pairings": {
+      "banner_title": "Εκκρεμείς προσκλήσεις συγχρονισμού",
+      "invite_template": "Ο/Η {requester} σε προσκάλεσε να ζευγαρώσετε στο {event}",
+      "accept": "Αποδοχή",
+      "decline": "Απόρριψη",
+      "empty": "Δεν υπάρχουν εκκρεμείς προσκλήσεις",
+      "accepted_toast": "Δίδυμο επιβεβαιώθηκε με {requester}",
+      "declined_toast": "Πρόσκληση απορρίφθηκε"
+    }
   },
   "meet_day": {
     "page_label": "Ημέρα αγώνα",

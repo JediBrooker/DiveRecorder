@@ -499,7 +499,7 @@
       "title": "Pregled prije polijetanja",
       "section_event": "Natjecanje",
       "section_roster": "Popis",
-      "section_panel": "Panel",
+      "section_panel": "Sudački zbor",
       "section_referee": "Glavni sudac",
       "rehearsal_tag": "Proba",
       "rounds_suffix": "{n} runda",
@@ -549,7 +549,7 @@
       "picker_select_none": "Ništa",
       "picker_open_btn": "Otvori prijenos ({n})",
       "obs_lead_html_prefix": "Semafor dolazi s ugrađenim",
-      "obs_lead_chroma_key": "chroma-key overlay",
+      "obs_lead_chroma_key": "chroma-key sloj",
       "obs_lead_html_suffix": "prikazom. Zalijepite URL ispod u OBS Studio (ili bilo koji alat koji podržava Browser Source) i aktivni skakač, rezultati i top-3 se kompozitiraju izravno u vaš prijenos — bez dodatne instalacije, bez plugina.",
       "obs_overlay_url_label_prefix": "URL overlaya za",
       "obs_overlay_event_fallback": "ovo natjecanje",
@@ -678,7 +678,7 @@
     "col_username": "Korisničko ime",
     "col_org": "Organizacija",
     "col_roles": "Uloge",
-    "col_status": "Status",
+    "col_status": "Stanje",
     "no_users_found": "Nema pronađenih korisnika",
     "no_roles": "Nema uloga",
     "edit_hint": "Uredi ›",
@@ -833,7 +833,16 @@
     "synchro_partner": "Sinkronizirani partner",
     "pick_partner": "Odaberi partnera",
     "dd_total": "Ukupni DD",
-    "validate_warning": "Neke runde ne zadovoljavaju pravila događaja. Ispravite ih prije slanja."
+    "validate_warning": "Neke runde ne zadovoljavaju pravila događaja. Ispravite ih prije slanja.",
+    "pairings": {
+      "banner_title": "Pozivi za sinkronizirane parove na čekanju",
+      "invite_template": "{requester} vas poziva u par na {event}",
+      "accept": "Prihvati",
+      "decline": "Odbij",
+      "empty": "Nema poziva na čekanju",
+      "accepted_toast": "Par potvrđen s {requester}",
+      "declined_toast": "Poziv odbijen"
+    }
   },
   "meet_day": {
     "page_label": "Dan natjecanja",

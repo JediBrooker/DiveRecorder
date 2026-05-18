@@ -499,7 +499,7 @@
       "title": "Uçuş Öncesi İnceleme",
       "section_event": "Etkinlik",
       "section_roster": "Kadro",
-      "section_panel": "Panel",
+      "section_panel": "Hakem kurulu",
       "section_referee": "Baş Hakem",
       "rehearsal_tag": "Prova",
       "rounds_suffix": "{n} tur",
@@ -549,7 +549,7 @@
       "picker_select_none": "Hiçbiri",
       "picker_open_btn": "Yayını aç ({n})",
       "obs_lead_html_prefix": "Skor tahtası yerleşik",
-      "obs_lead_chroma_key": "chroma-key overlay",
+      "obs_lead_chroma_key": "chroma-key bindirme",
       "obs_lead_html_suffix": "görünümüyle gelir. Aşağıdaki URL'yi OBS Studio'ya (veya Browser Source destekleyen herhangi bir araca) yapıştırın; aktif atlamacı, puanlar ve ilk 3 doğrudan yayınınıza işlenir — ek kurulum yok, eklenti yok.",
       "obs_overlay_url_label_prefix": "Overlay URL'si",
       "obs_overlay_event_fallback": "bu etkinlik",
@@ -833,7 +833,16 @@
     "synchro_partner": "Senkron partneri",
     "pick_partner": "Bir partner seçin",
     "dd_total": "Toplam DD",
-    "validate_warning": "Bazı turlar etkinliğin kurallarını karşılamıyor. Göndermeden önce düzeltin."
+    "validate_warning": "Bazı turlar etkinliğin kurallarını karşılamıyor. Göndermeden önce düzeltin.",
+    "pairings": {
+      "banner_title": "Bekleyen senkronize eşleşme davetleri",
+      "invite_template": "{requester} sizi {event} etkinliğinde eşleşmeye davet etti",
+      "accept": "Kabul et",
+      "decline": "Reddet",
+      "empty": "Bekleyen davet yok",
+      "accepted_toast": "{requester} ile eşleşme onaylandı",
+      "declined_toast": "Davet reddedildi"
+    }
   },
   "meet_day": {
     "page_label": "Yarışma günü",

@@ -833,7 +833,16 @@
     "synchro_partner": "シンクロパートナー",
     "pick_partner": "パートナーを選択",
     "dd_total": "難易度合計",
-    "validate_warning": "いくつかのラウンドが種目のルールを満たしていません。提出前に修正してください。"
+    "validate_warning": "いくつかのラウンドが種目のルールを満たしていません。提出前に修正してください。",
+    "pairings": {
+      "banner_title": "保留中のシンクロペア招待",
+      "invite_template": "{requester} さんから {event} のペア招待が届いています",
+      "accept": "承諾",
+      "decline": "辞退",
+      "empty": "保留中の招待はありません",
+      "accepted_toast": "{requester} さんとペアを確定しました",
+      "declined_toast": "招待を辞退しました"
+    }
   },
   "meet_day": {
     "page_label": "大会当日",

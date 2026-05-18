@@ -549,7 +549,7 @@
       "picker_select_none": "Ништа",
       "picker_open_btn": "Отвори пренос ({n})",
       "obs_lead_html_prefix": "Семафор долази са уграђеним",
-      "obs_lead_chroma_key": "chroma-key overlay",
+      "obs_lead_chroma_key": "хрома-кеј прекривач",
       "obs_lead_html_suffix": "приказом. Налепите URL испод у OBS Studio (или било који алат који подржава Browser Source) и активни скакач, резултати и топ-3 се композитују директно у ваш пренос — без додатне инсталације, без plugin-а.",
       "obs_overlay_url_label_prefix": "URL overlay-а за",
       "obs_overlay_event_fallback": "ово такмичење",
@@ -833,7 +833,16 @@
     "synchro_partner": "Синхро партнер",
     "pick_partner": "Изабери партнера",
     "dd_total": "Укупни DD",
-    "validate_warning": "Неке рунде не задовољавају правила догађаја. Исправите их пре слања."
+    "validate_warning": "Неке рунде не задовољавају правила догађаја. Исправите их пре слања.",
+    "pairings": {
+      "banner_title": "Позиви за синхро парове на чекању",
+      "invite_template": "{requester} вас позива у пар на {event}",
+      "accept": "Прихвати",
+      "decline": "Одбиј",
+      "empty": "Нема позива на чекању",
+      "accepted_toast": "Пар потврђен са {requester}",
+      "declined_toast": "Позив одбијен"
+    }
   },
   "meet_day": {
     "page_label": "Дан такмичења",

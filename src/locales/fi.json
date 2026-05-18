@@ -844,7 +844,16 @@
     "synchro_partner": "Synkronipari",
     "pick_partner": "Valitse pari",
     "dd_total": "Yhteenlaskettu vaikeus",
-    "validate_warning": "Jotkin kierrokset eivät täytä lajin sääntöjä. Korjaa ne ennen lähettämistä."
+    "validate_warning": "Jotkin kierrokset eivät täytä lajin sääntöjä. Korjaa ne ennen lähettämistä.",
+    "pairings": {
+      "banner_title": "Odottavat synkroniparikutsut",
+      "invite_template": "{requester} kutsui sinut pariksi kisaan {event}",
+      "accept": "Hyväksy",
+      "decline": "Hylkää",
+      "empty": "Ei odottavia kutsuja",
+      "accepted_toast": "Pari vahvistettu — {requester}",
+      "declined_toast": "Kutsu hylätty"
+    }
   },
   "meet_day": {
     "page_label": "Kilpailupäivä",

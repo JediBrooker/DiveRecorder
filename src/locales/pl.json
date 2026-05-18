@@ -509,8 +509,8 @@
     "preflight": {
       "title": "Przegląd Przed Startem",
       "section_event": "Konkurencja",
-      "section_roster": "Roster",
-      "section_panel": "Panel",
+      "section_roster": "Lista zawodników",
+      "section_panel": "Skład sędziowski",
       "section_referee": "Sędzia główny",
       "rehearsal_tag": "Próba",
       "rounds_suffix": "{n} rund",
@@ -689,7 +689,7 @@
     "col_username": "Nazwa użytkownika",
     "col_org": "Organizacja",
     "col_roles": "Role",
-    "col_status": "Status",
+    "col_status": "Stan",
     "no_users_found": "Nie znaleziono użytkowników",
     "no_roles": "Brak ról",
     "edit_hint": "Edytuj ›",
@@ -739,7 +739,7 @@
     "audit_loading": "Ładowanie…",
     "audit_empty": "Brak zarejestrowanych zmian ról dla tego konta.",
     "audit_by_actor": "przez {name}",
-    "audit_by_system": "system",
+    "audit_by_system": "systemowo",
     "drawer_hint": "Zmiany zapisują się automatycznie. Naciśnij Esc lub kliknij na zewnątrz, aby zamknąć.",
     "status_saving": "Zapisywanie…",
     "status_saved": "Zapisano",
@@ -844,7 +844,16 @@
     "synchro_partner": "Partner synchro",
     "pick_partner": "Wybierz partnera",
     "dd_total": "Łączny DD",
-    "validate_warning": "Niektóre rundy nie spełniają zasad konkurencji. Popraw je przed wysłaniem."
+    "validate_warning": "Niektóre rundy nie spełniają zasad konkurencji. Popraw je przed wysłaniem.",
+    "pairings": {
+      "banner_title": "Oczekujące zaproszenia do par synchro",
+      "invite_template": "{requester} zaprasza Cię do skakania w parze na {event}",
+      "accept": "Akceptuj",
+      "decline": "Odrzuć",
+      "empty": "Brak oczekujących zaproszeń",
+      "accepted_toast": "Para potwierdzona z {requester}",
+      "declined_toast": "Zaproszenie odrzucone"
+    }
   },
   "meet_day": {
     "page_label": "Dzień zawodów",

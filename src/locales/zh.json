@@ -833,7 +833,16 @@
     "synchro_partner": "双人搭档",
     "pick_partner": "选择搭档",
     "dd_total": "难度系数总计",
-    "validate_warning": "部分轮次不符合项目规则。请在提交前修正。"
+    "validate_warning": "部分轮次不符合项目规则。请在提交前修正。",
+    "pairings": {
+      "banner_title": "待处理的双人同步配对邀请",
+      "invite_template": "{requester} 邀请你在 {event} 配对双人同步",
+      "accept": "接受",
+      "decline": "拒绝",
+      "empty": "没有待处理的邀请",
+      "accepted_toast": "已与 {requester} 确认配对",
+      "declined_toast": "邀请已拒绝"
+    }
   },
   "meet_day": {
     "page_label": "比赛日",

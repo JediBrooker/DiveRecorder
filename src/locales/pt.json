@@ -509,7 +509,7 @@
     "preflight": {
       "title": "Revisão Pré-Prova",
       "section_event": "Prova",
-      "section_roster": "Roster",
+      "section_roster": "Lista de inscritos",
       "section_panel": "Painel",
       "section_referee": "Árbitro",
       "rehearsal_tag": "Ensaio",
@@ -844,7 +844,16 @@
     "synchro_partner": "Parceiro de sincronizado",
     "pick_partner": "Escolha um parceiro",
     "dd_total": "Total de CD",
-    "validate_warning": "Algumas rondas não cumprem as regras da prova. Corrija-as antes de enviar."
+    "validate_warning": "Algumas rondas não cumprem as regras da prova. Corrija-as antes de enviar.",
+    "pairings": {
+      "banner_title": "Convites de sincronizado pendentes",
+      "invite_template": "{requester} convidou-te para saltar em sincronizado em {event}",
+      "accept": "Aceitar",
+      "decline": "Recusar",
+      "empty": "Sem convites pendentes",
+      "accepted_toast": "Dupla confirmada com {requester}",
+      "declined_toast": "Convite recusado"
+    }
   },
   "meet_day": {
     "page_label": "Dia da competição",

@@ -833,7 +833,16 @@
     "synchro_partner": "شريك التزامن",
     "pick_partner": "اختر شريكاً",
     "dd_total": "مجموع معامل الصعوبة",
-    "validate_warning": "بعض الجولات لا تستوفي قواعد الفعالية. صحّحها قبل الإرسال."
+    "validate_warning": "بعض الجولات لا تستوفي قواعد الفعالية. صحّحها قبل الإرسال.",
+    "pairings": {
+      "banner_title": "دعوات الإقران المتزامن المعلّقة",
+      "invite_template": "دعاك {requester} للإقران في {event}",
+      "accept": "قبول",
+      "decline": "رفض",
+      "empty": "لا توجد دعوات معلّقة",
+      "accepted_toast": "تم تأكيد الإقران مع {requester}",
+      "declined_toast": "تم رفض الدعوة"
+    }
   },
   "meet_day": {
     "page_label": "يوم البطولة",

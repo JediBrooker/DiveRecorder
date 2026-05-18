@@ -498,8 +498,8 @@
     "preflight": {
       "title": "Revisión Previa",
       "section_event": "Evento",
-      "section_roster": "Roster",
-      "section_panel": "Panel",
+      "section_roster": "Plantilla",
+      "section_panel": "Panel de jueces",
       "section_referee": "Árbitro",
       "rehearsal_tag": "Ensayo",
       "rounds_suffix": "{n} rondas",
@@ -677,7 +677,7 @@
     "col_name": "Nombre",
     "col_username": "Usuario",
     "col_org": "Organización",
-    "col_roles": "Roles",
+    "col_roles": "Funciones",
     "col_status": "Estado",
     "no_users_found": "No se encontraron usuarios",
     "no_roles": "Sin roles",
@@ -691,7 +691,7 @@
     "page_info": "{from}–{to} de {total}",
     "close_drawer": "Cerrar ✕",
     "drawer_section_club": "Club",
-    "drawer_section_roles": "Roles",
+    "drawer_section_roles": "Funciones",
     "drawer_section_audit": "Historial de Auditoría",
     "drawer_section_coach_links": "Vínculos de Entrenador",
     "drawer_no_club_option": "— Sin club —",
@@ -833,7 +833,16 @@
     "synchro_partner": "Pareja de sincronizados",
     "pick_partner": "Elige una pareja",
     "dd_total": "DD total",
-    "validate_warning": "Algunas rondas no cumplen las reglas del evento. Corrígelas antes de enviar."
+    "validate_warning": "Algunas rondas no cumplen las reglas del evento. Corrígelas antes de enviar.",
+    "pairings": {
+      "banner_title": "Invitaciones de sincronizados pendientes",
+      "invite_template": "{requester} te ha invitado a sincronizar en {event}",
+      "accept": "Aceptar",
+      "decline": "Rechazar",
+      "empty": "No hay invitaciones pendientes",
+      "accepted_toast": "Pareja confirmada con {requester}",
+      "declined_toast": "Invitación rechazada"
+    }
   },
   "meet_day": {
     "page_label": "Día de competición",
@@ -1052,7 +1061,7 @@
     "col_time": "Hora",
     "col_action": "Acción",
     "col_what": "Qué pasó",
-    "col_org": "Org",
+    "col_org": "Organiz.",
     "col_actor": "Autor",
     "col_event": "Evento",
     "col_round": "Ronda",

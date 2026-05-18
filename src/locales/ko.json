@@ -833,7 +833,16 @@
     "synchro_partner": "싱크로 파트너",
     "pick_partner": "파트너 선택",
     "dd_total": "난이도 합계",
-    "validate_warning": "일부 라운드가 종목의 규칙을 충족하지 않습니다. 제출하기 전에 수정하십시오."
+    "validate_warning": "일부 라운드가 종목의 규칙을 충족하지 않습니다. 제출하기 전에 수정하십시오.",
+    "pairings": {
+      "banner_title": "대기 중인 싱크로 페어 초대",
+      "invite_template": "{requester} 님이 {event}에서 페어를 요청했습니다",
+      "accept": "수락",
+      "decline": "거절",
+      "empty": "대기 중인 초대가 없습니다",
+      "accepted_toast": "{requester} 님과 페어가 확정되었습니다",
+      "declined_toast": "초대를 거절했습니다"
+    }
   },
   "meet_day": {
     "page_label": "대회 당일",
