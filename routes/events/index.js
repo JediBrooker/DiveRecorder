@@ -853,13 +853,24 @@ module.exports = function createEventsRouter({
       // activeDivers and meetHolds are keyed by event_id and
       // would otherwise accumulate as meets pile up. Also
       // clear the persisted row in event_live_state so a
-      // restart doesn't rehydrate dead state.
+      // restart doesn't rehydrate dead state. Drop the venue
+      // bridge sequence counter for the same reason — otherwise
+      // the per-event Map grows unbounded over a meet-week.
       if (status === "Completed") {
         delete activeDivers[r.rows[0].id];
         delete meetHolds[r.rows[0].id];
         if (typeof persistClearAll === "function") {
           persistClearAll(r.rows[0].id);
         }
+        try {
+          require("../../lib/venue-state").pruneSequenceForEvent(r.rows[0].id);
+        } catch (_e) { /* best-effort cleanup */ }
+        // Drop the coach-alerts dedupe entry too — otherwise the
+        // per-process Map would accumulate stale (event_id → key)
+        // entries across a meet-week. Best-effort, never throws.
+        try {
+          require("../../lib/coach-alerts").pruneCompletedEvent(r.rows[0].id);
+        } catch (_e) { /* best-effort cleanup */ }
       }
 
       // ---------------------------------------------------------
