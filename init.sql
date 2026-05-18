@@ -209,6 +209,11 @@ CREATE TABLE public.users (
     pending_email             varchar(254),
     pending_email_token_hash  varchar(64),
     pending_email_expires_at  timestamptz,
+    -- Per-user UI/server locale (Migration 052). NULL means "infer
+    -- from Accept-Language on each request". When set, server-side
+    -- i18n (error messages, email templates, PDF column headers)
+    -- and the SPA pick this locale across devices.
+    locale          varchar(8),
     created_at      timestamptz DEFAULT now()
 );
 
@@ -1110,6 +1115,7 @@ $$;
 
 CREATE INDEX idx_users_org              ON public.users (org_id);
 CREATE INDEX idx_users_club             ON public.users (club_id);
+CREATE INDEX idx_users_locale           ON public.users (locale) WHERE locale IS NOT NULL;
 CREATE INDEX idx_user_org_roles_user    ON public.user_org_roles (user_id);
 CREATE INDEX idx_user_org_roles_org     ON public.user_org_roles (org_id);
 CREATE INDEX idx_role_requests_org      ON public.role_requests (org_id, status);
@@ -1421,7 +1427,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 51);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 52);
 
 
 -- =============================================================
