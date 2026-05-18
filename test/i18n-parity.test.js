@@ -26,12 +26,19 @@
 // When this test fails because you added new keys:
 //
 //   1. DO the translations. Don't bump the tolerance.
-//   2. The conversational-agent workflow is the simplest path —
-//      ask Claude in this chat to translate the new keys; it
-//      knows the diving-domain vocabulary established in each
-//      locale.
-//   3. Or run `npm run translate -- --locales <list>` if you
-//      have an ANTHROPIC_API_KEY or OPENAI_API_KEY set.
+//   2. Two valid paths — pick whichever fits the moment:
+//      (a) Claude in chat translates the new keys inline. Works
+//          without any API key; produces the same diving-domain
+//          vocabulary established in each locale; lands in the
+//          same commit as the keys. Best for "I just added 5 new
+//          strings while building feature X."
+//      (b) `npm run translate -- --locales <list>` — batch tool,
+//          supports both Anthropic (`ANTHROPIC_API_KEY=sk-…`) and
+//          OpenAI (`OPENAI_API_KEY=sk-…`) providers, auto-detected
+//          from env. Best for refreshing many locales after
+//          several commits have accumulated stuck keys, or for
+//          federations self-hosting who want to manage their own
+//          translations without a Claude session in the loop.
 //
 // The tolerance budget is intentionally tight so it can't drift
 // upward silently. Bump it in this file only with a comment
