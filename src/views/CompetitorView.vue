@@ -621,11 +621,62 @@ async function submitList() {
   }
 }
 
+// Pending synchro pairing invitations (migration 051). When
+// another diver submits a synchro list naming this diver as
+// their partner, a pending_partner_pairings row is created and
+// surfaced here as an accept/decline banner. Refreshes on mount
+// + after every accept/decline so the banner stays in sync with
+// the server.
+const pendingPairings = ref([])
+const pairingBusy = ref({}) // map<pairing_id, true> while a request is in flight
+async function loadPendingPairings() {
+  try {
+    const rows = await auth.apiFetch('/api/competitor/pending-pairings')
+    pendingPairings.value = Array.isArray(rows) ? rows : []
+  } catch {
+    pendingPairings.value = []
+  }
+}
+async function acceptPairing(p) {
+  if (pairingBusy.value[p.id]) return
+  pairingBusy.value = { ...pairingBusy.value, [p.id]: true }
+  try {
+    await auth.apiFetch(`/api/competitor/pairings/${p.id}/accept`, { method: 'POST' })
+    showSuccess(t('competitor.pairings.accepted_toast', { requester: p.requester_name }))
+    await loadPendingPairings()
+    // The accept inserted competitor_dive_lists rows for us too,
+    // so a re-load of the current event picks them up.
+    if (currentEvent.value) await loadMyListStatus()
+  } catch (err) {
+    showError(err.message || 'Failed to accept pairing')
+  } finally {
+    const next = { ...pairingBusy.value }
+    delete next[p.id]
+    pairingBusy.value = next
+  }
+}
+async function declinePairing(p) {
+  if (pairingBusy.value[p.id]) return
+  pairingBusy.value = { ...pairingBusy.value, [p.id]: true }
+  try {
+    await auth.apiFetch(`/api/competitor/pairings/${p.id}/decline`, { method: 'POST' })
+    showSuccess(t('competitor.pairings.declined_toast'))
+    await loadPendingPairings()
+  } catch (err) {
+    showError(err.message || 'Failed to decline pairing')
+  } finally {
+    const next = { ...pairingBusy.value }
+    delete next[p.id]
+    pairingBusy.value = next
+  }
+}
+
 onMounted(async () => {
   const [evs, dir] = await Promise.all([
     auth.apiFetch('/api/events'),
     auth.apiFetch('/api/dive-directory'),
     loadTemplates(),
+    loadPendingPairings(),
   ])
   events.value = evs
   diveDirectory.value = dir
@@ -655,6 +706,46 @@ watch(currentEvent, async (ev) => {
   </div>
 
   <div class="main">
+    <!-- Pending synchro pairing invitations (migration 051).
+         Surfaces at the TOP of the page so a diver who just
+         logged in immediately sees a partner request before
+         they hunt for their own event. Each row carries
+         requester + event name + the two action buttons; the
+         buttons disable while the request is in flight to
+         prevent double-fires. -->
+    <div v-if="pendingPairings.length" class="pairings-banner">
+      <div class="pairings-banner-head">
+        <span class="pairings-banner-icon">🤝</span>
+        <span class="pairings-banner-title">
+          {{ $t('competitor.pairings.banner_title') }} ({{ pendingPairings.length }})
+        </span>
+      </div>
+      <ul class="pairings-list">
+        <li v-for="p in pendingPairings" :key="p.id" class="pairings-row">
+          <div class="pairings-row-body">
+            {{ $t('competitor.pairings.invite_template', {
+              requester: p.requester_name,
+              event:     p.event_name,
+            }) }}
+          </div>
+          <div class="pairings-row-actions">
+            <button type="button"
+                    class="btn btn-primary btn-sm"
+                    :disabled="!!pairingBusy[p.id]"
+                    @click="acceptPairing(p)">
+              {{ $t('competitor.pairings.accept') }}
+            </button>
+            <button type="button"
+                    class="btn btn-ghost btn-sm"
+                    :disabled="!!pairingBusy[p.id]"
+                    @click="declinePairing(p)">
+              {{ $t('competitor.pairings.decline') }}
+            </button>
+          </div>
+        </li>
+      </ul>
+    </div>
+
     <!-- Empty state — diver landed here but their federation
          doesn't have any events open for entries (or any events
          at all). The form is useless without a pickable event,
@@ -1084,6 +1175,45 @@ watch(currentEvent, async (ev) => {
      consistent with the alert state. */
   animation: none;
   border-color: var(--border);
+}
+
+/* Pending synchro pairing invitations (migration 051) — sits at
+   the top of the dive-list page so the invitee sees their pending
+   pairing requests before they hunt for their event. Violet accent
+   so it reads distinct from the cyan (post-advance) and amber
+   (reserve) banners. */
+.pairings-banner {
+  margin: 0 auto 1rem;
+  max-width: 900px;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--violet, #9b87f5);
+  background: rgba(155, 135, 245, 0.08);
+  border-radius: var(--radius);
+}
+.pairings-banner-head {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-family: var(--font-display); font-size: 14px; font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.pairings-banner-icon { font-size: 16px; }
+.pairings-banner-title { color: var(--violet, #9b87f5); }
+.pairings-list {
+  list-style: none; margin: 0.5rem 0 0; padding: 0;
+  display: flex; flex-direction: column; gap: 0.5rem;
+}
+.pairings-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem; flex-wrap: wrap;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--bg-2, rgba(255, 255, 255, 0.02));
+  border-radius: var(--radius);
+}
+.pairings-row-body {
+  font-size: 14px; color: var(--text); line-height: 1.4; flex: 1 1 auto;
+}
+.pairings-row-actions {
+  display: flex; gap: 0.5rem; flex: 0 0 auto;
 }
 
 /* Reserve banner — amber accent so it reads as a holding

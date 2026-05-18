@@ -929,7 +929,16 @@
     "synchro_partner": "Synchro partner",
     "pick_partner": "Pick a partner",
     "dd_total": "Total DD",
-    "validate_warning": "Some rounds don't satisfy the event's rules. Fix them before submitting."
+    "validate_warning": "Some rounds don't satisfy the event's rules. Fix them before submitting.",
+    "pairings": {
+      "banner_title": "Pending synchro pairing invitations",
+      "invite_template": "{requester} invited you to pair on {event}",
+      "accept": "Accept",
+      "decline": "Decline",
+      "empty": "No pending invitations",
+      "accepted_toast": "Pairing confirmed with {requester}",
+      "declined_toast": "Pairing declined"
+    }
   },
   "meet_day": {
     "page_label": "Meet day",
