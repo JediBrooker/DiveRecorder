@@ -1379,6 +1379,33 @@ CREATE TABLE public.dismissed_conflicts (
 
 
 -- =============================================================
+-- PENDING PARTNER PAIRINGS (migration 051) — synchro consent.
+-- A synchro submit creates a pending row when no reciprocal
+-- invite exists; the partner can accept (auto-finalises both
+-- competitor_dive_lists rows) or decline. See migration file
+-- for the full flow.
+-- =============================================================
+
+CREATE TABLE public.pending_partner_pairings (
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id      uuid NOT NULL REFERENCES public.events(id) ON DELETE CASCADE,
+    requester_id  uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    partner_id    uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    status        text NOT NULL DEFAULT 'pending'
+                  CHECK (status IN ('pending', 'accepted', 'declined', 'expired')),
+    note          text,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    responded_at  timestamptz,
+    UNIQUE (event_id, requester_id, partner_id),
+    CHECK (requester_id <> partner_id)
+);
+
+CREATE INDEX idx_pending_pairings_partner
+    ON public.pending_partner_pairings (partner_id, status)
+    WHERE status = 'pending';
+
+
+-- =============================================================
 -- SCHEMA VERSION STAMP
 -- Single-row table the server reads on boot to log which
 -- schema version is deployed. init.sql sets the current baked-in
@@ -1393,7 +1420,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 50);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 51);
 
 
 -- =============================================================
