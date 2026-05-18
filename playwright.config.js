@@ -13,35 +13,19 @@
 
 const { defineConfig } = require("@playwright/test");
 
-const FULL_E2E = process.env.E2E_FULL === "1";
-const DEMO_E2E = process.env.E2E_DEMO === "1";
 const DOCS_E2E = process.env.E2E_DOCS === "1";
 const requestedCiWorkers = Number(process.env.PW_WORKERS);
 const ciWorkers = Number.isFinite(requestedCiWorkers) && requestedCiWorkers > 0
   ? Math.floor(requestedCiWorkers)
   : 3;
 
-const testIgnore = [];
-if (!FULL_E2E && !DEMO_E2E) {
-  testIgnore.push(
-    "**/meet-manager.spec.js",
-    "**/judge.spec.js",
-    "**/scoreboard-ui.spec.js",
-  );
-}
-if (!FULL_E2E && !DOCS_E2E) {
-  testIgnore.push("**/wiki-screenshots.spec.js");
-}
+// Default suite excludes the documentation screenshot generator
+// (it's a one-shot writer that produces wiki PNGs, not a
+// regression gate). Pass E2E_DOCS=1 to include it.
+const testIgnore = DOCS_E2E ? [] : ["**/wiki-screenshots.spec.js"];
 
 module.exports = defineConfig({
   testDir: "./test/e2e",
-  // The default suite is the fast automatic regression gate.
-  // The long human-paced walkthroughs and documentation
-  // screenshot generator are opt-in:
-  //
-  //   E2E_FULL=1  playwright test      # every spec, fast pacing
-  //   E2E_DEMO=1  playwright test ...  # headed demo walkthroughs
-  //   E2E_DOCS=1  playwright test ...  # docs screenshot writer
   testIgnore,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,        // fail the build if .only slipped in

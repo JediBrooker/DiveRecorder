@@ -733,9 +733,7 @@ If you're a paying customer or running a production federation, urgent issues ca
 | `npm start` | Run the Express server (serves `dist/` if built; serves the API and WebSocket on :3000) |
 | `npm run lint` | Syntax-check `server.js` |
 | `npm test` | Node's built-in test runner against `test/*.test.js` |
-| `npm run test:e2e` | Fast automatic Playwright suite — see below |
-| `npm run test:e2e:full` | Every Playwright spec, including manual/demo/docs specs, with fast pacing |
-| `npm run test:e2e:demo` | Headed, human-paced meet-manager / judge / scoreboard walkthroughs |
+| `npm run test:e2e` | Automatic Playwright suite — see below |
 | `npm run test:e2e:docs` | Regenerate documentation screenshots in `docs/screenshots/` |
 | `npm run test:e2e:visual` | Run only the Playwright visual regression snapshots |
 | `npm run test:e2e:profile` | Run Playwright with the JSON reporter at `/tmp/divinghq-playwright-profile.json` |
@@ -755,14 +753,10 @@ through full user journeys. Each test creates an isolated org +
 admin per run via `_setup.createOrgAndAdmin`, then deletes the org
 in cleanup so parallel runs don't collide.
 
-The default `npm run test:e2e` command is the fast automatic gate.
-It excludes the human-paced demo walkthroughs
-(`meet-manager.spec.js`, `judge.spec.js`, `scoreboard-ui.spec.js`)
-and the documentation screenshot generator
-(`wiki-screenshots.spec.js`). Use `npm run test:e2e:full` when you
-want every spec in fast mode, `npm run test:e2e:demo` when you want
-to watch the full UI journeys, and `npm run test:e2e:docs` when you
-intentionally want to rewrite screenshots under `docs/screenshots/`.
+The default `npm run test:e2e` command is the regression gate.
+It excludes only the documentation screenshot generator
+(`wiki-screenshots.spec.js`), which rewrites images in
+`docs/screenshots/` and is opt-in via `npm run test:e2e:docs`.
 
 ### The specs
 
@@ -773,9 +767,8 @@ intentionally want to rewrite screenshots under `docs/screenshots/`.
 | `admin.spec.js` | Org admin creates an event, late-adds a diver to the roster, flips Upcoming → Live → Completed |
 | `competitor.spec.js` | Diver self-registers, login is blocked with `code: "email_not_verified"`, verify-then-login works, diver submits a 2-round dive list |
 | `2fa.spec.js` | TOTP setup → confirm → two-step login → recovery-code login → disable. Recovery codes are one-time |
-| `scoreboard-ui.spec.js` | Manual/demo UI simulation of a 3-diver × 3-round meet. Login → `/scoreboard/<id>` → live judge tiles fill with each socket event → standings re-sort → Completed flip → recap renders. Excluded from default e2e; included by `E2E_FULL=1` or `E2E_DEMO=1` |
-| `meet-manager.spec.js` | Manual/demo full meet-manager pipeline. Login → `/control` → pick event → walk the 4-state pre-meet workflow button (red Check In → orange Randomise → yellow Sign-Off → green Start) → judges score over 3 rounds × N divers as the admin clicks "Next Diver →" between dives → Finalise → recap. Yellow Sign-Off step opens the modal and exercises the **credential** path. Excluded from default e2e; included by `E2E_FULL=1` or `E2E_DEMO=1` |
-| `judge.spec.js` | Manual/demo judge persona. Log in → dashboard surfaces "Your Assigned Events" → click → `/judge?event=<id>` → tap numbers + Submit on the keypad as the admin walks through 3 rounds × 3 divers. Includes two **referee-signal** scenarios. Excluded from default e2e; included by `E2E_FULL=1` or `E2E_DEMO=1` |
+| `workflow-readiness-rehearsal.spec.js` | Operator workflow state machine — `/api/events/:id/readiness` progresses from blockers to ready; dashboard `workflow_actions` mirrors it; referee desk + coach workbench slices; rehearsal-mode privacy + side-effect skips. Replaces the headed manual run that used to walk Check In → Randomise → Sign Off → Start in a real browser |
+| `dashboard-audit.spec.js` | `/api/dashboard` bundle endpoint, including the judge-role `judge_events` slice that powers the "Your Assigned Events" card. Verifies an assigned judge sees the event with the correct `judge_number`, an unassigned judge gets an empty array |
 | `meet-day.spec.js` | Diver meet-day phone view. 3-round walkthrough at `/me/meet/:eventId` with per-round assertions on next-dive code/DD, queue countdown / "YOU'RE UP" banner, current standing, and the medal-target rows. Pre-event variant verifies the empty state |
 | `round-rules.spec.js` | Round-rules feature (migration 038). Operator POSTs an event with the Diving NSW–style "4 @ 7.6 from 4 groups + 4 unlimited from 4 groups" sections; the diver's submit-list endpoint rejects DD-cap violations and not-enough-distinct-groups lists with `400 + violations[]`, accepts a clean list with `200`. Shape-validation case rejects misshapen `round_rules` up-front (including `min_distinct_groups` out of range / exceeding `rounds`). Headed walkthrough opens the New Event modal via `+ New Event`, clicks **+ Add section**, and asserts the numeric **Min different groups** input is present and that the deprecated **Quick** preset button is gone |
 | `round-dives.spec.js` | Operator-prescribed round dives (migration 039). API test pins specific dives to rounds 1 + 2 of a 3-round event (round 3 free), confirms `GET /api/events/:id/round-dives` returns the enriched array, then POSTs a diver list with the wrong dive in round 2 (rejected `400 violates the event's prescribed dives`) and a clean list (`200`). PUT with `round_dives:[]` clears the prescription. Headed walkthrough opens the New Event modal, asserts the "Number of Rounds" dropdown is gone, clicks **+ Add Dive** three times to grow the round-dives list, then uses the "+ 5 rounds" quick-add to bulk-stamp slots — the round-count badge updates live |
@@ -789,15 +782,9 @@ The spec runs use the same Postgres test database as `npm test`
 (`divinghq_test` by default — override with `DB_DATABASE`).
 
 ```bash
-# Fast automatic suite (parallel, headless). Excludes the
-# human-paced demo specs and docs screenshot generator.
+# Default automatic suite (parallel, headless). Excludes only the
+# documentation screenshot generator.
 npm run test:e2e
-
-# Every Playwright spec, but with fast pacing.
-npm run test:e2e:full
-
-# Human-paced headed demo walkthroughs.
-npm run test:e2e:demo
 
 # Documentation screenshot regeneration. This rewrites
 # docs/screenshots/*.png by design.
@@ -809,17 +796,14 @@ npm run test:e2e:visual
 # Profile timings to /tmp/divinghq-playwright-profile.json.
 npm run test:e2e:profile
 
-# Profile every opt-in spec too. This may rewrite docs screenshots.
-E2E_FULL=1 npm run test:e2e:profile
-
 # One spec at a time
-E2E_FULL=1 npx playwright test test/e2e/judge.spec.js
+npx playwright test test/e2e/scoring.spec.js
 
 # Watch it live in a real Chrome window
-E2E_DEMO=1 npx playwright test test/e2e/meet-manager.spec.js --headed --workers=1
+npx playwright test test/e2e/admin.spec.js --headed --workers=1
 
 # Step through every action in the Inspector
-E2E_DEMO=1 PWDEBUG=1 npx playwright test test/e2e/scoreboard-ui.spec.js
+PWDEBUG=1 npx playwright test test/e2e/scoring.spec.js
 
 # UI runner with a timeline + retry-from-step-N
 npx playwright test --ui
@@ -830,121 +814,35 @@ project sets `viewport: null` plus `--window-size=1440,900` via
 launchOptions, so the page renders at a sensible default and you
 can drag the window edge to test responsive behaviour mid-run.
 
-### Variant overrides for the random specs
+### Coverage of operator + judge + scoreboard surfaces
 
-The `meet-manager` and `judge` specs randomise the meet shape
-each run so CI exercises every event_type / height / judge
-position over time. Every random pick is overridable so a
-failing run is reproducible, and a demo run is repeatable.
+These three areas used to have headed human-paced demo specs
+(`meet-manager.spec.js`, `judge.spec.js`, `scoreboard-ui.spec.js`).
+They were optimised for visibility — opening Chrome, dwelling
+between dives so a watcher could see scores land — and CI was
+skipping them. Removed in favour of fast API-level + socket-level
+coverage that catches the same regressions without the runtime
+cost:
 
-#### `meet-manager.spec.js` — `MM_*`
+| Surface | Automated coverage |
+|---|---|
+| Operator pre-meet workflow (Check In → Randomise → Sign Off → Start) + readiness state machine | `workflow-readiness-rehearsal.spec.js` |
+| Live → Completed transitions, late roster adds | `admin.spec.js`, `advance.spec.js`, `edit-dive.spec.js` |
+| Judge socket scoring pipeline → scoreboard | `scoring.spec.js` (5 judges × N divers via `socket.io-client`; asserts `/api/scoreboard` reflects the trimmed total) |
+| Judge dashboard "Your Assigned Events" card | `dashboard-audit.spec.js` (`judge_events` slice) |
+| Coach on-behalf-of dive lists + withdraw + audit | `authz-privileged-writes.spec.js` |
+| Standings re-sort after each score | `scoring.spec.js`, `super-final-full.spec.js`, `super-final-h2h.spec.js` |
 
-| Env var | Allowed values | Default | What it controls |
-|---|---|---|---|
-| `MM_VARIANT` | `individual` \| `synchro_pair` \| `team` | random | Event type the meet runs as |
-| `MM_HEIGHT` | `1m` \| `3m` \| `5m` \| `7.5m` \| `10m` | random | Board / platform height |
-| `MM_PRE_DIVE_MS` | int (ms) | `50` / `1200` in `E2E_DEMO=1` | Dwell after announcing each diver, before scoring |
-| `MM_PER_SCORE_MS` | int (ms) | `10` / `250` in `E2E_DEMO=1` | Dwell between consecutive judge score submits |
-| `MM_POST_DIVE_MS` | int (ms) | `50` / `900` in `E2E_DEMO=1` | Dwell after the last score lands, before the next diver |
-| `MM_LOGIN_HOLD_MS` | int (ms) | `0` / `1500` in `E2E_DEMO=1` | Dwell after login + after each Control Room navigation |
-| `MM_FINAL_HOLD_MS` | int (ms) | `0` / `4000` in `E2E_DEMO=1` | Hold on the recap screen at the end before teardown |
-| `MM_WORKFLOW_HOLD_MS` | int (ms) | `0` / `2500` in `E2E_DEMO=1` | Dwell between each click of the 4-state pre-meet button (red → orange → yellow → green) |
+### Headed-run helpers
 
-Synchro defaults to **11 judges** for the headed walkthrough; app
-configuration supports 7, 9 or 11 judge synchro panels. A 7-judge
-synchro panel is four execution judges split 2+2 across the divers,
-plus three synchronisation judges.
-
-#### `judge.spec.js` — `J_*`
-
-| Env var | Allowed values | Default | What it controls |
-|---|---|---|---|
-| `J_VARIANT` | `individual` \| `synchro_pair` | random | Event type the meet runs as |
-| `J_HEIGHT` | `1m` \| `3m` \| `5m` \| `7.5m` \| `10m` | random | Board / platform height |
-| `J_NUMBER` | `1`..`N` (`N`=5 individual / 11 synchro) | random | The test judge's panel position. Drives which synchro role they get |
-| `J_LOGIN_HOLD_MS` | int (ms) | `0` / `1500` in `E2E_DEMO=1` | Dwell after login |
-| `J_PRE_DIVE_MS` | int (ms) | `50` / `1500` in `E2E_DEMO=1` | Dwell after the diver block updates, before the test judge starts tapping |
-| `J_PER_KEYPRESS_MS` | int (ms) | `10` / `350` in `E2E_DEMO=1` | Dwell between consecutive keypad button presses |
-| `J_POST_SUBMIT_MS` | int (ms) | `50` / `1000` in `E2E_DEMO=1` | Dwell after the test judge clicks Submit |
-| `J_POST_DIVE_MS` | int (ms) | `50` / `700` in `E2E_DEMO=1` | Dwell between dives |
-| `J_FINAL_HOLD_MS` | int (ms) | `0` / `3000` in `E2E_DEMO=1` | Hold on the final scored state before teardown |
-
-Synchro panel layout the test judge maps into:
-
-| `NUM_JUDGES` | Exec A | Exec B | Synchronisation |
-|---|---|---|---|
-| 7 | 1, 2 | 3, 4 | 5–7 |
-| 9 (only via explicit setup) | 1, 2 | 3, 4 | 5–9 |
-| 11 (default) | 1, 2, 3 | 4, 5, 6 | 7–11 |
-
-#### Common repros
-
-```bash
-# Meet manager — synchro 11-judge at 10m, full headed run
-MM_VARIANT=synchro_pair MM_HEIGHT=10m \
-  npm run test:e2e:demo -- --grep "meet-manager full E2E"
-
-# Meet manager — team event at 5m
-MM_VARIANT=team MM_HEIGHT=5m \
-  npm run test:e2e:demo -- --grep "meet-manager full E2E"
-
-# Judge — pin the test judge to each synchro role
-J_VARIANT=synchro_pair J_NUMBER=2  \
-  npm run test:e2e:demo -- --grep "judge full E2E"   # Exec A
-J_VARIANT=synchro_pair J_NUMBER=5  \
-  npm run test:e2e:demo -- --grep "judge full E2E"   # Exec B
-J_VARIANT=synchro_pair J_NUMBER=10 \
-  npm run test:e2e:demo -- --grep "judge full E2E"   # Synchronisation
-```
-
-### Pacing knobs
-
-The UI-driven specs default to fast timings when run through
-`E2E_FULL=1`, and switch to human-watchable timings under
-`E2E_DEMO=1`. The full env-var reference for `meet-manager` and
-`judge` lives in the tables above. The third UI spec —
-`scoreboard-ui` — uses a separate `PW_*` namespace because it
-predates the others:
-
-| Env var | Default (ms) | What it controls |
-|---|---|---|
-| `PW_PRE_DIVE_MS` | `50` / `1500` in `E2E_DEMO=1` | Dwell after announcing each diver |
-| `PW_PER_SCORE_MS` | `10` / `250` in `E2E_DEMO=1` | Dwell between consecutive judges |
-| `PW_POST_DIVE_MS` | `50` / `2500` in `E2E_DEMO=1` | Dwell after the dive's last score lands |
-| `PW_FINAL_HOLD_MS` | `0` / `5000` in `E2E_DEMO=1` | Hold on the final standings before teardown |
-
-```bash
-# Every spec with fast defaults.
-npm run test:e2e:full
-
-# Every spec with custom intermediate pacing.
-MM_PRE_DIVE_MS=200 MM_PER_SCORE_MS=50 MM_POST_DIVE_MS=200 \
-MM_LOGIN_HOLD_MS=200 MM_FINAL_HOLD_MS=200 MM_WORKFLOW_HOLD_MS=200 \
-J_LOGIN_HOLD_MS=200 J_PRE_DIVE_MS=200 J_PER_KEYPRESS_MS=50 \
-J_POST_SUBMIT_MS=200 J_POST_DIVE_MS=200 J_FINAL_HOLD_MS=200 \
-PW_PRE_DIVE_MS=200 PW_PER_SCORE_MS=50 PW_POST_DIVE_MS=200 PW_FINAL_HOLD_MS=200 \
-  npm run test:e2e:full
-```
-
-### Headed-watcher helpers
-
-Two small UX shims make a `--headed` run easier to follow. Both
-gated behind env vars so CI runs are unaffected.
+When you do run an existing spec with `--headed` to debug a flake,
+two env vars (wired into `test/e2e/_setup.js`) make the session
+easier to follow:
 
 | Env var | Default | What it does |
 |---|---|---|
-| `E2E_DIALOG_HOLD_MS` | `0` | Dwell (ms) before auto-accepting `window.confirm()` popups (Randomise, Sign Off, Finalise…). Default `0` accepts instantly so a CI run isn't slowed down. Set to `5000` for a leisurely demo where every confirm box stays on screen long enough to read. |
-| `E2E_HIGHLIGHT` | `1` (on) | Cyan ring drawn briefly at every `pointerdown` so the watcher can track where each click lands. Set to `0` to disable (e.g. for screenshot-comparison tests where the ring would dirty the diff). |
-
-Wired into `meet-manager`, `judge`, and `scoreboard-ui` — the
-three UI-driven specs you'd most likely want to watch.
-
-```bash
-# Demo mode — leisurely confirms + visible click rings, default
-# pacing knobs.
-E2E_DIALOG_HOLD_MS=5000 \
-  npm run test:e2e:demo
-```
+| `E2E_DIALOG_HOLD_MS` | `0` | Dwell (ms) before auto-accepting `window.confirm()` popups. Default accepts instantly so CI isn't slowed; set to `5000` for a leisurely debug where every confirm box stays on screen long enough to read. |
+| `E2E_HIGHLIGHT` | `1` | Cyan ring drawn briefly at every `pointerdown` so the watcher can track where each click lands. Set to `0` to disable when running visual-regression tests (the ring would dirty the diff). |
 
 ### Rate limiter
 

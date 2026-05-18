@@ -12,8 +12,6 @@
     "test": "node --test test/syntax.test.js test/calc.test.js test/score-trim.test.js test/dive-label.test.js test/venue-daktronics-bridge.test.js test/venue-state.test.js test/coach-alerts.test.js test/integration.test.js",
     "test:safe": "node --test test/syntax.test.js test/calc.test.js test/score-trim.test.js test/dive-label.test.js test/venue-daktronics-bridge.test.js test/venue-state.test.js test/coach-alerts.test.js",
     "test:e2e": "playwright test",
-    "test:e2e:full": "E2E_FULL=1 playwright test",
-    "test:e2e:demo": "E2E_DEMO=1 playwright test test/e2e/meet-manager.spec.js test/e2e/judge.spec.js test/e2e/scoreboard-ui.spec.js --headed --workers=1",
     "test:e2e:docs": "E2E_DOCS=1 playwright test test/e2e/wiki-screenshots.spec.js --workers=1",
     "test:e2e:visual": "playwright test test/e2e/visual-regression.spec.js",
     "test:e2e:profile": "PLAYWRIGHT_JSON_OUTPUT_NAME=/tmp/divinghq-playwright-profile.json playwright test --reporter=json",

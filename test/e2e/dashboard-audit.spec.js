@@ -43,6 +43,78 @@ test("dashboard bundle endpoint returns role-scoped slices", async ({ request })
 });
 
 // =============================================================
+// 1b. Judge-role dashboard surface — `judge_events` slice
+// =============================================================
+//
+// The dashboard returns a `judge_events` array for users with the
+// judge role: every Upcoming/Live event the user is on the panel
+// of, with the panel position (`judge_number`) the operator
+// assigned them. This is what the in-app "Your Assigned Events"
+// card renders. Used to be covered only by the headed demo spec
+// in judge.spec.js (which clicked through the card to confirm it
+// surfaced the right event); now covered headlessly at the API
+// layer so the same regression is caught without running Chrome.
+test("dashboard judge_events surfaces assigned panel events for judge role", async ({ request }) => {
+  test.setTimeout(30_000);
+
+  const { orgId, adminToken } = await setup.createOrgAndAdmin(request, {
+    orgName: "Judge Dashboard E2E",
+    countryCode: "AUS",
+  });
+
+  const event = await setup.createEvent(request, {
+    adminToken,
+    name: "Judge Dashboard Event",
+    total_rounds: 3,
+    number_of_judges: 5,
+    height: "3m",
+  });
+
+  // Judge with no panel assignment — `judge_events` should exist
+  // but be empty.
+  const unassigned = await setup.insertUser({
+    orgId, role: "judge", fullName: "Unassigned Judge",
+  });
+  const { token: unassignedToken } = await setup.loginAs(request, unassigned.username);
+  const r1 = await request.get("/api/dashboard", {
+    headers: { Authorization: `Bearer ${unassignedToken}` },
+  });
+  expect(r1.status()).toBe(200);
+  const body1 = await r1.json();
+  expect(Array.isArray(body1.judge_events)).toBe(true);
+  expect(body1.judge_events).toHaveLength(0);
+
+  // Judge assigned to the event panel — the card SHOULD show the
+  // event with the panel position the operator gave them.
+  const assigned = await setup.insertUser({
+    orgId, role: "judge", fullName: "Assigned Judge",
+  });
+  await setup.assignJudges(request, {
+    adminToken, eventId: event.id, judgeIds: [assigned.userId],
+  });
+
+  const { token: assignedToken } = await setup.loginAs(request, assigned.username);
+  const r2 = await request.get("/api/dashboard", {
+    headers: { Authorization: `Bearer ${assignedToken}` },
+  });
+  expect(r2.status()).toBe(200);
+  const body2 = await r2.json();
+  expect(Array.isArray(body2.judge_events)).toBe(true);
+  expect(body2.judge_events).toHaveLength(1);
+
+  const judgeEvent = body2.judge_events[0];
+  expect(judgeEvent.id).toBe(event.id);
+  expect(judgeEvent.name).toBe("Judge Dashboard Event");
+  // `Upcoming` is the default status for a freshly-created event —
+  // the dashboard query filters out anything outside Upcoming/Live
+  // so a Completed event drops off this card automatically.
+  expect(judgeEvent.status).toBe("Upcoming");
+  expect(typeof judgeEvent.judge_number).toBe("number");
+  expect(judgeEvent.judge_number).toBeGreaterThanOrEqual(1);
+  expect(judgeEvent.judge_number).toBeLessThanOrEqual(5);
+});
+
+// =============================================================
 // 2. /api/audit/* — federation-wide audit endpoints
 // =============================================================
 test("audit endpoints expose role + event lifecycle activity", async ({ request }) => {
