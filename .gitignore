@@ -35,3 +35,14 @@ playwright/.cache/
 
 # Observability stack — local secrets (Grafana password, etc.)
 ops/observability/.env
+
+# Local agent / tooling artifacts — never want these in the repo
+.agents/
+
+# R history files — accidentally generated when someone opens
+# docs/ in RStudio. Pure session debris.
+docs/.Rhistory
+
+# Working-draft documents. Copy to a final path under docs/ when
+# they're ready to ship; the draft itself is local-only.
+docs/privacy-policy-draft.md
