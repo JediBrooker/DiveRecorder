@@ -599,6 +599,9 @@ app.use(require("./routes/users")({
   requireMeetEditor,
   bumpTokenVersion,
   sendRoleDecisionEmail,
+  // Self-delete + claim endpoints (Migration 053) — rate-limited
+  // so a hijacked session can't brute-force the password gate.
+  bulkWriteLimiter,
 }));
 
 // =============================================================

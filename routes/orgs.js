@@ -114,6 +114,7 @@ module.exports = function createOrgsRouter({
          JOIN user_org_roles r ON r.user_id = u.id AND r.org_id = u.org_id AND r.role = 'diver'
          LEFT JOIN clubs cl ON cl.id = u.club_id
          WHERE u.org_id = $1
+           AND u.deleted_at IS NULL
          ORDER BY u.full_name ASC`,
         [req.params.id],
       );

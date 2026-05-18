@@ -20,6 +20,8 @@
 //   app.use(require('./routes/users')({ … }))
 
 const express = require("express");
+const bcrypt  = require("bcryptjs");
+const { recordAudit, auditFromReq } = require("../lib/audit");
 
 // Enum values from init.sql's CREATE TYPE org_role. system_admin
 // is intentionally NOT in this set — it's a column on users, not
@@ -30,6 +32,11 @@ const VALID_ORG_ROLES = new Set([
   "judge", "diver", "coach", "spectator",
 ]);
 
+// Pass-through middleware used when the caller doesn't wire a
+// bulkWriteLimiter (e.g. test harnesses). Keeps the per-route
+// chain syntax identical in both branches.
+const NOOP = (_req, _res, next) => next();
+
 module.exports = function createUsersRouter({
   pool,
   verifyToken,
@@ -37,9 +44,11 @@ module.exports = function createUsersRouter({
   requireMeetEditor,
   bumpTokenVersion,
   sendRoleDecisionEmail,
+  bulkWriteLimiter,
 }) {
   if (!pool) throw new Error("createUsersRouter requires { pool, … }");
   const router = express.Router();
+  const writeLimiter = bulkWriteLimiter || NOOP;
 
   router.get("/api/users", requireOrgAdmin, async (req, res) => {
     try {
@@ -65,6 +74,7 @@ module.exports = function createUsersRouter({
          LEFT JOIN clubs c ON c.id = u.club_id
          LEFT JOIN user_org_roles r ON u.id = r.user_id AND r.org_id = u.org_id
          WHERE ($2::boolean OR u.org_id = $1)
+           AND u.deleted_at IS NULL
          GROUP BY u.id, u.username, u.full_name, u.is_system_admin,
                   u.org_id, o.name, o.country_code, o.slug,
                   u.club_id, c.name, c.short_code
@@ -381,6 +391,468 @@ module.exports = function createUsersRouter({
     }
   });
 
+  // -------------------------------------------------------------
+  // POST /api/users/me/delete  (Migration 053)
+  //
+  // Self-service account deletion. Strips every PII column from
+  // the user row, wipes settings + push subscriptions + role
+  // grants, and stamps deleted_at = now(). What stays: full_name,
+  // org_id, club_id — so the user's name remains on the dives
+  // they actually competed in (sporting record). See
+  // docs/privacy-policy.md §7 for the user-facing contract.
+  //
+  // Body: { password }. We re-verify the current password so a
+  // hijacked session can't silently destroy the account; same
+  // pattern as the self-service password / email change paths.
+  // Rate-limited via bulkWriteLimiter to slow brute-forcing the
+  // password gate.
+  //
+  // The transaction also bumps token_version, so every
+  // currently-issued JWT for this user is invalidated within the
+  // 30s cache TTL even before deleted_at gates fire in
+  // verifyToken.
+  // -------------------------------------------------------------
+  router.post("/api/users/me/delete", writeLimiter, verifyToken, async (req, res) => {
+    const { password } = req.body || {};
+    if (typeof password !== "string" || !password) {
+      return res.status(400).json({ error: "Password is required" });
+    }
+    const client = await pool.connect();
+    try {
+      // Pull the user row first — we need org_id (for the audit
+      // row) and password (for the re-auth gate). Read happens
+      // OUTSIDE the BEGIN block so a wrong-password early return
+      // doesn't open and immediately roll back an empty
+      // transaction on every brute-force probe.
+      const u = await client.query(
+        `SELECT id, password, org_id, deleted_at, full_name
+         FROM users WHERE id = $1`,
+        [req.user.id],
+      );
+      const user = u.rows[0];
+      if (!user || user.deleted_at != null) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (!user.password) {
+        // No password hash on the row — that user signed up
+        // pre-bcrypt or had their password column wiped already.
+        // Treat as auth failure rather than letting them delete
+        // without proving identity.
+        return res.status(401).json({ error: "Password incorrect" });
+      }
+      const ok = await bcrypt.compare(password, user.password);
+      if (!ok) {
+        return res.status(401).json({ error: "Password incorrect" });
+      }
+
+      await client.query("BEGIN");
+
+      // Count the side-effect deletes BEFORE we run them so the
+      // audit-log metadata has accurate numbers. Cheap — these
+      // are tiny per-user tables.
+      const subCount = await client.query(
+        "SELECT COUNT(*)::int AS n FROM push_subscriptions WHERE user_id = $1",
+        [req.user.id],
+      );
+      const coachCount = await client.query(
+        `SELECT COUNT(*)::int AS n FROM coach_diver_links
+         WHERE coach_id = $1 OR diver_id = $1`,
+        [req.user.id],
+      );
+      const roleReqCount = await client.query(
+        "SELECT COUNT(*)::int AS n FROM role_requests WHERE user_id = $1",
+        [req.user.id],
+      );
+      const grantCount = await client.query(
+        "SELECT COUNT(*)::int AS n FROM user_org_roles WHERE user_id = $1",
+        [req.user.id],
+      );
+
+      // The big-redact UPDATE. Keep full_name, org_id, club_id
+      // intact — they anchor the historical sporting record and
+      // the claim-on-return flow. Rewrite username so a future
+      // sign-up choosing the same handle isn't blocked by the
+      // UNIQUE constraint; password / email / public_slug go to
+      // NULL so duplicate-email checks and the public profile
+      // route lose their hooks. token_version bump invalidates
+      // every outstanding JWT immediately.
+      // public_slug is NOT NULL in the schema (init.sql line ~191),
+      // so we can't NULL it. To make /diver/<old_slug> 404 cleanly
+      // we replace it with a deterministic placeholder that is
+      // NOT a 32-hex string — the public-profile regex check
+      // (`/^[0-9a-f]{32}$/i`) rejects it before the DB round-trip,
+      // so the slug is effectively unreachable.
+      await client.query(
+        `UPDATE users SET
+            password                 = NULL,
+            email                    = NULL,
+            public_slug              = 'deleted-' || left(id::text, 8),
+            totp_secret              = NULL,
+            totp_enabled_at          = NULL,
+            totp_recovery_codes      = NULL,
+            pending_email            = NULL,
+            pending_email_token_hash = NULL,
+            pending_email_expires_at = NULL,
+            locale                   = NULL,
+            dashboard_widgets        = NULL,
+            judge_dashboard_widgets  = NULL,
+            deleted_at               = NOW(),
+            token_version            = token_version + 1,
+            username                 = 'deleted-' || left(id::text, 8)
+         WHERE id = $1`,
+        [req.user.id],
+      );
+
+      // Cut every link to other people. push_subscriptions also
+      // FK-cascades on user delete but we DON'T hard-delete the
+      // user row — so wipe these manually. Same for coach links,
+      // role requests, and held grants.
+      await client.query(
+        "DELETE FROM push_subscriptions WHERE user_id = $1",
+        [req.user.id],
+      );
+      await client.query(
+        `DELETE FROM coach_diver_links
+         WHERE coach_id = $1 OR diver_id = $1`,
+        [req.user.id],
+      );
+      await client.query(
+        "DELETE FROM role_requests WHERE user_id = $1",
+        [req.user.id],
+      );
+      await client.query(
+        "DELETE FROM user_org_roles WHERE user_id = $1",
+        [req.user.id],
+      );
+
+      // Audit. Best-effort — recordAudit swallows its own errors.
+      // metadata carries summary counts but never any PII; the
+      // user's full_name is intentionally NOT included.
+      await recordAudit(client, {
+        ...auditFromReq(req),
+        org_id: user.org_id,
+        entity_type: "user",
+        entity_id: user.id,
+        entity_name: null,
+        action: "user.self_delete",
+        metadata: {
+          push_subscriptions_removed: subCount.rows[0].n,
+          coach_links_removed:        coachCount.rows[0].n,
+          role_requests_removed:      roleReqCount.rows[0].n,
+          role_grants_removed:        grantCount.rows[0].n,
+        },
+      });
+
+      // Drop the token-version cache entry so the 30s in-process
+      // cache can't admit a request from a stale JWT after the
+      // commit. Composes inside the open transaction so a
+      // rollback here also rolls back the version bump above.
+      if (typeof bumpTokenVersion === "function") {
+        // bumpTokenVersion increments AGAIN — that's intentional:
+        // the UPDATE above already bumped, and this second bump
+        // ensures the in-process cache.delete() runs. The total
+        // increment of 2 is harmless: nothing depends on the
+        // version being monotonic by exactly 1.
+        await bumpTokenVersion(client, req.user.id);
+      }
+
+      await client.query("COMMIT");
+      res.json({ deleted: true });
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error("[User Self-Delete Error]", err.message);
+      res.status(500).json({ error: "Account deletion failed" });
+    } finally {
+      client.release();
+    }
+  });
+
+  // -------------------------------------------------------------
+  // POST /api/users/me/claim-candidates  (Migration 053)
+  //
+  // Reunite-on-return: returns the deleted-user rows in the
+  // caller's org that share their full_name (case-insensitive).
+  // The caller picks which (if any) are theirs and POSTs to
+  // /api/users/me/claim to re-link them.
+  //
+  // Cross-org candidates are NOT returned. A diver who has moved
+  // federations between accounts gets the manual-admin escalation
+  // route described in the privacy policy; auto-suggesting a
+  // candidate from another org would surface a name + event
+  // history pair to anyone who could guess the org boundary.
+  //
+  // GET would be acceptable here too — we treat it as POST so a
+  // future variant that takes a body (e.g. an explicit name
+  // override for a married-name change) doesn't have to break
+  // the URL shape.
+  // -------------------------------------------------------------
+  router.post("/api/users/me/claim-candidates", verifyToken, async (req, res) => {
+    try {
+      // Fetch the current user's identity. We can't trust the
+      // JWT alone — it doesn't carry full_name — and we need
+      // org_id from the row anyway for the scoping clause.
+      const meRes = await pool.query(
+        `SELECT id, full_name, org_id, deleted_at
+         FROM users WHERE id = $1`,
+        [req.user.id],
+      );
+      const me = meRes.rows[0];
+      if (!me || me.deleted_at != null) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      // Look up every deleted user in the same org with the
+      // same full_name. The partial index on
+      // (org_id, lower(full_name)) WHERE deleted_at IS NOT NULL
+      // makes this a constant-time check even on a federation
+      // with millions of historical rows.
+      const r = await pool.query(
+        `SELECT
+            u.id,
+            u.full_name,
+            u.club_id,
+            cl.name        AS club_name,
+            cl.short_code  AS club_code,
+            u.created_at,
+            u.deleted_at,
+            (SELECT COUNT(*)::int FROM competitor_dive_lists
+             WHERE competitor_id = u.id) AS dive_count,
+            (SELECT COUNT(DISTINCT event_id)::int FROM event_judges
+             WHERE judge_id = u.id) AS panel_count,
+            (SELECT COALESCE(
+                      array_agg(DISTINCT e.name ORDER BY e.name),
+                      ARRAY[]::text[]
+                    )
+               FROM events e
+               WHERE e.id IN (
+                 SELECT s.event_id FROM scores s
+                 WHERE s.competitor_id = u.id OR s.judge_id = u.id
+               )
+            ) AS event_names
+         FROM users u
+         LEFT JOIN clubs cl ON cl.id = u.club_id
+         WHERE u.org_id = $1
+           AND u.deleted_at IS NOT NULL
+           AND lower(u.full_name) = lower($2)
+         ORDER BY u.deleted_at DESC NULLS LAST
+         LIMIT 20`,
+        [me.org_id, me.full_name],
+      );
+      res.json({ candidates: r.rows });
+    } catch (err) {
+      console.error("[Claim Candidates Error]", err.message);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // -------------------------------------------------------------
+  // POST /api/users/me/claim  (Migration 053)
+  //
+  // Body: { old_user_ids: [uuid, …], password }
+  //
+  // Re-link every users.id FK reference from each old_user_id
+  // over to the caller. Same-org, deleted-only — verified per
+  // candidate inside the transaction so a half-valid request
+  // doesn't claim some-but-not-others.
+  //
+  // The competitor_dive_lists UNIQUE (event_id, competitor_id,
+  // round_number) constraint creates a merge conflict surface:
+  // if the new account has an entry for (event, round) that the
+  // old account also entered, we can't silently merge — they're
+  // distinct entries by design. We abort the entire transaction
+  // with 409 in that case; the caller decides whether to
+  // un-tick the colliding candidate or contact admin to merge
+  // manually.
+  //
+  // Password re-auth: claim irreversibly attaches PII to an
+  // account, so the same hijacked-session defence we use on
+  // delete applies here too.
+  // -------------------------------------------------------------
+  router.post("/api/users/me/claim", writeLimiter, verifyToken, async (req, res) => {
+    const { old_user_ids, password } = req.body || {};
+    if (!Array.isArray(old_user_ids) || old_user_ids.length === 0) {
+      return res.status(400).json({ error: "old_user_ids must be a non-empty array" });
+    }
+    if (typeof password !== "string" || !password) {
+      return res.status(400).json({ error: "Password is required" });
+    }
+    // Cap the batch — a runaway client (or a malicious one) can't
+    // ask us to merge thousands of rows in one transaction.
+    if (old_user_ids.length > 50) {
+      return res.status(400).json({ error: "Too many candidates in one request (max 50)" });
+    }
+    const client = await pool.connect();
+    try {
+      const meRes = await client.query(
+        `SELECT id, password, org_id, full_name, deleted_at
+         FROM users WHERE id = $1`,
+        [req.user.id],
+      );
+      const me = meRes.rows[0];
+      if (!me || me.deleted_at != null || !me.password) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      const ok = await bcrypt.compare(password, me.password);
+      if (!ok) {
+        return res.status(401).json({ error: "Password incorrect" });
+      }
+
+      await client.query("BEGIN");
+
+      const claimed = [];
+      const counts = { dives: 0, scores: 0, panels: 0, audits: 0 };
+
+      for (const oldId of old_user_ids) {
+        // Validate same-org, deleted-only. Anything else is a
+        // 404 (not a 403) so we don't leak whether the id
+        // exists in a different org.
+        const oldRes = await client.query(
+          `SELECT id, org_id, full_name, deleted_at
+           FROM users WHERE id = $1`,
+          [oldId],
+        );
+        const old = oldRes.rows[0];
+        if (!old || old.deleted_at == null || old.org_id !== me.org_id) {
+          // Idempotent: an already-claimed (i.e. hard-deleted)
+          // row returns 404 rather than 500. We continue past it
+          // so a partial batch can still succeed for the others.
+          continue;
+        }
+
+        // Conflict detection: if the new account has a dive
+        // list for the same (event, round) as the old account,
+        // we can't merge them. Abort early — the caller can
+        // un-tick the colliding candidate and retry.
+        const conflict = await client.query(
+          `SELECT 1
+           FROM competitor_dive_lists a
+           JOIN competitor_dive_lists b
+             ON a.event_id = b.event_id AND a.round_number = b.round_number
+           WHERE a.competitor_id = $1 AND b.competitor_id = $2
+           LIMIT 1`,
+          [oldId, me.id],
+        );
+        if (conflict.rows.length) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({
+            error:
+              "Cannot merge: the old account and your current account both have entries for the same event and round. " +
+              "Contact your federation admin to merge manually.",
+            old_user_id: oldId,
+          });
+        }
+
+        // FK references to users.id that carry sporting-record
+        // value. Grep `REFERENCES public.users` over init.sql +
+        // migrations/* to maintain this list when new FKs land.
+        // Tables NOT touched here either ON DELETE CASCADE (so
+        // the row goes away when we hard-delete below) or ON
+        // DELETE SET NULL (so they survive with a null
+        // pointer, which is the right call for "who set this"
+        // metadata).
+        //
+        // Tables we explicitly migrate so the historical entry
+        // reads under the new account:
+        const moveDives = await client.query(
+          `UPDATE competitor_dive_lists
+              SET competitor_id = $2
+            WHERE competitor_id = $1`,
+          [oldId, me.id],
+        );
+        counts.dives += moveDives.rowCount || 0;
+
+        await client.query(
+          `UPDATE competitor_dive_lists
+              SET partner_id = $2
+            WHERE partner_id = $1`,
+          [oldId, me.id],
+        );
+
+        const moveScoresComp = await client.query(
+          `UPDATE scores SET competitor_id = $2 WHERE competitor_id = $1`,
+          [oldId, me.id],
+        );
+        const moveScoresJudge = await client.query(
+          `UPDATE scores SET judge_id = $2 WHERE judge_id = $1`,
+          [oldId, me.id],
+        );
+        counts.scores += (moveScoresComp.rowCount || 0) +
+                         (moveScoresJudge.rowCount || 0);
+
+        const movePanels = await client.query(
+          `UPDATE event_judges SET judge_id = $2 WHERE judge_id = $1`,
+          [oldId, me.id],
+        );
+        counts.panels += movePanels.rowCount || 0;
+
+        // score_audit_log carries competitor_id + judge_id +
+        // actor_user_id, all ON DELETE SET NULL. Move them to
+        // the new owner so the audit trail shows the same name.
+        await client.query(
+          `UPDATE score_audit_log SET competitor_id = $2 WHERE competitor_id = $1`,
+          [oldId, me.id],
+        );
+        await client.query(
+          `UPDATE score_audit_log SET judge_id = $2 WHERE judge_id = $1`,
+          [oldId, me.id],
+        );
+        await client.query(
+          `UPDATE score_audit_log SET actor_user_id = $2 WHERE actor_user_id = $1`,
+          [oldId, me.id],
+        );
+        counts.audits += 1;
+
+        // Event attendance and dive-off records. Both ON DELETE
+        // CASCADE on the user FK — moving them preserves the
+        // history rather than losing it when we delete the
+        // shell row below.
+        await client.query(
+          `UPDATE event_attendance SET competitor_id = $2 WHERE competitor_id = $1`,
+          [oldId, me.id],
+        );
+
+        // The shell row is now disconnected from every
+        // sporting-record FK we care about; safe to hard-delete.
+        // Everything that ON DELETE CASCADEs from here (e.g.
+        // user_org_roles — already wiped at self-delete time)
+        // is intentional. Anything left referencing oldId via
+        // ON DELETE SET NULL (audit_log.actor_id etc.) becomes
+        // NULL, which matches the privacy policy: "Audit log
+        // entries are kept for dispute and integrity reasons,
+        // then purged on the normal 30-day rotation".
+        await client.query("DELETE FROM users WHERE id = $1 AND deleted_at IS NOT NULL", [oldId]);
+
+        claimed.push(oldId);
+
+        // Per-claim audit row so an admin can trace exactly
+        // which historical id got re-linked to whom.
+        await recordAudit(client, {
+          ...auditFromReq(req),
+          org_id: me.org_id,
+          entity_type: "user",
+          entity_id: me.id,
+          entity_name: null,
+          action: "user.claimed_past_account",
+          metadata: {
+            old_user_id:        oldId,
+            dive_count_moved:   moveDives.rowCount || 0,
+            score_count_moved: (moveScoresComp.rowCount || 0) +
+                               (moveScoresJudge.rowCount || 0),
+            panel_count_moved:  movePanels.rowCount || 0,
+          },
+        });
+      }
+
+      await client.query("COMMIT");
+      res.json({ claimed, counts });
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error("[User Claim Error]", err.message);
+      res.status(500).json({ error: "Claim failed" });
+    } finally {
+      client.release();
+    }
+  });
+
   // Judges within the current user's org. Drop username — the
   // judge picker uses id + full_name; username is the credential
   // identifier and the meet_manager-gate isn't a high enough bar
@@ -392,6 +864,7 @@ module.exports = function createUsersRouter({
          FROM users u
          JOIN user_org_roles r ON u.id = r.user_id
          WHERE r.org_id = $1 AND r.role = 'judge'
+           AND u.deleted_at IS NULL
          ORDER BY u.full_name ASC`,
         [req.user.org_id],
       );

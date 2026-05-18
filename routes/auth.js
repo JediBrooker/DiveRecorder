@@ -91,7 +91,7 @@ module.exports = function createAuthRouter({
       // change that responds with the row directly can't leak the
       // password hash if it was never selected.
       const result = await pool.query(
-        "SELECT id, password, email_verified_at, totp_enabled_at FROM users WHERE username = $1",
+        "SELECT id, password, email_verified_at, totp_enabled_at, deleted_at FROM users WHERE username = $1",
         [username],
       );
       const user = result.rows[0];
@@ -99,9 +99,15 @@ module.exports = function createAuthRouter({
       // found them, against a dummy hash otherwise — so the
       // response time is the same in both branches. Stops timing-
       // based username enumeration.
-      const hashToCheck = user?.password || DUMMY_BCRYPT_HASH;
-      const passwordOk = await bcrypt.compare(password, hashToCheck);
-      if (!user || !passwordOk)
+      //
+      // Migration 053: a deleted user has password = NULL; the
+      // dummy-hash fallback fires and the compare returns false,
+      // so the deleted account collapses into the same generic
+      // "Invalid username or password" response as wrong-password
+      // and missing-user. We never reveal "account was deleted".
+      const hashToCheck = (user && !user.deleted_at) ? user.password : DUMMY_BCRYPT_HASH;
+      const passwordOk = await bcrypt.compare(password, hashToCheck || DUMMY_BCRYPT_HASH);
+      if (!user || user.deleted_at != null || !passwordOk)
         return res.status(401).json({ error: "Invalid username or password" });
 
       // Migration 021: registrations must verify their email
@@ -1072,8 +1078,12 @@ module.exports = function createAuthRouter({
     try {
       let user = null;
       if (typeof email === "string" && email.length <= 320) {
+        // Migration 053: deleted users have email = NULL, so they
+        // won't match here anyway — but we add an explicit
+        // deleted_at filter so the constant-time response shape
+        // doesn't depend on whether a tombstoned row exists.
         const u = await pool.query(
-          "SELECT id, password, full_name, email FROM users WHERE email = $1",
+          "SELECT id, password, full_name, email FROM users WHERE email = $1 AND deleted_at IS NULL",
           [email],
         );
         user = u.rows[0] || null;
@@ -1121,11 +1131,16 @@ module.exports = function createAuthRouter({
         return res.status(400).json({ error: "Reset link is invalid" });
       }
       const u = await pool.query(
-        "SELECT id, password FROM users WHERE id = $1",
+        "SELECT id, password, deleted_at FROM users WHERE id = $1",
         [decoded.sub],
       );
       const user = u.rows[0];
-      if (!user) return res.status(400).json({ error: "Reset link is invalid" });
+      // Migration 053: refuse reset links pointing at a deleted
+      // account. The user has to go through registration (and
+      // optionally claim past results) instead.
+      if (!user || user.deleted_at != null) {
+        return res.status(400).json({ error: "Reset link is invalid" });
+      }
       if (decoded.fp !== hashFingerprint(user.password)) {
         return res.status(400).json({ error: "Reset link has already been used" });
       }

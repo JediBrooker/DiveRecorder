@@ -214,12 +214,31 @@ CREATE TABLE public.users (
     -- i18n (error messages, email templates, PDF column headers)
     -- and the SPA pick this locale across devices.
     locale          varchar(8),
+    -- Self-service account deletion (Migration 053). NULL = active
+    -- user; non-NULL = the user has deleted their account. The
+    -- row is intentionally retained (not hard-deleted) so the
+    -- user's name stays on the dives they actually competed in —
+    -- diving meets are public sporting records. Login + every
+    -- PII column is wiped at delete time; what remains is the
+    -- minimum needed to anchor historical FK references and to
+    -- support reunite-on-return (claim-past-results flow). See
+    -- routes/users.js for the delete + claim endpoints and
+    -- docs/privacy-policy.md §7 for the user-facing contract.
+    deleted_at      timestamptz,
     created_at      timestamptz DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_pending_email_token
   ON public.users(pending_email_token_hash)
   WHERE pending_email_token_hash IS NOT NULL;
+
+-- Claim-candidate lookup (Migration 053). The returning-user
+-- flow asks "any deleted users in my org with my full_name?",
+-- which without this index would scan every deleted row in the
+-- federation. Partial so we pay zero storage on active rows.
+CREATE INDEX IF NOT EXISTS idx_users_deleted_claim_lookup
+  ON public.users (org_id, lower(full_name))
+  WHERE deleted_at IS NOT NULL;
 
 
 -- =============================================================
@@ -1427,7 +1446,7 @@ CREATE TABLE public.schema_meta (
     CONSTRAINT schema_meta_singleton CHECK (id = 1)
 );
 
-INSERT INTO public.schema_meta (id, version) VALUES (1, 52);
+INSERT INTO public.schema_meta (id, version) VALUES (1, 53);
 
 
 -- =============================================================

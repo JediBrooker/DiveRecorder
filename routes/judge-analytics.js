@@ -132,7 +132,8 @@ module.exports = function createJudgeAnalyticsRouter({
          FROM users u
          JOIN organisations o ON u.org_id = o.id
          LEFT JOIN clubs cl ON cl.id = u.club_id
-         WHERE u.id = $1`,
+         WHERE u.id = $1
+           AND u.deleted_at IS NULL`,
         [req.params.id],
       );
       if (!judgeRes.rows.length) {
@@ -230,7 +231,7 @@ module.exports = function createJudgeAnalyticsRouter({
       const { from: fromDate, to: toDate } = dateRange;
 
       const judgeRes = await reads.query(
-        "SELECT id, org_id FROM users WHERE id = $1",
+        "SELECT id, org_id FROM users WHERE id = $1 AND deleted_at IS NULL",
         [req.params.id],
       );
       if (!judgeRes.rows.length) {
@@ -748,6 +749,7 @@ module.exports = function createJudgeAnalyticsRouter({
          JOIN organisations o  ON o.id = u.org_id
          LEFT JOIN clubs cl    ON cl.id = u.club_id
          WHERE u.full_name ILIKE $1
+           AND u.deleted_at IS NULL
          ORDER BY
            CASE WHEN u.full_name ILIKE $2 THEN 0 ELSE 1 END,
            u.full_name ASC
@@ -808,6 +810,7 @@ module.exports = function createJudgeAnalyticsRouter({
            AND ($2::uuid IS NULL OR u.org_id  = $2::uuid)
            AND ($3::uuid IS NULL OR u.club_id = $3::uuid)
            AND ($4::text IS NULL OR o.country_code = $4::text)
+           AND u.deleted_at IS NULL
          ORDER BY u.full_name ASC
          LIMIT $5 OFFSET $6`,
         [

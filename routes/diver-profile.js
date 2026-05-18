@@ -103,7 +103,8 @@ module.exports = function createDiverProfileRouter({
          FROM users u
          JOIN organisations o ON u.org_id = o.id
          LEFT JOIN clubs cl ON cl.id = u.club_id
-         WHERE u.id = $1`,
+         WHERE u.id = $1
+           AND u.deleted_at IS NULL`,
         [req.params.id],
       );
       if (!diverRes.rows.length)
@@ -324,7 +325,7 @@ module.exports = function createDiverProfileRouter({
       const { from: fromDate, to: toDate } = dateRange;
 
       const diverRes = await reads.query(
-        "SELECT id, org_id FROM users WHERE id = $1",
+        "SELECT id, org_id FROM users WHERE id = $1 AND deleted_at IS NULL",
         [req.params.id],
       );
       if (!diverRes.rows.length) {

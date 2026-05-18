@@ -92,7 +92,8 @@ module.exports = function createPublicProfileRouter({ pool, readPool }) {
          FROM users u
          JOIN organisations o ON u.org_id = o.id
          LEFT JOIN clubs cl ON cl.id = u.club_id
-         WHERE u.public_slug = $1`,
+         WHERE u.public_slug = $1
+           AND u.deleted_at IS NULL`,
         [slug],
       );
       if (!diverRes.rows.length) {
@@ -242,7 +243,8 @@ module.exports = function createPublicProfileRouter({ pool, readPool }) {
          FROM users u
          JOIN organisations o ON u.org_id = o.id
          LEFT JOIN clubs cl ON cl.id = u.club_id
-         WHERE u.public_slug = $1`,
+         WHERE u.public_slug = $1
+           AND u.deleted_at IS NULL`,
         [slug],
       );
       if (!r.rows.length) return res.status(404).end();
@@ -355,7 +357,8 @@ module.exports = function createPublicProfileRouter({ pool, readPool }) {
          FROM users u
          JOIN organisations o ON u.org_id = o.id
          LEFT JOIN clubs cl ON cl.id = u.club_id
-         WHERE u.public_slug = $1`,
+         WHERE u.public_slug = $1
+           AND u.deleted_at IS NULL`,
         [slug],
       );
       if (!r.rows.length) return next();
