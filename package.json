@@ -58,6 +58,7 @@
   "overrides": {
     "vue-i18n": "^11.4.2",
     "@intlify/unplugin-vue-i18n": "~11.1.0",
-    "@intlify/bundle-utils": "~11.1.0"
+    "@intlify/bundle-utils": "~11.1.0",
+    "ws": ">=8.20.1"
   }
 }

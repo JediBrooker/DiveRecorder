@@ -114,8 +114,17 @@ run npm ci
 # ---- 3. Build SPA ---------------------------------------------
 # Build BEFORE migrate so a broken build doesn't leave the DB
 # advanced past code we can't ship.
+#
+# Heap bump: the precompiled vue-i18n dictionaries (25 locales ×
+# ~988 keys = 24,700 AST nodes baked into the bundle) push Vite's
+# memory ceiling on small VPSes. The default Node heap (~512 MB
+# on a 1 GB box) ran out partway through transforming
+# socket.io-client during a 2026-05-18 deploy. 4 GB is generous
+# headroom and only allocates lazily — the build process won't
+# actually use it all unless the bundle keeps growing. Override
+# via NODE_OPTIONS in the shell env if you want a different cap.
 step "npm run build"
-run npm run build
+run env NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}" npm run build
 
 # ---- 4. Apply pending migrations ------------------------------
 # --dry first so the deploy log shows exactly what's about to
