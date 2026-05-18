@@ -4,6 +4,11 @@ import { useRouter, useRoute, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import LocaleSwitcher from '@/components/LocaleSwitcher.vue'
+// Migration 053: reunite-on-return prompt fires on every login
+// when there are deleted-account candidates in the user's org
+// with the same name. The modal is dismissable; checking is a
+// single tiny POST so it doesn't slow the landing.
+import ClaimCandidatesModal from '@/components/ClaimCandidatesModal.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -39,6 +44,47 @@ onMounted(() => {
   if (auth.isLoggedIn) router.push(safeNextPath())
 })
 
+// Claim-candidates state (Migration 053). When non-empty the
+// post-login redirect is held until the user dismisses or
+// confirms the modal. The session-storage flag suppresses
+// re-prompting on subsequent logins from the same browser tab
+// — anyone who explicitly Skip'd doesn't want to be asked again
+// every time they sign in.
+const claimCandidates = ref(null)
+const CLAIM_SEEN_KEY = 'profile.claim.seen'
+
+async function checkClaimCandidates() {
+  if (sessionStorage.getItem(CLAIM_SEEN_KEY)) return false
+  try {
+    const data = await auth.apiFetch('/api/users/me/claim-candidates', {
+      method: 'POST',
+    })
+    const list = Array.isArray(data?.candidates) ? data.candidates : []
+    if (list.length === 0) {
+      // Mark seen so we don't probe every login on this tab.
+      sessionStorage.setItem(CLAIM_SEEN_KEY, '1')
+      return false
+    }
+    claimCandidates.value = list
+    return true
+  } catch {
+    // Server error → don't block the login. Just route through.
+    return false
+  }
+}
+
+function dismissClaim() {
+  sessionStorage.setItem(CLAIM_SEEN_KEY, '1')
+  claimCandidates.value = null
+  router.push(safeNextPath())
+}
+
+function onClaimDone() {
+  sessionStorage.setItem(CLAIM_SEEN_KEY, '1')
+  claimCandidates.value = null
+  router.push(safeNextPath())
+}
+
 async function handleSubmit() {
   errorMsg.value = ''
   loading.value = true
@@ -51,7 +97,14 @@ async function handleSubmit() {
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || t('auth.login.submit_failed'))
     auth.saveSession(data)
-    router.push(safeNextPath())
+    // Before routing to the dashboard, probe for claim
+    // candidates. Hits one tiny endpoint; if there are no
+    // matches we route immediately. The modal handles its own
+    // close + claim transitions back to safeNextPath().
+    const held = await checkClaimCandidates()
+    if (!held) {
+      router.push(safeNextPath())
+    }
   } catch (err) {
     errorMsg.value = err.message
   } finally {
@@ -93,6 +146,15 @@ async function handleSubmit() {
          target="_blank"
          rel="noopener">{{ $t('auth.login.found_bug') }} <span>{{ $t('auth.login.found_bug_action') }}</span></a>
     </div>
+
+    <ClaimCandidatesModal
+      v-if="claimCandidates"
+      variant="signup"
+      :candidates="claimCandidates"
+      @close="dismissClaim"
+      @skipped="dismissClaim"
+      @claimed="onClaimDone"
+    />
   </div>
 </template>
 

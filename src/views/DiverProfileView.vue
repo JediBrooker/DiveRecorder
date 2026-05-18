@@ -1,9 +1,14 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRoute, RouterLink } from 'vue-router'
+import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { cachedFetch, idbDelete } from '@/lib/idbCache'
+import { showSuccess } from '@/composables/useNotify'
+
+// Migration 053 surfaces — self-delete + reunite-on-return.
+import DeleteAccountDialog   from '@/components/DeleteAccountDialog.vue'
+import ClaimCandidatesModal  from '@/components/ClaimCandidatesModal.vue'
 
 // Per-widget components — see src/components/profile-widgets/.
 // Each takes a `data` prop (the relevant analytics / profile
@@ -606,6 +611,72 @@ function widgetExtraProps(id) {
 
 onMounted(load)
 watch(targetId, load)
+
+// --------------------------------------------------------------
+// Account deletion + claim-past-results (Migration 053)
+//
+// Both flows live behind buttons in the danger zone at the
+// bottom of the page. Self-only — public visitors and other
+// org members never see them.
+// --------------------------------------------------------------
+const router = useRouter()
+const deleteOpen = ref(false)
+const claimOpen = ref(false)
+const claimEmpty = ref(false)
+const claimChecking = ref(false)
+
+function openDeleteDialog() {
+  deleteOpen.value = true
+}
+
+async function onAccountDeleted() {
+  // Clear in-process auth + storage. The server already
+  // invalidated the JWT (token_version bump) so any in-flight
+  // request would 401 anyway, but explicit local cleanup means
+  // the next view doesn't try to render stale "me" data.
+  deleteOpen.value = false
+  auth.clearSession()
+  showSuccess(t('profile.delete.confirmation_toast'), { timeoutMs: 10000 })
+  router.push('/')
+}
+
+// Manual "Find past competition entries" entry point. Kicks
+// off a claim-candidates fetch — if the server returns >0
+// candidates, surface the modal; if zero, show a fleeting
+// "nothing found" notice instead so the user knows the button
+// did something.
+async function openClaimDialog() {
+  if (!isSelf.value) return
+  claimChecking.value = true
+  claimEmpty.value = false
+  try {
+    const data = await auth.apiFetch('/api/users/me/claim-candidates', {
+      method: 'POST',
+    })
+    const list = Array.isArray(data?.candidates) ? data.candidates : []
+    if (list.length === 0) {
+      claimEmpty.value = true
+      setTimeout(() => { claimEmpty.value = false }, 4000)
+      return
+    }
+    claimOpen.value = true
+  } catch (err) {
+    // Surface server errors as a transient warning; the danger
+    // zone isn't a primary path so we don't take over the page.
+    claimEmpty.value = false
+    showSuccess(err?.message || 'Failed to look up past entries')
+  } finally {
+    claimChecking.value = false
+  }
+}
+
+function onClaimed() {
+  claimOpen.value = false
+  showSuccess(t('profile.claim.success_toast'))
+  // Re-fetch the profile so the freshly-linked dives appear
+  // in the widgets without a hard reload.
+  load()
+}
 </script>
 
 <template>
@@ -719,7 +790,64 @@ watch(targetId, load)
         />
       </div>
     </div>
+
+    <!-- Danger zone — self-delete + claim-past-results entry
+         points. Self-only; never rendered for visitors viewing
+         someone else's profile. Pinned to the bottom via a high
+         CSS order so account-management actions stay below the
+         analytics widgets even when widgets get reordered. -->
+    <section
+      v-if="profile && isSelf"
+      class="danger-zone"
+      :style="{ order: 9999 }"
+      data-test-id="profile-danger-zone"
+    >
+      <h2 class="danger-title">{{ $t('profile.section_danger') }}</h2>
+      <div class="danger-row">
+        <div class="danger-text">
+          <div class="danger-row-title">{{ $t('profile.claim.title') }}</div>
+          <p class="danger-body">
+            <span v-if="claimEmpty">{{ $t('profile.claim.find_none') }}</span>
+          </p>
+        </div>
+        <button
+          class="btn btn-ghost btn-sm"
+          :disabled="claimChecking"
+          @click="openClaimDialog"
+          data-test-id="claim-find-button"
+        >
+          {{ claimChecking ? '…' : $t('profile.claim.find_button') }}
+        </button>
+      </div>
+      <div class="danger-row danger-row-destructive">
+        <div class="danger-text">
+          <div class="danger-row-title">{{ $t('profile.delete.title') }}</div>
+          <p class="danger-body">{{ $t('profile.delete.body') }}</p>
+        </div>
+        <button
+          class="btn btn-danger btn-sm"
+          @click="openDeleteDialog"
+          data-test-id="delete-account-button"
+        >
+          {{ $t('profile.delete.action') }}
+        </button>
+      </div>
+    </section>
   </div>
+
+  <DeleteAccountDialog
+    v-if="deleteOpen"
+    @close="deleteOpen = false"
+    @deleted="onAccountDeleted"
+  />
+
+  <ClaimCandidatesModal
+    v-if="claimOpen"
+    variant="manual"
+    @close="claimOpen = false"
+    @skipped="claimOpen = false"
+    @claimed="onClaimed"
+  />
 
   <!-- Customize Dashboard modal — toggle on/off + drag-to-reorder.
        Order is taken from `customizeList`: enabled widgets first

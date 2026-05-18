@@ -336,6 +336,7 @@
    ========================================================= */
 @media print {
   .no-print, .header-actions, .modal-backdrop, .modal { display: none !important; }
+  .danger-zone { display: none !important; }
   .profile-wrap { padding: 0.5rem; }
   .page-header { border-bottom: 2px solid #000; }
   .page-title { color: #000; }
@@ -346,4 +347,69 @@
   }
   .stat-num { color: #000 !important; }
   .stat-label { color: #555 !important; }
+}
+
+/* =========================================================
+   Danger zone (Migration 053). Self-delete + claim-past-results
+   entry points. Visual treatment leans red but doesn't shout —
+   it's a permanent fixture, not an emergency.
+   ========================================================= */
+.danger-zone {
+  margin-top: 2.5rem;
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-2, #1e293b);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.danger-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--text-3, #94a3b8);
+}
+.danger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-3, #0f172a);
+}
+.danger-row-destructive {
+  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(248, 113, 113, 0.05);
+}
+.danger-row .danger-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+}
+.danger-row-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+.danger-row .danger-body {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-3, #94a3b8);
+  line-height: 1.55;
+}
+.btn-danger {
+  background: var(--danger, #dc2626);
+  color: #fff;
+  border-color: var(--danger, #dc2626);
+}
+.btn-danger:hover:not(:disabled) {
+  background: #b91c1c;
+  border-color: #b91c1c;
 }
