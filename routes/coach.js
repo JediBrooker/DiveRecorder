@@ -705,12 +705,16 @@ module.exports = function createCoachRouter({
         });
 
         // Audit: a coach acted on a diver's list. Operator visibility.
+        // lib/audit.js reads `actor_id` + `metadata` — not `actor_user_id`
+        // + `context` (caught by the new authz test pack, which discovered
+        // the audit row had been writing NULLs for both fields silently).
         await recordAudit(client, {
-          actor_user_id: req.user.id,
+          org_id: gate.event.org_id,
+          actor_id: req.user.id,
           action: "coach.submit_dive_list",
           entity_type: "dive_list",
           entity_id: diver_id,
-          context: {
+          metadata: {
             event_id,
             coach_id: req.user.id,
             diver_id,
@@ -832,11 +836,14 @@ module.exports = function createCoachRouter({
         }
 
         await recordAudit(client, {
-          actor_user_id: req.user.id,
+          org_id: ev.rows[0].org_id,
+          actor_id: req.user.id,
           action: "coach.withdraw_dive_list",
           entity_type: "dive_list",
           entity_id: diver_id,
-          context: {
+          entity_name: diver.full_name,
+          note: reason || null,
+          metadata: {
             event_id,
             event_name: ev.rows[0].name,
             event_status: ev.rows[0].status,
