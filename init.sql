@@ -1393,6 +1393,7 @@ CREATE TABLE public.pending_partner_pairings (
     partner_id    uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     status        text NOT NULL DEFAULT 'pending'
                   CHECK (status IN ('pending', 'accepted', 'declined', 'expired')),
+    dives         jsonb NOT NULL DEFAULT '[]'::jsonb,
     note          text,
     created_at    timestamptz NOT NULL DEFAULT now(),
     responded_at  timestamptz,

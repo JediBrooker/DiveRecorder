@@ -31,6 +31,14 @@ CREATE TABLE IF NOT EXISTS public.pending_partner_pairings (
     partner_id    uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     status        text NOT NULL DEFAULT 'pending'
                   CHECK (status IN ('pending', 'accepted', 'declined', 'expired')),
+    -- The requester's chosen dive list as submitted. Stored on the
+    -- pending row (rather than competitor_dive_lists) so the
+    -- partner sees the proposal but the public start list is not
+    -- polluted with an entry the partner never agreed to. On
+    -- accept we use this payload to populate competitor_dive_lists
+    -- for BOTH divers in one transaction.
+    -- Shape: [{ dive_id: uuid, round_number: int }, ...]
+    dives         jsonb NOT NULL DEFAULT '[]'::jsonb,
     note          text,
     created_at    timestamptz NOT NULL DEFAULT now(),
     responded_at  timestamptz,
