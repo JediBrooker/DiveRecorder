@@ -139,6 +139,73 @@ if [[ $NOOP -eq 0 ]]; then
   step "npm ci"
   run npm ci
 
+  # ---- 2.5. Auto-translate any english-stuck i18n keys --------
+  # If OPENAI_API_KEY (or ANTHROPIC_API_KEY) is set in the deploy
+  # box's .env, the translation script fills in any keys that are
+  # still equal to the English source on each deploy. The fresh
+  # translations are auto-committed back to origin/main so the
+  # NEXT deploy starts with them already in place.
+  #
+  # Belt-and-braces — the standard workflow is for the developer
+  # (Claude in chat, or a human running `npm run translate`) to
+  # translate new keys in the same commit that adds them. This
+  # step catches anything that slipped through, automatically.
+  #
+  # Source .env so dotenv-style files are visible to bash here.
+  # The translator itself runs under node and would see the keys
+  # via dotenv regardless, but we need the bash-side check for the
+  # gate below. `set -a` exports every var that gets assigned
+  # while it's on; `set +a` returns to normal.
+  if [[ -f .env ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source .env
+    set +a
+  fi
+
+  if [[ -n "${OPENAI_API_KEY:-}" || -n "${ANTHROPIC_API_KEY:-}" ]]; then
+    step "translate: probing for english-stuck keys"
+    # --dry-run is free (no API call). Parse its output for the
+    # per-locale "X english-stuck" counts and sum them.
+    STUCK_TOTAL=$( (run node scripts/translate-locales.js --dry-run 2>&1 \
+      | awk '/english-stuck/ {for (i=1;i<=NF;i++) if ($i=="english-stuck") {gsub("[^0-9]","",$(i-1)); print $(i-1)}}' \
+      | awk '{s+=$1} END {print s+0}') || echo "0" )
+    if [[ "$STUCK_TOTAL" -gt 0 ]]; then
+      step "translate: ${STUCK_TOTAL} stuck key(s) total — running translator"
+      if run npm run translate; then
+        # Only commit if there's something to commit (the translator
+        # may have decided every stuck value was a legitimate
+        # cognate / proper noun and chosen to leave it stuck).
+        if ! git diff --quiet src/locales/; then
+          step "translate: auto-committing fresh translations"
+          run git add src/locales/
+          # Don't sign the commit (no GPG on the deploy box); use a
+          # clear marker so the auto-commit is easy to spot in log.
+          if run git commit -m "i18n: auto-fill stuck keys on deploy ($(date -u +%FT%TZ))"; then
+            # Push back to origin/main is best-effort. If the deploy
+            # box doesn't have push permission (no SSH key, branch
+            # protection, etc.) we keep the translations local to
+            # this deploy and warn — they ship in dist/ either way.
+            if run git push origin HEAD:main 2>/dev/null; then
+              step "translate: pushed to origin/main"
+            else
+              step "translate: WARNING — push back to origin failed"
+              step "translate: WARNING — translations baked into THIS deploy's dist/ but not in main"
+            fi
+          fi
+        else
+          step "translate: stuck keys were legitimate cognates (no diff to commit)"
+        fi
+      else
+        step "translate: WARNING — translator failed, continuing deploy"
+      fi
+    else
+      step "translate: nothing stuck, skipping"
+    fi
+  else
+    step "translate: skipped (no OPENAI_API_KEY or ANTHROPIC_API_KEY in env)"
+  fi
+
   # ---- 3. Build SPA -------------------------------------------
   # Build BEFORE migrate so a broken build doesn't leave the DB
   # advanced past code we can't ship.
