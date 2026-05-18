@@ -117,6 +117,15 @@ app.use(cors({ origin: CORS_ORIGIN }));
 // is either a bug or an abuse attempt.
 app.use(express.json({ limit: "256kb" }));
 
+// Migration 052: server-side i18n. Attaches req.t + req.locale so
+// any downstream handler can produce localized error messages,
+// email subjects, and PDF column headers. Resolution order:
+//   1. req.user.locale  (decoded by verifyToken further down the chain)
+//   2. Accept-Language header
+//   3. 'en' fallback
+// Mounted before the routers so every handler sees req.t.
+app.use(require("./lib/server-i18n").middleware());
+
 // Rate-limit bypass for the e2e + integration suites. Both run
 // every request from 127.0.0.1, which under the production
 // settings (20 auth requests / 15 min / IP) trips the limiter
@@ -376,7 +385,7 @@ const push = require("./lib/push")({ pool, io });
 // =============================================================
 async function buildTokenPayload(userId) {
   const u = await pool.query(
-    "SELECT id, username, full_name, org_id, is_system_admin, token_version FROM users WHERE id = $1",
+    "SELECT id, username, full_name, org_id, is_system_admin, token_version, locale FROM users WHERE id = $1",
     [userId],
   );
   if (!u.rows.length) throw new Error("User not found");
@@ -399,6 +408,13 @@ async function buildTokenPayload(userId) {
     // session for that user — used by role grant/revoke and the
     // password change flow (Migration 021).
     tv: user.token_version,
+    // Migration 052: per-user locale. Null when the user has never
+    // set one — the server falls back to Accept-Language; the SPA
+    // falls back to whatever localStorage has remembered. Stamped
+    // on the JWT (not just the response body) so resolveLocale in
+    // lib/server-i18n.js can find it on every subsequent authed
+    // request without a DB round-trip.
+    locale: user.locale || null,
   };
 }
 

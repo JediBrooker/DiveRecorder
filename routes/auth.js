@@ -563,7 +563,11 @@ module.exports = function createAuthRouter({
         { expiresIn: "24h" },
       );
       if (typeof sendVerifyEmailEmail === "function") {
-        sendVerifyEmailEmail(newUserId, verifyToken).catch(() => {});
+        // Pass `req` so the verify-email subject/body are rendered
+        // in the locale the registrant was using when they submitted
+        // the form (Accept-Language at register-time, since the user
+        // row doesn't have a locale yet).
+        sendVerifyEmailEmail(newUserId, verifyToken, { req }).catch(() => {});
       }
       sendWelcomeEmail(newUserId).catch(() => {});
       if (requestedRoleSaved) {
@@ -703,7 +707,7 @@ module.exports = function createAuthRouter({
         { expiresIn: "24h" },
       );
       if (typeof sendVerifyEmailEmail === "function") {
-        sendVerifyEmailEmail(userId, verifyToken).catch(() => {});
+        sendVerifyEmailEmail(userId, verifyToken, { req }).catch(() => {});
       }
 
       res
@@ -777,6 +781,55 @@ module.exports = function createAuthRouter({
       res.status(500).json({ error: "Password change failed" });
     } finally {
       client.release();
+    }
+  });
+
+  // -------------------------------------------------------------
+  // POST /api/users/me/locale (Migration 052)
+  //
+  // Lets a signed-in user persist their preferred UI locale to
+  // their user row so it follows them across devices. The SPA
+  // also mirrors the value into localStorage, but that's only
+  // device-local; this endpoint is the cross-device source of
+  // truth.
+  //
+  // Body: { locale: "en" }     (one of the SUPPORTED codes)
+  //
+  // Re-issues a JWT carrying the new locale so the in-tab token
+  // matches the DB row immediately (otherwise the user's PDF
+  // exports would still resolve via Accept-Language until the
+  // next login).
+  // -------------------------------------------------------------
+  router.post("/api/users/me/locale", verifyToken, async (req, res) => {
+    const { SUPPORTED } = require("../lib/server-i18n");
+    const raw = req.body?.locale;
+    // Accept null/empty as "clear preference, fall back to
+    // Accept-Language" — symmetric with the column being NULLable.
+    const cleared = raw === null || raw === "";
+    if (!cleared && (typeof raw !== "string" || !SUPPORTED.includes(raw))) {
+      return res.status(400).json({
+        error: req.t
+          ? req.t("errors.validation_failed")
+          : "locale must be one of the supported codes or null",
+        supported: SUPPORTED,
+      });
+    }
+    try {
+      await pool.query(
+        "UPDATE users SET locale = $1 WHERE id = $2",
+        [cleared ? null : raw, req.user.id],
+      );
+      // Reissue the token so the next request resolves this
+      // user's locale from req.user.locale (cheap path) rather
+      // than falling through to Accept-Language.
+      const payload = await buildTokenPayload(req.user.id);
+      const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+      res.json({ ok: true, locale: cleared ? null : raw, token, ...payload });
+    } catch (err) {
+      console.error("[Set Locale Error]", err.message);
+      res.status(500).json({
+        error: req.t ? req.t("errors.server_error") : "Failed to set locale",
+      });
     }
   });
 
@@ -875,8 +928,12 @@ module.exports = function createAuthRouter({
       // the request open. The user sees an immediate "check your
       // inbox" response either way.
       if (typeof sendEmailChangeVerify === "function") {
+        // Capture req at schedule time — setImmediate runs after
+        // the request lifecycle but our translator only reads
+        // req.user.locale + headers['accept-language'], both of
+        // which are plain strings, so it's safe to hold a reference.
         setImmediate(() => {
-          sendEmailChangeVerify(req.user.id, normalisedNew, token).catch(() => {});
+          sendEmailChangeVerify(req.user.id, normalisedNew, token, { req }).catch(() => {});
         });
       }
 
@@ -1030,8 +1087,13 @@ module.exports = function createAuthRouter({
         // Defer the SMTP round-trip so the response time doesn't
         // depend on whether we found a user. The catch is swallowed
         // intentionally — we never tell the caller about delivery.
+        // Pass `req` so the email lands in the locale the user's
+        // current browser is configured for (forgot-password is
+        // unauthenticated so we can't use req.user.locale here —
+        // Accept-Language is the only signal we have until the
+        // user signs back in and POST /api/users/me/locale runs).
         setImmediate(() => {
-          sendPasswordResetEmail(user, fingerprint).catch(() => {});
+          sendPasswordResetEmail(user, fingerprint, { req }).catch(() => {});
         });
       }
       res.json({ ok: true });
