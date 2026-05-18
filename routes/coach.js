@@ -756,6 +756,7 @@ module.exports = function createCoachRouter({
   // -------------------------------------------------------------
   router.post(
     "/api/coach/dive-lists/:event_id/:diver_id/withdraw",
+    bulkWriteLimiter,
     verifyToken,
     async (req, res) => {
       const { event_id, diver_id } = req.params;
@@ -882,7 +883,7 @@ module.exports = function createCoachRouter({
     }
   });
 
-  router.post("/api/coach/alert-preferences", verifyToken, async (req, res) => {
+  router.post("/api/coach/alert-preferences", bulkWriteLimiter, verifyToken, async (req, res) => {
     const { enabled, dives_ahead } = req.body || {};
     if (typeof enabled !== "boolean") {
       return res.status(400).json({ error: "enabled (boolean) is required" });
