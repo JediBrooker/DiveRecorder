@@ -43,6 +43,3 @@ ops/observability/.env
 # docs/ in RStudio. Pure session debris.
 docs/.Rhistory
 
-# Working-draft documents. Copy to a final path under docs/ when
-# they're ready to ship; the draft itself is local-only.
-docs/privacy-policy-draft.md
