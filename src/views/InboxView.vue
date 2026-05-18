@@ -346,7 +346,7 @@ onMounted(load)
   width: 8px; height: 8px;
   border-radius: 50%;
   background: var(--cyan);
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 .inbox-row-title {
   font-family: var(--font-display); font-size: 15px; font-weight: 800;

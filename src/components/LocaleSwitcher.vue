@@ -51,12 +51,19 @@ async function onChange(e) {
   appearance: none; -webkit-appearance: none;
   border: none; outline: none; background: transparent;
   color: var(--text-2); font-family: var(--font-mono); font-size: 11px;
-  padding: 0 1.2rem 0 0; cursor: pointer;
+  padding-block: 0;
+  padding-inline: 0 1.2rem;
+  cursor: pointer;
   background-image: linear-gradient(45deg, transparent 50%, var(--text-3) 50%),
                     linear-gradient(135deg, var(--text-3) 50%, transparent 50%);
-  background-position: calc(100% - 9px) center, calc(100% - 5px) center;
+  /* Anchor the custom dropdown arrow to the inline-end edge so it
+     flips correctly under <html dir="rtl">. */
+  background-position: right 9px center, right 5px center;
   background-size: 4px 4px;
   background-repeat: no-repeat;
+}
+:root[dir="rtl"] .locale-select {
+  background-position: left 9px center, left 5px center;
 }
 .locale-select option { background: var(--bg-1); color: var(--text); }
 </style>

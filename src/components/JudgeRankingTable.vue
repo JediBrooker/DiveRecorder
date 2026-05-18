@@ -483,7 +483,7 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
   position: sticky;
   top: 0;
 }
-.jra-th-diver { text-align: left; min-width: 180px; }
+.jra-th-diver { text-align: start; min-width: 180px; }
 .jra-th-actual { min-width: 70px; }
 .jra-th-judge {
   display: table-cell;
@@ -509,7 +509,7 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
   color: var(--text-4, #64748b);
   letter-spacing: 0.05em;
 }
-.jra-td-diver { text-align: left; }
+.jra-td-diver { text-align: start; }
 .jra-diver-name {
   display: flex;
   align-items: baseline;
@@ -603,7 +603,7 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
   letter-spacing: 0.15em;
   text-transform: uppercase;
   padding: 0.4rem 0.6rem;
-  border-left: 3px solid var(--cyan, #06b6d4);
+  border-inline-start: 3px solid var(--cyan, #06b6d4);
   background: rgba(6, 182, 212, 0.08);
   color: var(--text-1, #f1f5f9);
 }
@@ -646,7 +646,7 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
     vertical-align: middle;
   }
   .jra-actual-rank,
-  .jra-cell-rank   { display: inline; margin-right: 0.3rem; }
+  .jra-cell-rank   { display: inline; margin-inline-end: 0.3rem; }
   .jra-actual-total,
   .jra-cell-total  { display: inline; }
 
@@ -687,7 +687,7 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
   .jra-th-diver,
   .jra-td-diver {
     position: sticky;
-    left: 0;
+    inset-inline-start: 0;
     z-index: 2;
     background: var(--surface, #0f172a);
     min-width: 130px;
@@ -704,7 +704,7 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
   .jra-th-actual,
   .jra-td-actual {
     position: sticky;
-    left: 130px;
+    inset-inline-start: 130px;
     z-index: 2;
     background: var(--surface, #0f172a);
     min-width: 54px;
@@ -741,6 +741,6 @@ const pdfHref = computed(() => `/api/events/${props.eventId}/judge-ranking-analy
   .jra-th-diver,
   .jra-td-diver { min-width: 110px; max-width: 120px; }
   .jra-th-actual,
-  .jra-td-actual { left: 110px; min-width: 46px; }
+  .jra-td-actual { inset-inline-start: 110px; min-width: 46px; }
 }
 </style>

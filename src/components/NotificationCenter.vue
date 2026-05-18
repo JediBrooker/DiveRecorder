@@ -89,7 +89,7 @@ async function onDismiss(n, ev) {
 
 <style scoped>
 .notif-stack {
-  position: fixed; right: 1.5rem; bottom: 1.5rem;
+  position: fixed; inset-inline-end: 1.5rem; bottom: 1.5rem;
   display: flex; flex-direction: column; gap: 0.6rem;
   z-index: 9999; max-width: 360px;
   pointer-events: none;
@@ -99,7 +99,7 @@ async function onDismiss(n, ev) {
   background: var(--surface, #1a1f2e);
   color: var(--text, #f1f5f9);
   border: 1px solid var(--border, #334155);
-  border-left: 4px solid var(--cyan, #06b6d4);
+  border-inline-start: 4px solid var(--cyan, #06b6d4);
   border-radius: 8px;
   padding: 0.85rem 1rem;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
@@ -107,11 +107,11 @@ async function onDismiss(n, ev) {
   position: relative;
   animation: notif-slide-in 0.25s ease-out;
 }
-.notif-card:hover { border-left-color: var(--cyan, #06b6d4); }
-.notif-referee_signoff { border-left-color: var(--amber, #f59e0b); }
-.notif-judge_call      { border-left-color: var(--red, #ef4444); }
+.notif-card:hover { border-inline-start-color: var(--cyan, #06b6d4); }
+.notif-referee_signoff { border-inline-start-color: var(--amber, #f59e0b); }
+.notif-judge_call      { border-inline-start-color: var(--red, #ef4444); }
 .notif-dismiss {
-  position: absolute; top: 0.4rem; right: 0.5rem;
+  position: absolute; top: 0.4rem; inset-inline-end: 0.5rem;
   background: transparent; border: none; cursor: pointer;
   font-size: 13px; color: var(--text-3, #64748b);
   padding: 0.2rem 0.4rem; line-height: 1;
@@ -120,7 +120,7 @@ async function onDismiss(n, ev) {
 .notif-title {
   font-family: var(--font-display, sans-serif);
   font-weight: 800; font-style: italic;
-  font-size: 14px; margin-bottom: 0.25rem; padding-right: 1.5rem;
+  font-size: 14px; margin-bottom: 0.25rem; padding-inline-end: 1.5rem;
 }
 .notif-body {
   font-size: 12.5px; color: var(--text-2, #cbd5e1);

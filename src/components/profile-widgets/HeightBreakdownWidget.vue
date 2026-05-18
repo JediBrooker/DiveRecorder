@@ -68,7 +68,7 @@ defineProps({
   .bar-label { grid-area: label; }
   .bar-track { grid-area: bar; }
   .bar-value { grid-area: value; }
-  .bar-meta  { grid-area: meta; text-align: right; }
+  .bar-meta  { grid-area: meta; text-align: end; }
 }
 
 @media print {

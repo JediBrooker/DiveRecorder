@@ -603,7 +603,7 @@ const submitLabel = computed(() => {
 .synchro-role.role-b    { color: #fbbf24; border-color: rgba(245,158,11,0.45); background: rgba(245,158,11,0.10); }
 .synchro-role.role-sync { color: #34d399; border-color: rgba(16,185,129,0.45); background: rgba(16,185,129,0.10); }
 .judge-team-line {
-  display: inline-block; margin-top: 0.5rem; margin-right: 0.5rem;
+  display: inline-block; margin-top: 0.5rem; margin-inline-end: 0.5rem;
   font-family: var(--font-display); font-size: 11px; font-weight: 700;
   letter-spacing: 0.15em; text-transform: uppercase;
   padding: 0.3rem 0.7rem; border-radius: 4px;
@@ -724,7 +724,7 @@ const submitLabel = computed(() => {
   padding: 0.4rem 0.6rem;
   background: var(--red-dim);
   border: 1px solid var(--red);
-  border-left-width: 3px;
+  border-inline-start-width: 3px;
   border-radius: var(--radius-sm);
   font-family: var(--font-mono); font-size: 11px; font-weight: 700;
   color: var(--red);

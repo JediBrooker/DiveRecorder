@@ -385,7 +385,7 @@ onMounted(() => { if (route.params.id) load(route.params.id) })
   letter-spacing: 0.05em; color: var(--text-3);
   background: var(--bg-3); border: 1px solid var(--border);
   border-radius: 3px; padding: 0.1rem 0.35rem;
-  margin-left: 0.4rem; vertical-align: middle;
+  margin-inline-start: 0.4rem; vertical-align: middle;
 }
 .hero-title {
   font-family: var(--font-display); font-size: clamp(28px, 4.5vw, 48px); font-weight: 900;
@@ -541,8 +541,8 @@ onMounted(() => { if (route.params.id) load(route.params.id) })
      bottom of the export-options list + the action buttons
      are reachable. */
   .export-backdrop {
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
+    padding-inline-start: 0.5rem;
+    padding-inline-end: 0.5rem;
     padding-top: max(1rem, env(safe-area-inset-top, 1rem));
     padding-bottom: max(5rem, env(safe-area-inset-bottom, 1rem) + 4rem);
   }
@@ -631,7 +631,8 @@ onMounted(() => { if (route.params.id) load(route.params.id) })
 }
 
 .export-timing {
-  margin: 0.55rem 0 0 30px;
+  margin-block: 0.55rem 0;
+  margin-inline: 30px 0;
   display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
 }
 .export-timing-label {

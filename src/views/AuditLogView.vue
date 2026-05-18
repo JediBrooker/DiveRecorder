@@ -34,10 +34,10 @@ const isSysAdmin = computed(() => !!auth.user?.is_system_admin)
 
 // ----- Tab state -----
 const TABS = [
-  { id: 'recent',   label: 'Recent activity' },
-  { id: 'scores',   label: 'Score corrections' },
-  { id: 'roles',    label: 'Role changes' },
-  { id: 'activity', label: 'Event & admin actions' },
+  { id: 'recent',   labelKey: 'audit.tab_recent' },
+  { id: 'scores',   labelKey: 'audit.tab_scores' },
+  { id: 'roles',    labelKey: 'audit.tab_roles' },
+  { id: 'activity', labelKey: 'audit.tab_activity' },
 ]
 const activeTab = ref('recent')
 
@@ -88,12 +88,12 @@ const activityBusy = ref(false)
 const activityOffset = ref(0)
 const activityHasMore = ref(false)
 const ACTIVITY_PREFIXES = [
-  { value: 'all',    label: 'All' },
-  { value: 'event',  label: 'Event lifecycle' },
-  { value: 'roster', label: 'Roster (late entry / withdraw)' },
-  { value: 'org',    label: 'Org governance' },
-  { value: 'club',   label: 'Club deletes' },
-  { value: 'team',   label: 'Team deletes' },
+  { value: 'all',    labelKey: 'audit.activity.prefix_all' },
+  { value: 'event',  labelKey: 'audit.activity.prefix_event' },
+  { value: 'roster', labelKey: 'audit.activity.prefix_roster' },
+  { value: 'org',    labelKey: 'audit.activity.prefix_org' },
+  { value: 'club',   labelKey: 'audit.activity.prefix_club' },
+  { value: 'team',   labelKey: 'audit.activity.prefix_team' },
 ]
 
 // ----- Data loaders -----
@@ -256,29 +256,29 @@ function fmtTime(iso) {
 // store short enums (insert / update / delete / granted /
 // revoked); the activity log uses dotted verbs ('event.created',
 // 'roster.late_entry_added') — both shapes feed in here.
-const ACTIVITY_LABELS = {
-  'event.created':           'Event created',
-  'event.deleted':           'Event deleted',
-  'event.started':           'Event went Live',
-  'event.finalised':         'Event finalised',
-  'event.unfinalised':       'Event un-finalised',
-  'event.status_changed':    'Event status changed',
-  'event.workflow_reset':    'Pre-meet workflow reset',
-  'org.created':             'Org created',
-  'org.status_changed':      'Org status changed',
-  'club.deleted':            'Club deleted',
-  'team.deleted':            'Team deleted',
-  'roster.withdrew':         'Diver withdrawn',
-  'roster.reinstated':       'Diver reinstated',
-  'roster.late_entry_added': 'Late entry added',
+const ACTIVITY_LABEL_KEYS = {
+  'event.created':           'audit.activity.label_event_created',
+  'event.deleted':           'audit.activity.label_event_deleted',
+  'event.started':           'audit.activity.label_event_started',
+  'event.finalised':         'audit.activity.label_event_finalised',
+  'event.unfinalised':       'audit.activity.label_event_unfinalised',
+  'event.status_changed':    'audit.activity.label_event_status_changed',
+  'event.workflow_reset':    'audit.activity.label_event_workflow_reset',
+  'org.created':             'audit.activity.label_org_created',
+  'org.status_changed':      'audit.activity.label_org_status_changed',
+  'club.deleted':            'audit.activity.label_club_deleted',
+  'team.deleted':            'audit.activity.label_team_deleted',
+  'roster.withdrew':         'audit.activity.label_roster_withdrew',
+  'roster.reinstated':       'audit.activity.label_roster_reinstated',
+  'roster.late_entry_added': 'audit.activity.label_roster_late_entry_added',
 }
 function actionLabel(a) {
-  if (a === 'insert')  return 'Submitted'
-  if (a === 'update')  return 'Edited'
-  if (a === 'delete')  return 'Deleted'
-  if (a === 'granted') return 'Granted'
-  if (a === 'revoked') return 'Revoked'
-  if (ACTIVITY_LABELS[a]) return ACTIVITY_LABELS[a]
+  if (a === 'insert')  return t('audit.action_submitted')
+  if (a === 'update')  return t('audit.action_edited')
+  if (a === 'delete')  return t('audit.action_deleted')
+  if (a === 'granted') return t('audit.action_granted')
+  if (a === 'revoked') return t('audit.action_revoked')
+  if (ACTIVITY_LABEL_KEYS[a]) return t(ACTIVITY_LABEL_KEYS[a])
   return a
 }
 function actionClass(a) {
@@ -308,31 +308,37 @@ function activitySummary(r) {
     const bits = []
     if (m.event_type) bits.push(m.event_type)
     if (m.height)     bits.push(m.height)
-    if (m.total_rounds) bits.push(`${m.total_rounds} rounds`)
-    if (m.number_of_judges) bits.push(`${m.number_of_judges}-judge panel`)
+    if (m.total_rounds) bits.push(t('audit.activity.rounds_suffix', { n: m.total_rounds }))
+    if (m.number_of_judges) bits.push(t('audit.activity.judge_panel_suffix', { n: m.number_of_judges }))
     return bits.join(' · ')
   }
   if (r.action === 'event.deleted') {
-    return m.previous_status ? `was ${m.previous_status}` : ''
+    return m.previous_status ? t('audit.activity.was_status', { status: m.previous_status }) : ''
   }
-  if (r.action === 'event.started')      return 'Upcoming → Live'
-  if (r.action === 'event.finalised')    return 'Live → Completed'
-  if (r.action === 'event.unfinalised')  return 'Completed → Live'
+  if (r.action === 'event.started')      return t('audit.activity.transition_upcoming_live')
+  if (r.action === 'event.finalised')    return t('audit.activity.transition_live_completed')
+  if (r.action === 'event.unfinalised')  return t('audit.activity.transition_completed_live')
   if (r.action === 'event.status_changed') return `${m.from} → ${m.to}`
   if (r.action === 'org.status_changed')   return `${m.from} → ${m.to}`
   if (r.action === 'roster.late_entry_added') {
-    return `Round ${m.round_number} of ${m.event_name || 'event'}`
+    return t('audit.activity.round_of_event', {
+      round: m.round_number,
+      event: m.event_name || t('audit.fallback_event'),
+    })
   }
   if (r.action === 'roster.withdrew' || r.action === 'roster.reinstated') {
     return m.event_name || ''
   }
   if (r.action === 'club.deleted') {
     const n = m.unassigned_members
-    return n ? `${n} member${n === 1 ? ' unassigned' : 's unassigned'}` : ''
+    if (!n) return ''
+    return n === 1
+      ? t('audit.activity.member_unassigned_one', { n })
+      : t('audit.activity.member_unassigned_many', { n })
   }
   if (r.action === 'team.deleted') {
-    return [m.members_unbound && `${m.members_unbound} members`,
-            m.events_detached && `${m.events_detached} events`,
+    return [m.members_unbound && t('audit.activity.members_count', { n: m.members_unbound }),
+            m.events_detached && t('audit.activity.events_count', { n: m.events_detached }),
            ].filter(Boolean).join(' · ')
   }
   return ''
@@ -406,25 +412,23 @@ onMounted(async () => {
   <div class="audit-wrap">
     <div class="page-header">
       <div>
-        <div class="page-label">{{ $t('audit_log.title') }}</div>
-        <h1 class="page-title">{{ $t('audit_log.subtitle') }}</h1>
+        <div class="page-label">{{ $t('audit.page_label') }}</div>
+        <h1 class="page-title">{{ $t('audit.page_title') }}</h1>
         <div class="page-sub">
-          Every score correction and role change across
-          {{ isSysAdmin ? 'all federations' : 'your federation' }} —
-          searchable, filterable, exportable.
-          <span class="page-sub-dim">Retention: 30 days.</span>
+          {{ isSysAdmin ? $t('audit.page_sub_all') : $t('audit.page_sub_org') }}
+          <span class="page-sub-dim">{{ $t('audit.page_sub_retention') }}</span>
         </div>
       </div>
-      <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">← Dashboard</RouterLink>
+      <RouterLink to="/dashboard" class="btn btn-ghost btn-sm">{{ $t('audit.back_dashboard') }}</RouterLink>
     </div>
 
     <!-- Sysadmin org scope. Default 'all orgs' so a sysadmin's
          investigation starts wide; org admins don't see this
          control. -->
     <div v-if="isSysAdmin" class="org-scope">
-      <span class="filter-label">Org scope</span>
+      <span class="filter-label">{{ $t('audit.org_scope') }}</span>
       <select class="select select-sm" v-model="orgFilter">
-        <option value="">All organisations</option>
+        <option value="">{{ $t('audit.all_orgs') }}</option>
         <option v-for="o in orgs" :key="o.id" :value="o.id">
           {{ o.name }}{{ o.country_code ? ` (${o.country_code})` : '' }}
         </option>
@@ -434,48 +438,48 @@ onMounted(async () => {
     <!-- Tab strip -->
     <div class="tabs" role="tablist">
       <button
-        v-for="t in TABS"
-        :key="t.id"
+        v-for="tab in TABS"
+        :key="tab.id"
         type="button"
-        :class="['tab', activeTab === t.id ? 'tab-active' : '']"
-        :aria-selected="activeTab === t.id"
-        @click="activeTab = t.id"
-      >{{ t.label }}</button>
+        :class="['tab', activeTab === tab.id ? 'tab-active' : '']"
+        :aria-selected="activeTab === tab.id"
+        @click="activeTab = tab.id"
+      >{{ $t(tab.labelKey) }}</button>
     </div>
 
     <!-- Recent activity -->
     <section v-if="activeTab === 'recent'">
       <div class="filters">
         <div class="field-inline">
-          <span class="filter-label">Last</span>
+          <span class="filter-label">{{ $t('audit.filter_last') }}</span>
           <select class="select select-sm" v-model.number="recentDays">
-            <option :value="1">24 hours</option>
-            <option :value="7">7 days</option>
-            <option :value="14">14 days</option>
-            <option :value="30">30 days</option>
-            <option :value="90">90 days</option>
+            <option :value="1">{{ $t('audit.window_1d') }}</option>
+            <option :value="7">{{ $t('audit.window_7d') }}</option>
+            <option :value="14">{{ $t('audit.window_14d') }}</option>
+            <option :value="30">{{ $t('audit.window_30d') }}</option>
+            <option :value="90">{{ $t('audit.window_90d') }}</option>
           </select>
         </div>
-        <span class="result-count">{{ recentRows.length }} entries</span>
+        <span class="result-count">{{ $t('audit.entries_count', { n: recentRows.length }) }}</span>
         <button type="button" class="btn btn-ghost btn-sm"
                 :disabled="!recentRows.length"
                 @click="exportCsv(recentRows, 'mixed')">
-          Export CSV
+          {{ $t('audit.export_csv') }}
         </button>
       </div>
 
-      <div v-if="recentBusy && !recentRows.length" class="empty">Loading…</div>
+      <div v-if="recentBusy && !recentRows.length" class="empty">{{ $t('audit.loading') }}</div>
       <div v-else-if="!recentRows.length" class="empty">
-        Quiet around here — no audit activity in the selected window.
+        {{ $t('audit.empty_recent') }}
       </div>
       <div v-else class="table-wrap"><table class="audit-table">
         <thead>
           <tr>
-            <th>Time</th>
-            <th>Action</th>
-            <th>What happened</th>
-            <th v-if="isSysAdmin && !orgFilter">Org</th>
-            <th>Actor</th>
+            <th>{{ $t('audit.col_time') }}</th>
+            <th>{{ $t('audit.col_action') }}</th>
+            <th>{{ $t('audit.col_what') }}</th>
+            <th v-if="isSysAdmin && !orgFilter">{{ $t('audit.col_org') }}</th>
+            <th>{{ $t('audit.col_actor') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -484,15 +488,15 @@ onMounted(async () => {
             <td>
               <span :class="['action-pill', actionClass(r.action)]">{{ actionLabel(r.action) }}</span>
               <span class="kind-pill" :class="`kind-${r.kind}`">
-                {{ r.kind === 'score' ? 'Score' : r.kind === 'role' ? 'Role' : 'Activity' }}
+                {{ r.kind === 'score' ? $t('audit.kind_score') : r.kind === 'role' ? $t('audit.kind_role') : $t('audit.kind_activity') }}
               </span>
             </td>
             <td>
               <template v-if="r.kind === 'score'">
-                <strong>{{ r.competitor_name || 'Competitor' }}</strong>
+                <strong>{{ r.competitor_name || $t('audit.fallback_competitor') }}</strong>
                 <span class="dim"> in </span>
                 <RouterLink :to="`/events/${r.event_id}/audit`" class="event-link">
-                  {{ r.event_name || 'event' }}
+                  {{ r.event_name || $t('audit.fallback_event') }}
                 </RouterLink>
                 <span class="dim"> · R{{ r.round_number }}</span>
                 <span v-if="r.old_score != null || r.new_score != null" class="score-shift">
@@ -502,8 +506,8 @@ onMounted(async () => {
               </template>
               <template v-else-if="r.kind === 'role'">
                 <strong>{{ r.role }}</strong>
-                {{ r.action === 'granted' ? 'granted to' : 'revoked from' }}
-                <strong>{{ r.target_name || 'user' }}</strong>
+                {{ r.action === 'granted' ? $t('audit.granted_to') : $t('audit.revoked_from') }}
+                <strong>{{ r.target_name || $t('audit.fallback_user') }}</strong>
                 <div v-if="r.note" class="reason">"{{ r.note }}"</div>
               </template>
               <template v-else>
@@ -523,53 +527,53 @@ onMounted(async () => {
     <section v-if="activeTab === 'scores'">
       <div class="filters">
         <div class="field-inline">
-          <span class="filter-label">{{ $t('audit_log.filter_action') }}</span>
+          <span class="filter-label">{{ $t('audit.filter_action') }}</span>
           <select class="select select-sm" v-model="scoreFilters.action">
-            <option value="all">All</option>
-            <option value="insert">Submitted</option>
-            <option value="update">Edited</option>
-            <option value="delete">Deleted</option>
+            <option value="all">{{ $t('audit.filter_all') }}</option>
+            <option value="insert">{{ $t('audit.action_submitted') }}</option>
+            <option value="update">{{ $t('audit.action_edited') }}</option>
+            <option value="delete">{{ $t('audit.action_deleted') }}</option>
           </select>
         </div>
         <div class="field-inline">
-          <span class="filter-label">From</span>
+          <span class="filter-label">{{ $t('audit.filter_from') }}</span>
           <input type="date" class="input input-sm" v-model="scoreFilters.from">
         </div>
         <div class="field-inline">
-          <span class="filter-label">To</span>
+          <span class="filter-label">{{ $t('audit.filter_to') }}</span>
           <input type="date" class="input input-sm" v-model="scoreFilters.to">
         </div>
         <div class="field-inline filter-search">
           <input type="text" class="input input-sm" v-model="scoreFilters.q"
-                 placeholder='Search reason ("video", "typo", …)'
+                 :placeholder="$t('audit.search_reason_placeholder')"
                  @keyup.enter="applyScoreSearch">
-          <button type="button" class="btn btn-ghost btn-sm" @click="applyScoreSearch">Search</button>
+          <button type="button" class="btn btn-ghost btn-sm" @click="applyScoreSearch">{{ $t('audit.search_button') }}</button>
         </div>
-        <span class="result-count">{{ scoreRows.length }} entries</span>
+        <span class="result-count">{{ $t('audit.entries_count', { n: scoreRows.length }) }}</span>
         <button type="button" class="btn btn-ghost btn-sm"
                 :disabled="!scoreRows.length"
                 @click="exportCsv(scoreRows, 'score')">
-          Export CSV
+          {{ $t('audit.export_csv') }}
         </button>
       </div>
 
-      <div v-if="scoreBusy && !scoreRows.length" class="empty">Loading…</div>
+      <div v-if="scoreBusy && !scoreRows.length" class="empty">{{ $t('audit.loading') }}</div>
       <div v-else-if="!scoreRows.length" class="empty">
-        {{ $t('audit_log.no_entries') }}
+        {{ $t('audit.empty_filtered') }}
       </div>
       <div v-else class="table-wrap"><table class="audit-table">
         <thead>
           <tr>
-            <th>Time</th>
-            <th>Action</th>
-            <th>Event</th>
-            <th v-if="isSysAdmin && !orgFilter">Org</th>
-            <th>Round</th>
-            <th>Competitor</th>
-            <th>Judge</th>
-            <th>Old → New</th>
-            <th>Actor</th>
-            <th>Reason</th>
+            <th>{{ $t('audit.col_time') }}</th>
+            <th>{{ $t('audit.col_action') }}</th>
+            <th>{{ $t('audit.col_event') }}</th>
+            <th v-if="isSysAdmin && !orgFilter">{{ $t('audit.col_org') }}</th>
+            <th>{{ $t('audit.col_round') }}</th>
+            <th>{{ $t('audit.col_competitor') }}</th>
+            <th>{{ $t('audit.col_judge') }}</th>
+            <th>{{ $t('audit.col_old_new') }}</th>
+            <th>{{ $t('audit.col_actor') }}</th>
+            <th>{{ $t('audit.col_reason') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -602,7 +606,7 @@ onMounted(async () => {
         <button type="button" class="btn btn-ghost btn-sm"
                 :disabled="scoreBusy"
                 @click="loadScores({ append: true })">
-          {{ scoreBusy ? 'Loading…' : `Show ${PAGE} more` }}
+          {{ scoreBusy ? $t('audit.loading') : $t('audit.show_more', { n: PAGE }) }}
         </button>
       </div>
     </section>
@@ -611,50 +615,50 @@ onMounted(async () => {
     <section v-if="activeTab === 'roles'">
       <div class="filters">
         <div class="field-inline">
-          <span class="filter-label">{{ $t('audit_log.filter_action') }}</span>
+          <span class="filter-label">{{ $t('audit.filter_action') }}</span>
           <select class="select select-sm" v-model="roleFilters.action">
-            <option value="all">All</option>
-            <option value="granted">Granted</option>
-            <option value="revoked">Revoked</option>
+            <option value="all">{{ $t('audit.filter_all') }}</option>
+            <option value="granted">{{ $t('audit.action_granted') }}</option>
+            <option value="revoked">{{ $t('audit.action_revoked') }}</option>
           </select>
         </div>
         <div class="field-inline">
-          <span class="filter-label">Role</span>
+          <span class="filter-label">{{ $t('audit.filter_role') }}</span>
           <select class="select select-sm" v-model="roleFilters.role">
-            <option value="all">All</option>
+            <option value="all">{{ $t('audit.filter_all') }}</option>
             <option v-for="r in ORG_ROLES" :key="r" :value="r">{{ r }}</option>
           </select>
         </div>
         <div class="field-inline">
-          <span class="filter-label">From</span>
+          <span class="filter-label">{{ $t('audit.filter_from') }}</span>
           <input type="date" class="input input-sm" v-model="roleFilters.from">
         </div>
         <div class="field-inline">
-          <span class="filter-label">To</span>
+          <span class="filter-label">{{ $t('audit.filter_to') }}</span>
           <input type="date" class="input input-sm" v-model="roleFilters.to">
         </div>
-        <span class="result-count">{{ roleRows.length }} entries</span>
+        <span class="result-count">{{ $t('audit.entries_count', { n: roleRows.length }) }}</span>
         <button type="button" class="btn btn-ghost btn-sm"
                 :disabled="!roleRows.length"
                 @click="exportCsv(roleRows, 'role')">
-          Export CSV
+          {{ $t('audit.export_csv') }}
         </button>
       </div>
 
-      <div v-if="roleBusy && !roleRows.length" class="empty">Loading…</div>
+      <div v-if="roleBusy && !roleRows.length" class="empty">{{ $t('audit.loading') }}</div>
       <div v-else-if="!roleRows.length" class="empty">
-        {{ $t('audit_log.no_entries') }}
+        {{ $t('audit.empty_filtered') }}
       </div>
       <div v-else class="table-wrap"><table class="audit-table">
         <thead>
           <tr>
-            <th>Time</th>
-            <th>Action</th>
-            <th>Role</th>
-            <th>Target user</th>
-            <th v-if="isSysAdmin && !orgFilter">Org</th>
-            <th>Actor</th>
-            <th>Note</th>
+            <th>{{ $t('audit.col_time') }}</th>
+            <th>{{ $t('audit.col_action') }}</th>
+            <th>{{ $t('audit.col_role') }}</th>
+            <th>{{ $t('audit.col_target') }}</th>
+            <th v-if="isSysAdmin && !orgFilter">{{ $t('audit.col_org') }}</th>
+            <th>{{ $t('audit.col_actor') }}</th>
+            <th>{{ $t('audit.col_note') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -676,7 +680,7 @@ onMounted(async () => {
         <button type="button" class="btn btn-ghost btn-sm"
                 :disabled="roleBusy"
                 @click="loadRoles({ append: true })">
-          {{ roleBusy ? 'Loading…' : `Show ${PAGE} more` }}
+          {{ roleBusy ? $t('audit.loading') : $t('audit.show_more', { n: PAGE }) }}
         </button>
       </div>
     </section>
@@ -685,40 +689,40 @@ onMounted(async () => {
     <section v-if="activeTab === 'activity'">
       <div class="filters">
         <div class="field-inline">
-          <span class="filter-label">Domain</span>
+          <span class="filter-label">{{ $t('audit.filter_domain') }}</span>
           <select class="select select-sm" v-model="activityFilters.action_prefix">
-            <option v-for="p in ACTIVITY_PREFIXES" :key="p.value" :value="p.value">{{ p.label }}</option>
+            <option v-for="p in ACTIVITY_PREFIXES" :key="p.value" :value="p.value">{{ $t(p.labelKey) }}</option>
           </select>
         </div>
         <div class="field-inline">
-          <span class="filter-label">From</span>
+          <span class="filter-label">{{ $t('audit.filter_from') }}</span>
           <input type="date" class="input input-sm" v-model="activityFilters.from">
         </div>
         <div class="field-inline">
-          <span class="filter-label">To</span>
+          <span class="filter-label">{{ $t('audit.filter_to') }}</span>
           <input type="date" class="input input-sm" v-model="activityFilters.to">
         </div>
-        <span class="result-count">{{ activityRows.length }} entries</span>
+        <span class="result-count">{{ $t('audit.entries_count', { n: activityRows.length }) }}</span>
         <button type="button" class="btn btn-ghost btn-sm"
                 :disabled="!activityRows.length"
                 @click="exportCsv(activityRows, 'activity')">
-          Export CSV
+          {{ $t('audit.export_csv') }}
         </button>
       </div>
 
-      <div v-if="activityBusy && !activityRows.length" class="empty">Loading…</div>
+      <div v-if="activityBusy && !activityRows.length" class="empty">{{ $t('audit.loading') }}</div>
       <div v-else-if="!activityRows.length" class="empty">
-        {{ $t('audit_log.no_entries') }}
+        {{ $t('audit.empty_filtered') }}
       </div>
       <div v-else class="table-wrap"><table class="audit-table">
         <thead>
           <tr>
-            <th>Time</th>
-            <th>Action</th>
-            <th>Subject</th>
-            <th>Detail</th>
-            <th v-if="isSysAdmin && !orgFilter">Org</th>
-            <th>Actor</th>
+            <th>{{ $t('audit.col_time') }}</th>
+            <th>{{ $t('audit.col_action') }}</th>
+            <th>{{ $t('audit.col_subject') }}</th>
+            <th>{{ $t('audit.col_detail') }}</th>
+            <th v-if="isSysAdmin && !orgFilter">{{ $t('audit.col_org') }}</th>
+            <th>{{ $t('audit.col_actor') }}</th>
           </tr>
         </thead>
         <tbody>
@@ -739,7 +743,7 @@ onMounted(async () => {
         <button type="button" class="btn btn-ghost btn-sm"
                 :disabled="activityBusy"
                 @click="loadActivity({ append: true })">
-          {{ activityBusy ? 'Loading…' : `Show ${PAGE} more` }}
+          {{ activityBusy ? $t('audit.loading') : $t('audit.show_more', { n: PAGE }) }}
         </button>
       </div>
     </section>
@@ -817,7 +821,7 @@ onMounted(async () => {
 }
 .filter-search .input-sm { flex: 1; min-width: 0; }
 .result-count {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
 }
 
@@ -834,7 +838,7 @@ onMounted(async () => {
 .audit-table th, .audit-table td {
   padding: 0.55rem 0.75rem;
   border-bottom: 1px solid var(--border);
-  text-align: left; font-size: 13px; vertical-align: middle;
+  text-align: start; font-size: 13px; vertical-align: middle;
 }
 .audit-table th {
   font-family: var(--font-display); font-size: 10px; font-weight: 700;
@@ -861,7 +865,7 @@ onMounted(async () => {
 .kind-pill {
   font-family: var(--font-mono); font-size: 9.5px; font-weight: 700;
   letter-spacing: 0.05em;
-  margin-left: 0.4rem;
+  margin-inline-start: 0.4rem;
   padding: 0.1rem 0.4rem;
   border-radius: 3px;
   background: var(--bg);
@@ -876,7 +880,7 @@ onMounted(async () => {
   font-family: var(--font-mono); font-size: 10px; font-weight: 700;
   color: var(--cyan); border: 1px solid rgba(6,182,212,0.3);
   background: var(--cyan-dim); padding: 0.1rem 0.35rem; border-radius: 3px;
-  margin-right: 0.4rem;
+  margin-inline-end: 0.4rem;
 }
 .event-link {
   color: var(--cyan); text-decoration: none;
@@ -887,7 +891,7 @@ onMounted(async () => {
 
 .score-shift {
   font-family: var(--font-mono);
-  margin-left: 0.5rem;
+  margin-inline-start: 0.5rem;
   color: var(--text-3);
 }
 .old { color: var(--text-3); }

@@ -195,7 +195,7 @@ async function loadCoachLinks(orgId, currentUserId) {
 async function addCoachLink() {
   drawerLinkError.value = ''
   if (!drawerLinkOtherId.value) {
-    drawerLinkError.value = 'Pick the other user'
+    drawerLinkError.value = t('user_manager.coach_pick_other_error')
     return
   }
   const me = drawerUserId.value
@@ -229,7 +229,7 @@ async function addCoachLink() {
     drawerLinkOtherId.value = ''
     drawerLinkNote.value = ''
   } catch (err) {
-    drawerLinkError.value = err.message || 'Failed to add link'
+    drawerLinkError.value = err.message || t('user_manager.coach_add_failed')
   } finally {
     drawerLinkSaving.value = false
   }
@@ -237,17 +237,17 @@ async function addCoachLink() {
 
 async function removeCoachLink(id) {
   if (!await confirmAction({
-    title: 'Remove coach link?',
-    body:  'The coach will no longer see this diver in their roster. Both accounts stay intact.',
-    confirmLabel: 'Remove link',
+    title: t('user_manager.coach_remove_title'),
+    body:  t('user_manager.coach_remove_body'),
+    confirmLabel: t('user_manager.coach_remove_confirm'),
     confirmKind:  'warn',
   })) return
   try {
     await auth.apiFetch(`/api/coach-links/${id}`, { method: 'DELETE' })
     drawerCoachLinks.value = drawerCoachLinks.value.filter(l => l.id !== id)
-    showSuccess('Coach link removed')
+    showSuccess(t('user_manager.coach_link_removed_toast'))
   } catch (err) {
-    showError(`Failed to remove link: ${err.message}`)
+    showError(t('user_manager.coach_link_remove_failed', { message: err.message }))
   }
 }
 
@@ -335,15 +335,15 @@ function onKeyDown(e) {
   if (e.key === 'Escape' && drawerUserId.value) closeDrawer()
 }
 
-const ROLE_LABELS = {
-  org_admin: 'Org Admin',
-  meet_manager: 'Meet Manager',
-  referee: 'Referee',
-  judge: 'Judge',
-  coach: 'Coach',
-  diver: 'Diver',
-  spectator: 'Spectator',
-}
+const ROLE_LABELS = computed(() => ({
+  org_admin: t('user_manager.role_org_admin'),
+  meet_manager: t('user_manager.role_meet_manager'),
+  referee: t('user_manager.role_referee'),
+  judge: t('user_manager.role_judge'),
+  coach: t('user_manager.role_coach'),
+  diver: t('user_manager.role_diver'),
+  spectator: t('user_manager.role_spectator'),
+}))
 
 const filteredUsers = computed(() => {
   const term = searchTerm.value.trim().toLowerCase()
@@ -456,10 +456,10 @@ async function saveUserRoles(userId) {
 
 function rowStatusLabel(userId) {
   const s = rowState.value[userId]
-  if (s === 'saving') return 'Saving…'
-  if (s === 'saved')  return 'Saved'
-  if (s === 'dirty')  return 'Pending…'
-  if (s === 'error')  return 'Failed — retry'
+  if (s === 'saving') return t('user_manager.status_saving')
+  if (s === 'saved')  return t('user_manager.status_saved')
+  if (s === 'dirty')  return t('user_manager.status_dirty')
+  if (s === 'error')  return t('user_manager.status_error')
   return ''
 }
 
@@ -591,8 +591,12 @@ async function applyBulkRole(action) {
 
   bulkBusy.value = false
   selectedIds.value = new Set()
-  const verb = action === 'add' ? 'Added' : 'Removed'
-  bulkSummary.value = `${verb} ${ROLE_LABELS[role] || role} — ${ok} updated${skipped ? `, ${skipped} skipped` : ''}${failed ? `, ${failed} failed` : ''}`
+  const skippedStr = skipped ? t('user_manager.bulk_skipped_suffix', { n: skipped }) : ''
+  const failedStr = failed ? t('user_manager.bulk_failed_suffix', { n: failed }) : ''
+  const roleLabel = ROLE_LABELS.value[role] || role
+  bulkSummary.value = action === 'add'
+    ? t('user_manager.bulk_summary_added', { role: roleLabel, ok, skipped: skippedStr, failed: failedStr })
+    : t('user_manager.bulk_summary_removed', { role: roleLabel, ok, skipped: skippedStr, failed: failedStr })
   setTimeout(() => { bulkSummary.value = '' }, 4000)
 }
 
@@ -656,7 +660,7 @@ onUnmounted(() => {
 <template>
   <div class="page-header">
     <h1 class="page-title">{{ $t('user_manager.title') }}</h1>
-    <RouterLink to="/dashboard" class="btn btn-ghost">← Dashboard</RouterLink>
+    <RouterLink to="/dashboard" class="btn btn-ghost">{{ $t('user_manager.back_dashboard') }}</RouterLink>
   </div>
 
   <div class="main">
@@ -665,18 +669,18 @@ onUnmounted(() => {
     <div class="stats-strip">
       <div class="stat">
         <div class="stat-num">{{ stats.total.toLocaleString() }}</div>
-        <div class="stat-label">Members</div>
+        <div class="stat-label">{{ $t('user_manager.stat_members') }}</div>
       </div>
       <div :class="['stat', stats.pending ? 'stat-cyan' : '']">
         <div class="stat-num">{{ stats.pending }}</div>
-        <div class="stat-label">Pending</div>
+        <div class="stat-label">{{ $t('user_manager.stat_pending') }}</div>
       </div>
       <div class="stat-sep"></div>
       <div v-for="r in PRIMARY_ROLES" :key="r" class="stat stat-mini">
         <div class="stat-num">{{ stats[r].toLocaleString() }}</div>
         <div class="stat-label">{{ ROLE_LABELS[r] }}</div>
       </div>
-      <span v-if="isSysAdmin" class="sys-badge" style="margin-left:auto">System Admin · all orgs</span>
+      <span v-if="isSysAdmin" class="sys-badge" style="margin-inline-start:auto">{{ $t('user_manager.sys_admin_badge') }}</span>
     </div>
 
     <!-- Tabs -->
@@ -699,7 +703,7 @@ onUnmounted(() => {
           <div style="flex:1;min-width:0">
             <div class="request-name">{{ rq.full_name }}</div>
             <div class="request-meta">
-              @{{ rq.username }} · Requesting
+              @{{ rq.username }} · {{ $t('user_manager.requesting_label') }}
               <span class="badge">{{ rq.requested_role.replace('_', ' ') }}</span>
               <span v-if="isSysAdmin && rq.org_name" class="org-country">
                 {{ rq.org_name }}{{ rq.country_code ? ' · ' + rq.country_code : '' }}
@@ -719,52 +723,52 @@ onUnmounted(() => {
     <div v-else>
       <!-- Filters -->
       <div class="filters">
-        <input class="input" type="text" v-model="searchTerm" placeholder="Search by name, username, org…">
+        <input class="input" type="text" v-model="searchTerm" :placeholder="$t('user_manager.search_placeholder')">
         <select v-if="isSysAdmin" class="select" v-model="orgFilter">
-          <option value="">All organisations ({{ orgs.length }})</option>
+          <option value="">{{ $t('user_manager.all_orgs_count', { n: orgs.length }) }}</option>
           <option v-for="o in orgs" :key="o.id" :value="o.id">
             {{ o.name }}{{ o.country_code ? ' · ' + o.country_code : '' }}
           </option>
         </select>
         <label v-if="isSysAdmin" class="toggle">
           <input type="checkbox" v-model="groupByOrg">
-          Group by org
+          {{ $t('user_manager.group_by_org') }}
         </label>
         <button class="btn btn-ghost btn-sm" @click="exportCsv" :disabled="!filteredUsers.length">
-          Export CSV
+          {{ $t('user_manager.export_csv') }}
         </button>
-        <span class="result-count">{{ filteredUsers.length.toLocaleString() }} of {{ allUsers.length.toLocaleString() }}</span>
+        <span class="result-count">{{ $t('user_manager.result_count', { shown: filteredUsers.length.toLocaleString(), total: allUsers.length.toLocaleString() }) }}</span>
       </div>
 
       <!-- Role chip filter — primary roles only; filtering by
            spectator would just show every member -->
       <div class="chip-row">
-        <span class="chip-label">Role:</span>
+        <span class="chip-label">{{ $t('user_manager.role_label_short') }}</span>
         <button v-for="r in PRIMARY_ROLES" :key="r"
                 :class="['chip', roleFilters.has(r) ? 'chip-active' : '']"
                 @click="toggleRoleFilter(r)">
           {{ ROLE_LABELS[r] }}
         </button>
-        <button v-if="roleFilters.size" class="chip chip-clear" @click="clearRoleFilters">Clear</button>
+        <button v-if="roleFilters.size" class="chip chip-clear" @click="clearRoleFilters">{{ $t('user_manager.clear_filter') }}</button>
       </div>
 
       <!-- Bulk action bar — only visible while at least one row is selected -->
       <div v-if="selectedIds.size" class="bulk-bar">
-        <div class="bulk-count">{{ selectedIds.size }} selected</div>
+        <div class="bulk-count">{{ $t('user_manager.selected_count', { n: selectedIds.size }) }}</div>
         <select class="select bulk-select" v-model="bulkRole">
           <option v-for="r in ALL_ROLES" :key="r" :value="r">{{ ROLE_LABELS[r] }}</option>
         </select>
-        <button class="btn btn-sm bulk-add" :disabled="bulkBusy" @click="applyBulkRole('add')">Add role</button>
-        <button class="btn btn-sm bulk-remove" :disabled="bulkBusy" @click="applyBulkRole('remove')">Remove role</button>
-        <button class="btn btn-ghost btn-sm" @click="clearSelection">Clear selection</button>
-        <span v-if="bulkBusy" class="bulk-status">Working…</span>
+        <button class="btn btn-sm bulk-add" :disabled="bulkBusy" @click="applyBulkRole('add')">{{ $t('user_manager.bulk_add_role') }}</button>
+        <button class="btn btn-sm bulk-remove" :disabled="bulkBusy" @click="applyBulkRole('remove')">{{ $t('user_manager.bulk_remove_role') }}</button>
+        <button class="btn btn-ghost btn-sm" @click="clearSelection">{{ $t('user_manager.clear_selection') }}</button>
+        <span v-if="bulkBusy" class="bulk-status">{{ $t('user_manager.bulk_working') }}</span>
       </div>
       <div v-if="bulkSummary" class="bulk-summary">{{ bulkSummary }}</div>
 
       <!-- Grouped-by-org controls -->
       <div v-if="groupByOrg" class="group-controls">
-        <button class="btn btn-ghost btn-sm" @click="expandAllOrgs">Expand all</button>
-        <button class="btn btn-ghost btn-sm" @click="collapseAllOrgs">Collapse all</button>
+        <button class="btn btn-ghost btn-sm" @click="expandAllOrgs">{{ $t('user_manager.expand_all') }}</button>
+        <button class="btn btn-ghost btn-sm" @click="collapseAllOrgs">{{ $t('user_manager.collapse_all') }}</button>
       </div>
 
       <!-- Users table -->
@@ -778,18 +782,18 @@ onUnmounted(() => {
                        :disabled="!visibleIds.length"
                        @change="toggleSelectAllVisible">
               </th>
-              <th>Name</th>
-              <th>Username</th>
-              <th v-if="isSysAdmin && !groupByOrg">Organisation</th>
-              <th>Roles</th>
-              <th class="status-col">Status</th>
+              <th>{{ $t('user_manager.col_name') }}</th>
+              <th>{{ $t('user_manager.col_username') }}</th>
+              <th v-if="isSysAdmin && !groupByOrg">{{ $t('user_manager.col_org') }}</th>
+              <th>{{ $t('user_manager.col_roles') }}</th>
+              <th class="status-col">{{ $t('user_manager.col_status') }}</th>
             </tr>
           </thead>
 
           <!-- Flat (paged) view -->
           <tbody v-if="!groupByOrg">
             <tr v-if="!filteredUsers.length">
-              <td :colspan="isSysAdmin ? 6 : 5" class="empty-state">No users found</td>
+              <td :colspan="isSysAdmin ? 6 : 5" class="empty-state">{{ $t('user_manager.no_users_found') }}</td>
             </tr>
             <tr v-for="user in pagedUsers" :key="user.id"
                 :class="['user-row', 'clickable', rowState[user.id] || '', selectedIds.has(user.id) ? 'selected' : '']"
@@ -801,7 +805,7 @@ onUnmounted(() => {
               </td>
               <td>
                 <span class="user-name">{{ user.full_name }}</span>
-                <span v-if="user.is_system_admin" class="sys-badge sys-badge-inline">SYS</span>
+                <span v-if="user.is_system_admin" class="sys-badge sys-badge-inline">{{ $t('user_manager.sys_badge_short') }}</span>
               </td>
               <td class="dim">@{{ user.username }}</td>
               <td v-if="isSysAdmin" class="org-cell">
@@ -811,7 +815,7 @@ onUnmounted(() => {
                     <span v-if="user.country_code" class="org-country">{{ user.country_code }}</span>
                   </span>
                   <span v-if="user.club_name" class="club-line">{{ user.club_name }}</span>
-                  <span v-else class="club-line club-line-empty">No club</span>
+                  <span v-else class="club-line club-line-empty">{{ $t('user_manager.no_club') }}</span>
                 </div>
               </td>
               <td>
@@ -821,9 +825,9 @@ onUnmounted(() => {
                     {{ ROLE_LABELS[role] }}
                   </span>
                   <span v-if="!userPills(user.id).length" class="role-pill role-pill-empty">
-                    No roles
+                    {{ $t('user_manager.no_roles') }}
                   </span>
-                  <span class="role-edit-hint">Edit ›</span>
+                  <span class="role-edit-hint">{{ $t('user_manager.edit_hint') }}</span>
                 </div>
               </td>
               <td class="status-col" @click.stop>
@@ -839,7 +843,7 @@ onUnmounted(() => {
           <!-- Grouped-by-org view (system admin) -->
           <template v-else>
             <tbody v-if="!groupedUsers.length">
-              <tr><td colspan="5" class="empty-state">No users found</td></tr>
+              <tr><td colspan="5" class="empty-state">{{ $t('user_manager.no_users_found') }}</td></tr>
             </tbody>
             <template v-for="g in groupedUsers" :key="g.org_id">
               <tbody>
@@ -848,7 +852,7 @@ onUnmounted(() => {
                     <span class="group-caret">{{ collapsedOrgs.has(g.org_id) ? '▸' : '▾' }}</span>
                     <span class="group-name">{{ g.org_name }}</span>
                     <span v-if="g.country_code" class="org-country">{{ g.country_code }}</span>
-                    <span class="group-count">{{ g.users.length }} member{{ g.users.length === 1 ? '' : 's' }}</span>
+                    <span class="group-count">{{ g.users.length === 1 ? $t('user_manager.group_members_one', { n: g.users.length }) : $t('user_manager.group_members_many', { n: g.users.length }) }}</span>
                   </td>
                 </tr>
                 <template v-if="!collapsedOrgs.has(g.org_id)">
@@ -862,7 +866,7 @@ onUnmounted(() => {
                     </td>
                     <td>
                       <span class="user-name">{{ user.full_name }}</span>
-                      <span v-if="user.is_system_admin" class="sys-badge sys-badge-inline">SYS</span>
+                      <span v-if="user.is_system_admin" class="sys-badge sys-badge-inline">{{ $t('user_manager.sys_badge_short') }}</span>
                     </td>
                     <td class="dim">@{{ user.username }}</td>
                     <td>
@@ -892,17 +896,20 @@ onUnmounted(() => {
 
       <!-- Pagination — only meaningful in flat (non-grouped) mode -->
       <div v-if="!groupByOrg && totalPages > 1" class="pagination">
-        <button class="page-btn" :disabled="currentPage === 1" @click="currentPage--">← Prev</button>
+        <button class="page-btn" :disabled="currentPage === 1" @click="currentPage--">{{ $t('user_manager.page_prev') }}</button>
         <button v-for="(n, i) in pageNums()" :key="i"
                 :class="['page-btn', n === currentPage ? 'page-btn-active' : '']"
                 :disabled="n === '…'"
                 @click="typeof n === 'number' && (currentPage = n)">
           {{ n }}
         </button>
-        <button class="page-btn" :disabled="currentPage === totalPages" @click="currentPage++">Next →</button>
+        <button class="page-btn" :disabled="currentPage === totalPages" @click="currentPage++">{{ $t('user_manager.page_next') }}</button>
         <span class="page-info">
-          {{ ((currentPage - 1) * PAGE_SIZE + 1).toLocaleString() }}–{{ Math.min(currentPage * PAGE_SIZE, filteredUsers.length).toLocaleString() }}
-          of {{ filteredUsers.length.toLocaleString() }}
+          {{ $t('user_manager.page_info', {
+            from: ((currentPage - 1) * PAGE_SIZE + 1).toLocaleString(),
+            to: Math.min(currentPage * PAGE_SIZE, filteredUsers.length).toLocaleString(),
+            total: filteredUsers.length.toLocaleString(),
+          }) }}
         </span>
       </div>
     </div>
@@ -931,23 +938,23 @@ onUnmounted(() => {
             <span v-if="drawerUser.club_name" class="drawer-club">
               {{ drawerUser.club_name }}<span v-if="drawerUser.club_code" class="club-code">{{ drawerUser.club_code }}</span>
             </span>
-            <span v-else class="club-line club-line-empty">No club</span>
+            <span v-else class="club-line club-line-empty">{{ $t('user_manager.no_club') }}</span>
           </div>
         </div>
-        <button class="btn btn-ghost btn-sm" @click="closeDrawer" aria-label="Close drawer">Close ✕</button>
+        <button class="btn btn-ghost btn-sm" @click="closeDrawer" aria-label="Close drawer">{{ $t('user_manager.close_drawer') }}</button>
       </div>
 
       <div class="drawer-body">
         <!-- Club editor — assign or create a club within the
              target user's org. Only orgs they belong to are
              selectable; cross-org assignment isn't a real flow. -->
-        <div class="drawer-section-label">Club</div>
+        <div class="drawer-section-label">{{ $t('user_manager.drawer_section_club') }}</div>
         <div class="club-editor">
           <select v-if="!drawerCreatingClub"
                   class="select"
                   v-model="drawerClubChoice"
                   @change="saveDrawerClub">
-            <option value="">— No club —</option>
+            <option value="">{{ $t('user_manager.drawer_no_club_option') }}</option>
             <option v-for="c in drawerClubs" :key="c.id" :value="c.id">
               {{ c.name }}<template v-if="c.short_code"> ({{ c.short_code }})</template>
             </option>
@@ -955,37 +962,37 @@ onUnmounted(() => {
           <button v-if="!drawerCreatingClub"
                   class="btn btn-ghost btn-sm"
                   @click="drawerCreatingClub = true">
-            + New
+            {{ $t('user_manager.drawer_new_club_btn') }}
           </button>
 
           <!-- Inline create form -->
           <div v-if="drawerCreatingClub" class="club-create-block">
             <div class="field">
-              <label class="label">New club name</label>
+              <label class="label">{{ $t('user_manager.drawer_new_club_name_label') }}</label>
               <input class="input" type="text" v-model="drawerNewClubName"
-                     placeholder="e.g. Sydney Springboard">
+                     :placeholder="$t('user_manager.drawer_new_club_name_placeholder')">
             </div>
             <div class="field">
-              <label class="label">Short code (optional)</label>
+              <label class="label">{{ $t('user_manager.drawer_new_club_code_label') }}</label>
               <input class="input" type="text" v-model="drawerNewClubCode"
-                     placeholder="e.g. SYD" maxlength="20">
+                     :placeholder="$t('user_manager.drawer_new_club_code_placeholder')" maxlength="20">
             </div>
             <div style="display:flex;gap:0.4rem;justify-content:flex-end">
               <button class="btn btn-ghost btn-sm"
-                      @click="drawerCreatingClub = false">Cancel</button>
+                      @click="drawerCreatingClub = false">{{ $t('user_manager.drawer_cancel') }}</button>
               <button class="btn btn-primary btn-sm"
                       :disabled="drawerClubSaving || !drawerNewClubName.trim()"
                       @click="createDrawerClub">
-                {{ drawerClubSaving ? 'Creating…' : 'Create & assign' }}
+                {{ drawerClubSaving ? $t('user_manager.drawer_creating') : $t('user_manager.drawer_create_assign') }}
               </button>
             </div>
           </div>
 
-          <span v-if="drawerClubStatus === 'saved'" class="club-status-saved">Saved</span>
-          <span v-else-if="drawerClubStatus === 'error'" class="club-status-error">Save failed</span>
+          <span v-if="drawerClubStatus === 'saved'" class="club-status-saved">{{ $t('user_manager.drawer_club_saved') }}</span>
+          <span v-else-if="drawerClubStatus === 'error'" class="club-status-error">{{ $t('user_manager.drawer_club_save_failed') }}</span>
         </div>
 
-        <div class="drawer-section-label" style="margin-top:1.25rem">Roles</div>
+        <div class="drawer-section-label" style="margin-top:1.25rem">{{ $t('user_manager.drawer_section_roles') }}</div>
         <div class="drawer-roles">
           <label v-for="role in ALL_ROLES" :key="role"
                  :class="['drawer-role', hasRole(drawerUserId, role) ? 'drawer-role-on' : '']">
@@ -1006,33 +1013,33 @@ onUnmounted(() => {
         <!-- Coach ↔ Diver links. Org admins curate them here;
              the linked-side user sees them on their /coach
              dashboard. -->
-        <div class="drawer-section-label" style="margin-top:1.5rem">Coach Links</div>
+        <div class="drawer-section-label" style="margin-top:1.5rem">{{ $t('user_manager.drawer_section_coach_links') }}</div>
         <div class="coach-links">
           <div v-if="!drawerLinks.length" class="coach-empty">
-            No coach links for this user yet.
+            {{ $t('user_manager.coach_empty') }}
           </div>
           <div v-for="link in drawerLinks" :key="link.id" class="coach-link-row">
             <span :class="['coach-side', `coach-side-${linkSideForUser(link)}`]">
-              {{ linkSideForUser(link) === 'coach' ? 'Coach of' : 'Diver of' }}
+              {{ linkSideForUser(link) === 'coach' ? $t('user_manager.coach_of') : $t('user_manager.diver_of') }}
             </span>
             <span class="coach-other">{{ linkOtherName(link) }}</span>
             <span v-if="link.note" class="coach-note">{{ link.note }}</span>
             <button class="btn btn-ghost btn-sm coach-remove"
                     @click="removeCoachLink(link.id)"
-                    v-tip="'Remove this link'">✕</button>
+                    v-tip="$t('user_manager.coach_remove_tip')">✕</button>
           </div>
         </div>
 
         <div class="coach-add">
           <div class="coach-add-row">
-            <span class="coach-add-label">Add link — this user is the</span>
+            <span class="coach-add-label">{{ $t('user_manager.coach_add_label_prefix') }}</span>
             <select class="select coach-add-role" v-model="drawerLinkRole">
-              <option value="coach">Coach</option>
-              <option value="diver">Diver</option>
+              <option value="coach">{{ $t('user_manager.coach_role_coach') }}</option>
+              <option value="diver">{{ $t('user_manager.coach_role_diver') }}</option>
             </select>
-            <span class="coach-add-label">of</span>
+            <span class="coach-add-label">{{ $t('user_manager.coach_add_label_of') }}</span>
             <select class="select coach-add-other" v-model="drawerLinkOtherId">
-              <option value="">— pick a user —</option>
+              <option value="">{{ $t('user_manager.coach_pick_user') }}</option>
               <option v-for="u in drawerOrgUsers" :key="u.id" :value="u.id">
                 {{ u.full_name }}
               </option>
@@ -1040,22 +1047,22 @@ onUnmounted(() => {
           </div>
           <input class="input coach-add-note" type="text"
                  v-model="drawerLinkNote"
-                 placeholder="Note (optional, e.g. 'springboard squad')">
+                 :placeholder="$t('user_manager.coach_note_placeholder')">
           <div v-if="drawerLinkError" class="msg msg-error">{{ drawerLinkError }}</div>
           <button class="btn btn-primary btn-sm coach-add-btn"
                   :disabled="drawerLinkSaving || !drawerLinkOtherId"
                   @click="addCoachLink">
-            {{ drawerLinkSaving ? 'Saving…' : 'Add Link' }}
+            {{ drawerLinkSaving ? $t('user_manager.coach_saving') : $t('user_manager.coach_add_btn') }}
           </button>
         </div>
 
         <!-- Audit history — every grant / revoke event for this user
              across the lifetime of their account. Updates after each
              role toggle saves successfully. -->
-        <div class="drawer-section-label" style="margin-top:1.5rem">Audit History</div>
-        <div v-if="auditLoading" class="audit-empty">Loading…</div>
+        <div class="drawer-section-label" style="margin-top:1.5rem">{{ $t('user_manager.drawer_section_audit') }}</div>
+        <div v-if="auditLoading" class="audit-empty">{{ $t('user_manager.audit_loading') }}</div>
         <div v-else-if="!auditEntries.length" class="audit-empty">
-          No role changes recorded for this account.
+          {{ $t('user_manager.audit_empty') }}
         </div>
         <ol v-else class="audit-list">
           <li v-for="a in auditEntries" :key="a.id" class="audit-item">
@@ -1065,15 +1072,15 @@ onUnmounted(() => {
             <span class="audit-role">{{ ROLE_LABELS[a.role] || a.role }}</span>
             <span class="audit-meta">
               <span class="audit-time">{{ fmtAuditTime(a.created_at) }}</span>
-              <span v-if="a.actor_name" class="audit-actor">by {{ a.actor_name }}</span>
-              <span v-else class="audit-actor audit-actor-system">system</span>
+              <span v-if="a.actor_name" class="audit-actor">{{ $t('user_manager.audit_by_actor', { name: a.actor_name }) }}</span>
+              <span v-else class="audit-actor audit-actor-system">{{ $t('user_manager.audit_by_system') }}</span>
               <span v-if="a.note" class="audit-note">· {{ a.note }}</span>
             </span>
           </li>
         </ol>
 
         <div class="drawer-hint">
-          Changes save automatically. Press <kbd>Esc</kbd> or click outside to close.
+          {{ $t('user_manager.drawer_hint') }}
         </div>
       </div>
     </aside>
@@ -1118,7 +1125,7 @@ onUnmounted(() => {
   font-family: var(--font-mono); font-size: 11px; font-weight: 700;
   letter-spacing: 0; padding: 0.1rem 0.4rem; border-radius: 3px;
   background: var(--bg-3); border: 1px solid var(--border); color: var(--text-3);
-  margin-left: 0.4rem; vertical-align: middle;
+  margin-inline-start: 0.4rem; vertical-align: middle;
 }
 .tab-count-active { background: var(--cyan-dim); border-color: rgba(6,182,212,0.4); color: var(--cyan); }
 
@@ -1126,11 +1133,11 @@ onUnmounted(() => {
 .filters { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
 .filters .input  { max-width: 360px; flex: 1 1 220px; }
 .filters .select { max-width: 360px; flex: 1 1 240px; }
-.result-count { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-left: auto; }
+.result-count { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-inline-start: auto; }
 
 /* Role chips */
 .chip-row { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.875rem; }
-.chip-label { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3); margin-right: 0.25rem; }
+.chip-label { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3); margin-inline-end: 0.25rem; }
 .chip {
   font-family: var(--font-display); font-size: 11px; font-weight: 700;
   letter-spacing: 0.1em; text-transform: uppercase;
@@ -1176,7 +1183,7 @@ onUnmounted(() => {
 .role-label:has(input:checked) { color: var(--cyan); }
 .empty-state { color: var(--text-3); font-size: 12px; padding: 1.5rem 0; text-align: center; }
 
-.status-col { width: 110px; text-align: right; }
+.status-col { width: 110px; text-align: end; }
 .status-pill {
   display: inline-block;
   font-family: var(--font-mono); font-size: 10px; font-weight: 700;
@@ -1199,7 +1206,7 @@ onUnmounted(() => {
 .page-btn:hover:not(:disabled) { border-color: var(--cyan); color: var(--cyan); }
 .page-btn:disabled { opacity: 0.4; cursor: default; }
 .page-btn-active { background: var(--cyan-dim); border-color: var(--cyan); color: var(--cyan); }
-.page-info { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-left: auto; }
+.page-info { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-inline-start: auto; }
 
 /* Group-by-org toggle and CSV export sit alongside the filters */
 .toggle {
@@ -1226,19 +1233,19 @@ onUnmounted(() => {
 .bulk-count {
   font-family: var(--font-display); font-size: 12px; font-weight: 900;
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--cyan);
-  padding-right: 0.5rem; border-right: 1px solid rgba(6,182,212,0.3);
+  padding-inline-end: 0.5rem; border-inline-end: 1px solid rgba(6,182,212,0.3);
 }
 .bulk-select { max-width: 180px; padding: 0.35rem 0.55rem; font-size: 12px; }
 .bulk-add    { background: var(--green-dim); color: var(--green); border: 1px solid rgba(16,185,129,0.4); }
 .bulk-remove { background: rgba(239,68,68,0.08); color: var(--red); border: 1px solid rgba(239,68,68,0.4); }
 .bulk-add:disabled, .bulk-remove:disabled { opacity: 0.5; cursor: default; }
 .bulk-status {
-  margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--cyan);
+  margin-inline-start: auto; font-family: var(--font-mono); font-size: 11px; color: var(--cyan);
 }
 .bulk-summary {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-2);
   padding: 0.4rem 0.6rem; margin-bottom: 0.5rem;
-  background: var(--bg-3); border-left: 3px solid var(--cyan); border-radius: 3px;
+  background: var(--bg-3); border-inline-start: 3px solid var(--cyan); border-radius: 3px;
 }
 
 /* Group controls row */
@@ -1256,11 +1263,11 @@ onUnmounted(() => {
   font-family: var(--font-display); font-size: 13px; font-weight: 700;
   color: var(--text);
 }
-.group-caret { font-size: 10px; color: var(--text-3); margin-right: 0.5rem; display: inline-block; width: 10px; }
+.group-caret { font-size: 10px; color: var(--text-3); margin-inline-end: 0.5rem; display: inline-block; width: 10px; }
 .group-name { color: var(--text); font-weight: 700; }
 .group-count {
   font-family: var(--font-mono); font-size: 11px; font-weight: 400;
-  color: var(--text-3); margin-left: 0.6rem;
+  color: var(--text-3); margin-inline-start: 0.6rem;
   text-transform: none; letter-spacing: 0;
 }
 
@@ -1296,7 +1303,7 @@ onUnmounted(() => {
 .role-edit-hint {
   font-family: var(--font-mono); font-size: 10px; color: var(--text-3);
   opacity: 0; transition: opacity 0.12s;
-  margin-left: 0.4rem;
+  margin-inline-start: 0.4rem;
 }
 .user-row.clickable { cursor: pointer; }
 .user-row.clickable:hover { background: var(--bg-2); }
@@ -1310,11 +1317,11 @@ onUnmounted(() => {
   backdrop-filter: blur(2px);
 }
 .drawer {
-  position: fixed; top: 0; right: 0; bottom: 0; z-index: 100;
+  position: fixed; top: 0; inset-inline-end: 0; bottom: 0; z-index: 100;
   width: min(420px, 100vw);
   display: flex; flex-direction: column;
   background: var(--surface);
-  border-left: 1px solid var(--border);
+  border-inline-start: 1px solid var(--border);
   box-shadow: -10px 0 30px rgba(0,0,0,0.35);
 }
 .drawer-head {
@@ -1418,7 +1425,7 @@ onUnmounted(() => {
   padding: 0.15rem 0.5rem; border-radius: 3px;
   vertical-align: middle;
 }
-.sys-badge-inline { font-size: 9px; padding: 0.1rem 0.35rem; margin-left: 0.5rem; }
+.sys-badge-inline { font-size: 9px; padding: 0.1rem 0.35rem; margin-inline-start: 0.5rem; }
 
 .org-cell { white-space: nowrap; }
 .org-stack { display: flex; flex-direction: column; gap: 0.15rem; }
@@ -1428,7 +1435,7 @@ onUnmounted(() => {
   letter-spacing: 0.05em; color: var(--text-3);
   background: var(--bg-2); border: 1px solid var(--border);
   border-radius: 3px; padding: 0.1rem 0.35rem;
-  margin-left: 0.4rem; vertical-align: middle;
+  margin-inline-start: 0.4rem; vertical-align: middle;
 }
 .club-line {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
@@ -1439,7 +1446,7 @@ onUnmounted(() => {
   letter-spacing: 0.05em; color: var(--cyan);
   background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.3);
   border-radius: 3px; padding: 0.1rem 0.35rem;
-  margin-left: 0.4rem; vertical-align: middle;
+  margin-inline-start: 0.4rem; vertical-align: middle;
 }
 
 /* Drawer org/club block */
@@ -1547,7 +1554,7 @@ onUnmounted(() => {
 .audit-role {
   font-family: var(--font-display); font-size: 11px; font-weight: 700;
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--text);
-  margin-right: 0.4rem;
+  margin-inline-end: 0.4rem;
 }
 .audit-meta {
   display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: baseline;

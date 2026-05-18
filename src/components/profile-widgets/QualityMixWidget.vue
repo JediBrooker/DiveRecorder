@@ -78,7 +78,7 @@ const qualityBuckets = computed(() => {
 .quality-dot.quality-excellent      { background: #ec4899; }
 .quality-name  { color: var(--text-2); }
 .quality-count { font-weight: 700; color: var(--text); }
-.quality-pct   { color: var(--text-3); width: 48px; text-align: right; }
+.quality-pct   { color: var(--text-3); width: 48px; text-align: end; }
 
 /* Phone (≤600px): legend rows are already auto-sized after
    the dot column, but the labels ("Unsat. (≤4.5)") get tight.

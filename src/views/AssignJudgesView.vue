@@ -200,7 +200,7 @@ onMounted(async () => {
                   </div>
                   <div v-if="j.org_name" class="judge-item-user">{{ j.org_name }}</div>
                 </div>
-                <span v-if="inPanelIds.has(j.id)" style="margin-left:auto;font-family:var(--font-display);font-size:10px;font-weight:700;letter-spacing:0.1em;color:var(--cyan)">
+                <span v-if="inPanelIds.has(j.id)" style="margin-inline-start:auto;font-family:var(--font-display);font-size:10px;font-weight:700;letter-spacing:0.1em;color:var(--cyan)">
                   J{{ judgeSlotNum(j.id) + 1 }} ✓
                 </span>
                 <svg v-else class="add-icon" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
@@ -243,7 +243,7 @@ onMounted(async () => {
 .hint {
   font-size: 11px; color: var(--text-3); line-height: 1.5;
   padding: 0.6rem 0.75rem;
-  background: var(--bg-3); border-left: 3px solid var(--amber); border-radius: 3px;
+  background: var(--bg-3); border-inline-start: 3px solid var(--amber); border-radius: 3px;
 }
 
 .page-header {
@@ -315,7 +315,7 @@ onMounted(async () => {
   border-radius: 3px; padding: 0.1rem 0.35rem;
 }
 .judge-item-user { font-size: 11px; color: var(--text-3); }
-.add-icon { margin-left: auto; color: var(--cyan); flex-shrink: 0; opacity: 0.6; }
+.add-icon { margin-inline-start: auto; color: var(--cyan); flex-shrink: 0; opacity: 0.6; }
 .judge-item:hover .add-icon { opacity: 1; }
 
 .panel-slots { display: flex; flex-direction: column; gap: 0.5rem; }
@@ -336,7 +336,7 @@ onMounted(async () => {
 .slot-label { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3); margin-bottom: 0.1rem; }
 .slot-name { font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--text); }
 .slot-empty { font-size: 12px; color: var(--text-3); font-style: italic; }
-.slot-remove { margin-left: auto; background: none; border: none; color: var(--text-3); cursor: pointer; font-size: 16px; padding: 0.25rem; line-height: 1; transition: color 0.1s; flex-shrink: 0; }
+.slot-remove { margin-inline-start: auto; background: none; border: none; color: var(--text-3); cursor: pointer; font-size: 16px; padding: 0.25rem; line-height: 1; transition: color 0.1s; flex-shrink: 0; }
 .slot-remove:hover { color: var(--red); }
 
 .search-wrap { margin-bottom: 0.75rem; }

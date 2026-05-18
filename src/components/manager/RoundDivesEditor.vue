@@ -253,7 +253,7 @@ defineExpose({ applyDiveAtRow })
 .rd-row-pick { position:relative; min-width:0; }
 .rd-pick-input { font-size:13px; padding:0.5rem 0.75rem; }
 .rd-pick-popover {
-  position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:10;
+  position:absolute; top:calc(100% + 4px); inset-inline-start:0; inset-inline-end:0; z-index:10;
   background:var(--bg-2); border:1px solid var(--border); border-radius:var(--radius);
   max-height:280px; overflow-y:auto;
   box-shadow: 0 8px 24px rgba(0,0,0,0.5);
@@ -291,7 +291,7 @@ defineExpose({ applyDiveAtRow })
    Re-flow with grid-template-areas: round number pins to the
    left, the picker spans the full width, and the height select
    + action buttons sit on a second line beside it. The popover
-   stays position:absolute + left:0/right:0 — its own internal
+   stays position:absolute + inset-inline-start:0/right:0 — its own internal
    3-col grid (code · meta · desc) is what needs to wrap. */
 @media (max-width: 600px) {
   .rd-row {

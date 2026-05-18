@@ -200,8 +200,8 @@ const gridStyle = computed(() => {
 .mbcast-chrome {
   position: absolute;
   top: 0;
-  left: 0;
-  right: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
   z-index: 10;
   display: flex;
   align-items: center;
@@ -220,7 +220,7 @@ const gridStyle = computed(() => {
   color: var(--cyan, #06b6d4);
 }
 .mbcast-stat-sub {
-  margin-left: 0.4rem;
+  margin-inline-start: 0.4rem;
   font-weight: 500;
   letter-spacing: 0.1em;
   color: var(--text-3, #94a3b8);

@@ -118,7 +118,7 @@ async function handleSubmit() {
   /* No `gap` — see LoginView for the rationale. */
 }
 .login-mark span { color: var(--cyan); }
-.login-mark::before { content: ''; display: block; width: 24px; height: 2px; margin-right: 0.75rem; background: var(--cyan); }
+.login-mark::before { content: ''; display: block; width: 24px; height: 2px; margin-inline-end: 0.75rem; background: var(--cyan); }
 h1 { font-size: 44px; font-style: italic; margin-bottom: 0.25rem; }
 .subtitle { color: var(--text-3); font-size: 12px; letter-spacing: 0.15em; margin-bottom: 2.5rem; font-family: var(--font-display); font-weight: 600; text-transform: uppercase; }
 .section-label {

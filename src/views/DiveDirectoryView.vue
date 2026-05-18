@@ -486,7 +486,7 @@ onMounted(loadDives)
   display: flex; align-items: center; gap: 0.4rem;
   font-size: 12px; color: var(--text-2); user-select: none;
 }
-.result-count { font-size: 11px; color: var(--text-3); margin-left: auto; }
+.result-count { font-size: 11px; color: var(--text-3); margin-inline-start: auto; }
 .readonly-pill {
   display: inline-block; padding: 0.3rem 0.7rem;
   font-size: 11px; font-family: var(--font-display); font-weight: 700;
@@ -542,7 +542,7 @@ onMounted(loadDives)
 .src-pill-custom { color: var(--cyan);    border-color: rgba(6, 182, 212, 0.5);
                    background: rgba(6, 182, 212, 0.08); }
 .src-pill-locked { color: var(--amber);   border-color: rgba(245, 158, 11, 0.5);
-                   background: rgba(245, 158, 11, 0.08); margin-left: 0.4rem; }
+                   background: rgba(245, 158, 11, 0.08); margin-inline-start: 0.4rem; }
 
 .dim { color: var(--text-3); }
 .empty-state { text-align: center; color: var(--text-3); padding: 2rem; }
@@ -582,7 +582,7 @@ onMounted(loadDives)
   .toolbar .input,
   .toolbar .select { flex: 1 1 100%; min-width: 0; }
   .custom-toggle { flex: 1 1 100%; }
-  .result-count { margin-left: 0; flex: 1 1 100%; }
+  .result-count { margin-inline-start: 0; flex: 1 1 100%; }
 
   /* The dives table is 7 columns; force it to scroll inside
      its own container rather than pushing the page wider. The

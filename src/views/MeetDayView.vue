@@ -405,7 +405,7 @@ const eventNotLive = computed(() => {
   color: var(--cyan);
   line-height: 1;
 }
-.md-mv { font-size: 0.5em; margin-left: 0.15em; }
+.md-mv { font-size: 0.5em; margin-inline-start: 0.15em; }
 .mv-up   { color: var(--green); }
 .mv-down { color: var(--amber); }
 .md-rank-sub, .md-total-sub, .md-gap-sub {
@@ -440,11 +440,11 @@ const eventNotLive = computed(() => {
   padding: 0.65rem 0.85rem;
   border-radius: var(--radius);
   background: var(--bg-3);
-  border-left: 3px solid var(--border);
+  border-inline-start: 3px solid var(--border);
 }
-.md-target-row.tone-achieved   { border-left-color: var(--green); }
-.md-target-row.tone-reachable  { border-left-color: var(--cyan); }
-.md-target-row.tone-impossible { border-left-color: var(--text-3); opacity: 0.7; }
+.md-target-row.tone-achieved   { border-inline-start-color: var(--green); }
+.md-target-row.tone-reachable  { border-inline-start-color: var(--cyan); }
+.md-target-row.tone-impossible { border-inline-start-color: var(--text-3); opacity: 0.7; }
 
 .md-target-label {
   font-family: var(--font-display);

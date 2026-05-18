@@ -992,7 +992,7 @@ watch(currentEvent, async (ev) => {
       </div>
       <div class="search-input-wrap" style="margin-bottom:1rem">
         <svg class="search-icon" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35" stroke-linecap="round"/></svg>
-        <input class="input" type="text" v-model="searchInput" placeholder="Search code or description (e.g. 101C)..." style="padding-left:2.5rem">
+        <input class="input" type="text" v-model="searchInput" placeholder="Search code or description (e.g. 101C)..." style="padding-inline-start:2.5rem">
       </div>
       <div v-if="activeEventHeight === null" class="height-pills">
         <button
@@ -1114,14 +1114,14 @@ watch(currentEvent, async (ev) => {
   display: flex; flex-direction: column; gap: 0.15rem;
   padding: 0.55rem 0.75rem;
   background: var(--bg-3);
-  border-left: 3px solid var(--cyan);
+  border-inline-start: 3px solid var(--cyan);
   border-radius: var(--radius);
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-2);
 }
 .rr-summary-row.rr-over {
-  border-left-color: var(--red);
+  border-inline-start-color: var(--red);
   background: rgba(239,68,68,0.08);
   color: var(--red);
 }
@@ -1134,7 +1134,7 @@ watch(currentEvent, async (ev) => {
 .rr-summary-label { color: var(--text); }
 .rr-summary-rounds { color: var(--text-3); }
 .rr-summary-range {
-  margin-left: 0.35rem;
+  margin-inline-start: 0.35rem;
   letter-spacing: 0;
   text-transform: none;
   font-weight: normal;
@@ -1160,7 +1160,7 @@ watch(currentEvent, async (ev) => {
   margin-bottom: 0.4rem;
 }
 .rr-violations ul {
-  list-style: disc; margin: 0; padding-left: 1.25rem;
+  list-style: disc; margin: 0; padding-inline-start: 1.25rem;
   font-family: var(--font-mono); font-size: 12px;
   color: var(--text); line-height: 1.5;
 }
@@ -1179,7 +1179,7 @@ watch(currentEvent, async (ev) => {
 }
 .dive-row.locked:hover{border-color:var(--border);}
 .row-lock-tag{
-  margin-left:0.5rem;
+  margin-inline-start:0.5rem;
   font-family:var(--font-mono);font-size:10px;font-weight:normal;
   letter-spacing:0.06em; text-transform:uppercase;
   color:var(--cyan); background:rgba(0,224,255,0.12);
@@ -1205,7 +1205,7 @@ watch(currentEvent, async (ev) => {
 .total-value{font-family:var(--font-display);font-size:32px;font-weight:900;color:var(--cyan);}
 
 .search-input-wrap{position:relative;}
-.search-icon{position:absolute;left:0.875rem;top:50%;transform:translateY(-50%);color:var(--text-3);}
+.search-icon{position:absolute;inset-inline-start:0.875rem;top:50%;transform:translateY(-50%);color:var(--text-3);}
 
 .height-pills{display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;}
 .pill{
@@ -1225,7 +1225,7 @@ watch(currentEvent, async (ev) => {
 .result-code{font-family:var(--font-display);font-size:16px;font-weight:700;}
 .result-pos{color:var(--cyan);}
 .result-desc{font-size:11px;color:var(--text-3);margin-top:0.15rem;}
-.result-right{text-align:right;flex-shrink:0;}
+.result-right{text-align: end;flex-shrink:0;}
 .result-dd{font-family:var(--font-mono);font-size:14px;color:var(--cyan);}
 .result-height{font-size:10px;color:var(--text-3);margin-top:0.15rem;}
 
@@ -1276,9 +1276,9 @@ watch(currentEvent, async (ev) => {
    Synchro partner typeahead
    ========================================================= */
 .partner-typeahead { position: relative; }
-.partner-typeahead .input { padding-right: 2.4rem; }
+.partner-typeahead .input { padding-inline-end: 2.4rem; }
 .partner-clear {
-  position: absolute; top: 50%; right: 0.5rem;
+  position: absolute; top: 50%; inset-inline-end: 0.5rem;
   transform: translateY(-50%);
   width: 24px; height: 24px;
   display: flex; align-items: center; justify-content: center;
@@ -1289,7 +1289,7 @@ watch(currentEvent, async (ev) => {
 .partner-clear:hover { color: var(--red); background: var(--bg-3); }
 
 .partner-dropdown {
-  position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+  position: absolute; top: calc(100% + 4px); inset-inline-start: 0; inset-inline-end: 0;
   z-index: 50; max-height: 280px; overflow-y: auto;
   background: var(--surface); border: 1px solid var(--border-2);
   border-radius: var(--radius);
@@ -1344,7 +1344,7 @@ watch(currentEvent, async (ev) => {
   .row-desc { font-size: 11px; line-height: 1.35; }
   .row-dd { font-size: 12px; }
   .row-lock-tag {
-    margin-left: 0.35rem;
+    margin-inline-start: 0.35rem;
     font-size: 9px;
     padding: 0.08rem 0.35rem;
   }
@@ -1383,15 +1383,15 @@ watch(currentEvent, async (ev) => {
      scroll, and grow the clear button to a tappable size. */
   .partner-dropdown {
     max-height: 50vh;
-    left: 0;
-    right: 0;
+    inset-inline-start: 0;
+    inset-inline-end: 0;
   }
   .partner-clear {
     width: 36px;
     height: 36px;
     font-size: 16px;
   }
-  .partner-typeahead .input { padding-right: 2.75rem; }
+  .partner-typeahead .input { padding-inline-end: 2.75rem; }
 
   /* Total-bar: shrink the giant 32px score so the label fits */
   .total-bar { padding: 0.75rem 0.9rem; }

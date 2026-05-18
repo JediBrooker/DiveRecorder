@@ -327,24 +327,25 @@ function blockStyle(block, session) {
 
   const boardIds = Array.isArray(block.board_ids) ? block.board_ids : []
   if (!boardIds.length) {
-    // Full-width band for meet-wide blocks.
+    // Full-width band for meet-wide blocks. Logical inset
+    // properties so blocks anchor correctly under RTL.
     return {
       top: `${top}px`,
       height: `${height}px`,
-      left: '0',
-      right: '0',
+      insetInlineStart: '0',
+      insetInlineEnd: '0',
     }
   }
   const cols = boards.value
   if (!cols.length) {
-    return { top: `${top}px`, height: `${height}px`, left: '0', right: '0' }
+    return { top: `${top}px`, height: `${height}px`, insetInlineStart: '0', insetInlineEnd: '0' }
   }
   const indices = boardIds
     .map((id) => cols.findIndex((b) => b.id === id))
     .filter((i) => i >= 0)
     .sort((a, b) => a - b)
   if (!indices.length) {
-    return { top: `${top}px`, height: `${height}px`, left: '0', right: '0' }
+    return { top: `${top}px`, height: `${height}px`, insetInlineStart: '0', insetInlineEnd: '0' }
   }
   const first = indices[0]
   const last = indices[indices.length - 1]
@@ -354,7 +355,7 @@ function blockStyle(block, session) {
   return {
     top: `${top}px`,
     height: `${height}px`,
-    left: `${leftPct}%`,
+    insetInlineStart: `${leftPct}%`,
     width: `${widthPct}%`,
   }
 }
@@ -957,7 +958,7 @@ async function confirmDuplicate() {
               :key="`colsep-${b.id}`"
               v-show="i > 0"
               class="scheduler-colsep"
-              :style="{ left: `${(i / boards.length) * 100}%` }"
+              :style="{ insetInlineStart: `${(i / boards.length) * 100}%` }"
             ></div>
 
             <!-- The blocks themselves. -->
@@ -1429,7 +1430,7 @@ async function confirmDuplicate() {
 
 .scheduler-time-col {
   flex: 0 0 64px;
-  border-right: 1px solid var(--border, #333);
+  border-inline-end: 1px solid var(--border, #333);
 }
 .scheduler-time-row {
   position: relative;
@@ -1438,7 +1439,7 @@ async function confirmDuplicate() {
 .scheduler-time-label {
   position: absolute;
   top: -8px;
-  right: 6px;
+  inset-inline-end: 6px;
   font-size: 11px;
   color: var(--muted, #888);
   background: var(--panel, #1a1a1a);
@@ -1459,10 +1460,10 @@ async function confirmDuplicate() {
   font-weight: 600;
   padding: 0.5rem 0.25rem;
   color: var(--muted, #ccc);
-  border-right: 1px solid var(--border, #333);
+  border-inline-end: 1px solid var(--border, #333);
   background: var(--panel-elev, #222);
 }
-.scheduler-col-head:last-child { border-right: none; }
+.scheduler-col-head:last-child { border-inline-end: none; }
 
 .scheduler-grid-body {
   position: relative;
@@ -1471,8 +1472,8 @@ async function confirmDuplicate() {
 
 .scheduler-gridline {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
   border-top: 1px dashed var(--border-subtle, rgba(255,255,255,0.07));
   pointer-events: none;
 }
@@ -1480,7 +1481,7 @@ async function confirmDuplicate() {
   position: absolute;
   top: 0;
   bottom: 0;
-  border-left: 1px solid var(--border, #333);
+  border-inline-start: 1px solid var(--border, #333);
   pointer-events: none;
 }
 
@@ -1490,7 +1491,7 @@ async function confirmDuplicate() {
   border-radius: 4px;
   font-size: 12px;
   overflow: hidden;
-  border-left: 3px solid var(--cyan, #4cb);
+  border-inline-start: 3px solid var(--cyan, #4cb);
   background: rgba(76, 187, 204, 0.15);
   color: var(--fg, #eee);
   box-sizing: border-box;
@@ -1509,7 +1510,7 @@ async function confirmDuplicate() {
 }
 .scheduler-block-warn {
   display: inline-block;
-  margin-right: 2px;
+  margin-inline-end: 2px;
   color: var(--red, #c33);
   font-weight: 700;
 }
@@ -1523,11 +1524,11 @@ async function confirmDuplicate() {
 /* Block-type palette. Each tone gets its own border + tinted
    background so a glance at the timeline reads as colour-coded
    by category, matching the design-doc mock. */
-.block-warmup     { border-left-color: #6ab; background: rgba(106, 170, 187, 0.15); }
-.block-event_start{ border-left-color: #d83; background: rgba(216, 136, 51, 0.18); }
-.block-break      { border-left-color: #888; background: rgba(136, 136, 136, 0.15); }
-.block-ceremony   { border-left-color: #c6a; background: rgba(204, 102, 170, 0.18); }
-.block-custom     { border-left-color: #6c6; background: rgba(102, 204, 102, 0.15); }
+.block-warmup     { border-inline-start-color: #6ab; background: rgba(106, 170, 187, 0.15); }
+.block-event_start{ border-inline-start-color: #d83; background: rgba(216, 136, 51, 0.18); }
+.block-break      { border-inline-start-color: #888; background: rgba(136, 136, 136, 0.15); }
+.block-ceremony   { border-inline-start-color: #c6a; background: rgba(204, 102, 170, 0.18); }
+.block-custom     { border-inline-start-color: #6c6; background: rgba(102, 204, 102, 0.15); }
 
 /* Conflict outlines. Hard wins over soft via specificity order. */
 .scheduler-block.has-conflict-soft {
@@ -1545,7 +1546,7 @@ async function confirmDuplicate() {
 .scheduler-drawer {
   position: fixed;
   top: 70px;
-  right: 12px;
+  inset-inline-end: 12px;
   width: 360px;
   max-width: calc(100vw - 24px);
   max-height: calc(100vh - 90px);
@@ -1571,7 +1572,7 @@ async function confirmDuplicate() {
   font-size: 14px;
 }
 .scheduler-drawer-count {
-  margin-left: 0.25rem;
+  margin-inline-start: 0.25rem;
   color: var(--red, #c33);
   font-weight: 700;
 }
@@ -1611,13 +1612,13 @@ async function confirmDuplicate() {
 
 .scheduler-conflict-card {
   padding: 0.6rem 0.85rem;
-  border-left: 3px solid transparent;
+  border-inline-start: 3px solid transparent;
   border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.05));
 }
-.scheduler-conflict-card.severity-hard      { border-left-color: var(--red, #c33); }
-.scheduler-conflict-card.severity-soft      { border-left-color: var(--amber, #d90); }
+.scheduler-conflict-card.severity-hard      { border-inline-start-color: var(--red, #c33); }
+.scheduler-conflict-card.severity-soft      { border-inline-start-color: var(--amber, #d90); }
 .scheduler-conflict-card.severity-dismissed {
-  border-left-color: var(--muted, #555);
+  border-inline-start-color: var(--muted, #555);
   opacity: 0.75;
 }
 .scheduler-conflict-kind {
@@ -1680,8 +1681,8 @@ async function confirmDuplicate() {
   .scheduler-drawer {
     top: auto;
     bottom: 0;
-    left: 0;
-    right: 0;
+    inset-inline-start: 0;
+    inset-inline-end: 0;
     width: 100%;
     max-width: 100%;
     max-height: 60vh;
@@ -1711,7 +1712,7 @@ async function confirmDuplicate() {
 .scheduler-edit-error {
   color: var(--red, #c33);
   font-weight: 600;
-  margin-left: 0.25rem;
+  margin-inline-start: 0.25rem;
 }
 
 .scheduler-session-head {
@@ -1720,7 +1721,7 @@ async function confirmDuplicate() {
 .scheduler-session-duplicate {
   position: absolute;
   top: 0.6rem;
-  right: 0.75rem;
+  inset-inline-end: 0.75rem;
 }
 
 .scheduler-grid-body.is-edit-mode {
@@ -1737,8 +1738,8 @@ async function confirmDuplicate() {
 
 .scheduler-block-handle {
   position: absolute;
-  left: 0;
-  right: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
   height: 6px;
   cursor: ns-resize;
   z-index: 2;
@@ -1775,7 +1776,7 @@ async function confirmDuplicate() {
 .scheduler-block-delete {
   position: absolute;
   top: 2px;
-  right: 2px;
+  inset-inline-end: 2px;
   width: 18px;
   height: 18px;
   display: none;
@@ -1796,7 +1797,7 @@ async function confirmDuplicate() {
 .scheduler-block-delete-confirm {
   position: absolute;
   top: 2px;
-  right: 2px;
+  inset-inline-end: 2px;
   background: var(--panel-elev, #222);
   border: 1px solid var(--border, #555);
   border-radius: 4px;

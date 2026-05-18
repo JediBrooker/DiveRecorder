@@ -283,7 +283,7 @@ watch([orgId, countryCode], () => {
   overflow: hidden;
 }
 .judges-table th {
-  text-align: left; padding: 0.7rem 0.85rem;
+  text-align: start; padding: 0.7rem 0.85rem;
   font-family: var(--font-display); font-size: 10px; font-weight: 700;
   letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3);
   border-bottom: 1px solid var(--border);
@@ -301,7 +301,7 @@ watch([orgId, countryCode], () => {
   letter-spacing: 0.05em; color: var(--cyan);
   background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.3);
   border-radius: 3px; padding: 0.1rem 0.35rem;
-  margin-left: 0.4rem; vertical-align: middle;
+  margin-inline-start: 0.4rem; vertical-align: middle;
 }
 
 .pager {

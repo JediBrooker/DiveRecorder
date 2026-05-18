@@ -188,7 +188,7 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   padding: 1px 7px;
   cursor: pointer;
-  margin-left: 0.4rem;
+  margin-inline-start: 0.4rem;
   transition: color 0.1s, border-color 0.1s;
 }
 .score-history-btn:hover {
@@ -199,7 +199,7 @@ onBeforeUnmount(() => {
 .score-history-pop {
   position: absolute;
   top: calc(100% + 6px);
-  right: 0;
+  inset-inline-end: 0;
   background: var(--bg-2, #0f172a);
   border: 1px solid var(--border-2, #334155);
   border-radius: var(--radius, 6px);
@@ -207,7 +207,7 @@ onBeforeUnmount(() => {
   width: 280px;
   z-index: 200;
   box-shadow: 0 14px 30px rgba(0,0,0,0.4);
-  text-align: left;
+  text-align: start;
 }
 .score-history-pop-head {
   display: flex; justify-content: space-between; align-items: center;
@@ -236,8 +236,8 @@ onBeforeUnmount(() => {
   max-height: 240px; overflow-y: auto;
 }
 .score-history-row {
-  border-left: 2px solid var(--border, #334155);
-  padding-left: 0.55rem;
+  border-inline-start: 2px solid var(--border, #334155);
+  padding-inline-start: 0.55rem;
 }
 .score-history-row-head {
   display: flex; justify-content: space-between; gap: 0.5rem;

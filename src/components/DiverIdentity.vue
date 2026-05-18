@@ -180,12 +180,12 @@ const id = computed(() => diverIdentity(props.row))
 }
 .di-rank {
   display: inline-block;
-  margin-right: 0.25rem;
+  margin-inline-end: 0.25rem;
   color: var(--cyan);
   font-family: var(--font-mono); font-weight: 700;
 }
 .di-amp {
-  color: var(--cyan); margin-right: 0.25em;
+  color: var(--cyan); margin-inline-end: 0.25em;
   font-weight: 400;
 }
 /* Match the SPA-wide .diver-link treatment: default colour at
@@ -241,7 +241,7 @@ const id = computed(() => diverIdentity(props.row))
 }
 .di-club-code {
   font-family: var(--font-mono); font-size: 0.85em; font-weight: 700;
-  color: var(--cyan); margin-left: 0.4rem;
+  color: var(--cyan); margin-inline-start: 0.4rem;
 }
 .di-trailing {
   display: flex; align-items: flex-start; gap: 0.4rem;

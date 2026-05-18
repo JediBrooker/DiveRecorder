@@ -131,7 +131,7 @@ async function handleSubmit() {
      the <span>HQ</span> as two flex items and put the gap
      between them, producing a visible "DIVING HQ" rather
      than "DIVINGHQ". Spacing between the dash (::before) and
-     the wordmark is on the dash's margin-right instead. */
+     the wordmark is on the dash's margin-inline-end instead. */
 }
 .login-mark span { color: var(--cyan); }
 .login-mark::before {
@@ -139,7 +139,7 @@ async function handleSubmit() {
   display: block;
   width: 24px;
   height: 2px;
-  margin-right: 0.75rem;
+  margin-inline-end: 0.75rem;
   background: var(--cyan);
 }
 h1 {

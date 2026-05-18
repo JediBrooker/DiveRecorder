@@ -75,7 +75,7 @@ function close()  { showTip.value = false }
 .jargon.has-def::after {
   content: 'ⓘ';
   font-size: 0.75em;
-  margin-left: 0.18em;
+  margin-inline-start: 0.18em;
   opacity: 0.7;
   vertical-align: super;
   line-height: 0;
@@ -88,7 +88,7 @@ function close()  { showTip.value = false }
 .jargon-tip {
   position: absolute;
   bottom: calc(100% + 6px);
-  left: 50%;
+  inset-inline-start: 50%;
   transform: translateX(-50%);
   background: var(--bg-2, #0f172a);
   color: var(--text, #f8fafc);

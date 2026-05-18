@@ -46,11 +46,11 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  border-right: 1px solid var(--border);
+  border-inline-end: 1px solid var(--border);
 }
 .ctrl-panel:last-child {
-  border-right: none;
-  border-left: 1px solid var(--border);
+  border-inline-end: none;
+  border-inline-start: 1px solid var(--border);
 }
 .panel-head {
   min-width: 0;
@@ -141,7 +141,7 @@
   margin: 0.75rem 0;
   padding: 0.65rem 0.75rem;
   border: 1px solid rgba(245, 158, 11, 0.35);
-  border-left: 4px solid var(--amber);
+  border-inline-start: 4px solid var(--amber);
   border-radius: 6px;
   background: rgba(245, 158, 11, 0.08);
   color: var(--text-2);
@@ -177,7 +177,7 @@
 .active-order {
   color: var(--cyan);
   font-style: normal;
-  margin-right: 0.35em;
+  margin-inline-end: 0.35em;
 }
 .active-badges { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
 .active-code { font-family: var(--font-mono); font-size: 18px; font-weight: 500; padding: 0.3rem 0.65rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
@@ -254,11 +254,11 @@
   margin-bottom: 1rem;
   background: var(--red-dim);
   border: 1px solid var(--red);
-  border-left-width: 4px;
+  border-inline-start-width: 4px;
   border-radius: var(--radius-sm);
   box-shadow: 0 0 18px rgba(239,68,68,0.25);
   animation: refereeSignalPulse 1.4s ease-in-out infinite;
-  text-align: left;
+  text-align: start;
 }
 @keyframes refereeSignalPulse {
   0%, 100% { box-shadow: 0 0 18px rgba(239,68,68,0.25); }
@@ -358,10 +358,10 @@
 .split-button-main {
   flex: 1; min-width: 0;
   border-top-right-radius: 0; border-bottom-right-radius: 0;
-  border-right: 1px solid rgba(0, 0, 0, 0.18);
+  border-inline-end: 1px solid rgba(0, 0, 0, 0.18);
 }
 .split-button-aside {
-  flex: 0 0 auto; padding-left: 0.7rem; padding-right: 0.7rem;
+  flex: 0 0 auto; padding-inline-start: 0.7rem; padding-inline-end: 0.7rem;
   border-top-left-radius: 0; border-bottom-left-radius: 0;
 }
 
@@ -394,10 +394,10 @@
    menus open DOWN-and-RIGHT (anchored to the right side of the
    host). bottom: 100% on the kbd menu so it pops UP rather
    than off the bottom of the viewport. */
-.header-menu      { right: 0; }
-.adjust-menu      { left: 0;  bottom: calc(100% + 0.4rem); top: auto; }
-.autonext-menu    { right: 0; bottom: calc(100% + 0.4rem); top: auto; }
-.kbd-menu         { right: 0; bottom: calc(100% + 0.4rem); top: auto; min-width: 240px; }
+.header-menu      { inset-inline-end: 0; }
+.adjust-menu      { inset-inline-start: 0;  bottom: calc(100% + 0.4rem); top: auto; }
+.autonext-menu    { inset-inline-end: 0; bottom: calc(100% + 0.4rem); top: auto; }
+.kbd-menu         { inset-inline-end: 0; bottom: calc(100% + 0.4rem); top: auto; min-width: 240px; }
 .dropdown-section {
   font-size: 9px; font-weight: 700; letter-spacing: 0.16em;
   text-transform: uppercase; color: var(--text-3);
@@ -408,7 +408,7 @@
   padding: 0.55rem 0.7rem; border-radius: 4px;
   font-family: inherit; font-size: 12px; font-weight: 600;
   letter-spacing: 0.04em; color: var(--text-2);
-  text-align: left; text-decoration: none;
+  text-align: start; text-decoration: none;
   display: flex; align-items: center; justify-content: space-between;
   gap: 0.6rem;
   transition: background 0.12s, color 0.12s;
@@ -449,7 +449,7 @@
   flex-shrink: 0;
 }
 .kbd-row-or { color: var(--text-3); margin: 0 0.1rem; }
-.kbd-hints-host { margin-left: auto; }
+.kbd-hints-host { margin-inline-start: auto; }
 /* Round trigger button styling for the icon-only ⋯ / ? buttons. */
 .btn-icon {
   font-size: 14px; font-weight: 700;
@@ -479,7 +479,7 @@
 }
 .auto-advance-pill {
   display: inline-block;
-  margin-left: 0.6rem;
+  margin-inline-start: 0.6rem;
   padding: 0.1rem 0.5rem;
   background: rgba(0, 0, 0, 0.25);
   border-radius: 999px;
@@ -522,7 +522,7 @@
   display: inline-block;
   color: var(--cyan);
   font-family: var(--font-mono); font-weight: 700;
-  margin-right: 0.3rem;
+  margin-inline-end: 0.3rem;
 }
 .roster-item.active .roster-name { color: var(--cyan); }
 .roster-meta { display: flex; justify-content: space-between; font-size: 9px; color: var(--text-3); margin-top: 0.1rem; font-family: var(--font-mono); }
@@ -559,7 +559,7 @@
   letter-spacing: 0.05em; color: var(--cyan);
   background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.3);
   border-radius: 3px; padding: 0.1rem 0.4rem;
-  margin-left: 0.5rem; vertical-align: middle;
+  margin-inline-start: 0.5rem; vertical-align: middle;
 }
 .roster-club {
   font-family: var(--font-mono); font-size: 9px; color: var(--text-3);
@@ -568,26 +568,26 @@
 }
 .roster-club-code {
   font-family: var(--font-mono); font-size: 9px; font-weight: 700;
-  color: var(--cyan); margin-left: 0.4rem;
+  color: var(--cyan); margin-inline-start: 0.4rem;
 }
 /* (.hist-club / .hist-club-code removed — the shared
     DiverIdentity "split" variant now renders the club line
     itself via .di-club / .di-club-code, keeping the rendering
     in one place across Control + Scoreboard.) */
 
-.country-badge { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); background: var(--bg-3); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; margin-left: 0.5rem; vertical-align: middle; }
+.country-badge { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); background: var(--bg-3); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; margin-inline-start: 0.5rem; vertical-align: middle; }
 /* Affiliation chip in the top-right of a history card. No
-   margin-left because it now sits in its own .hist-header-right
+   margin-inline-start because it now sits in its own .hist-header-right
    column gap'd from the .hist-total — wedging a margin in here
    would push it off-balance. */
 .hist-country { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; vertical-align: middle; }
-.active-country { font-family: var(--font-display); font-size: 14px; font-weight: 700; letter-spacing: 0.15em; color: var(--text-3); background: var(--bg-3); border: 1px solid var(--border); border-radius: 4px; padding: 0.15rem 0.5rem; margin-left: 0.75rem; vertical-align: middle; }
-.roster-country { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; margin-left: 0.4rem; vertical-align: middle; }
+.active-country { font-family: var(--font-display); font-size: 14px; font-weight: 700; letter-spacing: 0.15em; color: var(--text-3); background: var(--bg-3); border: 1px solid var(--border); border-radius: 4px; padding: 0.15rem 0.5rem; margin-inline-start: 0.75rem; vertical-align: middle; }
+.roster-country { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-3); background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 0.1rem 0.35rem; margin-inline-start: 0.4rem; vertical-align: middle; }
 /* Completed-Dives history cards — condensed (~50% the previous
    vertical footprint). The left column gets twice as many cards
    in view at once, which is what an operator scanning recent
    results actually wants. */
-.hist-card { padding: 0.4rem 0.6rem; border-left: 2px solid var(--cyan); background: var(--bg-3); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin-bottom: 0.3rem; }
+.hist-card { padding: 0.4rem 0.6rem; border-inline-start: 2px solid var(--cyan); background: var(--bg-3); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin-bottom: 0.3rem; }
 /* Show-more toggle for the history column. Sits beneath the
    visible cards; the resting state is a 3-card preview, click
    to expand to the full list. Same display-font styling as the
@@ -619,7 +619,7 @@
      name. Cyan + condensed so it reads as a position chip
      without competing with the name itself. */
   display: inline-block;
-  margin-right: 0.25rem;
+  margin-inline-end: 0.25rem;
   color: var(--cyan);
   font-family: var(--font-mono); font-weight: 700;
 }
@@ -645,7 +645,7 @@
    but swaps to cyan — it's a navigation affordance for a Completed
    event, not an action that mutates anything. */
 .btn-judge-ranking {
-  margin-left: 0.5rem;
+  margin-inline-start: 0.5rem;
   border-color: rgba(6,182,212,0.4);
   background: rgba(6,182,212,0.08);
   color: var(--cyan);
@@ -683,7 +683,7 @@
   color: inherit;
   text-decoration: none;
   cursor: pointer;
-  text-align: left;
+  text-align: start;
   font: inherit;
   transition: border-color 0.12s, transform 0.05s;
 }
@@ -1012,7 +1012,7 @@
    ========================================================= */
 .preflight-backdrop { background: rgba(3, 7, 18, 0.85); }
 .preflight-modal {
-  position: fixed; top: 50%; left: 50%;
+  position: fixed; top: 50%; inset-inline-start: 50%;
   transform: translate(-50%, -50%);
   z-index: 301;
   width: calc(100% - 3rem); max-width: 560px; max-height: 90vh;
@@ -1098,7 +1098,7 @@
 
 .preflight-detail-list {
   margin: 0.45rem 0 0;
-  padding-left: 1rem;
+  padding-inline-start: 1rem;
   font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--text-3);
@@ -1136,7 +1136,7 @@
   margin-bottom: 0.4rem;
 }
 .preflight-warnings ul {
-  margin: 0; padding-left: 1.1rem;
+  margin: 0; padding-inline-start: 1.1rem;
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-2);
@@ -1169,7 +1169,7 @@
    backdrop and produced a black-screen result for late-entry,
    meet-hold, and round-end prompts. */
 .lb-modal {
-  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  position: fixed; top: 50%; inset-inline-start: 50%; transform: translate(-50%, -50%);
   z-index: 301;
   background: var(--surface); border: 1px solid var(--border-2); border-radius: 28px;
   width: calc(100% - 3rem); max-width: 560px; max-height: 90vh;
@@ -1188,7 +1188,7 @@
 .lb-body { padding: 1.5rem 2rem 2rem; }
 .lb-row { display: flex; align-items: center; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid var(--border); }
 .lb-row:last-child { border-bottom: none; }
-.lb-rank { font-family: var(--font-display); font-size: 28px; font-weight: 900; width: 44px; text-align: right; flex-shrink: 0; color: var(--text-3); }
+.lb-rank { font-family: var(--font-display); font-size: 28px; font-weight: 900; width: 44px; text-align: end; flex-shrink: 0; color: var(--text-3); }
 .lb-rank.gold { color: #f59e0b; }
 .lb-rank.silver { color: #94a3b8; }
 .lb-rank.bronze { color: #b45309; }
@@ -1257,7 +1257,7 @@
    diver-name's own large type to anchor visually. */
 .status-pill-inline {
   font-size: 9px; padding: 0.18rem 0.5rem;
-  vertical-align: middle; margin-left: 0.6rem;
+  vertical-align: middle; margin-inline-start: 0.6rem;
   position: relative; top: -0.18em;
 }
 .active-label-row {
@@ -1276,7 +1276,7 @@
 .shot-clock {
   display: flex; align-items: center; gap: 0.4rem;
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); padding: 0.25rem 0.4rem 0.25rem 0.6rem;
+  border-radius: var(--radius-sm); padding-block: 0.25rem; padding-inline: 0.6rem 0.4rem;
   transition: all 0.15s;
 }
 .shot-clock-face {
@@ -1446,14 +1446,14 @@
   padding: 0.85rem 1rem;
   background: var(--bg-3);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--cyan);
+  border-inline-start: 3px solid var(--cyan);
   border-radius: var(--radius-sm);
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-2);
 }
 .correct-preview-noop {
-  border-left-color: var(--text-3);
+  border-inline-start-color: var(--text-3);
   opacity: 0.75;
 }
 .correct-preview-row {
@@ -1482,7 +1482,7 @@
   font-weight: 500; letter-spacing: 0.04em;
   text-transform: none;
   font-size: 10px;
-  margin-left: 0.3rem;
+  margin-inline-start: 0.3rem;
 }
 .correct-preview-old { color: var(--text-3); }
 .correct-preview-arrow { color: var(--text-3); }
@@ -1490,7 +1490,7 @@
 .correct-preview-delta {
   display: inline-block;
   min-width: 56px;
-  text-align: right;
+  text-align: end;
   font-family: var(--font-mono);
   font-size: 12px;
   padding: 0.1rem 0.45rem;
@@ -1521,7 +1521,7 @@
   display: flex; align-items: stretch;
 }
 .roster-jump {
-  flex: 1; min-width: 0; text-align: left;
+  flex: 1; min-width: 0; text-align: start;
   background: transparent; border: none; padding: 0; cursor: pointer;
   color: inherit; font-family: inherit;
 }
@@ -1529,7 +1529,7 @@
 .roster-controls {
   position: relative;            /* anchor for the popover */
   display: flex; align-items: center;
-  margin-left: 0.4rem; flex-shrink: 0;
+  margin-inline-start: 0.4rem; flex-shrink: 0;
 }
 /* Overflow trigger — single tap target, big enough to land
    reliably on a tablet at deck-side. Replaces the previous
@@ -1562,7 +1562,7 @@
 .roster-menu {
   position: absolute;
   top: calc(100% + 4px);
-  right: 0;
+  inset-inline-end: 0;
   z-index: 250;
   min-width: 220px;
   background: var(--bg-2);
@@ -1581,7 +1581,7 @@
   padding: 0.5rem 0.6rem;
   background: transparent; border: none;
   border-radius: var(--radius-sm);
-  cursor: pointer; text-align: left;
+  cursor: pointer; text-align: start;
   font: inherit; color: var(--text);
   transition: background 0.1s;
 }
@@ -1623,7 +1623,7 @@
 .edit-dive-results {
   display: flex; flex-direction: column; gap: 0.3rem;
   max-height: 360px; overflow-y: auto;
-  padding-right: 0.25rem;
+  padding-inline-end: 0.25rem;
 }
 .edit-dive-result {
   display: grid; grid-template-columns: 60px 100px 1fr;
@@ -1631,7 +1631,7 @@
   padding: 0.5rem 0.7rem;
   background: var(--bg-3); border: 1px solid var(--border);
   border-radius: var(--radius-sm); cursor: pointer;
-  text-align: left; font: inherit; color: var(--text);
+  text-align: start; font: inherit; color: var(--text);
   width: 100%;
 }
 .edit-dive-result:hover:not(:disabled) {
@@ -1657,7 +1657,7 @@
   letter-spacing: 0.2em; color: var(--red);
   background: var(--red-dim); border: 1px solid rgba(239,68,68,0.4);
   border-radius: 3px; padding: 0.05rem 0.35rem;
-  margin-left: 0.4rem; vertical-align: middle;
+  margin-inline-start: 0.4rem; vertical-align: middle;
 }
 
 /* =========================================================
@@ -1669,7 +1669,7 @@
   display: inline-block;
   font-family: var(--font-mono); font-weight: 700; font-size: 14px;
   color: var(--text-3); cursor: grab; user-select: none;
-  letter-spacing: -2px; padding: 0 0.4rem 0 0.1rem;
+  letter-spacing: -2px; padding-block: 0; padding-inline: 0.1rem 0.4rem;
   align-self: center;
 }
 .roster-grip:active { cursor: grabbing; }
@@ -1935,7 +1935,7 @@
 }
 .checkin-footer-hint { font-size: 12px; color: var(--text-3); }
 .checkin-tally {
-  display: inline-flex; gap: 0.6rem; margin-left: 0.8rem;
+  display: inline-flex; gap: 0.6rem; margin-inline-start: 0.8rem;
   font-family: var(--font-mono); font-size: 11px; font-weight: 400;
   vertical-align: middle;
 }
@@ -1963,7 +1963,7 @@
 }
 .checkin-country {
   font-family: var(--font-mono); font-size: 10px; font-weight: 400;
-  color: var(--text-3); margin-left: 0.4rem;
+  color: var(--text-3); margin-inline-start: 0.4rem;
   background: var(--bg); border: 1px solid var(--border);
   border-radius: 3px; padding: 0.05rem 0.35rem;
   vertical-align: middle;
@@ -1976,7 +1976,7 @@
   font-family: var(--font-mono); font-size: 9px; font-weight: 700;
   color: var(--cyan); background: var(--cyan-dim);
   border: 1px solid rgba(6,182,212,0.3); border-radius: 3px;
-  padding: 0.05rem 0.3rem; margin-left: 0.3rem;
+  padding: 0.05rem 0.3rem; margin-inline-start: 0.3rem;
 }
 .checkin-chips { display: flex; gap: 0.3rem; flex-shrink: 0; }
 .checkin-chips .chip {
@@ -2004,7 +2004,7 @@
 .late-modal .hint {
   font-size: 11px; color: var(--text-3); line-height: 1.5;
   padding: 0.5rem 0.7rem; margin-top: 0.4rem;
-  background: var(--bg-3); border-left: 3px solid var(--cyan); border-radius: 3px;
+  background: var(--bg-3); border-inline-start: 3px solid var(--cyan); border-radius: 3px;
 }
 .late-modal .hint strong { color: var(--cyan); font-family: var(--font-mono); }
 
@@ -2025,14 +2025,14 @@
 }
 .late-rounds-height {
   font-family: var(--font-mono); font-size: 10px; font-weight: 400;
-  letter-spacing: 0.05em; color: var(--cyan); margin-left: 0.5rem;
+  letter-spacing: 0.05em; color: var(--cyan); margin-inline-start: 0.5rem;
   background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.4);
   border-radius: 3px; padding: 0.05rem 0.4rem; vertical-align: middle;
 }
 .late-rounds-dd {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
 }
-.late-rounds-dd strong { color: var(--cyan); font-weight: 700; margin-left: 0.25rem; }
+.late-rounds-dd strong { color: var(--cyan); font-weight: 700; margin-inline-start: 0.25rem; }
 
 .late-row {
   display: grid; grid-template-columns: 28px 140px 1fr;
@@ -2047,11 +2047,11 @@
 }
 .late-row-input-wrap { position: relative; }
 .late-row-input-wrap > .input {
-  font-family: var(--font-mono); font-size: 13px; padding-right: 1.6rem;
+  font-family: var(--font-mono); font-size: 13px; padding-inline-end: 1.6rem;
   text-transform: uppercase;
 }
 .late-row-resolved {
-  position: absolute; right: 0.6rem; top: 50%; transform: translateY(-50%);
+  position: absolute; inset-inline-end: 0.6rem; top: 50%; transform: translateY(-50%);
   color: var(--cyan); font-weight: 700; font-size: 12px; pointer-events: none;
 }
 .late-row-meta {
@@ -2065,7 +2065,7 @@
 .late-row-dd { color: var(--cyan); flex-shrink: 0; }
 
 .late-autocomplete {
-  position: absolute; top: 100%; left: 0; right: 0; z-index: 5;
+  position: absolute; top: 100%; inset-inline-start: 0; inset-inline-end: 0; z-index: 5;
   margin: 0.3rem 0 0; padding: 0;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -2083,7 +2083,7 @@
 .late-autocomplete-item:last-child { border-bottom: none; }
 .late-autocomplete-item:hover { background: var(--bg-3); }
 .late-ac-code { font-weight: 700; color: var(--text); }
-.late-ac-pos  { color: var(--cyan); margin-left: 0.1rem; }
+.late-ac-pos  { color: var(--cyan); margin-inline-start: 0.1rem; }
 .late-ac-desc { color: var(--text-2);
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .late-ac-dd   { color: var(--cyan); font-weight: 700; }
@@ -2092,7 +2092,7 @@
   .late-modal { max-width: calc(100vw - 1.5rem); }
   .late-row { grid-template-columns: 24px 1fr; }
   .late-row-meta {
-    grid-column: 1 / -1; padding-left: 30px;
+    grid-column: 1 / -1; padding-inline-start: 30px;
     font-size: 11px;
   }
 }
@@ -2150,7 +2150,7 @@
   background: var(--bg-2); border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   cursor: pointer; transition: border-color 0.15s;
-  text-align: left; color: var(--text);
+  text-align: start; color: var(--text);
   font-family: inherit; font-size: 12px;
   width: 100%;
 }
@@ -2223,7 +2223,7 @@
   padding: 0.7rem 1rem;
   font-family: var(--font-display); font-size: 11px; font-weight: 700;
   letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-2);
-  cursor: pointer; text-align: left;
+  cursor: pointer; text-align: start;
   transition: background 0.15s;
 }
 .dive-order-head:hover { background: var(--bg-2); color: var(--text); }
@@ -2271,7 +2271,7 @@
   display: flex; align-items: center; gap: 0.5rem;
   padding: 0.5rem 0.85rem;
   background: transparent; border: none; cursor: pointer;
-  font: inherit; text-align: left; color: #ffc857;
+  font: inherit; text-align: start; color: #ffc857;
   font-family: var(--font-display); font-size: 11px; font-weight: 700;
   letter-spacing: 0.08em; text-transform: uppercase;
 }
@@ -2332,7 +2332,7 @@
   padding: 0.7rem 1rem;
   font-family: var(--font-display); font-size: 11px; font-weight: 700;
   letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-2);
-  cursor: pointer; text-align: left;
+  cursor: pointer; text-align: start;
   transition: background 0.15s;
 }
 .standings-head:hover { background: var(--bg-2); color: var(--text); }
@@ -2418,7 +2418,7 @@
 }
 .sp-rank {
   font-family: var(--font-mono); font-size: 12px; font-weight: 700;
-  color: var(--text-3); width: 16px; text-align: right; flex-shrink: 0;
+  color: var(--text-3); width: 16px; text-align: end; flex-shrink: 0;
 }
 .sp-rank.gold   { color: #f59e0b; }
 .sp-rank.silver { color: #94a3b8; }
@@ -2661,7 +2661,7 @@
 .ctrl-broadcast .kbd-hints { display: none; }
 
 .ops-broadcast-exit {
-  position: fixed; top: 1rem; right: 1rem; z-index: 90;
+  position: fixed; top: 1rem; inset-inline-end: 1rem; z-index: 90;
   width: 36px; height: 36px;
   display: flex; align-items: center; justify-content: center;
   background: rgba(0,0,0,0.4); color: var(--text-3);
@@ -2690,11 +2690,11 @@
   }
   .ctrl-panel {
     overflow: visible;
-    border-right: none;
+    border-inline-end: none;
     border-bottom: 1px solid var(--border);
   }
   .ctrl-panel:last-child {
-    border-left: none;
+    border-inline-start: none;
     border-bottom: none;
   }
   .panel-body { overflow-y: visible; }

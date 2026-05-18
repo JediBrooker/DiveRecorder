@@ -59,14 +59,15 @@ function iconFor(kind) { return ICONS[kind] ?? '' }
    route changes inside the app shell. */
 .notify-bar {
   position: fixed;
-  left: 50%; bottom: 1.5rem;
+  inset-inline-start: 50%; bottom: 1.5rem;
   transform: translateX(-50%);
   z-index: 1000;
   display: flex; align-items: center; gap: 0.7rem;
-  padding: 0.7rem 1rem 0.7rem 1.1rem;
+  padding-block: 0.7rem;
+  padding-inline: 1.1rem 1rem;
   background: var(--bg-2);
   border: 1px solid var(--border-2);
-  border-left-width: 4px;
+  border-inline-start-width: 4px;
   border-radius: 999px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
   font-family: var(--font-display);
@@ -79,13 +80,13 @@ function iconFor(kind) { return ICONS[kind] ?? '' }
 /* Per-kind accent — left border + icon colour. Background
    stays consistent so the snackbar reads as one family of
    chrome. */
-.notify-bar-success { border-left-color: var(--green); }
+.notify-bar-success { border-inline-start-color: var(--green); }
 .notify-bar-success .notify-bar-icon { color: var(--green); }
-.notify-bar-info    { border-left-color: var(--cyan); }
+.notify-bar-info    { border-inline-start-color: var(--cyan); }
 .notify-bar-info    .notify-bar-icon { color: var(--cyan); }
-.notify-bar-warn    { border-left-color: var(--amber); }
+.notify-bar-warn    { border-inline-start-color: var(--amber); }
 .notify-bar-warn    .notify-bar-icon { color: var(--amber); }
-.notify-bar-error   { border-left-color: var(--red); }
+.notify-bar-error   { border-inline-start-color: var(--red); }
 .notify-bar-error   .notify-bar-icon { color: var(--red); }
 
 .notify-bar-icon {

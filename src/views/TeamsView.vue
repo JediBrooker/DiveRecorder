@@ -324,7 +324,7 @@ watch(() => drawerTeam.value, (val) => {
         <div class="stat-num">{{ stats.empty }}</div>
         <div class="stat-label">Empty</div>
       </div>
-      <span v-if="isSysAdmin" class="sys-badge" style="margin-left:auto">System Admin · all orgs</span>
+      <span v-if="isSysAdmin" class="sys-badge" style="margin-inline-start:auto">System Admin · all orgs</span>
     </div>
 
     <!-- Toolbar -->
@@ -467,7 +467,7 @@ watch(() => drawerTeam.value, (val) => {
           <div class="drawer-name">{{ drawerTeam.name }}</div>
           <div class="drawer-meta">
             <span v-if="drawerTeam.short_code" class="team-code">{{ drawerTeam.short_code }}</span>
-            <span v-if="drawerTeam.org_name" style="margin-left:0.4rem">{{ drawerTeam.org_name }}</span>
+            <span v-if="drawerTeam.org_name" style="margin-inline-start:0.4rem">{{ drawerTeam.org_name }}</span>
           </div>
         </div>
         <button class="btn btn-ghost btn-sm" @click="closeMembers">Close ✕</button>
@@ -552,7 +552,7 @@ watch(() => drawerTeam.value, (val) => {
 .toolbar { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .toolbar .input  { flex: 1 1 280px; max-width: 400px; }
 .toolbar .select { flex: 0 1 240px; max-width: 280px; }
-.result-count { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-left: auto; }
+.result-count { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-inline-start: auto; }
 
 .create-block {
   padding: 1rem 1.25rem;
@@ -572,9 +572,9 @@ watch(() => drawerTeam.value, (val) => {
   border-radius: 3px; padding: 0.15rem 0.5rem;
 }
 .dim { color: var(--text-3); }
-.num-col { text-align: right; width: 110px; }
-.actions-col { text-align: right; width: 280px; white-space: nowrap; }
-.actions-col .btn + .btn { margin-left: 0.4rem; }
+.num-col { text-align: end; width: 110px; }
+.actions-col { text-align: end; width: 280px; white-space: nowrap; }
+.actions-col .btn + .btn { margin-inline-start: 0.4rem; }
 .team-row-editing { background: var(--cyan-dim); }
 .input-sm { padding: 0.3rem 0.5rem; font-size: 13px; }
 
@@ -588,7 +588,7 @@ watch(() => drawerTeam.value, (val) => {
 .event-list-status {
   font-family: var(--font-display); font-size: 9px; font-weight: 700;
   letter-spacing: 0.15em; text-transform: uppercase;
-  margin-left: 0.4rem; padding: 0.1rem 0.4rem; border-radius: 3px;
+  margin-inline-start: 0.4rem; padding: 0.1rem 0.4rem; border-radius: 3px;
   border: 1px solid var(--border); color: var(--text-3); background: var(--bg-2);
 }
 .event-list-status.status-live { color: var(--green); border-color: rgba(16,185,129,0.4); background: rgba(16,185,129,0.08); }
@@ -615,10 +615,10 @@ watch(() => drawerTeam.value, (val) => {
   background: rgba(3, 7, 18, 0.55); backdrop-filter: blur(2px);
 }
 .drawer {
-  position: fixed; top: 0; right: 0; bottom: 0; z-index: 100;
+  position: fixed; top: 0; inset-inline-end: 0; bottom: 0; z-index: 100;
   width: min(440px, 100vw);
   display: flex; flex-direction: column;
-  background: var(--surface); border-left: 1px solid var(--border);
+  background: var(--surface); border-inline-start: 1px solid var(--border);
   box-shadow: -10px 0 30px rgba(0,0,0,0.35);
 }
 .drawer-head {

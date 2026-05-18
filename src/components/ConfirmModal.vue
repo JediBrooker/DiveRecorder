@@ -121,7 +121,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
 }
 .confirm-consequences {
   margin: 0 0 1.1rem;
-  padding-left: 1.1rem;
+  padding-inline-start: 1.1rem;
   font-family: var(--font-mono);
   font-size: 12px; line-height: 1.6;
   color: var(--text-3);

@@ -328,7 +328,7 @@ function onSkip() {
 .reflow-table td {
   font-family: var(--font-mono);
   font-size: 12px;
-  text-align: left;
+  text-align: start;
   padding: 0.4rem 0.55rem;
   border-bottom: 1px solid var(--border-2);
 }

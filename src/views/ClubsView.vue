@@ -197,7 +197,7 @@ onMounted(async () => {
         <div class="stat-num">{{ stats.empty }}</div>
         <div class="stat-label">Empty</div>
       </div>
-      <span v-if="isSysAdmin" class="sys-badge" style="margin-left:auto">System Admin · all orgs</span>
+      <span v-if="isSysAdmin" class="sys-badge" style="margin-inline-start:auto">System Admin · all orgs</span>
     </div>
 
     <!-- Filters + create -->
@@ -371,7 +371,7 @@ onMounted(async () => {
 .toolbar .select { flex: 0 1 240px; max-width: 280px; }
 .result-count {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
-  margin-left: auto;
+  margin-inline-start: auto;
 }
 
 .create-block {
@@ -400,9 +400,9 @@ onMounted(async () => {
   border-radius: 3px; padding: 0.15rem 0.5rem;
 }
 .dim { color: var(--text-3); }
-.num-col { text-align: right; width: 110px; }
-.actions-col { text-align: right; width: 200px; white-space: nowrap; }
-.actions-col .btn + .btn { margin-left: 0.4rem; }
+.num-col { text-align: end; width: 110px; }
+.actions-col { text-align: end; width: 200px; white-space: nowrap; }
+.actions-col .btn + .btn { margin-inline-start: 0.4rem; }
 
 .member-count {
   font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--text);
@@ -420,7 +420,7 @@ onMounted(async () => {
   letter-spacing: 0.05em; color: var(--text-3);
   background: var(--bg-2); border: 1px solid var(--border);
   border-radius: 3px; padding: 0.1rem 0.35rem;
-  margin-left: 0.4rem; vertical-align: middle;
+  margin-inline-start: 0.4rem; vertical-align: middle;
 }
 
 .club-row-editing { background: var(--cyan-dim); }

@@ -57,7 +57,7 @@ async function createClub() {
   const name = clubName.value.trim()
   if (!name) return
   if (!auth.user?.org_id) {
-    showError('Cannot create a club — your account has no org_id.')
+    showError(t('setup.wizard.club_no_org_error'))
     return
   }
   clubBusy.value = true
@@ -73,10 +73,10 @@ async function createClub() {
       },
     )
     clubCreated.value = club
-    showSuccess(`Created club "${club.name}"`)
+    showSuccess(t('setup.wizard.club_created_toast', { name: club.name }))
     next()
   } catch (err) {
-    showError(`Failed to create club: ${err.message}`)
+    showError(t('setup.wizard.club_create_failed', { message: err.message }))
   } finally {
     clubBusy.value = false
   }
@@ -127,7 +127,7 @@ onMounted(() => {
       <!-- Progress strip — pip + label per step, current pip
            glows cyan. Click a pip to jump (lets a returning
            admin skip back without using Back/Next). -->
-      <div class="wizard-stepper" role="tablist" :aria-label="`Setup step ${stepIdx + 1} of ${STEPS.length}`">
+      <div class="wizard-stepper" role="tablist" :aria-label="$t('setup.wizard.aria_step_progress', { current: stepIdx + 1, total: STEPS.length })">
         <template v-for="(s, i) in STEPS" :key="s.key">
           <button
             type="button"
@@ -150,38 +150,29 @@ onMounted(() => {
 
       <!-- Step 1 — Welcome -->
       <div v-if="currentStep.key === 'welcome'" class="wizard-card">
-        <div class="wizard-eyebrow">Step 1 of 4</div>
+        <div class="wizard-eyebrow">{{ $t('setup.wizard.step_eyebrow', { current: 1, total: 4 }) }}</div>
         <h1 class="wizard-title">{{ $t('setup.title') }}</h1>
         <div class="wizard-subtitle">{{ $t('setup.subtitle') }}</div>
         <p class="wizard-body">
-          Three quick steps and you'll have a working federation: create your
-          first club, send the invite link to your divers / judges, then build
-          your first event. The whole thing takes about five minutes; skip any
-          step you'd rather come back to later.
+          {{ $t('setup.wizard.welcome_body') }}
         </p>
         <ul class="wizard-bullets">
           <li>
             <span class="wizard-bullet-icon">🏛</span>
             <div>
-              <strong>Clubs</strong> — divers and judges belong to a club, which
-              shows up on the scoreboard. You'll create one now and can add more
-              from the Clubs page later.
+              <strong>{{ $t('setup.wizard.welcome_bullet_clubs_title') }}</strong> — {{ $t('setup.wizard.welcome_bullet_clubs_body') }}
             </div>
           </li>
           <li>
             <span class="wizard-bullet-icon">👥</span>
             <div>
-              <strong>People</strong> — share a registration link so divers and
-              judges can sign themselves up. You approve their role with one
-              click in User Manager.
+              <strong>{{ $t('setup.wizard.welcome_bullet_people_title') }}</strong> — {{ $t('setup.wizard.welcome_bullet_people_body') }}
             </div>
           </li>
           <li>
             <span class="wizard-bullet-icon">📅</span>
             <div>
-              <strong>Events</strong> — an event holds the panel, the rounds,
-              and the dive lists. You'll be dropped into the New Event form
-              when you're ready.
+              <strong>{{ $t('setup.wizard.welcome_bullet_events_title') }}</strong> — {{ $t('setup.wizard.welcome_bullet_events_body') }}
             </div>
           </li>
         </ul>
@@ -195,23 +186,21 @@ onMounted(() => {
 
       <!-- Step 2 — Create a club -->
       <div v-else-if="currentStep.key === 'club'" class="wizard-card">
-        <div class="wizard-eyebrow">Step 2 of 4</div>
-        <h1 class="wizard-title">Create your first club</h1>
-        <p class="wizard-body">
-          Clubs are the affiliation chip you'll see on the scoreboard next to
-          each diver's name. Give yours a name and an optional short code
-          (3–6 characters, e.g. <code>NZL-1</code>) — both can be edited later.
-        </p>
+        <div class="wizard-eyebrow">{{ $t('setup.wizard.step_eyebrow', { current: 2, total: 4 }) }}</div>
+        <h1 class="wizard-title">{{ $t('setup.wizard.club_title') }}</h1>
+        <i18n-t keypath="setup.wizard.club_body" tag="p" class="wizard-body">
+          <template #code><code>NZL-1</code></template>
+        </i18n-t>
         <form class="wizard-form" @submit.prevent="createClub">
           <label class="wizard-label">
-            Club name
+            {{ $t('setup.wizard.club_name_label') }}
             <input class="input" type="text" v-model="clubName"
-                   placeholder="Capital Diving Club" :disabled="clubBusy" required>
+                   :placeholder="$t('setup.wizard.club_name_placeholder')" :disabled="clubBusy" required>
           </label>
           <label class="wizard-label">
-            Short code <span class="wizard-label-hint">(optional)</span>
+            {{ $t('setup.wizard.club_code_label') }} <span class="wizard-label-hint">{{ $t('setup.wizard.club_code_label_hint') }}</span>
             <input class="input" type="text" v-model="clubCode"
-                   placeholder="CAP" maxlength="6" :disabled="clubBusy">
+                   :placeholder="$t('setup.wizard.club_code_placeholder')" maxlength="6" :disabled="clubBusy">
           </label>
         </form>
         <div class="wizard-actions">
@@ -219,7 +208,7 @@ onMounted(() => {
           <div class="wizard-actions-right">
             <button type="button" class="btn btn-ghost" @click="next">{{ $t('setup.skip') }}</button>
             <button type="button" class="btn btn-primary" :disabled="!clubName.trim() || clubBusy" @click="createClub">
-              {{ clubBusy ? 'Creating…' : 'Create club &amp; continue &rarr;' }}
+              {{ clubBusy ? $t('setup.wizard.club_creating') : $t('setup.wizard.club_create_btn') }}
             </button>
           </div>
         </div>
@@ -227,12 +216,10 @@ onMounted(() => {
 
       <!-- Step 3 — Invite users -->
       <div v-else-if="currentStep.key === 'invite'" class="wizard-card">
-        <div class="wizard-eyebrow">Step 3 of 4</div>
-        <h1 class="wizard-title">Invite your people</h1>
+        <div class="wizard-eyebrow">{{ $t('setup.wizard.step_eyebrow', { current: 3, total: 4 }) }}</div>
+        <h1 class="wizard-title">{{ $t('setup.wizard.invite_title') }}</h1>
         <p class="wizard-body">
-          Share the registration link below with your divers, coaches, judges,
-          and referees. They sign up under your federation; you approve each
-          new role from User Manager with one click.
+          {{ $t('setup.wizard.invite_body') }}
         </p>
         <div class="wizard-invite-row">
           <input
@@ -241,18 +228,16 @@ onMounted(() => {
             :value="registerUrl"
             readonly
             @focus="$event.target.select()"
-            aria-label="Registration link"
+            :aria-label="$t('setup.wizard.registration_link_aria')"
           >
           <button type="button" class="btn btn-primary" @click="copyRegisterUrl">
-            <span v-if="copyState === 'copied'">✓ Copied</span>
-            <span v-else-if="copyState === 'error'">Copy failed</span>
-            <span v-else>Copy link</span>
+            <span v-if="copyState === 'copied'">{{ $t('setup.wizard.invite_copied') }}</span>
+            <span v-else-if="copyState === 'error'">{{ $t('setup.wizard.invite_copy_failed') }}</span>
+            <span v-else>{{ $t('setup.wizard.invite_copy') }}</span>
           </button>
         </div>
         <p class="wizard-hint">
-          Tip: paste it into Slack / WhatsApp / your federation's mailing list. You can
-          create accounts manually from User Manager too if you'd rather not wait for
-          self-registration.
+          {{ $t('setup.wizard.invite_hint') }}
         </p>
         <div class="wizard-actions">
           <button type="button" class="btn btn-ghost" @click="back">{{ $t('setup.back') }}</button>
@@ -266,35 +251,28 @@ onMounted(() => {
 
       <!-- Step 4 — Create first event -->
       <div v-else-if="currentStep.key === 'event'" class="wizard-card">
-        <div class="wizard-eyebrow">Step 4 of 4</div>
-        <h1 class="wizard-title">Build your first event</h1>
+        <div class="wizard-eyebrow">{{ $t('setup.wizard.step_eyebrow', { current: 4, total: 4 }) }}</div>
+        <h1 class="wizard-title">{{ $t('setup.wizard.event_title') }}</h1>
         <p class="wizard-body">
-          The Meet Manager is where you'll live during a meet day. Click below
-          and you'll land in the New Event form on the left, with everything
-          you set up so far already in place.
+          {{ $t('setup.wizard.event_body') }}
         </p>
         <ul class="wizard-bullets">
           <li>
             <span class="wizard-bullet-icon">🎚</span>
             <div>
-              Pick board height, panel size, and number of rounds. Save the
-              configuration as a template so future events one-click apply it.
+              {{ $t('setup.wizard.event_bullet_panel') }}
             </div>
           </li>
           <li>
             <span class="wizard-bullet-icon">📋</span>
             <div>
-              Build the roster — paste a CSV or add divers individually. The
-              dive list editor refuses dive codes that exceed your event's per-
-              round DD caps.
+              {{ $t('setup.wizard.event_bullet_roster') }}
             </div>
           </li>
           <li>
             <span class="wizard-bullet-icon">⚖️</span>
             <div>
-              Assign a judging panel from your federation's judge users. Order
-              matters — the first judge becomes Judge 1, mapping to synchro
-              sub-panel slots.
+              {{ $t('setup.wizard.event_bullet_judges') }}
             </div>
           </li>
         </ul>
@@ -302,7 +280,7 @@ onMounted(() => {
           <button type="button" class="btn btn-ghost" @click="back">{{ $t('setup.back') }}</button>
           <div class="wizard-actions-right">
             <RouterLink to="/dashboard" class="btn btn-ghost">
-              Back to dashboard
+              {{ $t('setup.wizard.back_to_dashboard') }}
             </RouterLink>
             <button type="button" class="btn btn-primary" @click="complete">
               {{ $t('setup.finish') }}
@@ -510,7 +488,7 @@ onMounted(() => {
 }
 .wizard-actions-right {
   display: flex; gap: 0.5rem;
-  margin-left: auto;
+  margin-inline-start: auto;
   flex-wrap: wrap;
 }
 </style>

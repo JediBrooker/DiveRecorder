@@ -191,16 +191,16 @@ onMounted(() => {
 .hero-locale {
   position: absolute;
   top: 1.25rem;
-  right: 1.25rem;
+  inset-inline-end: 1.25rem;
   z-index: 2;
 }
 @media (max-width: 720px) {
-  .hero-locale { top: 0.75rem; right: 0.75rem; }
+  .hero-locale { top: 0.75rem; inset-inline-end: 0.75rem; }
 }
 .hero-glow {
   position: absolute;
   top: 40%;
-  left: 50%;
+  inset-inline-start: 50%;
   transform: translate(-50%, -50%);
   width: 800px;
   height: 600px;

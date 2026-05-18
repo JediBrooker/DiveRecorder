@@ -552,9 +552,9 @@ onMounted(async () => {
   position: relative;
   display: flex; align-items: center; gap: 0.4rem;
 }
-.picker-input-wrap > .input { flex: 1; padding-right: 2rem; }
+.picker-input-wrap > .input { flex: 1; padding-inline-end: 2rem; }
 .picker-clear {
-  position: absolute; right: 5.5rem; top: 50%; transform: translateY(-50%);
+  position: absolute; inset-inline-end: 5.5rem; top: 50%; transform: translateY(-50%);
   background: transparent; border: none;
   color: var(--text-3); cursor: pointer;
   font-size: 12px; padding: 0.2rem 0.4rem;
@@ -562,7 +562,7 @@ onMounted(async () => {
 .picker-clear:hover { color: var(--text); }
 .picker-browse { flex-shrink: 0; }
 .autocomplete-list {
-  position: absolute; top: 100%; left: 0; right: 0; z-index: 10;
+  position: absolute; top: 100%; inset-inline-start: 0; inset-inline-end: 0; z-index: 10;
   margin-top: 0.3rem; padding: 0;
   background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -580,7 +580,7 @@ onMounted(async () => {
 .ac-name { font-family: var(--font-display); font-weight: 700; color: var(--text); font-size: 13px; }
 .ac-meta { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3); }
 .autocomplete-empty {
-  position: absolute; top: 100%; left: 0; right: 0; z-index: 10;
+  position: absolute; top: 100%; inset-inline-start: 0; inset-inline-end: 0; z-index: 10;
   margin-top: 0.3rem; padding: 0.6rem 0.875rem;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -662,7 +662,7 @@ onMounted(async () => {
   backdrop-filter: blur(2px);
 }
 .browse-modal {
-  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  position: fixed; top: 50%; inset-inline-start: 50%; transform: translate(-50%, -50%);
   z-index: 100;
   width: min(900px, calc(100vw - 2rem));
   /* `dvh` not `vh` so the modal shrinks with the iOS Safari
@@ -685,7 +685,7 @@ onMounted(async () => {
 }
 .browse-target {
   font-family: var(--font-mono); font-size: 11px; font-style: normal;
-  font-weight: 400; color: var(--text-3); margin-left: 0.6rem;
+  font-weight: 400; color: var(--text-3); margin-inline-start: 0.6rem;
 }
 .browse-target strong { color: var(--cyan); }
 .browse-filters {
@@ -703,7 +703,7 @@ onMounted(async () => {
 .browse-table th {
   font-family: var(--font-display); font-size: 10px; font-weight: 700;
   letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3);
-  text-align: left; padding: 0.6rem 1.25rem;
+  text-align: start; padding: 0.6rem 1.25rem;
   background: var(--bg-3); border-bottom: 1px solid var(--border);
   position: sticky; top: 0; z-index: 1;
 }
@@ -714,7 +714,7 @@ onMounted(async () => {
 .browse-table td.strong { color: var(--text); font-weight: 700; }
 .browse-table td.dim    { color: var(--text-3); }
 .browse-table tr:hover td { background: var(--bg-3); }
-.cell-action { text-align: right; width: 80px; }
+.cell-action { text-align: end; width: 80px; }
 
 .browse-pager {
   display: flex; align-items: center; justify-content: space-between;
@@ -730,11 +730,11 @@ onMounted(async () => {
   }
   .picker-vs, .name-vs { display: none; }
   .stat-row > .stat-label { order: -1; }
-  .stat-val { font-size: 22px; text-align: left; }
+  .stat-val { font-size: 22px; text-align: start; }
   .pb-cell-a, .pb-cell-b { justify-content: flex-start; }
-  .pb-mid { text-align: left; }
+  .pb-mid { text-align: start; }
 
-  .picker-clear { right: 5rem; }
+  .picker-clear { inset-inline-end: 5rem; }
   .browse-filters { grid-template-columns: 1fr; }
   .browse-modal { height: 92dvh; }
 }

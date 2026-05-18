@@ -85,15 +85,15 @@ const trendChart = computed(() => {
   font-family: var(--font-display); font-size: 9px; font-weight: 900;
   letter-spacing: 0.18em; color: var(--cyan);
   background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.4);
-  border-radius: 3px; padding: 0.1rem 0.4rem; margin-left: 0.4rem;
+  border-radius: 3px; padding: 0.1rem 0.4rem; margin-inline-start: 0.4rem;
 }
 .trend-team-badge {
   font-family: var(--font-display); font-size: 9px; font-weight: 900;
   letter-spacing: 0.18em; color: #c4b5fd;
   background: rgba(139,92,246,0.10); border: 1px solid rgba(139,92,246,0.45);
-  border-radius: 3px; padding: 0.1rem 0.4rem; margin-left: 0.4rem;
+  border-radius: 3px; padding: 0.1rem 0.4rem; margin-inline-start: 0.4rem;
 }
-.trend-partner { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-left: 0.4rem; }
+.trend-partner { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-inline-start: 0.4rem; }
 .trend-place { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); padding: 0.1rem 0.4rem; border-radius: 3px; border: 1px solid var(--border); background: var(--bg-2); }
 .trend-place.place-gold   { color: #f59e0b; border-color: rgba(234,179,8,0.4); background: rgba(234,179,8,0.06); }
 .trend-place.place-silver { color: #94a3b8; border-color: rgba(148,163,184,0.4); background: rgba(148,163,184,0.06); }
@@ -120,7 +120,7 @@ const trendChart = computed(() => {
   .trend-total { grid-area: total; font-size: 13px; }
   .trend-name  { grid-area: name; white-space: normal; }
   .trend-chart { height: 90px; margin-bottom: 0.6rem; }
-  .trend-partner { display: block; margin-left: 0; margin-top: 0.15rem; }
+  .trend-partner { display: block; margin-inline-start: 0; margin-top: 0.15rem; }
 }
 
 @media print {

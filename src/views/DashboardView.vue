@@ -1411,7 +1411,7 @@ function attachSocketHandlers() {
      the dropdown on-screen even though the input is squeezed
      into the right side of the header. The dropdown is wider
      than the input so club/country chips fit comfortably. */
-  right: 0; left: auto;
+  inset-inline-end: 0; inset-inline-start: auto;
   min-width: 320px;
   max-width: min(420px, 90vw);
   z-index: 50;
@@ -1427,7 +1427,7 @@ function attachSocketHandlers() {
 }
 .find-diver-row {
   display: flex; align-items: baseline; gap: 0.5rem;
-  width: 100%; text-align: left;
+  width: 100%; text-align: start;
   padding: 0.6rem 1rem;
   background: transparent; border: none;
   border-bottom: 1px solid var(--border);
@@ -1446,9 +1446,9 @@ function attachSocketHandlers() {
   background: var(--bg-2); border: 1px solid var(--border);
   border-radius: 3px; padding: 0.05rem 0.3rem;
 }
-.find-diver-club { font-size: 11px; color: var(--text-3); margin-left: auto;
+.find-diver-club { font-size: 11px; color: var(--text-3); margin-inline-start: auto;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.find-diver-club-code { font-weight: 700; color: var(--cyan); margin-left: 0.4rem; }
+.find-diver-club-code { font-weight: 700; color: var(--cyan); margin-inline-start: 0.4rem; }
 
 /* Pulse strip — always-visible cross-role digest. Sits above
    the tabs so a multi-role user sees activity in roles other
@@ -1506,7 +1506,7 @@ function attachSocketHandlers() {
 .pulse-glyph {
   display: inline-flex; align-items: center;
   font-size: 14px; line-height: 1;
-  margin-right: 0.05rem;
+  margin-inline-end: 0.05rem;
 }
 .pulse-live     .pulse-num { color: var(--red);   border-color: rgba(239,68,68,0.4);   background: rgba(239,68,68,0.08); }
 .pulse-upcoming .pulse-num { color: var(--cyan);  border-color: rgba(6,182,212,0.4);   background: rgba(6,182,212,0.08); }
@@ -1543,7 +1543,7 @@ function attachSocketHandlers() {
 .pulse-popover {
   position: absolute;
   top: 100%;
-  left: 50%;
+  inset-inline-start: 50%;
   transform: translateX(-50%);
   margin-top: 0.4rem;                /* visual gap, NOT a hover gap (see ::before) */
   min-width: 280px;
@@ -1571,7 +1571,7 @@ function attachSocketHandlers() {
   content: '';
   position: absolute;
   top: -0.5rem;
-  left: 0; right: 0;
+  inset-inline-start: 0; inset-inline-end: 0;
   height: 0.5rem;
   /* invisible — purely a hover-continuation surface */
 }
@@ -1612,7 +1612,7 @@ function attachSocketHandlers() {
   gap: 0.15rem;
   padding: 0.5rem 0.95rem;
   text-decoration: none;
-  text-align: left;
+  text-align: start;
   transition: background 0.12s;
 }
 .pulse-popover-item:hover {
@@ -1640,13 +1640,13 @@ function attachSocketHandlers() {
    pending). The pill sits at the right of the row; the row's
    left border picks up the urgency colour too. */
 .pulse-popover-urgent {
-  border-left: 3px solid var(--amber);
+  border-inline-start: 3px solid var(--amber);
 }
 .pulse-popover-overdue {
-  border-left: 3px solid var(--red);
+  border-inline-start: 3px solid var(--red);
 }
 .pulse-popover-live {
-  border-left: 3px solid var(--red);
+  border-inline-start: 3px solid var(--red);
 }
 .pulse-urgency-pill {
   font-family: var(--font-mono);
@@ -1707,8 +1707,9 @@ function attachSocketHandlers() {
    in JS via @mouseenter) pauses the cycle. Click → /audit. */
 .pulse-ticker {
   display: inline-flex; align-items: center; gap: 0.5rem;
-  margin-left: auto;                  /* pushes it to the right edge of the strip */
-  padding: 0.2rem 0.7rem 0.2rem 0.5rem;
+  margin-inline-start: auto;                  /* pushes it to the right edge of the strip */
+  padding-block: 0.2rem;
+  padding-inline: 0.5rem 0.7rem;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
@@ -1888,7 +1889,7 @@ function attachSocketHandlers() {
     /* On narrow viewports anchor to the left of the input
        (since there's no right-edge real estate to spare).
        Width clamps to viewport. */
-    right: auto; left: 0;
+    inset-inline-end: auto; inset-inline-start: 0;
     min-width: calc(100vw - 2.5rem);
     max-width: calc(100vw - 2.5rem);
   }
@@ -1952,8 +1953,8 @@ function attachSocketHandlers() {
   .pulse-chip.is-open .pulse-popover {
     position: fixed;
     top: auto;
-    left: 0;
-    right: 0;
+    inset-inline-start: 0;
+    inset-inline-end: 0;
     bottom: 0;
     transform: none;
     margin-top: 0;
@@ -1992,7 +1993,7 @@ function attachSocketHandlers() {
     content: '';
     position: absolute;
     top: 0.45rem;
-    left: 50%;
+    inset-inline-start: 50%;
     transform: translateX(-50%);
     width: 40px;
     height: 4px;

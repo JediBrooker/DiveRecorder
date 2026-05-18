@@ -144,7 +144,8 @@ function scoreClass(s) {
 .trend-row-clickable:hover .trend-chevron { color: var(--cyan); }
 
 .dive-breakdown {
-  padding: 0.5rem 0.5rem 0.75rem 1.5rem;
+  padding-block: 0.5rem 0.75rem;
+  padding-inline: 1.5rem 0.5rem;
   border-top: 1px dashed var(--border);
   background: var(--bg-3);
 }
@@ -156,7 +157,7 @@ function scoreClass(s) {
 .dive-table th {
   font-family: var(--font-display); font-size: 9px; font-weight: 700;
   letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-3);
-  text-align: left; padding: 0.4rem 0.4rem;
+  text-align: start; padding: 0.4rem 0.4rem;
   border-bottom: 1px solid var(--border);
 }
 .dive-table td { padding: 0.4rem 0.4rem; border-bottom: 1px solid var(--border); }

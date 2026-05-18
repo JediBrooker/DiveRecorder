@@ -308,7 +308,7 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
   font-family: var(--font-mono);
   font-size: 12px; line-height: 1.55;
   color: var(--text-2);
-  margin: 0; padding-left: 1.2rem;
+  margin: 0; padding-inline-start: 1.2rem;
   display: flex; flex-direction: column; gap: 0.3rem;
 }
 .role-steps strong {
@@ -345,8 +345,8 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
   font-family: var(--font-mono);
   font-size: 12.5px; line-height: 1.7;
   color: var(--text-2);
-  margin: 0; padding-left: 1rem;
-  border-left: 2px solid var(--border);
+  margin: 0; padding-inline-start: 1rem;
+  border-inline-start: 2px solid var(--border);
 }
 .guide-faq dd strong { color: var(--text); font-weight: 600; }
 .guide-faq dd a { color: var(--cyan); text-decoration: none; }
@@ -364,7 +364,7 @@ const WIKI = 'https://github.com/JediBrooker/DivingHQ/wiki'
 }
 .guide-next-lede a:hover { text-decoration: underline; }
 .guide-next-list {
-  margin: 0 0 1.5rem; padding-left: 1.2rem;
+  margin: 0 0 1.5rem; padding-inline-start: 1.2rem;
   display: flex; flex-direction: column; gap: 0.5rem;
   font-family: var(--font-mono);
   font-size: 12.5px; line-height: 1.6;

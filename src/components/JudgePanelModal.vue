@@ -461,7 +461,7 @@ function warningNames(c) {
   gap: 0.4rem;
   max-height: 360px;
   overflow-y: auto;
-  padding-right: 0.25rem;
+  padding-inline-end: 0.25rem;
 }
 .jpm-judge-item {
   display: flex;
@@ -532,7 +532,7 @@ function warningNames(c) {
   gap: 0.4rem;
   max-height: 360px;
   overflow-y: auto;
-  padding-right: 0.25rem;
+  padding-inline-end: 0.25rem;
 }
 .jpm-slot {
   display: flex;
@@ -577,7 +577,7 @@ function warningNames(c) {
 }
 .jpm-slot-empty { color: var(--text-3); font-size: 12px; font-style: italic; }
 .jpm-slot-remove {
-  margin-left: auto;
+  margin-inline-start: auto;
   background: none;
   border: none;
   color: var(--text-3);
@@ -599,7 +599,7 @@ function warningNames(c) {
 
 .jpm-conflict-warn {
   margin-bottom: 1rem;
-  border-left: 3px solid var(--amber, #d90);
+  border-inline-start: 3px solid var(--amber, #d90);
 }
 .jpm-conflict-heading {
   font-weight: 700;
@@ -612,7 +612,7 @@ function warningNames(c) {
 }
 .jpm-conflict-list {
   margin: 0 0 0.5rem;
-  padding-left: 1.25rem;
+  padding-inline-start: 1.25rem;
   font-size: 12px;
 }
 .jpm-conflict-actions {

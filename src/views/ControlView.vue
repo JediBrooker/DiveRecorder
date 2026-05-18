@@ -4710,7 +4710,7 @@ onUnmounted(() => {
           <div class="reserves-head" style="cursor:default">
             <span class="reserves-head-label">🔄 Synchro reserve pool</span>
             <button class="btn btn-primary btn-sm"
-                    style="margin-left:auto"
+                    style="margin-inline-start:auto"
                     @click="openSynchroPoolModal"
                     v-tip="'Replace a Top-12 individual who withdrew with a synchro reserve from the same meet (Appendix 3 §5.1)'">
               Replace from synchro pool
@@ -4727,7 +4727,7 @@ onUnmounted(() => {
             <span class="reserves-head-label">🥊 Dive-offs</span>
             <span class="reserves-head-count">{{ diveOffs.length }}</span>
             <button class="btn btn-primary btn-sm"
-                    style="margin-left:auto"
+                    style="margin-inline-start:auto"
                     @click="openCreateDiveOff"
                     v-tip="'Record a tie-break dive-off (Appendix 3 §6)'">
               + Create
@@ -5667,7 +5667,7 @@ onUnmounted(() => {
       <div v-if="autoAdvanceCountdown > 0"
            style="font-family:var(--font-mono);font-size:12px;color:var(--cyan);margin-bottom:0.75rem">
         Auto-announcing in {{ autoAdvanceCountdown }}s
-        <button class="btn btn-ghost btn-sm" style="margin-left:0.5rem" @click="cancelAutoAdvance">✕ Cancel</button>
+        <button class="btn btn-ghost btn-sm" style="margin-inline-start:0.5rem" @click="cancelAutoAdvance">✕ Cancel</button>
       </div>
       <div style="display:flex;justify-content:flex-end;gap:0.5rem">
         <button class="btn btn-ghost btn-sm" @click="roundEndPromptOpen = false; cancelAutoAdvance()">Skip</button>
@@ -5759,7 +5759,7 @@ onUnmounted(() => {
           <button v-for="(p, i) in tiedPairsSuggestion" :key="i"
                   type="button"
                   class="btn btn-ghost btn-sm"
-                  style="margin:0 0.25rem 0.25rem 0"
+                  style="margin-block:0 0.25rem;margin-inline:0 0.25rem"
                   @click="diveOffForm.competitor_a_id = p.competitor_a_id;
                           diveOffForm.competitor_b_id = p.competitor_b_id">
             {{ p.full_name_a }} vs {{ p.full_name_b }}

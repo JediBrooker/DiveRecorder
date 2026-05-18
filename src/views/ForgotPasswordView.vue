@@ -89,7 +89,7 @@ async function submit() {
 }
 .reset-mark span { color: var(--cyan); }
 .reset-mark::before {
-  content: ''; display: block; width: 24px; height: 2px; margin-right: 0.75rem; background: var(--cyan);
+  content: ''; display: block; width: 24px; height: 2px; margin-inline-end: 0.75rem; background: var(--cyan);
 }
 h1 { font-size: 44px; color: var(--text); margin-bottom: 0.25rem; font-style: italic; }
 .subtitle {

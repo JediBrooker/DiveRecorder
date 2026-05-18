@@ -226,14 +226,14 @@ onMounted(load)
 .field-inline { display: flex; align-items: center; gap: 0.5rem; }
 .filter-label { font-family: var(--font-display); font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3); }
 .select-sm { padding: 0.3rem 0.5rem; font-size: 12px; min-width: 120px; }
-.result-count { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+.result-count { margin-inline-start: auto; font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
 
 .empty { color: var(--text-3); padding: 3rem 0; text-align: center; font-family: var(--font-mono); font-size: 13px; }
 
 .audit-table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
 .audit-table th, .audit-table td {
   padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--border);
-  text-align: left; font-size: 13px; vertical-align: middle;
+  text-align: start; font-size: 13px; vertical-align: middle;
 }
 .audit-table th {
   font-family: var(--font-display); font-size: 10px; font-weight: 700;
@@ -260,7 +260,7 @@ onMounted(load)
   font-family: var(--font-mono); font-size: 10px; font-weight: 700;
   color: var(--cyan); border: 1px solid rgba(6,182,212,0.3);
   background: var(--cyan-dim); padding: 0.1rem 0.35rem; border-radius: 3px;
-  margin-right: 0.4rem;
+  margin-inline-end: 0.4rem;
 }
 .old { color: var(--text-3); }
 .new { color: var(--text); font-weight: 700; }

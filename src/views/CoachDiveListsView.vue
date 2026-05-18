@@ -485,7 +485,7 @@ onMounted(load)
   font-style: italic;
 }
 
-.error-list { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+.error-list { margin: 0.4rem 0 0; padding-inline-start: 1.2rem; }
 .error-list li { font-family: var(--font-mono); font-size: 11px; }
 
 .edit-actions {
@@ -500,7 +500,7 @@ onMounted(load)
     grid-template-columns: 32px 60px 1fr;
   }
   .dive-line .dive-dd { grid-column: 2; }
-  .dive-line .dive-desc { grid-column: 1 / -1; padding-left: 38px; }
+  .dive-line .dive-desc { grid-column: 1 / -1; padding-inline-start: 38px; }
   .edit-row {
     grid-template-columns: 1fr auto;
   }

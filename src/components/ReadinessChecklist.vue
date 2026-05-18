@@ -88,7 +88,7 @@ const remaining  = computed(() => total.value - doneCount.value)
   min-width: 0;
   background: var(--surface, #0f172a);
   border: 1px solid var(--border, #1e293b);
-  border-left: 4px solid #f59e0b;
+  border-inline-start: 4px solid #f59e0b;
   border-radius: var(--radius, 6px);
   padding: 0.85rem 1rem;
   margin-bottom: 1rem;
@@ -96,7 +96,7 @@ const remaining  = computed(() => total.value - doneCount.value)
   text-transform: none;
   transition: border-color 0.2s, padding 0.2s;
 }
-.readiness-ready { border-left-color: var(--green, #10b981); }
+.readiness-ready { border-inline-start-color: var(--green, #10b981); }
 .readiness-collapsed { padding: 0.55rem 1rem; }
 
 .readiness-header {
@@ -174,7 +174,7 @@ const remaining  = computed(() => total.value - doneCount.value)
   flex-direction: column;
   gap: 0.1rem;
   min-width: 0;
-  text-align: left;
+  text-align: start;
 }
 .readiness-label {
   display: block;

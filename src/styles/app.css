@@ -309,7 +309,7 @@ h1, h2, h3, h4 {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%233d5f7a' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 1rem center;
-  padding-right: 2.5rem;
+  padding-inline-end: 2.5rem;
 }
 .select:focus { border-color: var(--cyan); }
 
@@ -356,7 +356,7 @@ h1, h2, h3, h4 {
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--text-3);
-  text-align: left;
+  text-align: start;
   padding: 0.875rem 1.25rem;
   border-bottom: 1px solid var(--border);
   background: var(--bg-3);
@@ -539,7 +539,7 @@ h1, h2, h3, h4 {
 .judge-group-label {
   font-family: var(--font-display); font-size: 9px; font-weight: 700;
   letter-spacing: 0.18em; text-transform: uppercase;
-  margin-right: 0.3rem;
+  margin-inline-end: 0.3rem;
   white-space: nowrap;
 }
 .judge-group.judge-group-a    .judge-group-label { color: #c4b5fd; }
@@ -566,7 +566,7 @@ h1, h2, h3, h4 {
      stop bleeding off the right edge. */
   .container,
   .container-md,
-  .container-sm   { padding-left: 1rem; padding-right: 1rem; }
+  .container-sm   { padding-inline-start: 1rem; padding-inline-end: 1rem; }
 
   /* App shell */
   .app-header-inner { padding: 0.75rem 1rem; gap: 0.75rem; flex-wrap: wrap; }
@@ -619,8 +619,8 @@ h1, h2, h3, h4 {
      Modal max-height is dropped — backdrop handles the scroll
      and the modal flexes to fit its content. */
   .modal-backdrop {
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
+    padding-inline-start: 0.5rem;
+    padding-inline-end: 0.5rem;
     padding-top: max(1rem, env(safe-area-inset-top, 1rem));
     padding-bottom: max(5rem, env(safe-area-inset-bottom, 1rem) + 4rem);
   }
@@ -758,7 +758,7 @@ h1, h2, h3, h4 {
      drop the big radius and outer padding further. */
   .container,
   .container-md,
-  .container-sm  { padding-left: 0.75rem; padding-right: 0.75rem; }
+  .container-sm  { padding-inline-start: 0.75rem; padding-inline-end: 0.75rem; }
 
   .app-main      { padding: 0.875rem 0.75rem; }
   .card          { padding: 1rem; }
@@ -874,7 +874,7 @@ h1, h2, h3, h4 {
   margin-bottom: 0.4rem;
   background: var(--bg-3);
   border: 1px solid var(--border);
-  border-left-width: 4px;
+  border-inline-start-width: 4px;
   border-radius: var(--radius);
   text-decoration: none;
   /* min-width: 0 lets the inner title/meta ellipsis work
@@ -895,11 +895,11 @@ h1, h2, h3, h4 {
   .action-card-meta { display: none; }
 }
 .action-card:hover { transform: translateX(2px); border-color: var(--border-2); }
-.action-card-live    { border-left-color: var(--red);  background: rgba(239,68,68,0.04); }
+.action-card-live    { border-inline-start-color: var(--red);  background: rgba(239,68,68,0.04); }
 .action-card-live:hover    { background: rgba(239,68,68,0.09); border-color: rgba(239,68,68,0.4); }
-.action-card-upcoming{ border-left-color: var(--cyan); }
+.action-card-upcoming{ border-inline-start-color: var(--cyan); }
 .action-card-upcoming:hover{ border-color: rgba(6,182,212,0.4); }
-.action-card-pending { border-left-color: #a78bfa; background: rgba(167,139,250,0.04); }
+.action-card-pending { border-inline-start-color: #a78bfa; background: rgba(167,139,250,0.04); }
 .action-card-pending:hover { border-color: rgba(167,139,250,0.5); background: rgba(167,139,250,0.08); }
 .action-card-icon { font-size: 14px; line-height: 1; flex-shrink: 0; }
 .action-card-title {
@@ -915,11 +915,11 @@ h1, h2, h3, h4 {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   flex: 0 1 auto; min-width: 0;
 }
-.action-card-meta::before { content: '·'; margin-right: 0.5rem; color: var(--text-3); }
+.action-card-meta::before { content: '·'; margin-inline-end: 0.5rem; color: var(--text-3); }
 .action-card-arrow {
   font-family: var(--font-display); font-size: 16px;
   color: var(--text-3);
-  margin-left: auto;
+  margin-inline-start: auto;
   transition: transform 0.15s, color 0.15s;
   flex-shrink: 0;
 }
@@ -933,7 +933,7 @@ h1, h2, h3, h4 {
   margin-bottom: 0.45rem;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 4px solid var(--amber);
+  border-inline-start: 4px solid var(--amber);
   border-radius: var(--radius);
   text-decoration: none;
   min-width: 0;
@@ -944,10 +944,10 @@ h1, h2, h3, h4 {
   border-color: var(--border-2);
 }
 .workflow-card-ready {
-  border-left-color: var(--green);
+  border-inline-start-color: var(--green);
 }
 .workflow-card-live {
-  border-left-color: var(--red);
+  border-inline-start-color: var(--red);
   background: rgba(239,68,68,0.04);
 }
 .workflow-card-main {
@@ -1058,7 +1058,7 @@ h1, h2, h3, h4 {
   padding: 1.4rem 1.5rem;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 4px solid var(--green);
+  border-inline-start: 4px solid var(--green);
   border-radius: var(--radius-lg);
   text-decoration: none;
   position: relative;
@@ -1071,7 +1071,7 @@ h1, h2, h3, h4 {
 }
 .diver-next-meta { font-family: var(--font-mono); font-size: 13px; color: var(--green); }
 .diver-next-arrow {
-  position: absolute; top: 50%; right: 1.4rem;
+  position: absolute; top: 50%; inset-inline-end: 1.4rem;
   transform: translateY(-50%);
   font-size: 22px; color: var(--text-3);
   transition: color 0.15s, transform 0.15s;
@@ -1082,12 +1082,12 @@ h1, h2, h3, h4 {
    red-pulsing + cyan-tinted to call out that the meet is live
    right now and the diver should jump in. */
 .diver-next-card.md-cta {
-  border-left: 3px solid var(--red);
+  border-inline-start: 3px solid var(--red);
   background: linear-gradient(90deg, rgba(239,68,68,0.06), rgba(6,182,212,0.04));
 }
 .diver-next-card.md-cta::before {
   content: '🔴 LIVE';
-  position: absolute; top: 0.7rem; right: 1.4rem;
+  position: absolute; top: 0.7rem; inset-inline-end: 1.4rem;
   font-family: var(--font-display);
   font-size: 9px; font-weight: 900; letter-spacing: 0.18em;
   color: var(--red);
@@ -1196,13 +1196,13 @@ h1, h2, h3, h4 {
   content: attr(data-tip);
   position: absolute;
   bottom: calc(100% + 6px);
-  left: 50%;
+  inset-inline-start: 50%;
   transform: translateX(-50%);
   /* The directive's value can carry literal "\n" between
      lines (e.g. "J3 — Maria Schmidt · GER\nClick to open
      judge analysis"). pre-line preserves them. */
   white-space: pre-line;
-  text-align: left;
+  text-align: start;
   background: var(--bg-2, #0f172a);
   border: 1px solid var(--cyan, #06b6d4);
   border-radius: var(--radius-sm, 4px);

@@ -328,7 +328,7 @@ watch(countryFilter, (val) => {
     <div v-else-if="!events.length" class="meets-empty">No meets yet — check back when one starts.</div>
     <div v-else-if="!filteredEvents.length" class="meets-empty">
       No meets match these filters.
-      <button class="btn btn-ghost btn-sm" style="margin-left:0.5rem" @click="clearFilters">Clear</button>
+      <button class="btn btn-ghost btn-sm" style="margin-inline-start:0.5rem" @click="clearFilters">Clear</button>
     </div>
 
     <!-- Card-mode results, optionally year-grouped. -->
@@ -580,7 +580,7 @@ watch(countryFilter, (val) => {
   cursor: pointer;
   transition: background 0.12s, color 0.12s;
 }
-.sb-view-btn + .sb-view-btn { border-left: 1px solid var(--border); }
+.sb-view-btn + .sb-view-btn { border-inline-start: 1px solid var(--border); }
 .sb-view-btn:hover { color: var(--text); background: var(--bg-3); }
 .sb-view-btn.is-active {
   background: rgba(6,182,212,0.12);
@@ -632,7 +632,7 @@ watch(countryFilter, (val) => {
   background: var(--surface);
   border: 0; border-bottom: 1px solid var(--border);
   cursor: pointer;
-  text-align: left;
+  text-align: start;
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-2);
@@ -659,15 +659,15 @@ watch(countryFilter, (val) => {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .meet-row-ctry {
-  display: inline-block; margin-left: 0.4rem;
+  display: inline-block; margin-inline-start: 0.4rem;
   font-size: 10px; font-weight: 700; letter-spacing: 0.04em;
   color: var(--text-3);
   background: var(--bg-3); border: 1px solid var(--border);
   border-radius: 3px; padding: 0.05rem 0.3rem;
 }
 .meet-row-meta { color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.meet-row-date { color: var(--text-3); text-align: right; white-space: nowrap; }
-.meet-row-arrow { color: var(--text-3); text-align: right; font-family: var(--font-display); }
+.meet-row-date { color: var(--text-3); text-align: end; white-space: nowrap; }
+.meet-row-arrow { color: var(--text-3); text-align: end; font-family: var(--font-display); }
 .meet-row:hover .meet-row-arrow { color: var(--cyan); }
 
 @media (max-width: 720px) {
@@ -683,7 +683,7 @@ watch(countryFilter, (val) => {
   .meet-row-status { grid-area: status; align-self: center; }
   .meet-row-name   { grid-area: name; }
   .meet-row-org    { grid-area: org; }
-  .meet-row-date   { grid-area: date; text-align: right; }
+  .meet-row-date   { grid-area: date; text-align: end; }
   .meet-row-meta   { grid-area: meta; }
   .meet-row-arrow  { display: none; }
 }
@@ -695,7 +695,7 @@ watch(countryFilter, (val) => {
   gap: 0.875rem;
 }
 .meet-card {
-  text-align: left; cursor: pointer;
+  text-align: start; cursor: pointer;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -733,7 +733,7 @@ watch(countryFilter, (val) => {
   letter-spacing: 0.05em; color: var(--text-3);
   background: var(--bg-3); border: 1px solid var(--border);
   border-radius: 3px; padding: 0.1rem 0.35rem;
-  margin-left: 0.4rem; vertical-align: middle;
+  margin-inline-start: 0.4rem; vertical-align: middle;
 }
 .meet-card-tags {
   display: flex; flex-wrap: wrap; gap: 0.3rem;
@@ -752,7 +752,7 @@ watch(countryFilter, (val) => {
   font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3);
   display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: baseline;
 }
-.meet-card-date { margin-left: auto; }
+.meet-card-date { margin-inline-start: auto; }
 .meet-card-meetlink {
   display: inline-flex; align-items: center; gap: 0.3rem;
   align-self: flex-start;

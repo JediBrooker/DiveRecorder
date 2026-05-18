@@ -1505,14 +1505,14 @@ onUnmounted(() => {
     <div v-if="showCreateModal" class="modal-backdrop" @click.self="showCreateModal = false">
     <div class="modal modal-create-event" @click.stop>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap">
-        <h2 style="font-size:22px;font-style:italic">New Event</h2>
+        <h2 style="font-size:22px;font-style:italic">{{ $t('manager.modals.new_event_title') }}</h2>
         <div style="display:flex;gap:0.5rem">
           <button type="button"
                   class="btn btn-ghost btn-sm"
                   @click="saveTemplateOpen = !saveTemplateOpen">
-            {{ saveTemplateOpen ? 'Cancel' : '＋ Save as template' }}
+            {{ saveTemplateOpen ? $t('manager.modals.save_template_cancel') : $t('manager.modals.save_template_btn') }}
           </button>
-          <button type="button" class="btn btn-ghost btn-sm" @click="showCreateModal = false">Cancel ✕</button>
+          <button type="button" class="btn btn-ghost btn-sm" @click="showCreateModal = false">{{ $t('manager.modals.cancel_x') }}</button>
         </div>
       </div>
 
@@ -1914,7 +1914,7 @@ onUnmounted(() => {
         </div>
 
         <div v-if="formErr" class="msg msg-error">{{ formErr }}</div>
-        <button type="submit" class="btn btn-primary-lg" style="margin-top:0.25rem">Create Event</button>
+        <button type="submit" class="btn btn-primary-lg" style="margin-top:0.25rem">{{ $t('manager.modals.new_event_submit') }}</button>
       </form>
     </div>
     </div>

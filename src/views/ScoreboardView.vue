@@ -1037,7 +1037,7 @@ onMounted(async () => {
       </template>
       <template v-else>
         <div class="header-left">
-          <button @click="resetToEventPicker" class="btn btn-ghost btn-sm" style="margin-right:0.5rem">← All Meets</button>
+          <button @click="resetToEventPicker" class="btn btn-ghost btn-sm" style="margin-inline-end:0.5rem">← All Meets</button>
           <div v-if="isCompleted" class="status-badge done-badge">{{ $t('scoreboard.status_completed') }}</div>
           <div v-else class="status-badge live-badge">{{ $t('scoreboard.status_live') }}</div>
           <span class="sb-event-name">{{ currentEvent?.name || (isCompleted ? 'Event Recap' : 'Broadcast Feed') }}</span>

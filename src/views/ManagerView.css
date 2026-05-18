@@ -67,9 +67,9 @@
 .advance-preview-row.cut { color:var(--text-3); opacity:0.6; }
 .advance-rank { text-align:center; }
 .advance-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.advance-total { text-align:right; font-variant-numeric:tabular-nums; }
+.advance-total { text-align: end; font-variant-numeric:tabular-nums; }
 .advance-tag {
-  text-align:right; font-size:10px; text-transform:uppercase;
+  text-align: end; font-size:10px; text-transform:uppercase;
   letter-spacing:0.06em; color:#ffc857;
 }
 .advance-preview-row.cut .advance-tag { color:var(--text-3); }
@@ -87,7 +87,7 @@
 }
 .org-badge-ctry {
   font-family: var(--font-mono); font-size: 9px; font-weight: 700;
-  color: var(--text-3); margin-left: 0.4rem;
+  color: var(--text-3); margin-inline-start: 0.4rem;
 }
 .events-subcount {
   font-family: var(--font-mono); font-size: 12px; font-weight: 400;
@@ -115,7 +115,7 @@
   border-radius: var(--radius-sm);
 }
 .event-template-apply {
-  flex: 1; min-width: 0; text-align: left;
+  flex: 1; min-width: 0; text-align: start;
   background: transparent; border: none; padding: 0; cursor: pointer;
   display: flex; flex-direction: column; gap: 0.1rem;
 }
@@ -149,7 +149,7 @@
   display: flex; align-items: center; gap: 0.5rem;
   width: 100%; padding: 0.5rem 0.75rem;
   background: transparent; border: none; cursor: pointer;
-  text-align: left; font: inherit; color: var(--text);
+  text-align: start; font: inherit; color: var(--text);
 }
 .std-templates-toggle:hover { color: var(--cyan); }
 .std-templates-icon { font-size: 14px; }
@@ -159,7 +159,7 @@
 }
 .std-templates-context {
   font-family: var(--font-mono); font-size: 11px; font-weight: normal;
-  letter-spacing: 0; color: var(--text-3); margin-left: 0.4rem;
+  letter-spacing: 0; color: var(--text-3); margin-inline-start: 0.4rem;
 }
 .std-templates-chevron {
   font-size: 13px; color: var(--text-3);
@@ -174,7 +174,7 @@
   padding: 0.5rem 0.7rem;
   background: var(--bg-3); border: 1px solid var(--border);
   border-radius: var(--radius-sm); cursor: pointer;
-  text-align: left; font: inherit; color: var(--text);
+  text-align: start; font: inherit; color: var(--text);
   width: 100%;
 }
 .std-template:hover { border-color: var(--cyan); background: rgba(0, 224, 255, 0.06); }
@@ -231,7 +231,7 @@
 .dropdown-host { position: relative; }
 .event-overflow-menu {
   position: absolute; z-index: 50;
-  top: calc(100% + 0.4rem); right: 0;
+  top: calc(100% + 0.4rem); inset-inline-end: 0;
   min-width: 200px;
   background: var(--bg-2); border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -245,7 +245,7 @@
   padding: 0.55rem 0.7rem; border-radius: 4px;
   font-family: inherit; font-size: 12px; font-weight: 600;
   letter-spacing: 0.04em; color: var(--text-2);
-  text-align: left; text-decoration: none;
+  text-align: start; text-decoration: none;
   transition: background 0.12s, color 0.12s;
 }
 .event-overflow-menu .dropdown-item:hover {
@@ -332,7 +332,7 @@
   letter-spacing: 0.18em; text-transform: uppercase;
   color: var(--cyan); background: var(--cyan-dim);
   border: 1px solid rgba(6,182,212,0.4); border-radius: 3px;
-  padding: 0.1rem 0.4rem; margin-right: 0.2rem;
+  padding: 0.1rem 0.4rem; margin-inline-end: 0.2rem;
 }
 .event-type-pill.team { color: var(--amber); background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.4); }
 .event-type-pill.prelim {
@@ -365,11 +365,11 @@
 .hint {
   font-size: 11px; color: var(--text-3); line-height: 1.5;
   padding: 0.6rem 0.75rem; margin-top: 0.4rem;
-  background: var(--bg-3); border-left: 3px solid var(--cyan); border-radius: 3px;
+  background: var(--bg-3); border-inline-start: 3px solid var(--cyan); border-radius: 3px;
 }
 .hint-line { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-top: 0.5rem; }
 .hint-warn  {
-  border-left-color: var(--amber);
+  border-inline-start-color: var(--amber);
   background: rgba(245,158,11,0.08);
   color: var(--amber);
 }
@@ -431,7 +431,7 @@
 .meet-row-meta {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-3);
 }
-.meet-live { color: var(--red); font-weight: 700; margin-left: 0.4rem; }
+.meet-live { color: var(--red); font-weight: 700; margin-inline-start: 0.4rem; }
 .meet-row-actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
 
 .roster-modal { max-width: 720px; }
@@ -448,11 +448,11 @@
 .roster-errors {
   margin-top: 0.4rem;
   background: var(--bg-3); border: 1px solid var(--border);
-  border-left: 3px solid var(--amber); border-radius: 3px;
+  border-inline-start: 3px solid var(--amber); border-radius: 3px;
   padding: 0.6rem 0.8rem;
 }
 .roster-error-list {
-  list-style: disc; padding-left: 1.25rem; margin: 0;
+  list-style: disc; padding-inline-start: 1.25rem; margin: 0;
   font-family: var(--font-mono); font-size: 11.5px; color: var(--text-2);
   max-height: 200px; overflow-y: auto;
 }
@@ -475,7 +475,7 @@
   font-family: var(--font-mono); font-size: 10px; font-weight: 700;
   letter-spacing: 0.05em; color: var(--cyan);
   background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.3);
-  border-radius: 3px; padding: 0.1rem 0.4rem; margin-left: 0.5rem;
+  border-radius: 3px; padding: 0.1rem 0.4rem; margin-inline-start: 0.5rem;
 }
 .enrolled-empty { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); padding: 0.4rem 0; font-style: italic; }
 .add-team-row { display: flex; gap: 0.5rem; align-items: center; }
@@ -501,7 +501,7 @@
 .help-popover {
   margin-top: 0.5rem; padding: 0.7rem 0.9rem;
   background: var(--bg-3); border: 1px solid var(--border);
-  border-left: 3px solid var(--amber);
+  border-inline-start: 3px solid var(--amber);
   border-radius: 4px; font-size: 12.5px; line-height: 1.55;
   color: var(--text-2);
 }

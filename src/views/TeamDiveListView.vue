@@ -414,8 +414,8 @@ onMounted(load)
   /* Backdrop padding clears iOS Safari's URL/toolbar so the
      bottom rows of the dive list are reachable. */
   .modal-backdrop {
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
+    padding-inline-start: 0.5rem;
+    padding-inline-end: 0.5rem;
     padding-top: max(1rem, env(safe-area-inset-top, 1rem));
     padding-bottom: max(5rem, env(safe-area-inset-bottom, 1rem) + 4rem);
   }
@@ -427,6 +427,6 @@ onMounted(load)
   cursor: pointer; margin-bottom: 0.4rem;
 }
 .dive-result:hover { border-color: var(--cyan); }
-.dive-result-right { text-align: right; flex-shrink: 0; }
+.dive-result-right { text-align: end; flex-shrink: 0; }
 .dive-h { font-size: 10px; color: var(--text-3); margin-top: 0.15rem; }
 </style>

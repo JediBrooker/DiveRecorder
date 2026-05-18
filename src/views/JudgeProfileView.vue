@@ -895,7 +895,7 @@ watch(() => route.params.id, () => { load() })
   letter-spacing: 0.05em; color: var(--cyan);
   background: var(--cyan-dim); border: 1px solid rgba(6,182,212,0.3);
   border-radius: 3px; padding: 0.1rem 0.35rem;
-  margin-left: 0.4rem; vertical-align: middle;
+  margin-inline-start: 0.4rem; vertical-align: middle;
 }
 .header-actions {
   display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
@@ -996,7 +996,7 @@ watch(() => route.params.id, () => { load() })
   overflow: hidden;
 }
 .bar-fill {
-  position: absolute; top: 0; bottom: 0; left: 0;
+  position: absolute; top: 0; bottom: 0; inset-inline-start: 0;
   background: var(--cyan);
 }
 .signed-fill.high     { background: var(--red, #ef4444); }
@@ -1004,14 +1004,14 @@ watch(() => route.params.id, () => { load() })
 .hist-fill.high       { background: var(--red, #ef4444); }
 .hist-fill.low        { background: var(--cyan, #06b6d4); }
 .hist-fill.neutral    { background: var(--green, #10b981); }
-.bar-value { color: var(--text); font-weight: 700; text-align: right; }
+.bar-value { color: var(--text); font-weight: 700; text-align: end; }
 .bar-meta  { color: var(--text-3); font-size: 11px; }
 
 .pb-table {
   width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 12px;
 }
 .pb-table th {
-  text-align: left; padding: 0.4rem 0.5rem;
+  text-align: start; padding: 0.4rem 0.5rem;
   font-family: var(--font-display); font-size: 9px; font-weight: 700;
   letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-3);
   border-bottom: 1px solid var(--border);
@@ -1159,8 +1159,8 @@ watch(() => route.params.id, () => { load() })
      and the home indicator. Without this the bottom of a
      long form is physically unreachable. */
   .modal-backdrop {
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
+    padding-inline-start: 0.5rem;
+    padding-inline-end: 0.5rem;
     padding-top: max(1rem, env(safe-area-inset-top, 1rem));
     padding-bottom: max(5rem, env(safe-area-inset-bottom, 1rem) + 4rem);
   }
@@ -1203,7 +1203,7 @@ watch(() => route.params.id, () => { load() })
     row-gap: 0.25rem;
   }
   .bar-row .bar-label { grid-area: label; }
-  .bar-row .bar-value { grid-area: value; text-align: right; }
+  .bar-row .bar-value { grid-area: value; text-align: end; }
   .bar-row .bar-track { grid-area: track; }
   .bar-row .bar-meta  { grid-area: meta; }
 

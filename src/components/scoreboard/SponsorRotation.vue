@@ -196,7 +196,7 @@ watch(() => props.meetId, load)
    so the logo reads against any pool-deck colour. */
 .sponsor-rot-corner {
   position: fixed;
-  right: 1rem;
+  inset-inline-end: 1rem;
   bottom: 1rem;
   z-index: 20;
   width: clamp(140px, 16vw, 220px);
@@ -219,7 +219,7 @@ watch(() => props.meetId, load)
    cleanly. */
 .sponsor-rot-overlay {
   position: fixed;
-  right: 1.5rem;
+  inset-inline-end: 1.5rem;
   bottom: 1.5rem;
   z-index: 20;
   width: clamp(160px, 18vw, 260px);
@@ -252,14 +252,14 @@ watch(() => props.meetId, load)
   /* Smaller corner tile on phones so it doesn't crowd the
      active-diver block. */
   .sponsor-rot-corner {
-    right: 0.5rem;
+    inset-inline-end: 0.5rem;
     bottom: 0.5rem;
     width: clamp(96px, 30vw, 140px);
     height: clamp(40px, 12vw, 64px);
     padding: 0.3rem 0.4rem;
   }
   .sponsor-rot-overlay {
-    right: 0.75rem;
+    inset-inline-end: 0.75rem;
     bottom: 0.75rem;
     width: clamp(120px, 35vw, 180px);
     height: clamp(48px, 14vw, 80px);

@@ -260,7 +260,7 @@ defineExpose({
              dropped because of the per-Federation cap. -->
         <div v-if="h2hPreview.capped_orgs && h2hPreview.capped_orgs.length"
              class="hint" style="margin-top:0.75rem;padding:0.5rem 0.75rem;
-                                 border-left:3px solid var(--cyan);
+                                 border-inline-start:3px solid var(--cyan);
                                  background:rgba(6,182,212,0.08)">
           Per-Federation cap dropped:
           <span v-for="(c, i) in h2hPreview.capped_orgs" :key="c.org_id">
@@ -425,7 +425,7 @@ defineExpose({
             {{ r.full_name }}
             <span v-if="r.country_code" class="hint">· {{ r.country_code }}</span>
           </span>
-          <span class="hint" style="text-align:right">
+          <span class="hint" style="text-align: end">
             {{ r.source === 'final' ? 'Final' : r.source === 'h2h+semi' ? 'H2H + SF' : 'H2H only' }}
           </span>
           <span class="advance-total">{{ Number(r.total).toFixed(2) }}</span>
@@ -459,7 +459,7 @@ defineExpose({
     grid-template-columns: 36px 1fr;
     row-gap: 0.1rem;
   }
-  .sf-pair-row > :nth-child(3) { grid-column: 1 / -1; text-align: left; }
+  .sf-pair-row > :nth-child(3) { grid-column: 1 / -1; text-align: start; }
 
   .sf-pair-result-row {
     grid-template-columns: 36px 1fr auto;

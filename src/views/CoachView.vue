@@ -625,7 +625,7 @@ const hasMultipleMeets = computed(() => groupedByMeet.value.length > 1)
 }
 .up-next-round { color: var(--cyan); font-weight: 700; }
 .up-next-code  { color: var(--text); font-weight: 700; }
-.up-next-dd    { color: var(--cyan); margin-left: auto; font-size: 10px; }
+.up-next-dd    { color: var(--cyan); margin-inline-start: auto; font-size: 10px; }
 
 /* ─── Meet section heading (only when >1 meet) ────────────────── */
 .meet-section-head {
@@ -720,7 +720,7 @@ const hasMultipleMeets = computed(() => groupedByMeet.value.length > 1)
   font-family: var(--font-mono); font-size: 9px; font-weight: 700;
   color: var(--cyan); background: var(--cyan-dim);
   border: 1px solid rgba(6,182,212,0.3); border-radius: 3px;
-  padding: 0.05rem 0.3rem; margin-left: 0.4rem;
+  padding: 0.05rem 0.3rem; margin-inline-start: 0.4rem;
 }
 .diver-card-event {
   display: flex; align-items: baseline; gap: 0.4rem;
@@ -753,7 +753,7 @@ const hasMultipleMeets = computed(() => groupedByMeet.value.length > 1)
   font-weight: 700;
 }
 .next-code { font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--text); }
-.next-dd   { font-family: var(--font-mono); font-size: 11px; color: var(--cyan); margin-left: auto; }
+.next-dd   { font-family: var(--font-mono); font-size: 11px; color: var(--cyan); margin-inline-start: auto; }
 
 .diver-card-desc {
   font-family: var(--font-mono); font-size: 10.5px; color: var(--text-3);
@@ -773,7 +773,7 @@ const hasMultipleMeets = computed(() => groupedByMeet.value.length > 1)
 }
 .last-round { color: var(--text-2); font-weight: 700; }
 .last-code  { color: var(--text); font-weight: 700; }
-.last-points { color: #22c55e; font-weight: 700; margin-left: auto; }
+.last-points { color: #22c55e; font-weight: 700; margin-inline-start: auto; }
 
 .diver-card-note { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); font-style: italic; }
 .diver-card-foot {
