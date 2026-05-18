@@ -1,0 +1,53 @@
+{
+  "errors": {
+    "unauthorized": "Vous n'êtes pas connecté",
+    "forbidden": "Vous n'avez pas l'autorisation d'effectuer cette action",
+    "not_found": "Introuvable",
+    "rate_limited": "Trop de requêtes — veuillez ralentir et réessayer",
+    "validation_failed": "Échec de la validation de la requête",
+    "server_error": "Erreur serveur — veuillez réessayer"
+  },
+  "emails": {
+    "password_reset": {
+      "subject": "{app_name} — réinitialisation du mot de passe",
+      "greeting": "Bonjour {name},",
+      "body": "Quelqu'un (nous espérons que c'était vous) a demandé la réinitialisation de votre mot de passe {app_name}. Cliquez sur le lien ci-dessous pour en choisir un nouveau. Le lien est valable 30 minutes et ne peut être utilisé qu'une seule fois.",
+      "cta": "Réinitialiser le mot de passe",
+      "footer": "Si vous n'avez pas fait cette demande, ignorez ce message en toute sécurité — aucune modification n'a été effectuée."
+    },
+    "email_verify": {
+      "subject": "{app_name} — confirmez votre adresse e-mail",
+      "greeting": "Bienvenue sur {app_name}, {name} !",
+      "body": "Cliquez sur le lien ci-dessous pour confirmer votre adresse e-mail. Le lien est valable 24 heures.",
+      "cta": "Confirmer l'adresse",
+      "footer": "Si vous ne vous êtes pas inscrit sur {app_name}, vous pouvez ignorer ce message."
+    },
+    "email_change": {
+      "subject": "{app_name} — confirmez votre nouvelle adresse",
+      "greeting": "Bonjour {name},",
+      "body": "Vous avez demandé à remplacer votre adresse e-mail {app_name} par celle-ci. Cliquez sur le lien ci-dessous pour confirmer. Le lien est valable 30 minutes et ne peut être utilisé qu'une seule fois.",
+      "cta": "Confirmer la nouvelle adresse",
+      "footer": "Si vous n'avez pas demandé ce changement, ignorez ce message — votre compte n'a pas été modifié."
+    }
+  },
+  "pdf": {
+    "program": {
+      "col_event": "Épreuve",
+      "col_height": "Hauteur",
+      "col_rounds": "Tours",
+      "col_judges": "Juges",
+      "col_scheduled": "Programmé",
+      "col_competitor": "Compétiteur",
+      "col_round": "Tour",
+      "col_dive_code": "Code",
+      "col_position": "Position",
+      "col_dd": "CD",
+      "col_description": "Description",
+      "header_program": "Programme du meeting",
+      "header_dive_lists": "Listes de plongeons",
+      "header_judge_panel": "Panel de juges",
+      "header_event_schedule": "Programme des épreuves",
+      "header_reserves": "Réservistes"
+    }
+  }
+}

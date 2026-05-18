@@ -1,0 +1,53 @@
+{
+  "errors": {
+    "unauthorized": "Du bist nicht angemeldet",
+    "forbidden": "Du hast keine Berechtigung für diese Aktion",
+    "not_found": "Nicht gefunden",
+    "rate_limited": "Zu viele Anfragen — bitte langsamer und erneut versuchen",
+    "validation_failed": "Validierung der Anfrage fehlgeschlagen",
+    "server_error": "Serverfehler — bitte erneut versuchen"
+  },
+  "emails": {
+    "password_reset": {
+      "subject": "{app_name} — Passwort zurücksetzen",
+      "greeting": "Hallo {name},",
+      "body": "Jemand (hoffentlich du) hat das Zurücksetzen deines {app_name}-Passworts angefordert. Klicke auf den Link unten, um ein neues festzulegen. Der Link ist 30 Minuten lang gültig und kann nur einmal verwendet werden.",
+      "cta": "Passwort zurücksetzen",
+      "footer": "Wenn du das nicht angefordert hast, kannst du diese E-Mail bedenkenlos ignorieren — es wurde nichts geändert."
+    },
+    "email_verify": {
+      "subject": "{app_name} — bestätige deine E-Mail-Adresse",
+      "greeting": "Willkommen bei {app_name}, {name}!",
+      "body": "Klicke auf den Link unten, um deine E-Mail-Adresse zu bestätigen. Der Link ist 24 Stunden lang gültig.",
+      "cta": "E-Mail bestätigen",
+      "footer": "Wenn du dich nicht bei {app_name} registriert hast, kannst du diese E-Mail ignorieren."
+    },
+    "email_change": {
+      "subject": "{app_name} — bestätige deine neue E-Mail-Adresse",
+      "greeting": "Hallo {name},",
+      "body": "Du hast angefordert, deine {app_name}-E-Mail-Adresse auf diese hier zu ändern. Klicke auf den Link unten, um sie zu bestätigen. Der Link ist 30 Minuten lang gültig und kann nur einmal verwendet werden.",
+      "cta": "Neue E-Mail bestätigen",
+      "footer": "Wenn du diese Änderung nicht vorgenommen hast, kannst du diese E-Mail bedenkenlos ignorieren — dein Konto bleibt unverändert."
+    }
+  },
+  "pdf": {
+    "program": {
+      "col_event": "Wettkampf",
+      "col_height": "Höhe",
+      "col_rounds": "Runden",
+      "col_judges": "Kampfrichter",
+      "col_scheduled": "Geplant",
+      "col_competitor": "Springer",
+      "col_round": "Runde",
+      "col_dive_code": "Sprungnr.",
+      "col_position": "Position",
+      "col_dd": "SG",
+      "col_description": "Beschreibung",
+      "header_program": "Meet-Programm",
+      "header_dive_lists": "Sprunglisten",
+      "header_judge_panel": "Kampfgericht",
+      "header_event_schedule": "Wettkampfprogramm",
+      "header_reserves": "Reservespringer"
+    }
+  }
+}

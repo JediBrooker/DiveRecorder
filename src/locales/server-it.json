@@ -1,0 +1,53 @@
+{
+  "errors": {
+    "unauthorized": "Non hai effettuato l'accesso",
+    "forbidden": "Non hai i permessi per questa azione",
+    "not_found": "Non trovato",
+    "rate_limited": "Troppe richieste — rallenta e riprova",
+    "validation_failed": "Convalida della richiesta fallita",
+    "server_error": "Errore del server — riprova"
+  },
+  "emails": {
+    "password_reset": {
+      "subject": "{app_name} — reimposta la password",
+      "greeting": "Ciao {name},",
+      "body": "Qualcuno (speriamo tu) ha chiesto di reimpostare la tua password di {app_name}. Fai clic sul link qui sotto per sceglierne una nuova. Il link è valido per 30 minuti e può essere usato una sola volta.",
+      "cta": "Reimposta password",
+      "footer": "Se non hai fatto questa richiesta, puoi ignorare questa email senza problemi — non è stata effettuata alcuna modifica."
+    },
+    "email_verify": {
+      "subject": "{app_name} — conferma il tuo indirizzo email",
+      "greeting": "Benvenuto su {app_name}, {name}!",
+      "body": "Fai clic sul link qui sotto per confermare il tuo indirizzo email. Il link è valido per 24 ore.",
+      "cta": "Conferma email",
+      "footer": "Se non ti sei registrato su {app_name}, puoi ignorare questo messaggio."
+    },
+    "email_change": {
+      "subject": "{app_name} — conferma il tuo nuovo indirizzo email",
+      "greeting": "Ciao {name},",
+      "body": "Hai chiesto di cambiare il tuo indirizzo email di {app_name} con questo. Fai clic sul link qui sotto per confermare. Il link è valido per 30 minuti e può essere usato una sola volta.",
+      "cta": "Conferma nuovo indirizzo",
+      "footer": "Se non hai fatto questa modifica, puoi ignorare l'email senza problemi — il tuo account non è cambiato."
+    }
+  },
+  "pdf": {
+    "program": {
+      "col_event": "Gara",
+      "col_height": "Altezza",
+      "col_rounds": "Turni",
+      "col_judges": "Giudici",
+      "col_scheduled": "In programma",
+      "col_competitor": "Concorrente",
+      "col_round": "Turno",
+      "col_dive_code": "Codice",
+      "col_position": "Posizione",
+      "col_dd": "CD",
+      "col_description": "Descrizione",
+      "header_program": "Programma di gara",
+      "header_dive_lists": "Liste tuffi",
+      "header_judge_panel": "Giuria",
+      "header_event_schedule": "Programma delle gare",
+      "header_reserves": "Riserve"
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "errors": {
+    "unauthorized": "Você não está autenticado",
+    "forbidden": "Você não tem permissão para esta ação",
+    "not_found": "Não encontrado",
+    "rate_limited": "Muitas solicitações — reduza o ritmo e tente novamente",
+    "validation_failed": "Falha na validação da solicitação",
+    "server_error": "Erro do servidor — tente novamente"
+  },
+  "emails": {
+    "password_reset": {
+      "subject": "{app_name} — redefinir senha",
+      "greeting": "Olá {name},",
+      "body": "Alguém (esperamos que tenha sido você) pediu para redefinir sua senha do {app_name}. Clique no link abaixo para escolher uma nova. O link é válido por 30 minutos e só pode ser usado uma vez.",
+      "cta": "Redefinir senha",
+      "footer": "Se você não solicitou isso, pode ignorar este e-mail com segurança — nada foi alterado."
+    },
+    "email_verify": {
+      "subject": "{app_name} — confirme o seu e-mail",
+      "greeting": "Bem-vindo ao {app_name}, {name}!",
+      "body": "Clique no link abaixo para confirmar o seu endereço de e-mail. O link é válido por 24 horas.",
+      "cta": "Confirmar e-mail",
+      "footer": "Se você não se cadastrou no {app_name}, pode ignorar este e-mail."
+    },
+    "email_change": {
+      "subject": "{app_name} — confirme o seu novo e-mail",
+      "greeting": "Olá {name},",
+      "body": "Você pediu para alterar o seu e-mail do {app_name} para este endereço. Clique no link abaixo para confirmar. O link é válido por 30 minutos e só pode ser usado uma vez.",
+      "cta": "Confirmar novo e-mail",
+      "footer": "Se você não fez essa alteração, pode ignorar este e-mail com segurança — sua conta permanece inalterada."
+    }
+  },
+  "pdf": {
+    "program": {
+      "col_event": "Prova",
+      "col_height": "Altura",
+      "col_rounds": "Séries",
+      "col_judges": "Árbitros",
+      "col_scheduled": "Agendado",
+      "col_competitor": "Competidor",
+      "col_round": "Série",
+      "col_dive_code": "Código",
+      "col_position": "Posição",
+      "col_dd": "GD",
+      "col_description": "Descrição",
+      "header_program": "Programa do meeting",
+      "header_dive_lists": "Listas de saltos",
+      "header_judge_panel": "Mesa de árbitros",
+      "header_event_schedule": "Programação das provas",
+      "header_reserves": "Reservas"
+    }
+  }
+}

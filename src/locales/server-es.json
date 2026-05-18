@@ -1,0 +1,53 @@
+{
+  "errors": {
+    "unauthorized": "No has iniciado sesión",
+    "forbidden": "No tienes permiso para realizar esta acción",
+    "not_found": "No encontrado",
+    "rate_limited": "Demasiadas solicitudes; ralentiza el ritmo e inténtalo de nuevo",
+    "validation_failed": "La validación de la solicitud ha fallado",
+    "server_error": "Error del servidor; por favor inténtalo de nuevo"
+  },
+  "emails": {
+    "password_reset": {
+      "subject": "{app_name} — restablecer contraseña",
+      "greeting": "Hola {name}:",
+      "body": "Alguien (esperamos que fueras tú) ha solicitado restablecer tu contraseña de {app_name}. Haz clic en el enlace de abajo para elegir una nueva. El enlace caduca en 30 minutos y solo puede usarse una vez.",
+      "cta": "Restablecer contraseña",
+      "footer": "Si no has solicitado esto, puedes ignorar este correo sin problema — no se ha realizado ningún cambio."
+    },
+    "email_verify": {
+      "subject": "{app_name} — confirma tu correo",
+      "greeting": "¡Bienvenido a {app_name}, {name}!",
+      "body": "Haz clic en el enlace de abajo para confirmar tu dirección de correo. El enlace es válido durante 24 horas.",
+      "cta": "Confirmar correo",
+      "footer": "Si no te registraste en {app_name}, puedes ignorar este mensaje."
+    },
+    "email_change": {
+      "subject": "{app_name} — confirma tu nuevo correo",
+      "greeting": "Hola {name}:",
+      "body": "Has solicitado cambiar tu correo de {app_name} a esta dirección. Haz clic en el enlace de abajo para confirmarlo. El enlace caduca en 30 minutos y solo puede usarse una vez.",
+      "cta": "Confirmar nuevo correo",
+      "footer": "Si no realizaste este cambio, puedes ignorar este correo — tu cuenta queda como estaba."
+    }
+  },
+  "pdf": {
+    "program": {
+      "col_event": "Prueba",
+      "col_height": "Altura",
+      "col_rounds": "Rondas",
+      "col_judges": "Jueces",
+      "col_scheduled": "Programado",
+      "col_competitor": "Competidor",
+      "col_round": "Ronda",
+      "col_dive_code": "Código",
+      "col_position": "Posición",
+      "col_dd": "GD",
+      "col_description": "Descripción",
+      "header_program": "Programa de la competición",
+      "header_dive_lists": "Listas de saltos",
+      "header_judge_panel": "Panel de jueces",
+      "header_event_schedule": "Programa de pruebas",
+      "header_reserves": "Reservas"
+    }
+  }
+}
