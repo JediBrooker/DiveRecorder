@@ -3399,72 +3399,81 @@ onUnmounted(() => {
          @mousedown.self="preFlightOpen = false">
       <div class="preflight-modal" role="dialog" aria-modal="true" aria-labelledby="preflight-title">
         <div class="preflight-head">
-          <div id="preflight-title" class="preflight-title">Pre-Flight Review</div>
+          <div id="preflight-title" class="preflight-title">{{ $t('control.preflight.title') }}</div>
           <div class="preflight-subtitle">{{ preFlightSummary.eventName }}</div>
         </div>
 
         <div class="preflight-grid">
           <div class="preflight-section">
-            <div class="preflight-label">Event</div>
+            <div class="preflight-label">{{ $t('control.preflight.section_event') }}</div>
             <div class="preflight-row">
               <span class="preflight-pill">{{ preFlightSummary.eventType }}</span>
               <span v-if="preFlightSummary.height" class="preflight-pill">
                 {{ preFlightSummary.height }}
               </span>
               <span v-if="preFlightSummary.ageGroup" class="preflight-pill">{{ preFlightSummary.ageGroup }}</span>
-              <span class="preflight-pill">{{ preFlightSummary.rounds }} rounds</span>
+              <span class="preflight-pill">{{ $t('control.preflight.rounds_suffix', { n: preFlightSummary.rounds }) }}</span>
               <span v-if="preFlightSummary.isRehearsal" class="preflight-pill preflight-pill-rehearsal">
-                Rehearsal
+                {{ $t('control.preflight.rehearsal_tag') }}
               </span>
             </div>
           </div>
 
           <div class="preflight-section">
-            <div class="preflight-label">Roster</div>
+            <div class="preflight-label">{{ $t('control.preflight.section_roster') }}</div>
             <div class="preflight-row preflight-strong">
               <span :class="['preflight-tick', preFlightSummary.diverCount ? 'ok' : 'warn']">
                 {{ preFlightSummary.diverCount ? '✓' : '⚠' }}
               </span>
-              {{ preFlightSummary.diverCount }} diver{{ preFlightSummary.diverCount === 1 ? '' : 's' }} checked in
+              {{ preFlightSummary.diverCount === 1
+                  ? $t('control.preflight.diver_count_one', { n: preFlightSummary.diverCount })
+                  : $t('control.preflight.diver_count_many', { n: preFlightSummary.diverCount }) }}
             </div>
             <ul v-if="preFlightSummary.incompleteDivers.length" class="preflight-detail-list">
               <li v-for="d in preFlightSummary.incompleteDivers" :key="d.id">
-                {{ d.name }} — {{ d.rows }} / {{ preFlightSummary.rounds }} rounds<span v-if="d.missingDive">, {{ d.missingDive }} dive code{{ d.missingDive === 1 ? '' : 's' }} missing</span>
+                <template v-if="d.missingDive">
+                  {{ d.missingDive === 1
+                    ? $t('control.preflight.diver_rows_with_missing_one', { name: d.name, rows: d.rows, total: preFlightSummary.rounds, missing: d.missingDive })
+                    : $t('control.preflight.diver_rows_with_missing_many', { name: d.name, rows: d.rows, total: preFlightSummary.rounds, missing: d.missingDive }) }}
+                </template>
+                <template v-else>
+                  {{ $t('control.preflight.diver_rows', { name: d.name, rows: d.rows, total: preFlightSummary.rounds }) }}
+                </template>
               </li>
               <li v-if="preFlightSummary.incompleteOverflow" class="preflight-overflow">
-                + {{ preFlightSummary.incompleteOverflow }} more
+                {{ $t('control.preflight.incomplete_overflow', { n: preFlightSummary.incompleteOverflow }) }}
               </li>
             </ul>
           </div>
 
           <div class="preflight-section">
-            <div class="preflight-label">Panel</div>
+            <div class="preflight-label">{{ $t('control.preflight.section_panel') }}</div>
             <div class="preflight-row preflight-strong">
               <span :class="['preflight-tick', preFlightSummary.judges.length === preFlightSummary.judgeCount ? 'ok' : 'warn']">
                 {{ preFlightSummary.judges.length === preFlightSummary.judgeCount ? '✓' : '⚠' }}
               </span>
-              {{ preFlightSummary.judges.length }} of {{ preFlightSummary.judgeCount }} judges seated
+              {{ $t('control.preflight.judges_seated', { seated: preFlightSummary.judges.length, total: preFlightSummary.judgeCount }) }}
             </div>
             <div v-if="preFlightSummary.judges.length" class="preflight-judges">
               <span v-for="(j, i) in preFlightSummary.judges" :key="j.id || j.user_id || i" class="preflight-judge-pill">
-                J{{ i + 1 }} {{ (j.full_name || j.name || 'Judge').split(' ').slice(-1)[0] }}
+                {{ $t('control.preflight.judge_label', { n: i + 1, name: (j.full_name || j.name || $t('control.preflight.judge_fallback')).split(' ').slice(-1)[0] }) }}
               </span>
             </div>
           </div>
 
           <div class="preflight-section">
-            <div class="preflight-label">Referee</div>
+            <div class="preflight-label">{{ $t('control.preflight.section_referee') }}</div>
             <div class="preflight-row preflight-strong">
               <span :class="['preflight-tick', preFlightSummary.refereeSignedOff ? 'ok' : 'warn']">
                 {{ preFlightSummary.refereeSignedOff ? '✓' : '⚠' }}
               </span>
-              {{ preFlightSummary.refereeSignedOff ? 'Signed off' : 'Not signed off' }}
+              {{ preFlightSummary.refereeSignedOff ? $t('control.preflight.ref_signed_off') : $t('control.preflight.ref_not_signed_off') }}
             </div>
           </div>
         </div>
 
         <div v-if="preFlightSummary.warnings.length" class="preflight-warnings">
-          <div class="preflight-warnings-head">⚠ Worth a second look</div>
+          <div class="preflight-warnings-head">{{ $t('control.preflight.warnings_heading') }}</div>
           <ul>
             <li v-for="(w, i) in preFlightSummary.warnings" :key="i">{{ w }}</li>
           </ul>
@@ -3472,13 +3481,13 @@ onUnmounted(() => {
 
         <div class="preflight-actions">
           <button type="button" class="btn btn-ghost preflight-cancel" @click="preFlightOpen = false">
-            Not yet
+            {{ $t('control.preflight.btn_not_yet') }}
           </button>
           <button type="button" class="btn btn-primary preflight-go"
                   @click="commitStartEvent"
                   :disabled="orderBusy || startBlocked"
                   v-tip="startBlockedReason">
-            {{ orderBusy ? '▶ …' : '▶ Go Live' }}
+            {{ orderBusy ? $t('control.preflight.btn_starting') : $t('control.preflight.btn_go_live') }}
           </button>
         </div>
       </div>
@@ -3489,13 +3498,13 @@ onUnmounted(() => {
       <div class="lb-modal">
         <div class="lb-header">
           <div>
-            <div class="lb-title">Final Results</div>
-            <div class="lb-event">{{ currentEvent?.name || '—' }}</div>
+            <div class="lb-title">{{ $t('control.modals.final_results_title') }}</div>
+            <div class="lb-event">{{ currentEvent?.name || $t('control.modals.fallback_dash') }}</div>
           </div>
-          <button class="btn btn-ghost btn-sm" @click="lbShow = false">Close</button>
+          <button class="btn btn-ghost btn-sm" @click="lbShow = false">{{ $t('control.modals.close') }}</button>
         </div>
         <div class="lb-body">
-          <p v-if="!lbRows.length" style="color:var(--text-3);text-align:center;padding:2rem;font-size:13px">No scores recorded for this event.</p>
+          <p v-if="!lbRows.length" style="color:var(--text-3);text-align:center;padding:2rem;font-size:13px">{{ $t('control.modals.no_scores') }}</p>
           <div
             v-for="(s, i) in lbRows"
             :key="i"
@@ -3519,10 +3528,10 @@ onUnmounted(() => {
       <div class="lb-modal jra-modal">
         <div class="lb-header">
           <div>
-            <div class="lb-title">Judge Ranking Analysis</div>
-            <div class="lb-event">{{ currentEvent?.name || '—' }}</div>
+            <div class="lb-title">{{ $t('control.modals.judge_ranking_title') }}</div>
+            <div class="lb-event">{{ currentEvent?.name || $t('control.modals.fallback_dash') }}</div>
           </div>
-          <button class="btn btn-ghost btn-sm" @click="judgeRankingOpen = false">Close</button>
+          <button class="btn btn-ghost btn-sm" @click="judgeRankingOpen = false">{{ $t('control.modals.close') }}</button>
         </div>
         <div class="lb-body">
           <JudgeRankingTable v-if="currentEvent?.id" :event-id="currentEvent.id" />
@@ -3538,16 +3547,16 @@ onUnmounted(() => {
       <div class="lb-modal broadcast-chooser">
         <div class="lb-header">
           <div>
-            <div class="lb-title">📺 Broadcast</div>
+            <div class="lb-title">{{ $t('control.modals.broadcast_title') }}</div>
             <div class="lb-event">
-              <template v-if="broadcastPickerOpen">Tick the events to project, then Open</template>
-              <template v-else-if="obsInstructionsOpen">Stream the live scoreboard into OBS or another broadcast tool</template>
-              <template v-else-if="daktronicsInstructionsOpen">Send live meet data to a Daktronics venue board</template>
-              <template v-else>Pick what to broadcast and where</template>
+              <template v-if="broadcastPickerOpen">{{ $t('control.modals.broadcast_sub_picker') }}</template>
+              <template v-else-if="obsInstructionsOpen">{{ $t('control.modals.broadcast_sub_obs') }}</template>
+              <template v-else-if="daktronicsInstructionsOpen">{{ $t('control.modals.broadcast_sub_dak') }}</template>
+              <template v-else>{{ $t('control.modals.broadcast_sub_default') }}</template>
             </div>
           </div>
           <button class="btn btn-ghost btn-sm"
-                  @click="broadcastChoiceOpen = false; broadcastPickerOpen = false; obsInstructionsOpen = false; daktronicsInstructionsOpen = false">Close</button>
+                  @click="broadcastChoiceOpen = false; broadcastPickerOpen = false; obsInstructionsOpen = false; daktronicsInstructionsOpen = false">{{ $t('control.modals.close') }}</button>
         </div>
         <!-- Default chooser body. Hidden while either sub-panel
              (multi-event picker, OBS instructions, venue hardware
@@ -3561,11 +3570,9 @@ onUnmounted(() => {
             @click="broadcastChoiceOpen = false; headerMenuOpen = false">
             <div class="broadcast-option-glyph">🖥️</div>
             <div class="broadcast-option-text">
-              <div class="broadcast-option-title">Operator broadcast (this screen)</div>
+              <div class="broadcast-option-title">{{ $t('control.modals.broadcast_option_operator_title') }}</div>
               <div class="broadcast-option-desc">
-                Switch this Control Room into kiosk layout. Same window;
-                hits ✕ to exit. Good when the operator's laptop IS the
-                projector.
+                {{ $t('control.modals.broadcast_option_operator_desc') }}
               </div>
             </div>
           </RouterLink>
@@ -3576,12 +3583,11 @@ onUnmounted(() => {
                   @click="openBroadcastInNewWindow(`/scoreboard/${currentEvent.id}/broadcast`)">
             <div class="broadcast-option-glyph">📡</div>
             <div class="broadcast-option-text">
-              <div class="broadcast-option-title">Audience broadcast — this event</div>
+              <div class="broadcast-option-title">{{ $t('control.modals.broadcast_option_event_title') }}</div>
               <div class="broadcast-option-desc">
-                Opens the spectator view for
-                <strong>{{ currentEvent?.name || 'this event' }}</strong>
-                in a new window. Drag it onto the projector. The
-                operator keeps using the Control Room here.
+                {{ $t('control.modals.broadcast_option_event_desc_prefix') }}
+                <strong>{{ currentEvent?.name || $t('control.modals.broadcast_option_event_fallback') }}</strong>
+                {{ $t('control.modals.broadcast_option_event_desc_suffix') }}
               </div>
             </div>
           </button>
@@ -3597,16 +3603,12 @@ onUnmounted(() => {
             <div class="broadcast-option-glyph">📺</div>
             <div class="broadcast-option-text">
               <div class="broadcast-option-title">
-                Audience broadcast — pick events…
+                {{ $t('control.modals.broadcast_option_pick_title') }}
               </div>
               <div class="broadcast-option-desc">
-                <template v-if="broadcastLiveLoading">Loading Live events…</template>
+                <template v-if="broadcastLiveLoading">{{ $t('control.modals.broadcast_option_pick_loading') }}</template>
                 <template v-else>
-                  One window, every chosen Live event side-by-side in
-                  an auto-grid (1 fills the screen, 2 splits 50/50,
-                  3-4 form a 2×2…). Use this when the venue has one
-                  projector but two pools are running concurrently —
-                  pick which events to project on the next step.
+                  {{ $t('control.modals.broadcast_option_pick_desc') }}
                 </template>
               </div>
               <div v-if="broadcastLiveError" class="broadcast-picker-error">
@@ -3627,13 +3629,10 @@ onUnmounted(() => {
             <div class="broadcast-option-glyph">🎬</div>
             <div class="broadcast-option-text">
               <div class="broadcast-option-title">
-                Stream to OBS / live-streaming app…
+                {{ $t('control.modals.broadcast_option_obs_title') }}
               </div>
               <div class="broadcast-option-desc">
-                Composite the live scoreboard into OBS Studio,
-                Streamlabs, vMix, or any tool that supports a
-                Browser Source. Opens a how-to with the chroma-key
-                overlay URL to paste into your stream.
+                {{ $t('control.modals.broadcast_option_obs_desc') }}
               </div>
             </div>
           </button>
@@ -3648,12 +3647,10 @@ onUnmounted(() => {
             <div class="broadcast-option-glyph">▣</div>
             <div class="broadcast-option-text">
               <div class="broadcast-option-title">
-                Venue hardware — Daktronics bridge…
+                {{ $t('control.modals.broadcast_option_dak_title') }}
               </div>
               <div class="broadcast-option-desc">
-                Feed this event to All Sport Pro / Data Studio / Show
-                Control RTD workflows. Opens setup steps and copyable
-                commands for the venue bridge laptop.
+                {{ $t('control.modals.broadcast_option_dak_desc') }}
               </div>
             </div>
           </button>
@@ -3666,15 +3663,15 @@ onUnmounted(() => {
         <div v-else-if="broadcastPickerOpen" class="lb-body broadcast-picker">
           <div class="broadcast-picker-head">
             <span class="broadcast-picker-count">
-              {{ broadcastSelection.size }} of {{ broadcastLiveEvents.length }} selected
+              {{ $t('control.modals.picker_selected_count', { selected: broadcastSelection.size, total: broadcastLiveEvents.length }) }}
             </span>
             <div class="broadcast-picker-bulk">
               <button class="btn btn-ghost btn-sm" type="button"
                       :disabled="broadcastSelection.size === broadcastLiveEvents.length"
-                      @click="broadcastSelectAll">All</button>
+                      @click="broadcastSelectAll">{{ $t('control.modals.picker_select_all') }}</button>
               <button class="btn btn-ghost btn-sm" type="button"
                       :disabled="broadcastSelection.size === 0"
-                      @click="broadcastSelectNone">None</button>
+                      @click="broadcastSelectNone">{{ $t('control.modals.picker_select_none') }}</button>
             </div>
           </div>
           <ul class="broadcast-picker-list">
@@ -3691,11 +3688,11 @@ onUnmounted(() => {
           </ul>
           <div class="broadcast-picker-actions">
             <button class="btn btn-ghost" type="button"
-                    @click="broadcastPickerOpen = false">← Back</button>
+                    @click="broadcastPickerOpen = false">{{ $t('control.modals.back') }}</button>
             <button class="btn btn-primary" type="button"
                     :disabled="broadcastOpenDisabled"
                     @click="confirmBroadcastPicker">
-              Open broadcast ({{ broadcastSelection.size }})
+              {{ $t('control.modals.picker_open_btn', { n: broadcastSelection.size }) }}
             </button>
           </div>
         </div>
@@ -3708,16 +3705,13 @@ onUnmounted(() => {
              (Streamlabs, vMix, Restream Studio, …). -->
         <div v-else-if="obsInstructionsOpen" class="lb-body obs-instructions">
           <p class="obs-lead">
-            The scoreboard ships with a built-in <strong>chroma-key overlay</strong>
-            view. Paste the URL below into OBS Studio (or any tool that
-            supports a Browser Source) and the active diver, scores, and
-            top-3 will composite straight into your broadcast — no extra
-            install, no plugin.
+            {{ $t('control.modals.obs_lead_html_prefix') }} <strong>{{ $t('control.modals.obs_lead_chroma_key') }}</strong>
+            {{ $t('control.modals.obs_lead_html_suffix') }}
           </p>
 
           <div class="obs-url-block">
-            <label class="obs-url-label">Overlay URL for
-              <strong>{{ currentEvent?.name || 'this event' }}</strong></label>
+            <label class="obs-url-label">{{ $t('control.modals.obs_overlay_url_label_prefix') }}
+              <strong>{{ currentEvent?.name || $t('control.modals.obs_overlay_event_fallback') }}</strong></label>
             <div class="obs-url-row">
               <input class="obs-url-input"
                      type="text"
@@ -3727,15 +3721,13 @@ onUnmounted(() => {
               <button class="btn btn-primary btn-sm obs-url-copy"
                       type="button"
                       @click="copyObsUrl">
-                <template v-if="obsCopyState === 'copied'">✓ Copied</template>
-                <template v-else-if="obsCopyState === 'failed'">Copy failed</template>
-                <template v-else>Copy</template>
+                <template v-if="obsCopyState === 'copied'">{{ $t('control.modals.obs_copied') }}</template>
+                <template v-else-if="obsCopyState === 'failed'">{{ $t('control.modals.obs_copy_failed') }}</template>
+                <template v-else>{{ $t('control.modals.obs_copy') }}</template>
               </button>
             </div>
             <p class="obs-url-hint">
-              Tip: append <code>&amp;bg=ff00ff</code> for magenta chroma
-              if green spill is a problem under your venue lighting.
-              The default is <code>#00ff44</code> (OBS standard green).
+              {{ $t('control.modals.obs_url_hint') }}
             </p>
           </div>
 
@@ -3743,75 +3735,62 @@ onUnmounted(() => {
             <li class="obs-step">
               <span class="obs-step-num">1</span>
               <div class="obs-step-text">
-                <div class="obs-step-title">Open OBS Studio</div>
+                <div class="obs-step-title">{{ $t('control.modals.obs_step1_title') }}</div>
                 <div class="obs-step-desc">
-                  Or any broadcast tool that supports a Browser Source
-                  (Streamlabs Desktop, vMix, Restream Studio, Ecamm Live).
+                  {{ $t('control.modals.obs_step1_desc') }}
                 </div>
               </div>
             </li>
             <li class="obs-step">
               <span class="obs-step-num">2</span>
               <div class="obs-step-text">
-                <div class="obs-step-title">Add a Browser Source</div>
+                <div class="obs-step-title">{{ $t('control.modals.obs_step2_title') }}</div>
                 <div class="obs-step-desc">
-                  In the <strong>Sources</strong> panel click <strong>+ → Browser</strong>,
-                  give it a name like "Scoreboard", and click OK.
+                  {{ $t('control.modals.obs_step2_desc') }}
                 </div>
               </div>
             </li>
             <li class="obs-step">
               <span class="obs-step-num">3</span>
               <div class="obs-step-text">
-                <div class="obs-step-title">Paste the overlay URL</div>
+                <div class="obs-step-title">{{ $t('control.modals.obs_step3_title') }}</div>
                 <div class="obs-step-desc">
-                  Paste the URL above into the <strong>URL</strong> field. Set
-                  <strong>Width</strong> to 1920 and <strong>Height</strong> to 1080.
-                  Leave <em>Refresh browser when scene becomes active</em> ticked.
+                  {{ $t('control.modals.obs_step3_desc') }}
                 </div>
               </div>
             </li>
             <li class="obs-step">
               <span class="obs-step-num">4</span>
               <div class="obs-step-text">
-                <div class="obs-step-title">Add a Chroma Key filter</div>
+                <div class="obs-step-title">{{ $t('control.modals.obs_step4_title') }}</div>
                 <div class="obs-step-desc">
-                  Right-click the Browser Source → <strong>Filters</strong> →
-                  <strong>+ → Chroma Key</strong>. Set
-                  <strong>Key Color Type</strong> to Green (or Custom #00ff44).
-                  The page background drops out and the scoreboard graphics
-                  float on top of your camera feed.
+                  {{ $t('control.modals.obs_step4_desc') }}
                 </div>
               </div>
             </li>
             <li class="obs-step">
               <span class="obs-step-num">5</span>
               <div class="obs-step-text">
-                <div class="obs-step-title">Position &amp; go live</div>
+                <div class="obs-step-title">{{ $t('control.modals.obs_step5_title') }}</div>
                 <div class="obs-step-desc">
-                  Drag the Browser Source to taste — bottom-third for
-                  active-diver lower-thirds, full-frame between dives
-                  for the leaderboard. The overlay re-renders in real
-                  time as the meet progresses.
+                  {{ $t('control.modals.obs_step5_desc') }}
                 </div>
               </div>
             </li>
           </ol>
 
           <div class="obs-help-note">
-            Need a different chroma-key colour? Append
-            <code>&amp;bg=&lt;hex&gt;</code> to the URL (e.g.
-            <code>?overlay=1&amp;bg=0000ff</code> for blue).
+            {{ $t('control.modals.obs_help_note') }}
           </div>
 
           <div class="broadcast-picker-actions">
             <button class="btn btn-ghost" type="button"
-                    @click="obsInstructionsOpen = false">← Back</button>
+                    @click="obsInstructionsOpen = false">{{ $t('control.modals.back') }}</button>
             <a class="btn btn-primary" target="_blank" rel="noopener"
                :href="obsOverlayUrl || '#'"
                :class="{ disabled: !obsOverlayUrl }"
                @click="!obsOverlayUrl && $event.preventDefault()">
-              Preview overlay ↗
+              {{ $t('control.modals.obs_preview_btn') }}
             </a>
           </div>
         </div>
@@ -3823,15 +3802,12 @@ onUnmounted(() => {
              laptop connected to the display network. -->
         <div v-else-if="daktronicsInstructionsOpen" class="lb-body obs-instructions venue-bridge-instructions">
           <p class="obs-lead">
-            Use this when the venue has a Daktronics workflow that accepts
-            RTD / ERTD data. Run the bridge on the laptop connected to the
-            scoreboard network; DivingHQ keeps driving the meet from this
-            Control Room.
+            {{ $t('control.modals.dak_lead') }}
           </p>
 
           <div class="obs-url-block">
-            <label class="obs-url-label">Diagnostic snapshot for
-              <strong>{{ currentEvent?.name || 'this event' }}</strong></label>
+            <label class="obs-url-label">{{ $t('control.modals.dak_snapshot_label_prefix') }}
+              <strong>{{ currentEvent?.name || $t('control.modals.dak_snapshot_event_fallback') }}</strong></label>
             <div class="obs-url-row">
               <input class="obs-url-input"
                      type="text"
@@ -3841,14 +3817,13 @@ onUnmounted(() => {
               <button class="btn btn-primary btn-sm obs-url-copy"
                       type="button"
                       @click="copyDaktronicsText('snapshot', venueStateUrl)">
-                <template v-if="daktronicsCopyState === 'snapshot'">✓ Copied</template>
-                <template v-else-if="daktronicsCopyState === 'failed'">Copy failed</template>
-                <template v-else>Copy</template>
+                <template v-if="daktronicsCopyState === 'snapshot'">{{ $t('control.modals.obs_copied') }}</template>
+                <template v-else-if="daktronicsCopyState === 'failed'">{{ $t('control.modals.obs_copy_failed') }}</template>
+                <template v-else>{{ $t('control.modals.obs_copy') }}</template>
               </button>
             </div>
             <p class="obs-url-hint">
-              Open this URL first to confirm the selected event is publishing
-              venue state before you point a board at it.
+              {{ $t('control.modals.dak_url_hint') }}
             </p>
           </div>
 
@@ -3856,13 +3831,13 @@ onUnmounted(() => {
             <section class="venue-command-block">
               <div class="venue-command-head">
                 <div>
-                  <div class="venue-command-title">1. Test output</div>
-                  <p>Print one RTD frame in Terminal without touching the board.</p>
+                  <div class="venue-command-title">{{ $t('control.modals.dak_block1_title') }}</div>
+                  <p>{{ $t('control.modals.dak_block1_desc') }}</p>
                 </div>
                 <button class="btn btn-ghost btn-sm" type="button"
                         @click="copyDaktronicsText('dry', daktronicsDryRunCommand)">
-                  <template v-if="daktronicsCopyState === 'dry'">✓ Copied</template>
-                  <template v-else>Copy</template>
+                  <template v-if="daktronicsCopyState === 'dry'">{{ $t('control.modals.obs_copied') }}</template>
+                  <template v-else>{{ $t('control.modals.obs_copy') }}</template>
                 </button>
               </div>
               <pre class="venue-command"><code>{{ daktronicsDryRunCommand }}</code></pre>
@@ -3871,13 +3846,13 @@ onUnmounted(() => {
             <section class="venue-command-block">
               <div class="venue-command-head">
                 <div>
-                  <div class="venue-command-title">2. All Sport Pro / ERTD UDP</div>
-                  <p>Default venue-board mode. Change host and data-source to match the Daktronics setup.</p>
+                  <div class="venue-command-title">{{ $t('control.modals.dak_block2_title') }}</div>
+                  <p>{{ $t('control.modals.dak_block2_desc') }}</p>
                 </div>
                 <button class="btn btn-ghost btn-sm" type="button"
                         @click="copyDaktronicsText('udp', daktronicsUdpCommand)">
-                  <template v-if="daktronicsCopyState === 'udp'">✓ Copied</template>
-                  <template v-else>Copy</template>
+                  <template v-if="daktronicsCopyState === 'udp'">{{ $t('control.modals.obs_copied') }}</template>
+                  <template v-else>{{ $t('control.modals.obs_copy') }}</template>
                 </button>
               </div>
               <pre class="venue-command"><code>{{ daktronicsUdpCommand }}</code></pre>
@@ -3886,13 +3861,13 @@ onUnmounted(() => {
             <section class="venue-command-block">
               <div class="venue-command-head">
                 <div>
-                  <div class="venue-command-title">Optional: JSON over TCP</div>
-                  <p>Use only if the venue's Data Studio workflow expects JSON fields.</p>
+                  <div class="venue-command-title">{{ $t('control.modals.dak_block3_title') }}</div>
+                  <p>{{ $t('control.modals.dak_block3_desc') }}</p>
                 </div>
                 <button class="btn btn-ghost btn-sm" type="button"
                         @click="copyDaktronicsText('json', daktronicsJsonCommand)">
-                  <template v-if="daktronicsCopyState === 'json'">✓ Copied</template>
-                  <template v-else>Copy</template>
+                  <template v-if="daktronicsCopyState === 'json'">{{ $t('control.modals.obs_copied') }}</template>
+                  <template v-else>{{ $t('control.modals.obs_copy') }}</template>
                 </button>
               </div>
               <pre class="venue-command"><code>{{ daktronicsJsonCommand }}</code></pre>
@@ -3903,60 +3878,51 @@ onUnmounted(() => {
             <li class="obs-step">
               <span class="obs-step-num">1</span>
               <div class="obs-step-text">
-                <div class="obs-step-title">Prepare the bridge laptop</div>
+                <div class="obs-step-title">{{ $t('control.modals.dak_step1_title') }}</div>
                 <div class="obs-step-desc">
-                  Install the app dependencies once with <strong>npm install</strong>.
-                  Keep this laptop on the same network as the Daktronics ingest.
+                  {{ $t('control.modals.dak_step1_desc') }}
                 </div>
               </div>
             </li>
             <li class="obs-step">
               <span class="obs-step-num">2</span>
               <div class="obs-step-text">
-                <div class="obs-step-title">Run the test command</div>
+                <div class="obs-step-title">{{ $t('control.modals.dak_step2_title') }}</div>
                 <div class="obs-step-desc">
-                  It should print one fixed-width RTD line. If it fails,
-                  check the app URL and that this event exists.
+                  {{ $t('control.modals.dak_step2_desc') }}
                 </div>
               </div>
             </li>
             <li class="obs-step">
               <span class="obs-step-num">3</span>
               <div class="obs-step-text">
-                <div class="obs-step-title">Start the UDP bridge</div>
+                <div class="obs-step-title">{{ $t('control.modals.dak_step3_title') }}</div>
                 <div class="obs-step-desc">
-                  Match <strong>--data-source</strong> to the ERTD source in
-                  All Sport Pro. Source 0 sends to 21000; source 4 sends to
-                  21040.
+                  {{ $t('control.modals.dak_step3_desc') }}
                 </div>
               </div>
             </li>
             <li class="obs-step">
               <span class="obs-step-num">4</span>
               <div class="obs-step-text">
-                <div class="obs-step-title">Leave it running</div>
+                <div class="obs-step-title">{{ $t('control.modals.dak_step4_title') }}</div>
                 <div class="obs-step-desc">
-                  The bridge sends an initial snapshot, listens for every
-                  live score update, and repeats the latest frame once per
-                  second for RTD consumers.
+                  {{ $t('control.modals.dak_step4_desc') }}
                 </div>
               </div>
             </li>
           </ol>
 
           <div class="obs-help-note">
-            Fixed-digit MDP panels still need venue-specific Daktronics
-            configuration. This bridge feeds the RTD / ERTD data source
-            used by All Sport Pro, Data Studio, Show Control, and DMP
-            template workflows.
+            {{ $t('control.modals.dak_help_note') }}
           </div>
 
           <div class="broadcast-picker-actions">
             <button class="btn btn-ghost" type="button"
-                    @click="daktronicsInstructionsOpen = false">← Back</button>
+                    @click="daktronicsInstructionsOpen = false">{{ $t('control.modals.back') }}</button>
             <a class="btn btn-primary" target="_blank" rel="noopener"
                href="https://github.com/JediBrooker/DivingHQ/wiki/Venue-Integration">
-              Open guide ↗
+              {{ $t('control.modals.dak_open_guide') }}
             </a>
           </div>
         </div>
@@ -3988,11 +3954,11 @@ onUnmounted(() => {
       <div class="lb-modal sponsor-branding-modal">
         <div class="lb-header">
           <div>
-            <div class="lb-title">🎨 Sponsor branding</div>
+            <div class="lb-title">{{ $t('control.modals.sponsor_branding_title') }}</div>
             <div class="lb-event">{{ currentEvent.name }}</div>
           </div>
           <button class="btn btn-ghost btn-sm"
-                  @click="sponsorBrandingOpen = false">Close</button>
+                  @click="sponsorBrandingOpen = false">{{ $t('control.modals.close') }}</button>
         </div>
         <div class="lb-body sponsor-branding-body">
           <SponsorLogosManager :meet-id="currentEvent.meet_id" />

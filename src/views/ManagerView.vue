@@ -1924,10 +1924,10 @@ onUnmounted(() => {
          "create new meet" form moved into the New Meet modal,
          triggered from the toolbar at the top. -->
     <div class="card">
-      <h2 style="font-size:20px;font-style:italic;margin:0 0 0.75rem">Meets</h2>
+      <h2 style="font-size:20px;font-style:italic;margin:0 0 0.75rem">{{ $t('manager.modals.meets_section_title') }}</h2>
       <div class="meet-list">
         <div v-if="!meets.length" class="hint">
-          No meets yet. Click <strong>+ New Meet</strong> at the top to bundle events into a meet.
+          {{ $t('manager.modals.meets_empty_prefix') }} <strong>{{ $t('manager.modals.meets_empty_action') }}</strong> {{ $t('manager.modals.meets_empty_suffix') }}
         </div>
         <div v-for="m in meets" :key="m.id" class="meet-row">
           <div class="meet-row-id">
@@ -1944,9 +1944,9 @@ onUnmounted(() => {
               {{ $t('scheduler.manager_link') }}
             </RouterLink>
             <button class="btn btn-ghost btn-sm"
-                    v-tip="'Edit name, dates, sponsor branding…'"
-                    @click="openEditMeet(m)">Edit</button>
-            <button class="btn btn-ghost btn-sm" @click="deleteMeet(m)">Delete</button>
+                    v-tip="$t('manager.modals.edit_meet_tip')"
+                    @click="openEditMeet(m)">{{ $t('manager.modals.edit_label') }}</button>
+            <button class="btn btn-ghost btn-sm" @click="deleteMeet(m)">{{ $t('manager.modals.delete_label') }}</button>
           </div>
         </div>
       </div>
@@ -2222,8 +2222,8 @@ onUnmounted(() => {
   <div v-if="showEditModal" class="modal-backdrop">
     <div class="modal">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem">
-        <h2 style="font-size:22px;font-style:italic">Edit Event</h2>
-        <button class="btn btn-ghost btn-sm" @click="showEditModal = false">Cancel</button>
+        <h2 style="font-size:22px;font-style:italic">{{ $t('manager.modals.edit_event_title') }}</h2>
+        <button class="btn btn-ghost btn-sm" @click="showEditModal = false">{{ $t('manager.modals.cancel') }}</button>
       </div>
       <form @submit.prevent="saveEdit" class="form-stack">
         <div class="field">
@@ -2427,7 +2427,7 @@ onUnmounted(() => {
           </p>
         </div>
         <div v-if="editErr" class="msg msg-error">{{ editErr }}</div>
-        <button type="submit" class="btn btn-primary-lg">Save Changes</button>
+        <button type="submit" class="btn btn-primary-lg">{{ $t('manager.modals.edit_event_submit') }}</button>
       </form>
     </div>
   </div>
@@ -2441,8 +2441,8 @@ onUnmounted(() => {
        @click.self="closeCreateDiveModal" style="z-index:1100">
     <div class="modal modal-create-dive" @click.stop style="max-width:480px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
-      <h2 style="font-size:20px;font-style:italic">Add a new dive</h2>
-      <button class="btn btn-ghost btn-sm" @click="closeCreateDiveModal">Cancel ✕</button>
+      <h2 style="font-size:20px;font-style:italic">{{ $t('manager.modals.create_dive_title') }}</h2>
+      <button class="btn btn-ghost btn-sm" @click="closeCreateDiveModal">{{ $t('manager.modals.cancel_x') }}</button>
     </div>
     <p class="hint" style="margin-bottom:1rem">
       The dive will be added to your federation's custom directory and
@@ -2490,7 +2490,7 @@ onUnmounted(() => {
       </div>
       <div v-if="newDiveErr" class="msg msg-error">{{ newDiveErr }}</div>
       <button type="submit" class="btn btn-primary" :disabled="newDiveBusy">
-        {{ newDiveBusy ? 'Saving…' : 'Add dive + use it for this round' }}
+        {{ newDiveBusy ? $t('manager.modals.saving') : $t('manager.modals.create_dive_submit') }}
       </button>
     </form>
     </div>
@@ -2503,8 +2503,8 @@ onUnmounted(() => {
        @click.self="showCreateMeetModal = false">
     <div class="modal modal-create-meet" @click.stop style="max-width:480px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
-        <h2 style="font-size:20px;font-style:italic">New Meet</h2>
-        <button class="btn btn-ghost btn-sm" @click="showCreateMeetModal = false">Cancel ✕</button>
+        <h2 style="font-size:20px;font-style:italic">{{ $t('manager.modals.new_meet_title') }}</h2>
+        <button class="btn btn-ghost btn-sm" @click="showCreateMeetModal = false">{{ $t('manager.modals.cancel_x') }}</button>
       </div>
       <p class="hint" style="margin-bottom:1rem">
         A meet bundles one or more events under a single name —
@@ -2531,7 +2531,7 @@ onUnmounted(() => {
           </div>
         </div>
         <div v-if="meetFormErr" class="msg msg-error">{{ meetFormErr }}</div>
-        <button type="submit" class="btn btn-primary">Create Meet</button>
+        <button type="submit" class="btn btn-primary">{{ $t('manager.modals.new_meet_submit') }}</button>
       </form>
     </div>
   </div>
@@ -2544,8 +2544,8 @@ onUnmounted(() => {
        @click.self="showEditMeetModal = false">
     <div class="modal modal-edit-meet" @click.stop style="max-width:640px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-        <h2 style="font-size:20px;font-style:italic">Edit Meet</h2>
-        <button class="btn btn-ghost btn-sm" @click="showEditMeetModal = false">Cancel ✕</button>
+        <h2 style="font-size:20px;font-style:italic">{{ $t('manager.modals.edit_meet_title') }}</h2>
+        <button class="btn btn-ghost btn-sm" @click="showEditMeetModal = false">{{ $t('manager.modals.cancel_x') }}</button>
       </div>
       <form @submit.prevent="saveMeet" class="form-stack">
         <div class="field">
@@ -2595,9 +2595,9 @@ onUnmounted(() => {
 
         <div v-if="editMeetErr" class="msg msg-error">{{ editMeetErr }}</div>
         <div style="display:flex;justify-content:flex-end;gap:0.5rem">
-          <button type="button" class="btn btn-ghost" @click="showEditMeetModal = false">Cancel</button>
+          <button type="button" class="btn btn-ghost" @click="showEditMeetModal = false">{{ $t('manager.modals.cancel') }}</button>
           <button type="submit" class="btn btn-primary" :disabled="editMeetSaving">
-            {{ editMeetSaving ? 'Saving…' : 'Save Meet' }}
+            {{ editMeetSaving ? $t('manager.modals.saving') : $t('manager.modals.edit_meet_submit') }}
           </button>
         </div>
       </form>
@@ -2612,8 +2612,8 @@ onUnmounted(() => {
        @click.self="closeAdvanceModal">
     <div class="modal modal-advance" @click.stop style="max-width:640px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
-        <h2 style="font-size:22px;font-style:italic">Advance to next stage</h2>
-        <button class="btn btn-ghost btn-sm" @click="closeAdvanceModal">Cancel ✕</button>
+        <h2 style="font-size:22px;font-style:italic">{{ $t('manager.modals.advance_title') }}</h2>
+        <button class="btn btn-ghost btn-sm" @click="closeAdvanceModal">{{ $t('manager.modals.cancel_x') }}</button>
       </div>
 
       <p class="hint" style="margin-bottom:1rem" v-if="advanceParent">
@@ -2683,10 +2683,10 @@ onUnmounted(() => {
         </div>
 
         <div style="display:flex;gap:0.5rem;margin-top:1.25rem">
-          <button type="button" class="btn btn-ghost" @click="closeAdvanceModal">Cancel</button>
+          <button type="button" class="btn btn-ghost" @click="closeAdvanceModal">{{ $t('manager.modals.cancel') }}</button>
           <button type="button" class="btn btn-primary" :disabled="advanceLoading"
                   @click="confirmAdvance">
-            {{ advanceLoading ? 'Advancing…' : 'Advance' }}
+            {{ advanceLoading ? $t('manager.modals.advance_loading') : $t('manager.modals.advance_submit') }}
           </button>
         </div>
       </div>
@@ -2703,9 +2703,9 @@ onUnmounted(() => {
   <div v-if="teamsModalOpen" class="modal teams-modal" @click.stop>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem">
       <h2 style="font-size:20px;font-style:italic">
-        Teams in <span style="color:var(--cyan)">{{ teamsModalEvent?.name }}</span>
+        {{ $t('manager.modals.teams_modal_in_event_prefix') }} <span style="color:var(--cyan)">{{ teamsModalEvent?.name }}</span>
       </h2>
-      <button class="btn btn-ghost btn-sm" @click="closeTeamsModal">Close ✕</button>
+      <button class="btn btn-ghost btn-sm" @click="closeTeamsModal">{{ $t('manager.modals.close_x') }}</button>
     </div>
 
     <div class="teams-section-label">Currently enrolled ({{ teamsInEvent.length }})</div>
@@ -2750,7 +2750,7 @@ onUnmounted(() => {
           {{ partOrgsModalEvent?.name }}
         </h2>
       </div>
-      <button class="btn btn-ghost btn-sm" @click="closePartOrgsModal">Close ✕</button>
+      <button class="btn btn-ghost btn-sm" @click="closePartOrgsModal">{{ $t('manager.modals.close_x') }}</button>
     </div>
     <p class="hint" style="margin-bottom:1rem;line-height:1.5">
       Listing a federation here lets its divers self-enter this event without a shadow account. Their results count toward <strong>their home federation's</strong> records, not yours. The host federation ({{ partOrgsModalEvent?.org_name || 'this org' }}) is implicit — don't add it.
@@ -2793,10 +2793,10 @@ onUnmounted(() => {
   <div v-if="rosterModalOpen" class="modal roster-modal" @click.stop>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
       <div>
-        <div class="teams-section-label">Import Roster</div>
+        <div class="teams-section-label">{{ $t('manager.modals.roster_import_section_label') }}</div>
         <h2 style="font-size:20px;font-style:italic;line-height:1">{{ rosterModalEvent?.name }}</h2>
       </div>
-      <button class="btn btn-ghost btn-sm" @click="closeRosterImport">Close</button>
+      <button class="btn btn-ghost btn-sm" @click="closeRosterImport">{{ $t('manager.modals.close') }}</button>
     </div>
 
     <p class="hint" style="margin-bottom:0.75rem">
@@ -2849,11 +2849,11 @@ onUnmounted(() => {
     </div>
 
     <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:1rem">
-      <button class="btn btn-ghost btn-sm" @click="closeRosterImport">Done</button>
+      <button class="btn btn-ghost btn-sm" @click="closeRosterImport">{{ $t('manager.modals.done') }}</button>
       <button class="btn btn-primary btn-sm"
               :disabled="rosterBusy || !rosterCsv.trim()"
               @click="submitRosterImport">
-        {{ rosterBusy ? 'Importing…' : 'Import' }}
+        {{ rosterBusy ? $t('manager.modals.roster_importing') : $t('manager.modals.roster_import_submit') }}
       </button>
     </div>
   </div>
