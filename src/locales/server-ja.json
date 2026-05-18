@@ -1,53 +1,53 @@
 {
   "errors": {
-    "unauthorized": "You're not signed in",
-    "forbidden": "You don't have permission for this action",
-    "not_found": "Not found",
-    "rate_limited": "Too many requests — please slow down and try again",
-    "validation_failed": "Request validation failed",
-    "server_error": "Server error — please try again"
+    "unauthorized": "ログインしていません",
+    "forbidden": "この操作を行う権限がありません",
+    "not_found": "見つかりません",
+    "rate_limited": "リクエストが多すぎます。しばらくしてからもう一度お試しください",
+    "validation_failed": "リクエストの検証に失敗しました",
+    "server_error": "サーバーエラーが発生しました。もう一度お試しください"
   },
   "emails": {
     "password_reset": {
-      "subject": "{app_name} — password reset",
-      "greeting": "Hi {name},",
-      "body": "Someone (we hope it was you) asked to reset your {app_name} password. Click the link below to set a new one. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Reset password",
-      "footer": "If you didn't ask for this, you can safely ignore this email — no change has been made."
+      "subject": "{app_name} — パスワードのリセット",
+      "greeting": "{name} 様",
+      "body": "{app_name} のパスワードリセットがリクエストされました。ご本人であることを確認するため、下のリンクから新しいパスワードを設定してください。このリンクは30分間有効で、一度のみ使用できます。",
+      "cta": "パスワードをリセット",
+      "footer": "このリクエストに心当たりがない場合は、このメールを無視してください。アカウントは変更されていません。"
     },
     "email_verify": {
-      "subject": "{app_name} — confirm your email",
-      "greeting": "Welcome to {app_name}, {name}!",
-      "body": "Click the link below to confirm your email address. The link is valid for 24 hours.",
-      "cta": "Confirm email",
-      "footer": "If you didn't sign up for {app_name}, you can ignore this email."
+      "subject": "{app_name} — メールアドレスの確認",
+      "greeting": "{app_name} へようこそ、{name} 様！",
+      "body": "下のリンクをクリックしてメールアドレスを確認してください。このリンクは24時間有効です。",
+      "cta": "メールを確認",
+      "footer": "{app_name} に登録した覚えがない場合は、このメールを無視してください。"
     },
     "email_change": {
-      "subject": "{app_name} — confirm your new email",
-      "greeting": "Hi {name},",
-      "body": "You asked to change your {app_name} email to this address. Click the link below to confirm. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Confirm new email",
-      "footer": "If you didn't make this change, you can safely ignore this email — your account is unchanged."
+      "subject": "{app_name} — 新しいメールアドレスの確認",
+      "greeting": "{name} 様",
+      "body": "{app_name} のメールアドレスをこのアドレスへ変更するリクエストを受け付けました。下のリンクをクリックして確認してください。このリンクは30分間有効で、一度のみ使用できます。",
+      "cta": "新しいメールを確認",
+      "footer": "この変更に心当たりがない場合は、このメールを無視してください。アカウントは変更されていません。"
     }
   },
   "pdf": {
     "program": {
-      "col_event": "Event",
-      "col_height": "Height",
-      "col_rounds": "Rounds",
-      "col_judges": "Judges",
-      "col_scheduled": "Scheduled",
-      "col_competitor": "Competitor",
-      "col_round": "Round",
-      "col_dive_code": "Dive Code",
-      "col_position": "Position",
-      "col_dd": "DD",
-      "col_description": "Description",
-      "header_program": "Meet Program",
-      "header_dive_lists": "Dive Lists",
-      "header_judge_panel": "Judge Panel",
-      "header_event_schedule": "Event Schedule",
-      "header_reserves": "Reserves"
+      "col_event": "種目",
+      "col_height": "高さ",
+      "col_rounds": "ラウンド",
+      "col_judges": "審判員",
+      "col_scheduled": "予定時刻",
+      "col_competitor": "選手",
+      "col_round": "ラウンド",
+      "col_dive_code": "演技番号",
+      "col_position": "型",
+      "col_dd": "難易度",
+      "col_description": "内容",
+      "header_program": "大会プログラム",
+      "header_dive_lists": "演技リスト",
+      "header_judge_panel": "審判パネル",
+      "header_event_schedule": "種目スケジュール",
+      "header_reserves": "予備選手"
     }
   }
 }

@@ -1,53 +1,53 @@
 {
   "errors": {
-    "unauthorized": "You're not signed in",
-    "forbidden": "You don't have permission for this action",
-    "not_found": "Not found",
-    "rate_limited": "Too many requests — please slow down and try again",
-    "validation_failed": "Request validation failed",
-    "server_error": "Server error — please try again"
+    "unauthorized": "Et ole kirjautunut sisään",
+    "forbidden": "Sinulla ei ole oikeutta tähän toimintoon",
+    "not_found": "Ei löytynyt",
+    "rate_limited": "Liikaa pyyntöjä — hidasta tahtia ja yritä uudelleen",
+    "validation_failed": "Pyynnön tarkistus epäonnistui",
+    "server_error": "Palvelinvirhe — yritä uudelleen"
   },
   "emails": {
     "password_reset": {
-      "subject": "{app_name} — password reset",
-      "greeting": "Hi {name},",
-      "body": "Someone (we hope it was you) asked to reset your {app_name} password. Click the link below to set a new one. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Reset password",
-      "footer": "If you didn't ask for this, you can safely ignore this email — no change has been made."
+      "subject": "{app_name} — salasanan palautus",
+      "greeting": "Hei {name},",
+      "body": "Joku (toivottavasti sinä) on pyytänyt {app_name}-salasanasi palautusta. Aseta uusi salasana alla olevasta linkistä. Linkki on voimassa 30 minuuttia ja sen voi käyttää vain kerran.",
+      "cta": "Palauta salasana",
+      "footer": "Jos et pyytänyt tätä, voit jättää viestin huomiotta — mitään ei ole muutettu."
     },
     "email_verify": {
-      "subject": "{app_name} — confirm your email",
-      "greeting": "Welcome to {app_name}, {name}!",
-      "body": "Click the link below to confirm your email address. The link is valid for 24 hours.",
-      "cta": "Confirm email",
-      "footer": "If you didn't sign up for {app_name}, you can ignore this email."
+      "subject": "{app_name} — vahvista sähköpostiosoitteesi",
+      "greeting": "Tervetuloa palveluun {app_name}, {name}!",
+      "body": "Vahvista sähköpostiosoitteesi alla olevasta linkistä. Linkki on voimassa 24 tuntia.",
+      "cta": "Vahvista sähköposti",
+      "footer": "Jos et rekisteröitynyt palveluun {app_name}, voit jättää viestin huomiotta."
     },
     "email_change": {
-      "subject": "{app_name} — confirm your new email",
-      "greeting": "Hi {name},",
-      "body": "You asked to change your {app_name} email to this address. Click the link below to confirm. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Confirm new email",
-      "footer": "If you didn't make this change, you can safely ignore this email — your account is unchanged."
+      "subject": "{app_name} — vahvista uusi sähköpostiosoitteesi",
+      "greeting": "Hei {name},",
+      "body": "Pyysit vaihtamaan {app_name}-tilisi sähköpostiosoitteeksi tämän osoitteen. Vahvista alla olevasta linkistä. Linkki on voimassa 30 minuuttia ja sen voi käyttää vain kerran.",
+      "cta": "Vahvista uusi sähköposti",
+      "footer": "Jos et tehnyt tätä muutosta, voit jättää viestin huomiotta — tiliäsi ei ole muutettu."
     }
   },
   "pdf": {
     "program": {
-      "col_event": "Event",
-      "col_height": "Height",
-      "col_rounds": "Rounds",
-      "col_judges": "Judges",
-      "col_scheduled": "Scheduled",
-      "col_competitor": "Competitor",
-      "col_round": "Round",
-      "col_dive_code": "Dive Code",
-      "col_position": "Position",
+      "col_event": "Laji",
+      "col_height": "Korkeus",
+      "col_rounds": "Kierrokset",
+      "col_judges": "Tuomarit",
+      "col_scheduled": "Aika",
+      "col_competitor": "Kilpailija",
+      "col_round": "Kierros",
+      "col_dive_code": "Hypyn koodi",
+      "col_position": "Asento",
       "col_dd": "DD",
-      "col_description": "Description",
-      "header_program": "Meet Program",
-      "header_dive_lists": "Dive Lists",
-      "header_judge_panel": "Judge Panel",
-      "header_event_schedule": "Event Schedule",
-      "header_reserves": "Reserves"
+      "col_description": "Kuvaus",
+      "header_program": "Kilpailun ohjelma",
+      "header_dive_lists": "Hyppyluettelot",
+      "header_judge_panel": "Tuomaristo",
+      "header_event_schedule": "Lajiaikataulu",
+      "header_reserves": "Varat"
     }
   }
 }

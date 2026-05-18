@@ -1,53 +1,53 @@
 {
   "errors": {
-    "unauthorized": "You're not signed in",
-    "forbidden": "You don't have permission for this action",
-    "not_found": "Not found",
-    "rate_limited": "Too many requests — please slow down and try again",
-    "validation_failed": "Request validation failed",
-    "server_error": "Server error — please try again"
+    "unauthorized": "로그인되어 있지 않습니다",
+    "forbidden": "이 작업을 수행할 권한이 없습니다",
+    "not_found": "찾을 수 없습니다",
+    "rate_limited": "요청이 너무 많습니다 — 잠시 후 다시 시도해 주세요",
+    "validation_failed": "요청 검증에 실패했습니다",
+    "server_error": "서버 오류 — 다시 시도해 주세요"
   },
   "emails": {
     "password_reset": {
-      "subject": "{app_name} — password reset",
-      "greeting": "Hi {name},",
-      "body": "Someone (we hope it was you) asked to reset your {app_name} password. Click the link below to set a new one. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Reset password",
-      "footer": "If you didn't ask for this, you can safely ignore this email — no change has been made."
+      "subject": "{app_name} — 비밀번호 재설정",
+      "greeting": "{name}님, 안녕하세요.",
+      "body": "{app_name} 비밀번호 재설정 요청이 접수되었습니다. 본인 확인을 위해 아래 링크를 클릭하여 새 비밀번호를 설정해 주세요. 링크는 30분간 유효하며 한 번만 사용할 수 있습니다.",
+      "cta": "비밀번호 재설정",
+      "footer": "본인이 요청하지 않았다면 이 메일을 무시해 주세요 — 변경된 사항은 없습니다."
     },
     "email_verify": {
-      "subject": "{app_name} — confirm your email",
-      "greeting": "Welcome to {app_name}, {name}!",
-      "body": "Click the link below to confirm your email address. The link is valid for 24 hours.",
-      "cta": "Confirm email",
-      "footer": "If you didn't sign up for {app_name}, you can ignore this email."
+      "subject": "{app_name} — 이메일 확인",
+      "greeting": "{app_name}에 오신 것을 환영합니다, {name}님!",
+      "body": "아래 링크를 클릭하여 이메일 주소를 확인해 주세요. 링크는 24시간 동안 유효합니다.",
+      "cta": "이메일 확인",
+      "footer": "{app_name}에 가입한 적이 없다면 이 메일을 무시해 주세요."
     },
     "email_change": {
-      "subject": "{app_name} — confirm your new email",
-      "greeting": "Hi {name},",
-      "body": "You asked to change your {app_name} email to this address. Click the link below to confirm. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Confirm new email",
-      "footer": "If you didn't make this change, you can safely ignore this email — your account is unchanged."
+      "subject": "{app_name} — 새 이메일 확인",
+      "greeting": "{name}님, 안녕하세요.",
+      "body": "{app_name} 이메일을 이 주소로 변경 요청하셨습니다. 아래 링크를 클릭하여 확인해 주세요. 링크는 30분간 유효하며 한 번만 사용할 수 있습니다.",
+      "cta": "새 이메일 확인",
+      "footer": "본인이 변경한 것이 아니라면 이 메일을 무시해 주세요 — 계정에는 변경 사항이 없습니다."
     }
   },
   "pdf": {
     "program": {
-      "col_event": "Event",
-      "col_height": "Height",
-      "col_rounds": "Rounds",
-      "col_judges": "Judges",
-      "col_scheduled": "Scheduled",
-      "col_competitor": "Competitor",
-      "col_round": "Round",
-      "col_dive_code": "Dive Code",
-      "col_position": "Position",
-      "col_dd": "DD",
-      "col_description": "Description",
-      "header_program": "Meet Program",
-      "header_dive_lists": "Dive Lists",
-      "header_judge_panel": "Judge Panel",
-      "header_event_schedule": "Event Schedule",
-      "header_reserves": "Reserves"
+      "col_event": "종목",
+      "col_height": "높이",
+      "col_rounds": "라운드",
+      "col_judges": "심판",
+      "col_scheduled": "일정",
+      "col_competitor": "선수",
+      "col_round": "라운드",
+      "col_dive_code": "다이브 코드",
+      "col_position": "자세",
+      "col_dd": "난도",
+      "col_description": "설명",
+      "header_program": "대회 프로그램",
+      "header_dive_lists": "다이브 리스트",
+      "header_judge_panel": "심판단",
+      "header_event_schedule": "종목 일정",
+      "header_reserves": "예비"
     }
   }
 }

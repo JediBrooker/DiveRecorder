@@ -1,53 +1,53 @@
 {
   "errors": {
-    "unauthorized": "You're not signed in",
-    "forbidden": "You don't have permission for this action",
-    "not_found": "Not found",
-    "rate_limited": "Too many requests — please slow down and try again",
-    "validation_failed": "Request validation failed",
-    "server_error": "Server error — please try again"
+    "unauthorized": "Ви не ввійшли в систему",
+    "forbidden": "У вас немає дозволу на цю дію",
+    "not_found": "Не знайдено",
+    "rate_limited": "Забагато запитів — будь ласка, зачекайте та спробуйте ще раз",
+    "validation_failed": "Не вдалося перевірити запит",
+    "server_error": "Помилка сервера — спробуйте ще раз"
   },
   "emails": {
     "password_reset": {
-      "subject": "{app_name} — password reset",
-      "greeting": "Hi {name},",
-      "body": "Someone (we hope it was you) asked to reset your {app_name} password. Click the link below to set a new one. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Reset password",
-      "footer": "If you didn't ask for this, you can safely ignore this email — no change has been made."
+      "subject": "{app_name} — скидання пароля",
+      "greeting": "Привіт, {name}!",
+      "body": "Хтось (сподіваємося, це були ви) надіслав запит на скидання пароля для {app_name}. Натисніть посилання нижче, щоб встановити новий. Посилання дійсне протягом 30 хвилин і може бути використане лише один раз.",
+      "cta": "Скинути пароль",
+      "footer": "Якщо ви не надсилали цей запит, можете спокійно проігнорувати цей лист — жодних змін не відбулося."
     },
     "email_verify": {
-      "subject": "{app_name} — confirm your email",
-      "greeting": "Welcome to {app_name}, {name}!",
-      "body": "Click the link below to confirm your email address. The link is valid for 24 hours.",
-      "cta": "Confirm email",
-      "footer": "If you didn't sign up for {app_name}, you can ignore this email."
+      "subject": "{app_name} — підтвердження електронної пошти",
+      "greeting": "Вітаємо у {app_name}, {name}!",
+      "body": "Натисніть посилання нижче, щоб підтвердити вашу адресу електронної пошти. Посилання дійсне протягом 24 годин.",
+      "cta": "Підтвердити пошту",
+      "footer": "Якщо ви не реєструвалися у {app_name}, можете проігнорувати цей лист."
     },
     "email_change": {
-      "subject": "{app_name} — confirm your new email",
-      "greeting": "Hi {name},",
-      "body": "You asked to change your {app_name} email to this address. Click the link below to confirm. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Confirm new email",
-      "footer": "If you didn't make this change, you can safely ignore this email — your account is unchanged."
+      "subject": "{app_name} — підтвердження нової електронної пошти",
+      "greeting": "Привіт, {name}!",
+      "body": "Ви надіслали запит на зміну адреси електронної пошти у {app_name} на цю адресу. Натисніть посилання нижче, щоб підтвердити. Посилання дійсне протягом 30 хвилин і може бути використане лише один раз.",
+      "cta": "Підтвердити нову адресу",
+      "footer": "Якщо ви не вносили цю зміну, можете спокійно проігнорувати цей лист — ваш обліковий запис не змінено."
     }
   },
   "pdf": {
     "program": {
-      "col_event": "Event",
-      "col_height": "Height",
-      "col_rounds": "Rounds",
-      "col_judges": "Judges",
-      "col_scheduled": "Scheduled",
-      "col_competitor": "Competitor",
-      "col_round": "Round",
-      "col_dive_code": "Dive Code",
-      "col_position": "Position",
-      "col_dd": "DD",
-      "col_description": "Description",
-      "header_program": "Meet Program",
-      "header_dive_lists": "Dive Lists",
-      "header_judge_panel": "Judge Panel",
-      "header_event_schedule": "Event Schedule",
-      "header_reserves": "Reserves"
+      "col_event": "Змагання",
+      "col_height": "Висота",
+      "col_rounds": "Раунди",
+      "col_judges": "Судді",
+      "col_scheduled": "Час",
+      "col_competitor": "Учасник",
+      "col_round": "Раунд",
+      "col_dive_code": "Код стрибка",
+      "col_position": "Положення",
+      "col_dd": "Коеф. складності",
+      "col_description": "Опис",
+      "header_program": "Програма змагань",
+      "header_dive_lists": "Списки стрибків",
+      "header_judge_panel": "Суддівська колегія",
+      "header_event_schedule": "Розклад змагань",
+      "header_reserves": "Запасні"
     }
   }
 }

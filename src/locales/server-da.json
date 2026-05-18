@@ -1,53 +1,53 @@
 {
   "errors": {
-    "unauthorized": "You're not signed in",
-    "forbidden": "You don't have permission for this action",
-    "not_found": "Not found",
-    "rate_limited": "Too many requests — please slow down and try again",
-    "validation_failed": "Request validation failed",
-    "server_error": "Server error — please try again"
+    "unauthorized": "Du er ikke logget ind",
+    "forbidden": "Du har ikke tilladelse til denne handling",
+    "not_found": "Ikke fundet",
+    "rate_limited": "For mange forespørgsler — sæt farten ned og prøv igen",
+    "validation_failed": "Validering af forespørgsel mislykkedes",
+    "server_error": "Serverfejl — prøv igen"
   },
   "emails": {
     "password_reset": {
-      "subject": "{app_name} — password reset",
-      "greeting": "Hi {name},",
-      "body": "Someone (we hope it was you) asked to reset your {app_name} password. Click the link below to set a new one. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Reset password",
-      "footer": "If you didn't ask for this, you can safely ignore this email — no change has been made."
+      "subject": "{app_name} — nulstilling af adgangskode",
+      "greeting": "Hej {name},",
+      "body": "Nogen (forhåbentlig dig) har bedt om at nulstille din {app_name}-adgangskode. Klik på linket nedenfor for at vælge en ny. Linket er gyldigt i 30 minutter og kan kun bruges én gang.",
+      "cta": "Nulstil adgangskode",
+      "footer": "Hvis du ikke har bedt om dette, kan du roligt ignorere denne e-mail — der er ikke ændret noget."
     },
     "email_verify": {
-      "subject": "{app_name} — confirm your email",
-      "greeting": "Welcome to {app_name}, {name}!",
-      "body": "Click the link below to confirm your email address. The link is valid for 24 hours.",
-      "cta": "Confirm email",
-      "footer": "If you didn't sign up for {app_name}, you can ignore this email."
+      "subject": "{app_name} — bekræft din e-mail",
+      "greeting": "Velkommen til {app_name}, {name}!",
+      "body": "Klik på linket nedenfor for at bekræfte din e-mailadresse. Linket er gyldigt i 24 timer.",
+      "cta": "Bekræft e-mail",
+      "footer": "Hvis du ikke har tilmeldt dig {app_name}, kan du ignorere denne e-mail."
     },
     "email_change": {
-      "subject": "{app_name} — confirm your new email",
-      "greeting": "Hi {name},",
-      "body": "You asked to change your {app_name} email to this address. Click the link below to confirm. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Confirm new email",
-      "footer": "If you didn't make this change, you can safely ignore this email — your account is unchanged."
+      "subject": "{app_name} — bekræft din nye e-mail",
+      "greeting": "Hej {name},",
+      "body": "Du har bedt om at ændre din e-mail på {app_name} til denne adresse. Klik på linket nedenfor for at bekræfte. Linket er gyldigt i 30 minutter og kan kun bruges én gang.",
+      "cta": "Bekræft ny e-mail",
+      "footer": "Hvis du ikke har foretaget denne ændring, kan du roligt ignorere denne e-mail — din konto er uændret."
     }
   },
   "pdf": {
     "program": {
-      "col_event": "Event",
-      "col_height": "Height",
-      "col_rounds": "Rounds",
-      "col_judges": "Judges",
-      "col_scheduled": "Scheduled",
-      "col_competitor": "Competitor",
-      "col_round": "Round",
-      "col_dive_code": "Dive Code",
+      "col_event": "Konkurrence",
+      "col_height": "Højde",
+      "col_rounds": "Runder",
+      "col_judges": "Dommere",
+      "col_scheduled": "Planlagt",
+      "col_competitor": "Springer",
+      "col_round": "Runde",
+      "col_dive_code": "Springkode",
       "col_position": "Position",
       "col_dd": "DD",
-      "col_description": "Description",
-      "header_program": "Meet Program",
-      "header_dive_lists": "Dive Lists",
-      "header_judge_panel": "Judge Panel",
-      "header_event_schedule": "Event Schedule",
-      "header_reserves": "Reserves"
+      "col_description": "Beskrivelse",
+      "header_program": "Stævneprogram",
+      "header_dive_lists": "Springlister",
+      "header_judge_panel": "Dommerpanel",
+      "header_event_schedule": "Konkurrenceplan",
+      "header_reserves": "Reserver"
     }
   }
 }

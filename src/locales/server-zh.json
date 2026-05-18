@@ -1,53 +1,53 @@
 {
   "errors": {
-    "unauthorized": "You're not signed in",
-    "forbidden": "You don't have permission for this action",
-    "not_found": "Not found",
-    "rate_limited": "Too many requests — please slow down and try again",
-    "validation_failed": "Request validation failed",
-    "server_error": "Server error — please try again"
+    "unauthorized": "您尚未登录",
+    "forbidden": "您没有执行此操作的权限",
+    "not_found": "未找到",
+    "rate_limited": "请求过多 — 请稍候再试",
+    "validation_failed": "请求验证失败",
+    "server_error": "服务器错误 — 请重试"
   },
   "emails": {
     "password_reset": {
-      "subject": "{app_name} — password reset",
-      "greeting": "Hi {name},",
-      "body": "Someone (we hope it was you) asked to reset your {app_name} password. Click the link below to set a new one. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Reset password",
-      "footer": "If you didn't ask for this, you can safely ignore this email — no change has been made."
+      "subject": "{app_name} — 重置密码",
+      "greeting": "您好 {name}，",
+      "body": "有人（希望是您本人）请求重置您的 {app_name} 密码。请点击下方链接设置新密码。该链接有效期为 30 分钟，且只能使用一次。",
+      "cta": "重置密码",
+      "footer": "如果不是您本人的操作，可以忽略此邮件 — 您的账户未做任何更改。"
     },
     "email_verify": {
-      "subject": "{app_name} — confirm your email",
-      "greeting": "Welcome to {app_name}, {name}!",
-      "body": "Click the link below to confirm your email address. The link is valid for 24 hours.",
-      "cta": "Confirm email",
-      "footer": "If you didn't sign up for {app_name}, you can ignore this email."
+      "subject": "{app_name} — 确认您的邮箱",
+      "greeting": "欢迎使用 {app_name}，{name}！",
+      "body": "请点击下方链接以确认您的邮箱地址。该链接有效期为 24 小时。",
+      "cta": "确认邮箱",
+      "footer": "如果您未注册 {app_name}，可以忽略此邮件。"
     },
     "email_change": {
-      "subject": "{app_name} — confirm your new email",
-      "greeting": "Hi {name},",
-      "body": "You asked to change your {app_name} email to this address. Click the link below to confirm. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Confirm new email",
-      "footer": "If you didn't make this change, you can safely ignore this email — your account is unchanged."
+      "subject": "{app_name} — 确认新邮箱地址",
+      "greeting": "您好 {name}，",
+      "body": "您请求将 {app_name} 的邮箱更改为此地址。请点击下方链接确认。该链接有效期为 30 分钟，且只能使用一次。",
+      "cta": "确认新邮箱",
+      "footer": "如果此更改不是您本人的操作，可以忽略此邮件 — 您的账户未做任何更改。"
     }
   },
   "pdf": {
     "program": {
-      "col_event": "Event",
-      "col_height": "Height",
-      "col_rounds": "Rounds",
-      "col_judges": "Judges",
-      "col_scheduled": "Scheduled",
-      "col_competitor": "Competitor",
-      "col_round": "Round",
-      "col_dive_code": "Dive Code",
-      "col_position": "Position",
-      "col_dd": "DD",
-      "col_description": "Description",
-      "header_program": "Meet Program",
-      "header_dive_lists": "Dive Lists",
-      "header_judge_panel": "Judge Panel",
-      "header_event_schedule": "Event Schedule",
-      "header_reserves": "Reserves"
+      "col_event": "项目",
+      "col_height": "高度",
+      "col_rounds": "轮次",
+      "col_judges": "裁判员",
+      "col_scheduled": "时间",
+      "col_competitor": "选手",
+      "col_round": "轮次",
+      "col_dive_code": "动作代号",
+      "col_position": "姿势",
+      "col_dd": "难度系数",
+      "col_description": "描述",
+      "header_program": "比赛日程",
+      "header_dive_lists": "动作清单",
+      "header_judge_panel": "裁判组",
+      "header_event_schedule": "项目日程",
+      "header_reserves": "替补"
     }
   }
 }

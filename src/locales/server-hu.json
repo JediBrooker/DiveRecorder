@@ -1,53 +1,53 @@
 {
   "errors": {
-    "unauthorized": "You're not signed in",
-    "forbidden": "You don't have permission for this action",
-    "not_found": "Not found",
-    "rate_limited": "Too many requests — please slow down and try again",
-    "validation_failed": "Request validation failed",
-    "server_error": "Server error — please try again"
+    "unauthorized": "Nincs bejelentkezve",
+    "forbidden": "Nincs jogosultsága ehhez a művelethez",
+    "not_found": "Nem található",
+    "rate_limited": "Túl sok kérés — kérjük, lassítson és próbálja újra",
+    "validation_failed": "A kérés érvényesítése sikertelen",
+    "server_error": "Szerverhiba — próbálja újra"
   },
   "emails": {
     "password_reset": {
-      "subject": "{app_name} — password reset",
-      "greeting": "Hi {name},",
-      "body": "Someone (we hope it was you) asked to reset your {app_name} password. Click the link below to set a new one. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Reset password",
-      "footer": "If you didn't ask for this, you can safely ignore this email — no change has been made."
+      "subject": "{app_name} — jelszó visszaállítása",
+      "greeting": "Szia {name}!",
+      "body": "Valaki (reméljük, te voltál) kérte a(z) {app_name} jelszavának visszaállítását. Új jelszó beállításához kattints az alábbi linkre. A link 30 percig érvényes, és csak egyszer használható fel.",
+      "cta": "Jelszó visszaállítása",
+      "footer": "Ha nem te kérted, nyugodtan figyelmen kívül hagyhatod ezt az e-mailt — semmi nem változott."
     },
     "email_verify": {
-      "subject": "{app_name} — confirm your email",
-      "greeting": "Welcome to {app_name}, {name}!",
-      "body": "Click the link below to confirm your email address. The link is valid for 24 hours.",
-      "cta": "Confirm email",
-      "footer": "If you didn't sign up for {app_name}, you can ignore this email."
+      "subject": "{app_name} — e-mail cím megerősítése",
+      "greeting": "Üdvözlünk a(z) {app_name} szolgáltatásban, {name}!",
+      "body": "Kattints az alábbi linkre az e-mail címed megerősítéséhez. A link 24 óráig érvényes.",
+      "cta": "E-mail megerősítése",
+      "footer": "Ha nem regisztráltál a(z) {app_name} szolgáltatásra, figyelmen kívül hagyhatod ezt az üzenetet."
     },
     "email_change": {
-      "subject": "{app_name} — confirm your new email",
-      "greeting": "Hi {name},",
-      "body": "You asked to change your {app_name} email to this address. Click the link below to confirm. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Confirm new email",
-      "footer": "If you didn't make this change, you can safely ignore this email — your account is unchanged."
+      "subject": "{app_name} — új e-mail cím megerősítése",
+      "greeting": "Szia {name}!",
+      "body": "Kérted, hogy a(z) {app_name} e-mail címét erre módosítsuk. Kattints az alábbi linkre a megerősítéshez. A link 30 percig érvényes, és csak egyszer használható fel.",
+      "cta": "Új e-mail megerősítése",
+      "footer": "Ha nem te kezdeményezted a változtatást, nyugodtan figyelmen kívül hagyhatod ezt az e-mailt — a fiókod változatlan."
     }
   },
   "pdf": {
     "program": {
-      "col_event": "Event",
-      "col_height": "Height",
-      "col_rounds": "Rounds",
-      "col_judges": "Judges",
-      "col_scheduled": "Scheduled",
-      "col_competitor": "Competitor",
-      "col_round": "Round",
-      "col_dive_code": "Dive Code",
-      "col_position": "Position",
+      "col_event": "Esemény",
+      "col_height": "Magasság",
+      "col_rounds": "Fordulók",
+      "col_judges": "Pontozóbírók",
+      "col_scheduled": "Időpont",
+      "col_competitor": "Versenyző",
+      "col_round": "Forduló",
+      "col_dive_code": "Ugrás kódja",
+      "col_position": "Testhelyzet",
       "col_dd": "DD",
-      "col_description": "Description",
-      "header_program": "Meet Program",
-      "header_dive_lists": "Dive Lists",
-      "header_judge_panel": "Judge Panel",
-      "header_event_schedule": "Event Schedule",
-      "header_reserves": "Reserves"
+      "col_description": "Leírás",
+      "header_program": "Versenyprogram",
+      "header_dive_lists": "Ugráslisták",
+      "header_judge_panel": "Pontozóbíró panel",
+      "header_event_schedule": "Eseményrend",
+      "header_reserves": "Tartalékok"
     }
   }
 }

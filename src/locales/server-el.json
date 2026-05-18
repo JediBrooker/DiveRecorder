@@ -1,53 +1,53 @@
 {
   "errors": {
-    "unauthorized": "You're not signed in",
-    "forbidden": "You don't have permission for this action",
-    "not_found": "Not found",
-    "rate_limited": "Too many requests — please slow down and try again",
-    "validation_failed": "Request validation failed",
-    "server_error": "Server error — please try again"
+    "unauthorized": "Δεν έχετε συνδεθεί",
+    "forbidden": "Δεν έχετε άδεια για αυτή την ενέργεια",
+    "not_found": "Δεν βρέθηκε",
+    "rate_limited": "Πάρα πολλά αιτήματα — επιβραδύνετε και δοκιμάστε ξανά",
+    "validation_failed": "Η επικύρωση του αιτήματος απέτυχε",
+    "server_error": "Σφάλμα διακομιστή — δοκιμάστε ξανά"
   },
   "emails": {
     "password_reset": {
-      "subject": "{app_name} — password reset",
-      "greeting": "Hi {name},",
-      "body": "Someone (we hope it was you) asked to reset your {app_name} password. Click the link below to set a new one. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Reset password",
-      "footer": "If you didn't ask for this, you can safely ignore this email — no change has been made."
+      "subject": "{app_name} — επαναφορά κωδικού πρόσβασης",
+      "greeting": "Γεια σου {name},",
+      "body": "Κάποιος (ελπίζουμε εσύ) ζήτησε να επαναφέρει τον κωδικό πρόσβασής σου στο {app_name}. Κάνε κλικ στον παρακάτω σύνδεσμο για να ορίσεις νέο. Ο σύνδεσμος ισχύει για 30 λεπτά και μπορεί να χρησιμοποιηθεί μόνο μία φορά.",
+      "cta": "Επαναφορά κωδικού",
+      "footer": "Αν δεν το ζήτησες εσύ, μπορείς να αγνοήσεις αυτό το email — δεν έχει γίνει καμία αλλαγή."
     },
     "email_verify": {
-      "subject": "{app_name} — confirm your email",
-      "greeting": "Welcome to {app_name}, {name}!",
-      "body": "Click the link below to confirm your email address. The link is valid for 24 hours.",
-      "cta": "Confirm email",
-      "footer": "If you didn't sign up for {app_name}, you can ignore this email."
+      "subject": "{app_name} — επιβεβαίωση email",
+      "greeting": "Καλώς όρισες στο {app_name}, {name}!",
+      "body": "Κάνε κλικ στον παρακάτω σύνδεσμο για να επιβεβαιώσεις τη διεύθυνση email σου. Ο σύνδεσμος ισχύει για 24 ώρες.",
+      "cta": "Επιβεβαίωση email",
+      "footer": "Αν δεν εγγράφηκες στο {app_name}, μπορείς να αγνοήσεις αυτό το email."
     },
     "email_change": {
-      "subject": "{app_name} — confirm your new email",
-      "greeting": "Hi {name},",
-      "body": "You asked to change your {app_name} email to this address. Click the link below to confirm. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Confirm new email",
-      "footer": "If you didn't make this change, you can safely ignore this email — your account is unchanged."
+      "subject": "{app_name} — επιβεβαίωση νέου email",
+      "greeting": "Γεια σου {name},",
+      "body": "Ζήτησες να αλλάξεις το email σου στο {app_name} σε αυτή τη διεύθυνση. Κάνε κλικ στον παρακάτω σύνδεσμο για επιβεβαίωση. Ο σύνδεσμος ισχύει για 30 λεπτά και μπορεί να χρησιμοποιηθεί μόνο μία φορά.",
+      "cta": "Επιβεβαίωση νέου email",
+      "footer": "Αν δεν έκανες αυτή την αλλαγή, μπορείς να αγνοήσεις αυτό το email — ο λογαριασμός σου δεν έχει αλλάξει."
     }
   },
   "pdf": {
     "program": {
-      "col_event": "Event",
-      "col_height": "Height",
-      "col_rounds": "Rounds",
-      "col_judges": "Judges",
-      "col_scheduled": "Scheduled",
-      "col_competitor": "Competitor",
-      "col_round": "Round",
-      "col_dive_code": "Dive Code",
-      "col_position": "Position",
+      "col_event": "Αγώνισμα",
+      "col_height": "Ύψος",
+      "col_rounds": "Γύροι",
+      "col_judges": "Κριτές",
+      "col_scheduled": "Ώρα",
+      "col_competitor": "Αθλητής",
+      "col_round": "Γύρος",
+      "col_dive_code": "Κωδικός βουτιάς",
+      "col_position": "Στάση",
       "col_dd": "DD",
-      "col_description": "Description",
-      "header_program": "Meet Program",
-      "header_dive_lists": "Dive Lists",
-      "header_judge_panel": "Judge Panel",
-      "header_event_schedule": "Event Schedule",
-      "header_reserves": "Reserves"
+      "col_description": "Περιγραφή",
+      "header_program": "Πρόγραμμα αγώνων",
+      "header_dive_lists": "Λίστες βουτιών",
+      "header_judge_panel": "Επιτροπή κριτών",
+      "header_event_schedule": "Πρόγραμμα αγωνισμάτων",
+      "header_reserves": "Αναπληρωματικοί"
     }
   }
 }

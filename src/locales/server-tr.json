@@ -1,53 +1,53 @@
 {
   "errors": {
-    "unauthorized": "You're not signed in",
-    "forbidden": "You don't have permission for this action",
-    "not_found": "Not found",
-    "rate_limited": "Too many requests — please slow down and try again",
-    "validation_failed": "Request validation failed",
-    "server_error": "Server error — please try again"
+    "unauthorized": "Oturum açmadınız",
+    "forbidden": "Bu işlem için izniniz yok",
+    "not_found": "Bulunamadı",
+    "rate_limited": "Çok fazla istek — lütfen yavaşlayın ve tekrar deneyin",
+    "validation_failed": "İstek doğrulaması başarısız",
+    "server_error": "Sunucu hatası — lütfen tekrar deneyin"
   },
   "emails": {
     "password_reset": {
-      "subject": "{app_name} — password reset",
-      "greeting": "Hi {name},",
-      "body": "Someone (we hope it was you) asked to reset your {app_name} password. Click the link below to set a new one. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Reset password",
-      "footer": "If you didn't ask for this, you can safely ignore this email — no change has been made."
+      "subject": "{app_name} — parola sıfırlama",
+      "greeting": "Merhaba {name},",
+      "body": "Birisi (umarız sizsinizdir) {app_name} parolanızı sıfırlamak istedi. Yeni bir parola belirlemek için aşağıdaki bağlantıya tıklayın. Bağlantı 30 dakika boyunca geçerlidir ve yalnızca bir kez kullanılabilir.",
+      "cta": "Parolayı sıfırla",
+      "footer": "Bu isteği siz yapmadıysanız, bu e-postayı dikkate almayabilirsiniz — herhangi bir değişiklik yapılmadı."
     },
     "email_verify": {
-      "subject": "{app_name} — confirm your email",
-      "greeting": "Welcome to {app_name}, {name}!",
-      "body": "Click the link below to confirm your email address. The link is valid for 24 hours.",
-      "cta": "Confirm email",
-      "footer": "If you didn't sign up for {app_name}, you can ignore this email."
+      "subject": "{app_name} — e-postanızı doğrulayın",
+      "greeting": "{app_name} ailesine hoş geldiniz, {name}!",
+      "body": "E-posta adresinizi doğrulamak için aşağıdaki bağlantıya tıklayın. Bağlantı 24 saat boyunca geçerlidir.",
+      "cta": "E-postayı doğrula",
+      "footer": "{app_name} hesabı oluşturmadıysanız bu e-postayı dikkate almayabilirsiniz."
     },
     "email_change": {
-      "subject": "{app_name} — confirm your new email",
-      "greeting": "Hi {name},",
-      "body": "You asked to change your {app_name} email to this address. Click the link below to confirm. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Confirm new email",
-      "footer": "If you didn't make this change, you can safely ignore this email — your account is unchanged."
+      "subject": "{app_name} — yeni e-posta adresinizi doğrulayın",
+      "greeting": "Merhaba {name},",
+      "body": "{app_name} e-posta adresinizi bu adresle değiştirmek istediniz. Onaylamak için aşağıdaki bağlantıya tıklayın. Bağlantı 30 dakika boyunca geçerlidir ve yalnızca bir kez kullanılabilir.",
+      "cta": "Yeni e-postayı doğrula",
+      "footer": "Bu değişikliği siz yapmadıysanız, bu e-postayı dikkate almayabilirsiniz — hesabınızda değişiklik yok."
     }
   },
   "pdf": {
     "program": {
-      "col_event": "Event",
-      "col_height": "Height",
-      "col_rounds": "Rounds",
-      "col_judges": "Judges",
-      "col_scheduled": "Scheduled",
-      "col_competitor": "Competitor",
-      "col_round": "Round",
-      "col_dive_code": "Dive Code",
-      "col_position": "Position",
+      "col_event": "Etkinlik",
+      "col_height": "Yükseklik",
+      "col_rounds": "Turlar",
+      "col_judges": "Hakemler",
+      "col_scheduled": "Saat",
+      "col_competitor": "Yarışmacı",
+      "col_round": "Tur",
+      "col_dive_code": "Atlama kodu",
+      "col_position": "Pozisyon",
       "col_dd": "DD",
-      "col_description": "Description",
-      "header_program": "Meet Program",
-      "header_dive_lists": "Dive Lists",
-      "header_judge_panel": "Judge Panel",
-      "header_event_schedule": "Event Schedule",
-      "header_reserves": "Reserves"
+      "col_description": "Açıklama",
+      "header_program": "Müsabaka programı",
+      "header_dive_lists": "Atlama listeleri",
+      "header_judge_panel": "Hakem heyeti",
+      "header_event_schedule": "Etkinlik takvimi",
+      "header_reserves": "Yedekler"
     }
   }
 }

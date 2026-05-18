@@ -1,53 +1,53 @@
 {
   "errors": {
-    "unauthorized": "You're not signed in",
-    "forbidden": "You don't have permission for this action",
-    "not_found": "Not found",
-    "rate_limited": "Too many requests — please slow down and try again",
-    "validation_failed": "Request validation failed",
-    "server_error": "Server error — please try again"
+    "unauthorized": "Nie jesteś zalogowany",
+    "forbidden": "Nie masz uprawnień do tej akcji",
+    "not_found": "Nie znaleziono",
+    "rate_limited": "Zbyt wiele żądań — zwolnij i spróbuj ponownie",
+    "validation_failed": "Walidacja żądania nie powiodła się",
+    "server_error": "Błąd serwera — spróbuj ponownie"
   },
   "emails": {
     "password_reset": {
-      "subject": "{app_name} — password reset",
-      "greeting": "Hi {name},",
-      "body": "Someone (we hope it was you) asked to reset your {app_name} password. Click the link below to set a new one. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Reset password",
-      "footer": "If you didn't ask for this, you can safely ignore this email — no change has been made."
+      "subject": "{app_name} — resetowanie hasła",
+      "greeting": "Cześć {name},",
+      "body": "Ktoś (mamy nadzieję, że Ty) poprosił o zresetowanie hasła do {app_name}. Kliknij poniższy link, aby ustawić nowe. Link jest ważny przez 30 minut i można go użyć tylko raz.",
+      "cta": "Zresetuj hasło",
+      "footer": "Jeśli to nie Ty wysłałeś tę prośbę, możesz zignorować tę wiadomość — nic nie zostało zmienione."
     },
     "email_verify": {
-      "subject": "{app_name} — confirm your email",
-      "greeting": "Welcome to {app_name}, {name}!",
-      "body": "Click the link below to confirm your email address. The link is valid for 24 hours.",
-      "cta": "Confirm email",
-      "footer": "If you didn't sign up for {app_name}, you can ignore this email."
+      "subject": "{app_name} — potwierdź swój adres e-mail",
+      "greeting": "Witaj w {app_name}, {name}!",
+      "body": "Kliknij poniższy link, aby potwierdzić swój adres e-mail. Link jest ważny przez 24 godziny.",
+      "cta": "Potwierdź e-mail",
+      "footer": "Jeśli nie rejestrowałeś się w {app_name}, możesz zignorować tę wiadomość."
     },
     "email_change": {
-      "subject": "{app_name} — confirm your new email",
-      "greeting": "Hi {name},",
-      "body": "You asked to change your {app_name} email to this address. Click the link below to confirm. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Confirm new email",
-      "footer": "If you didn't make this change, you can safely ignore this email — your account is unchanged."
+      "subject": "{app_name} — potwierdź nowy adres e-mail",
+      "greeting": "Cześć {name},",
+      "body": "Poprosiłeś o zmianę adresu e-mail w {app_name} na ten adres. Kliknij poniższy link, aby potwierdzić. Link jest ważny przez 30 minut i można go użyć tylko raz.",
+      "cta": "Potwierdź nowy e-mail",
+      "footer": "Jeśli nie dokonałeś tej zmiany, możesz zignorować tę wiadomość — Twoje konto pozostaje bez zmian."
     }
   },
   "pdf": {
     "program": {
-      "col_event": "Event",
-      "col_height": "Height",
-      "col_rounds": "Rounds",
-      "col_judges": "Judges",
-      "col_scheduled": "Scheduled",
-      "col_competitor": "Competitor",
-      "col_round": "Round",
-      "col_dive_code": "Dive Code",
-      "col_position": "Position",
+      "col_event": "Wydarzenie",
+      "col_height": "Wysokość",
+      "col_rounds": "Rundy",
+      "col_judges": "Sędziowie",
+      "col_scheduled": "Godzina",
+      "col_competitor": "Zawodnik",
+      "col_round": "Runda",
+      "col_dive_code": "Kod skoku",
+      "col_position": "Pozycja",
       "col_dd": "DD",
-      "col_description": "Description",
-      "header_program": "Meet Program",
-      "header_dive_lists": "Dive Lists",
-      "header_judge_panel": "Judge Panel",
-      "header_event_schedule": "Event Schedule",
-      "header_reserves": "Reserves"
+      "col_description": "Opis",
+      "header_program": "Program zawodów",
+      "header_dive_lists": "Listy skoków",
+      "header_judge_panel": "Panel sędziowski",
+      "header_event_schedule": "Harmonogram wydarzeń",
+      "header_reserves": "Rezerwowi"
     }
   }
 }

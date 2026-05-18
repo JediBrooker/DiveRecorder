@@ -1,53 +1,53 @@
 {
   "errors": {
-    "unauthorized": "You're not signed in",
-    "forbidden": "You don't have permission for this action",
-    "not_found": "Not found",
-    "rate_limited": "Too many requests — please slow down and try again",
-    "validation_failed": "Request validation failed",
-    "server_error": "Server error — please try again"
+    "unauthorized": "Anda belum log masuk",
+    "forbidden": "Anda tidak mempunyai kebenaran untuk tindakan ini",
+    "not_found": "Tidak dijumpai",
+    "rate_limited": "Terlalu banyak permintaan — sila perlahankan dan cuba lagi",
+    "validation_failed": "Pengesahan permintaan gagal",
+    "server_error": "Ralat pelayan — sila cuba lagi"
   },
   "emails": {
     "password_reset": {
-      "subject": "{app_name} — password reset",
-      "greeting": "Hi {name},",
-      "body": "Someone (we hope it was you) asked to reset your {app_name} password. Click the link below to set a new one. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Reset password",
-      "footer": "If you didn't ask for this, you can safely ignore this email — no change has been made."
+      "subject": "{app_name} — set semula kata laluan",
+      "greeting": "Hai {name},",
+      "body": "Seseorang (kami harap ia adalah anda) meminta untuk menetapkan semula kata laluan {app_name} anda. Klik pautan di bawah untuk menetapkan kata laluan baharu. Pautan ini sah selama 30 minit dan hanya boleh digunakan sekali sahaja.",
+      "cta": "Set semula kata laluan",
+      "footer": "Jika anda tidak meminta tindakan ini, anda boleh mengabaikan e-mel ini — tiada perubahan dilakukan."
     },
     "email_verify": {
-      "subject": "{app_name} — confirm your email",
-      "greeting": "Welcome to {app_name}, {name}!",
-      "body": "Click the link below to confirm your email address. The link is valid for 24 hours.",
-      "cta": "Confirm email",
-      "footer": "If you didn't sign up for {app_name}, you can ignore this email."
+      "subject": "{app_name} — sahkan e-mel anda",
+      "greeting": "Selamat datang ke {app_name}, {name}!",
+      "body": "Klik pautan di bawah untuk mengesahkan alamat e-mel anda. Pautan ini sah selama 24 jam.",
+      "cta": "Sahkan e-mel",
+      "footer": "Jika anda tidak mendaftar untuk {app_name}, anda boleh mengabaikan e-mel ini."
     },
     "email_change": {
-      "subject": "{app_name} — confirm your new email",
-      "greeting": "Hi {name},",
-      "body": "You asked to change your {app_name} email to this address. Click the link below to confirm. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Confirm new email",
-      "footer": "If you didn't make this change, you can safely ignore this email — your account is unchanged."
+      "subject": "{app_name} — sahkan e-mel baharu anda",
+      "greeting": "Hai {name},",
+      "body": "Anda meminta untuk menukar e-mel {app_name} anda kepada alamat ini. Klik pautan di bawah untuk mengesahkan. Pautan ini sah selama 30 minit dan hanya boleh digunakan sekali sahaja.",
+      "cta": "Sahkan e-mel baharu",
+      "footer": "Jika anda tidak membuat perubahan ini, anda boleh mengabaikan e-mel ini — akaun anda tidak berubah."
     }
   },
   "pdf": {
     "program": {
-      "col_event": "Event",
-      "col_height": "Height",
-      "col_rounds": "Rounds",
-      "col_judges": "Judges",
-      "col_scheduled": "Scheduled",
-      "col_competitor": "Competitor",
-      "col_round": "Round",
-      "col_dive_code": "Dive Code",
-      "col_position": "Position",
+      "col_event": "Acara",
+      "col_height": "Ketinggian",
+      "col_rounds": "Pusingan",
+      "col_judges": "Hakim",
+      "col_scheduled": "Jadual",
+      "col_competitor": "Peserta",
+      "col_round": "Pusingan",
+      "col_dive_code": "Kod terjunan",
+      "col_position": "Posisi",
       "col_dd": "DD",
-      "col_description": "Description",
-      "header_program": "Meet Program",
-      "header_dive_lists": "Dive Lists",
-      "header_judge_panel": "Judge Panel",
-      "header_event_schedule": "Event Schedule",
-      "header_reserves": "Reserves"
+      "col_description": "Penerangan",
+      "header_program": "Program kejohanan",
+      "header_dive_lists": "Senarai terjunan",
+      "header_judge_panel": "Panel hakim",
+      "header_event_schedule": "Jadual acara",
+      "header_reserves": "Simpanan"
     }
   }
 }

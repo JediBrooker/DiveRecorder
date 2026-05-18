@@ -1,53 +1,53 @@
 {
   "errors": {
-    "unauthorized": "You're not signed in",
-    "forbidden": "You don't have permission for this action",
-    "not_found": "Not found",
-    "rate_limited": "Too many requests — please slow down and try again",
-    "validation_failed": "Request validation failed",
-    "server_error": "Server error — please try again"
+    "unauthorized": "Нисте пријављени",
+    "forbidden": "Немате дозволу за ову радњу",
+    "not_found": "Није пронађено",
+    "rate_limited": "Превише захтева — успорите и покушајте поново",
+    "validation_failed": "Провера захтева није успела",
+    "server_error": "Грешка сервера — покушајте поново"
   },
   "emails": {
     "password_reset": {
-      "subject": "{app_name} — password reset",
-      "greeting": "Hi {name},",
-      "body": "Someone (we hope it was you) asked to reset your {app_name} password. Click the link below to set a new one. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Reset password",
-      "footer": "If you didn't ask for this, you can safely ignore this email — no change has been made."
+      "subject": "{app_name} — ресетовање лозинке",
+      "greeting": "Здраво {name},",
+      "body": "Неко (надамо се да сте то били ви) је затражио ресетовање лозинке за {app_name}. Кликните на везу испод да бисте поставили нову. Веза важи 30 минута и може се искористити само једном.",
+      "cta": "Ресетуј лозинку",
+      "footer": "Ако то нисте затражили, можете слободно занемарити ову поруку — ништа није промењено."
     },
     "email_verify": {
-      "subject": "{app_name} — confirm your email",
-      "greeting": "Welcome to {app_name}, {name}!",
-      "body": "Click the link below to confirm your email address. The link is valid for 24 hours.",
-      "cta": "Confirm email",
-      "footer": "If you didn't sign up for {app_name}, you can ignore this email."
+      "subject": "{app_name} — потврдите своју е-пошту",
+      "greeting": "Добро дошли у {app_name}, {name}!",
+      "body": "Кликните на везу испод да бисте потврдили своју адресу е-поште. Веза важи 24 сата.",
+      "cta": "Потврди е-пошту",
+      "footer": "Ако се нисте регистровали на {app_name}, можете занемарити ову поруку."
     },
     "email_change": {
-      "subject": "{app_name} — confirm your new email",
-      "greeting": "Hi {name},",
-      "body": "You asked to change your {app_name} email to this address. Click the link below to confirm. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Confirm new email",
-      "footer": "If you didn't make this change, you can safely ignore this email — your account is unchanged."
+      "subject": "{app_name} — потврдите нову адресу е-поште",
+      "greeting": "Здраво {name},",
+      "body": "Затражили сте промену адресе е-поште на {app_name} на ову адресу. Кликните на везу испод за потврду. Веза важи 30 минута и може се искористити само једном.",
+      "cta": "Потврди нову адресу",
+      "footer": "Ако нисте направили ову промену, можете слободно занемарити ову поруку — ваш налог остаје непромењен."
     }
   },
   "pdf": {
     "program": {
-      "col_event": "Event",
-      "col_height": "Height",
-      "col_rounds": "Rounds",
-      "col_judges": "Judges",
-      "col_scheduled": "Scheduled",
-      "col_competitor": "Competitor",
-      "col_round": "Round",
-      "col_dive_code": "Dive Code",
-      "col_position": "Position",
+      "col_event": "Такмичење",
+      "col_height": "Висина",
+      "col_rounds": "Кругови",
+      "col_judges": "Судије",
+      "col_scheduled": "Време",
+      "col_competitor": "Такмичар",
+      "col_round": "Круг",
+      "col_dive_code": "Шифра скока",
+      "col_position": "Положај",
       "col_dd": "DD",
-      "col_description": "Description",
-      "header_program": "Meet Program",
-      "header_dive_lists": "Dive Lists",
-      "header_judge_panel": "Judge Panel",
-      "header_event_schedule": "Event Schedule",
-      "header_reserves": "Reserves"
+      "col_description": "Опис",
+      "header_program": "Програм такмичења",
+      "header_dive_lists": "Листе скокова",
+      "header_judge_panel": "Судијски панел",
+      "header_event_schedule": "Распоред такмичења",
+      "header_reserves": "Резерве"
     }
   }
 }

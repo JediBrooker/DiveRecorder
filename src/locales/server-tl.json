@@ -1,33 +1,33 @@
 {
   "errors": {
-    "unauthorized": "You're not signed in",
-    "forbidden": "You don't have permission for this action",
-    "not_found": "Not found",
-    "rate_limited": "Too many requests — please slow down and try again",
-    "validation_failed": "Request validation failed",
-    "server_error": "Server error — please try again"
+    "unauthorized": "Hindi ka naka-sign in",
+    "forbidden": "Wala kang permiso para sa pagkilos na ito",
+    "not_found": "Hindi nahanap",
+    "rate_limited": "Masyadong maraming request — pakihinaan at subukan muli",
+    "validation_failed": "Nabigo ang validation ng request",
+    "server_error": "Server error — pakisubukan muli"
   },
   "emails": {
     "password_reset": {
-      "subject": "{app_name} — password reset",
-      "greeting": "Hi {name},",
-      "body": "Someone (we hope it was you) asked to reset your {app_name} password. Click the link below to set a new one. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Reset password",
-      "footer": "If you didn't ask for this, you can safely ignore this email — no change has been made."
+      "subject": "{app_name} — pag-reset ng password",
+      "greeting": "Kumusta {name},",
+      "body": "May humiling (sana ay ikaw) na i-reset ang iyong {app_name} password. I-click ang link sa ibaba para mag-set ng bago. Valid ang link sa loob ng 30 minuto at magagamit lang nang isang beses.",
+      "cta": "I-reset ang password",
+      "footer": "Kung hindi ikaw ang humiling nito, pwede mong i-ignore ang email na ito — walang ginawang pagbabago."
     },
     "email_verify": {
-      "subject": "{app_name} — confirm your email",
-      "greeting": "Welcome to {app_name}, {name}!",
-      "body": "Click the link below to confirm your email address. The link is valid for 24 hours.",
-      "cta": "Confirm email",
-      "footer": "If you didn't sign up for {app_name}, you can ignore this email."
+      "subject": "{app_name} — kumpirmahin ang iyong email",
+      "greeting": "Maligayang pagdating sa {app_name}, {name}!",
+      "body": "I-click ang link sa ibaba para kumpirmahin ang iyong email address. Valid ang link sa loob ng 24 oras.",
+      "cta": "Kumpirmahin ang email",
+      "footer": "Kung hindi ka nag-sign up sa {app_name}, pwede mong i-ignore ang email na ito."
     },
     "email_change": {
-      "subject": "{app_name} — confirm your new email",
-      "greeting": "Hi {name},",
-      "body": "You asked to change your {app_name} email to this address. Click the link below to confirm. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Confirm new email",
-      "footer": "If you didn't make this change, you can safely ignore this email — your account is unchanged."
+      "subject": "{app_name} — kumpirmahin ang bago mong email",
+      "greeting": "Kumusta {name},",
+      "body": "Humiling kang baguhin ang iyong {app_name} email sa address na ito. I-click ang link sa ibaba para kumpirmahin. Valid ang link sa loob ng 30 minuto at magagamit lang nang isang beses.",
+      "cta": "Kumpirmahin ang bagong email",
+      "footer": "Kung hindi ikaw ang gumawa ng pagbabagong ito, pwede mong i-ignore ang email na ito — hindi nagbago ang iyong account."
     }
   },
   "pdf": {
@@ -36,18 +36,18 @@
       "col_height": "Height",
       "col_rounds": "Rounds",
       "col_judges": "Judges",
-      "col_scheduled": "Scheduled",
-      "col_competitor": "Competitor",
+      "col_scheduled": "Schedule",
+      "col_competitor": "Kalahok",
       "col_round": "Round",
       "col_dive_code": "Dive Code",
       "col_position": "Position",
       "col_dd": "DD",
-      "col_description": "Description",
-      "header_program": "Meet Program",
+      "col_description": "Deskripsyon",
+      "header_program": "Programa ng Meet",
       "header_dive_lists": "Dive Lists",
       "header_judge_panel": "Judge Panel",
-      "header_event_schedule": "Event Schedule",
-      "header_reserves": "Reserves"
+      "header_event_schedule": "Iskedyul ng Event",
+      "header_reserves": "Reserba"
     }
   }
 }

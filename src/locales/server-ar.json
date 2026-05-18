@@ -1,53 +1,53 @@
 {
   "errors": {
-    "unauthorized": "You're not signed in",
-    "forbidden": "You don't have permission for this action",
-    "not_found": "Not found",
-    "rate_limited": "Too many requests — please slow down and try again",
-    "validation_failed": "Request validation failed",
-    "server_error": "Server error — please try again"
+    "unauthorized": "لم تسجل الدخول",
+    "forbidden": "ليست لديك صلاحية لتنفيذ هذا الإجراء",
+    "not_found": "غير موجود",
+    "rate_limited": "عدد كبير جدًا من الطلبات — يرجى التمهل والمحاولة مرة أخرى",
+    "validation_failed": "فشل التحقق من صحة الطلب",
+    "server_error": "خطأ في الخادم — يرجى المحاولة مرة أخرى"
   },
   "emails": {
     "password_reset": {
-      "subject": "{app_name} — password reset",
-      "greeting": "Hi {name},",
-      "body": "Someone (we hope it was you) asked to reset your {app_name} password. Click the link below to set a new one. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Reset password",
-      "footer": "If you didn't ask for this, you can safely ignore this email — no change has been made."
+      "subject": "{app_name} — إعادة تعيين كلمة المرور",
+      "greeting": "مرحبًا {name}،",
+      "body": "طلب أحدهم إعادة تعيين كلمة مرور حسابك في {app_name}. للتأكد من أنك أنت، انقر على الرابط أدناه لتعيين كلمة مرور جديدة. الرابط صالح لمدة 30 دقيقة ولا يمكن استخدامه إلا مرة واحدة.",
+      "cta": "إعادة تعيين كلمة المرور",
+      "footer": "إذا لم تطلب ذلك، يمكنك تجاهل هذا البريد بأمان — لم يطرأ أي تغيير."
     },
     "email_verify": {
-      "subject": "{app_name} — confirm your email",
-      "greeting": "Welcome to {app_name}, {name}!",
-      "body": "Click the link below to confirm your email address. The link is valid for 24 hours.",
-      "cta": "Confirm email",
-      "footer": "If you didn't sign up for {app_name}, you can ignore this email."
+      "subject": "{app_name} — تأكيد بريدك الإلكتروني",
+      "greeting": "مرحبًا بك في {app_name} يا {name}!",
+      "body": "انقر على الرابط أدناه لتأكيد عنوان بريدك الإلكتروني. الرابط صالح لمدة 24 ساعة.",
+      "cta": "تأكيد البريد الإلكتروني",
+      "footer": "إذا لم تسجّل في {app_name}، يمكنك تجاهل هذا البريد."
     },
     "email_change": {
-      "subject": "{app_name} — confirm your new email",
-      "greeting": "Hi {name},",
-      "body": "You asked to change your {app_name} email to this address. Click the link below to confirm. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Confirm new email",
-      "footer": "If you didn't make this change, you can safely ignore this email — your account is unchanged."
+      "subject": "{app_name} — تأكيد بريدك الإلكتروني الجديد",
+      "greeting": "مرحبًا {name}،",
+      "body": "طلبت تغيير بريدك الإلكتروني في {app_name} إلى هذا العنوان. انقر على الرابط أدناه للتأكيد. الرابط صالح لمدة 30 دقيقة ولا يمكن استخدامه إلا مرة واحدة.",
+      "cta": "تأكيد البريد الجديد",
+      "footer": "إذا لم تجرِ هذا التغيير، يمكنك تجاهل هذا البريد بأمان — حسابك دون تغيير."
     }
   },
   "pdf": {
     "program": {
-      "col_event": "Event",
-      "col_height": "Height",
-      "col_rounds": "Rounds",
-      "col_judges": "Judges",
-      "col_scheduled": "Scheduled",
-      "col_competitor": "Competitor",
-      "col_round": "Round",
-      "col_dive_code": "Dive Code",
-      "col_position": "Position",
-      "col_dd": "DD",
-      "col_description": "Description",
-      "header_program": "Meet Program",
-      "header_dive_lists": "Dive Lists",
-      "header_judge_panel": "Judge Panel",
-      "header_event_schedule": "Event Schedule",
-      "header_reserves": "Reserves"
+      "col_event": "الفعالية",
+      "col_height": "الارتفاع",
+      "col_rounds": "الجولات",
+      "col_judges": "الحكام",
+      "col_scheduled": "الموعد",
+      "col_competitor": "المتنافس",
+      "col_round": "الجولة",
+      "col_dive_code": "رمز الغطسة",
+      "col_position": "الوضعية",
+      "col_dd": "معامل الصعوبة",
+      "col_description": "الوصف",
+      "header_program": "برنامج المسابقة",
+      "header_dive_lists": "قوائم الغطسات",
+      "header_judge_panel": "لجنة الحكام",
+      "header_event_schedule": "جدول الفعاليات",
+      "header_reserves": "الاحتياط"
     }
   }
 }

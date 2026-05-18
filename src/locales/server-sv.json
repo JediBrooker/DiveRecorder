@@ -1,53 +1,53 @@
 {
   "errors": {
-    "unauthorized": "You're not signed in",
-    "forbidden": "You don't have permission for this action",
-    "not_found": "Not found",
-    "rate_limited": "Too many requests — please slow down and try again",
-    "validation_failed": "Request validation failed",
-    "server_error": "Server error — please try again"
+    "unauthorized": "Du är inte inloggad",
+    "forbidden": "Du har inte behörighet för den här åtgärden",
+    "not_found": "Hittades inte",
+    "rate_limited": "För många förfrågningar — sakta ner och försök igen",
+    "validation_failed": "Validering av förfrågan misslyckades",
+    "server_error": "Serverfel — försök igen"
   },
   "emails": {
     "password_reset": {
-      "subject": "{app_name} — password reset",
-      "greeting": "Hi {name},",
-      "body": "Someone (we hope it was you) asked to reset your {app_name} password. Click the link below to set a new one. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Reset password",
-      "footer": "If you didn't ask for this, you can safely ignore this email — no change has been made."
+      "subject": "{app_name} — återställning av lösenord",
+      "greeting": "Hej {name},",
+      "body": "Någon (förhoppningsvis du) har begärt att återställa ditt {app_name}-lösenord. Klicka på länken nedan för att välja ett nytt. Länken är giltig i 30 minuter och kan bara användas en gång.",
+      "cta": "Återställ lösenord",
+      "footer": "Om du inte begärt detta kan du bortse från det här meddelandet — ingen ändring har gjorts."
     },
     "email_verify": {
-      "subject": "{app_name} — confirm your email",
-      "greeting": "Welcome to {app_name}, {name}!",
-      "body": "Click the link below to confirm your email address. The link is valid for 24 hours.",
-      "cta": "Confirm email",
-      "footer": "If you didn't sign up for {app_name}, you can ignore this email."
+      "subject": "{app_name} — bekräfta din e-post",
+      "greeting": "Välkommen till {app_name}, {name}!",
+      "body": "Klicka på länken nedan för att bekräfta din e-postadress. Länken är giltig i 24 timmar.",
+      "cta": "Bekräfta e-post",
+      "footer": "Om du inte har registrerat dig på {app_name} kan du bortse från det här meddelandet."
     },
     "email_change": {
-      "subject": "{app_name} — confirm your new email",
-      "greeting": "Hi {name},",
-      "body": "You asked to change your {app_name} email to this address. Click the link below to confirm. The link is valid for 30 minutes and can only be used once.",
-      "cta": "Confirm new email",
-      "footer": "If you didn't make this change, you can safely ignore this email — your account is unchanged."
+      "subject": "{app_name} — bekräfta din nya e-postadress",
+      "greeting": "Hej {name},",
+      "body": "Du har begärt att ändra din e-postadress på {app_name} till denna adress. Klicka på länken nedan för att bekräfta. Länken är giltig i 30 minuter och kan bara användas en gång.",
+      "cta": "Bekräfta ny e-post",
+      "footer": "Om du inte har gjort den här ändringen kan du bortse från det här meddelandet — ditt konto är oförändrat."
     }
   },
   "pdf": {
     "program": {
-      "col_event": "Event",
-      "col_height": "Height",
-      "col_rounds": "Rounds",
-      "col_judges": "Judges",
-      "col_scheduled": "Scheduled",
-      "col_competitor": "Competitor",
-      "col_round": "Round",
-      "col_dive_code": "Dive Code",
-      "col_position": "Position",
+      "col_event": "Tävling",
+      "col_height": "Höjd",
+      "col_rounds": "Omgångar",
+      "col_judges": "Domare",
+      "col_scheduled": "Tid",
+      "col_competitor": "Tävlande",
+      "col_round": "Omgång",
+      "col_dive_code": "Hoppkod",
+      "col_position": "Ställning",
       "col_dd": "DD",
-      "col_description": "Description",
-      "header_program": "Meet Program",
-      "header_dive_lists": "Dive Lists",
-      "header_judge_panel": "Judge Panel",
-      "header_event_schedule": "Event Schedule",
-      "header_reserves": "Reserves"
+      "col_description": "Beskrivning",
+      "header_program": "Tävlingsprogram",
+      "header_dive_lists": "Hopplistor",
+      "header_judge_panel": "Domarpanel",
+      "header_event_schedule": "Tävlingsschema",
+      "header_reserves": "Reserver"
     }
   }
 }
