@@ -477,7 +477,7 @@
       "quick_actions": "Tindakan cepat",
       "shortcuts": "Pintasan",
       "glossary": "Glosarium",
-      "faq": "FAQ",
+      "faq": "Pertanyaan yang Sering Diajukan",
       "wiki": "Lebih lanjut di wiki"
     },
     "quick_actions": {
@@ -888,7 +888,7 @@
       "club_name_placeholder": "Klub Loncat Indah Ibukota",
       "club_code_label": "Kode singkat",
       "club_code_label_hint": "(opsional)",
-      "club_code_placeholder": "CAP",
+      "club_code_placeholder": "KODE",
       "club_create_btn": "Buat klub & lanjutkan →",
       "club_creating": "Membuat…",
       "club_no_org_error": "Tidak bisa membuat klub — akun Anda tidak memiliki org_id.",

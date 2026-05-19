@@ -681,7 +681,7 @@
       "dak_url_hint": "先打开此 URL,在您将一块板对准它之前,确认所选赛事正在发布场馆状态。",
       "dak_block1_title": "1. 测试输出",
       "dak_block1_desc": "在 Terminal 中打印一个 RTD 帧,无需触碰板。",
-      "dak_block2_title": "2. All Sport Pro / ERTD UDP",
+      "dak_block2_title": "2. 全方位运动专业 / ERTD UDP",
       "dak_block2_desc": "默认场馆记分牌模式。更改 host 和 data-source 以匹配 Daktronics 设置。",
       "dak_block3_title": "可选:JSON over TCP",
       "dak_block3_desc": "仅当场馆的 Data Studio 工作流需要 JSON 字段时使用。",

@@ -488,7 +488,7 @@
       "quick_actions": "Hurtige handlinger",
       "shortcuts": "Genveje",
       "glossary": "Ordliste",
-      "faq": "FAQ",
+      "faq": "Ofte stillede spørgsmål",
       "wiki": "Mere på wikien"
     },
     "quick_actions": {
@@ -899,7 +899,7 @@
       "club_name_placeholder": "Capital Dykkerklub",
       "club_code_label": "Kort kode",
       "club_code_label_hint": "(valgfri)",
-      "club_code_placeholder": "CAP",
+      "club_code_placeholder": "KLUBKODE",
       "club_create_btn": "Opret klub og fortsæt →",
       "club_creating": "Opretter…",
       "club_no_org_error": "Kan ikke oprette en klub — din konto har intet org_id.",

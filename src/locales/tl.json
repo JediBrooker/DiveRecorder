@@ -616,7 +616,7 @@
       "diver_rows_with_missing_many": "{name} — {rows} / {total} rounds, {missing} dive codes ang nawawala",
       "incomplete_overflow": "+ {n} pa",
       "judges_seated": "{seated} sa {total} judges ang nakaupo",
-      "judge_label": "J{n} {name}",
+      "judge_label": "Hukom J{n} {name}",
       "judge_fallback": "Hurado",
       "ref_signed_off": "Naka-sign off na",
       "ref_not_signed_off": "Hindi pa naka-sign off",

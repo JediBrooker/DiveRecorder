@@ -899,7 +899,7 @@
       "club_name_placeholder": "Capital Műugró Klub",
       "club_code_label": "Rövid kód",
       "club_code_label_hint": "(opcionális)",
-      "club_code_placeholder": "CAP",
+      "club_code_placeholder": "KLUBKÓD",
       "club_create_btn": "Klub létrehozása és folytatás →",
       "club_creating": "Létrehozás…",
       "club_no_org_error": "Nem lehet klubot létrehozni — fiókjának nincs org_id-ja.",

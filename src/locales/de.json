@@ -488,7 +488,7 @@
       "quick_actions": "Schnellaktionen",
       "shortcuts": "Tastenkürzel",
       "glossary": "Glossar",
-      "faq": "FAQ",
+      "faq": "Häufig gestellte Fragen",
       "wiki": "Mehr im Wiki"
     },
     "quick_actions": {
@@ -896,7 +896,7 @@
       "club_title": "Legen Sie Ihren ersten Verein an",
       "club_body": "Vereine sind die Zugehörigkeits-Plakette, die Sie auf der Anzeigetafel neben jedem Springer-Namen sehen. Geben Sie Ihrem Verein einen Namen und einen optionalen Kurzcode (3–6 Zeichen, z. B. {code}) — beides lässt sich später ändern.",
       "club_name_label": "Vereinsname",
-      "club_name_placeholder": "Capital Diving Club",
+      "club_name_placeholder": "Capital Tauchclub",
       "club_code_label": "Kurzcode",
       "club_code_label_hint": "(freiwillig)",
       "club_code_placeholder": "CAP",

@@ -681,7 +681,7 @@
       "dak_url_hint": "افتح هذا الرابط أولًا للتأكّد من أن الحدث المختار يبثّ حالة الموقع قبل توجيه لوحة عرض إليه.",
       "dak_block1_title": "1. اختبار الإخراج",
       "dak_block1_desc": "اطبع إطار RTD واحدًا في الـ Terminal دون لمس اللوحة.",
-      "dak_block2_title": "2. All Sport Pro / ERTD UDP",
+      "dak_block2_title": "2. أول سبورت برو / ERTD UDP",
       "dak_block2_desc": "وضع لوحة الموقع الافتراضي. عدّل host و data-source ليتطابقا مع إعداد Daktronics.",
       "dak_block3_title": "اختياري: JSON عبر TCP",
       "dak_block3_desc": "استخدمه فقط إذا كان مسار Data Studio في الموقع يتوقّع حقول JSON.",

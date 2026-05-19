@@ -681,7 +681,7 @@
       "dak_url_hint": "ボードを向ける前に、まずこの URL を開いて選択した種目が会場状態を発行していることを確認してください。",
       "dak_block1_title": "1. テスト出力",
       "dak_block1_desc": "ボードに触れずに、Terminal で 1 つの RTD フレームを出力します。",
-      "dak_block2_title": "2. All Sport Pro / ERTD UDP",
+      "dak_block2_title": "2. オールスポーツプロ / ERTD UDP",
       "dak_block2_desc": "デフォルトの会場ボードモード。Daktronics 設定に合わせて host と data-source を変更してください。",
       "dak_block3_title": "オプション:JSON over TCP",
       "dak_block3_desc": "会場の Data Studio ワークフローが JSON フィールドを期待する場合にのみ使用します。",
