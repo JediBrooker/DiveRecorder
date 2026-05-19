@@ -186,6 +186,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onTourKey))
 </script>
 
 <template>
+  <!-- Teleport defensively (see notes in ConfirmModal). -->
+  <Teleport to="body">
   <div v-if="open && slide" class="role-tour-backdrop" role="dialog" aria-modal="true" aria-labelledby="role-tour-title" @click.self="skip">
     <div ref="cardEl" class="role-tour-card" tabindex="-1">
       <div class="role-tour-progress">
@@ -215,6 +217,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onTourKey))
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>

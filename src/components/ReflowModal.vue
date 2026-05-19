@@ -160,15 +160,19 @@ function onSkip() {
 </script>
 
 <template>
-  <Transition name="reflow-modal">
-    <div
-      v-if="open && proposal"
-      class="reflow-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="reflow-title"
-      @mousedown.self="onSkip"
-    >
+  <!-- Teleport defensively: this modal mounts inside ControlView
+       whose layout has many nested wrappers; any future
+       transform on one of them would break our position:fixed. -->
+  <Teleport to="body">
+    <Transition name="reflow-modal">
+      <div
+        v-if="open && proposal"
+        class="reflow-backdrop"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="reflow-title"
+        @mousedown.self="onSkip"
+      >
       <div class="reflow-modal">
         <div id="reflow-title" class="reflow-title">
           {{ t('scheduler.reflow.title') }}
@@ -264,7 +268,8 @@ function onSkip() {
         </div>
       </div>
     </div>
-  </Transition>
+    </Transition>
+  </Teleport>
 </template>
 
 <style scoped>

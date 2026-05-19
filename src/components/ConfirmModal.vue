@@ -52,40 +52,50 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
 </script>
 
 <template>
-  <Transition name="confirm-modal">
-    <div
-      v-if="state"
-      :key="state.id"
-      class="confirm-backdrop"
-      role="dialog"
-      aria-modal="true"
-      :aria-labelledby="`confirm-title-${state.id}`"
-      @mousedown.self="onCancel"
-    >
-      <div class="confirm-modal" :class="`confirm-modal-${state.confirmKind}`">
-        <div :id="`confirm-title-${state.id}`" class="confirm-title">
-          {{ state.title }}
-        </div>
-        <p v-if="state.body" class="confirm-body">{{ state.body }}</p>
-        <ul v-if="state.consequences.length" class="confirm-consequences">
-          <li v-for="(c, i) in state.consequences" :key="i">{{ c }}</li>
-        </ul>
-        <div class="confirm-actions">
-          <button
-            type="button"
-            class="confirm-btn confirm-btn-cancel"
-            @click="onCancel"
-          >{{ state.cancelLabel }}</button>
-          <button
-            ref="confirmBtnRef"
-            type="button"
-            :class="['confirm-btn', `confirm-btn-${state.confirmKind}`]"
-            @click="onConfirm"
-          >{{ state.confirmLabel }}</button>
+  <!-- Teleport to body so an ancestor with transform/filter/
+       contain:paint/perspective can't break position:fixed.
+       This component is mounted in App.vue today (no such
+       ancestor), but the teleport is defensive — if anyone
+       wraps App in a transformed shell, fixed-positioned
+       modals would silently stop covering the viewport. Vue's
+       scoped-CSS attribute selectors follow teleported nodes
+       so the .confirm-backdrop rules below still apply. -->
+  <Teleport to="body">
+    <Transition name="confirm-modal">
+      <div
+        v-if="state"
+        :key="state.id"
+        class="confirm-backdrop"
+        role="dialog"
+        aria-modal="true"
+        :aria-labelledby="`confirm-title-${state.id}`"
+        @mousedown.self="onCancel"
+      >
+        <div class="confirm-modal" :class="`confirm-modal-${state.confirmKind}`">
+          <div :id="`confirm-title-${state.id}`" class="confirm-title">
+            {{ state.title }}
+          </div>
+          <p v-if="state.body" class="confirm-body">{{ state.body }}</p>
+          <ul v-if="state.consequences.length" class="confirm-consequences">
+            <li v-for="(c, i) in state.consequences" :key="i">{{ c }}</li>
+          </ul>
+          <div class="confirm-actions">
+            <button
+              type="button"
+              class="confirm-btn confirm-btn-cancel"
+              @click="onCancel"
+            >{{ state.cancelLabel }}</button>
+            <button
+              ref="confirmBtnRef"
+              type="button"
+              :class="['confirm-btn', `confirm-btn-${state.confirmKind}`]"
+              @click="onConfirm"
+            >{{ state.confirmLabel }}</button>
+          </div>
         </div>
       </div>
-    </div>
-  </Transition>
+    </Transition>
+  </Teleport>
 </template>
 
 <style scoped>

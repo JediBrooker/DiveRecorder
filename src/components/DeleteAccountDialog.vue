@@ -56,6 +56,8 @@ async function submit() {
 </script>
 
 <template>
+  <!-- Teleport defensively (see notes in ConfirmModal). -->
+  <Teleport to="body">
   <div class="modal-backdrop" @click.self="$emit('close')">
     <div class="modal delete-modal">
       <div class="modal-head">
@@ -105,6 +107,7 @@ async function submit() {
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>

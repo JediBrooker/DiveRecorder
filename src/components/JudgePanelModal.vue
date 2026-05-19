@@ -255,6 +255,12 @@ function warningNames(c) {
 </script>
 
 <template>
+  <!-- Teleport to body so this modal's fixed positioning isn't
+       broken by any ancestor with transform/filter/perspective/
+       contain:paint. Defensive: today's mount point is fine,
+       but ControlView's wrapper layouts shift frequently and
+       a transform someday would silently break us. -->
+  <Teleport to="body">
   <div v-if="open" class="modal-backdrop" @mousedown.self="close">
     <div class="modal judge-panel-modal" @mousedown.stop>
       <div class="jpm-header">
@@ -405,6 +411,7 @@ function warningNames(c) {
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>

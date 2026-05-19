@@ -261,6 +261,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!-- Teleport defensively (see notes in ConfirmModal). -->
+  <Teleport to="body">
   <div v-if="open" class="cmdk-backdrop" @mousedown.self="closePalette" role="dialog" aria-modal="true" aria-label="Quick search">
     <div class="cmdk-shell" @keydown="onPaletteKey">
       <div class="cmdk-input-row">
@@ -303,6 +305,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>

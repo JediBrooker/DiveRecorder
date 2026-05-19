@@ -143,6 +143,8 @@ function skip() {
 </script>
 
 <template>
+  <!-- Teleport defensively (see notes in ConfirmModal). -->
+  <Teleport to="body">
   <div class="modal-backdrop" @click.self="$emit('close')">
     <div class="modal claim-modal">
       <div class="modal-head">
@@ -235,6 +237,7 @@ function skip() {
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>
