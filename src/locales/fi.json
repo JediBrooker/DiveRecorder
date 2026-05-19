@@ -828,7 +828,7 @@
       "club_title": "Luo ensimmäinen seurasi",
       "club_body": "Seurat ovat se kuuluvuusmerkki, joka näkyy tulostaululla jokaisen hyppääjän nimen vieressä. Anna seurallesi nimi ja valinnainen lyhytkoodi (3–6 merkkiä, esim. {code}) — molempia voi muokata myöhemmin.",
       "club_name_label": "Seuran nimi",
-      "club_name_placeholder": "Capital Diving Club",
+      "club_name_placeholder": "Pääkaupungin Sukellusseura",
       "club_code_label": "Lyhytkoodi",
       "club_code_label_hint": "(valinnainen)",
       "club_code_placeholder": "CAP",

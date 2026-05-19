@@ -828,7 +828,7 @@
       "club_title": "Создайте свой первый клуб",
       "club_body": "Клубы — это плашка принадлежности, которая отображается на табло рядом с именем каждого прыгуна. Дайте вашему клубу название и необязательный короткий код (3–6 символов, напр. {code}) — оба можно изменить позже.",
       "club_name_label": "Название клуба",
-      "club_name_placeholder": "Capital Diving Club",
+      "club_name_placeholder": "Клуб прыжков в воду «Capital Diving Club»",
       "club_code_label": "Короткий код",
       "club_code_label_hint": "(необязательно)",
       "club_code_placeholder": "CAP",

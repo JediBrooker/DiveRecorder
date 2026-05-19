@@ -828,7 +828,7 @@
       "club_title": "Hozza létre első klubját",
       "club_body": "A klubok azok a hovatartozási chip-ek, amelyeket az eredménytáblán fog látni minden műugró neve mellett. Adjon nevet a sajátjának és opcionális rövid kódot (3–6 karakter, pl. {code}) — mindkettő szerkeszthető később.",
       "club_name_label": "Klub neve",
-      "club_name_placeholder": "Capital Diving Club",
+      "club_name_placeholder": "Capital Műugró Klub",
       "club_code_label": "Rövid kód",
       "club_code_label_hint": "(opcionális)",
       "club_code_placeholder": "CAP",

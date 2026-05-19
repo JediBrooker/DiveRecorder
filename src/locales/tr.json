@@ -548,7 +548,7 @@
       "diver_rows_with_missing_many": "{name} — {rows} / {total} tur, {missing} atlama kodu eksik",
       "incomplete_overflow": "+ {n} daha",
       "judges_seated": "{seated} / {total} hakem yerleştirildi",
-      "judge_label": "J{n} {name}",
+      "judge_label": "H{n} {name}",
       "judge_fallback": "Hakem",
       "ref_signed_off": "Onayladı",
       "ref_not_signed_off": "Onaylamadı",

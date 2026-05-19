@@ -828,7 +828,7 @@
       "club_title": "Crée ton premier club",
       "club_body": "Les clubs sont la pastille d'affiliation que tu verras sur le tableau d'affichage à côté du nom de chaque plongeur. Donne au tien un nom et un code court optionnel (3–6 caractères, ex. {code}) — les deux pourront être modifiés plus tard.",
       "club_name_label": "Nom du club",
-      "club_name_placeholder": "Capital Diving Club",
+      "club_name_placeholder": "Club de Plongeon Capital",
       "club_code_label": "Code court",
       "club_code_label_hint": "(optionnel)",
       "club_code_placeholder": "CAP",

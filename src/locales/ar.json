@@ -548,7 +548,7 @@
       "diver_rows_with_missing_many": "{name} — {rows} / {total} جولات، {missing} رموز غطسات مفقودة",
       "incomplete_overflow": "+ {n} آخرون",
       "judges_seated": "{seated} من {total} حكّام تم تعيينهم",
-      "judge_label": "J{n} {name}",
+      "judge_label": "قاضي {n} {name}",
       "judge_fallback": "حكم",
       "ref_signed_off": "اعتُمد",
       "ref_not_signed_off": "لم يُعتمد بعد",

@@ -828,7 +828,7 @@
       "club_title": "Створіть свій перший клуб",
       "club_body": "Клуби — це плашка приналежності, яку видно на табло поруч з ім’ям кожного стрибуна. Дайте вашому клубу назву і необов’язковий короткий код (3–6 символів, напр. {code}) — обидва можна змінити пізніше.",
       "club_name_label": "Назва клубу",
-      "club_name_placeholder": "Capital Diving Club",
+      "club_name_placeholder": "Клуб стрибків у воду «Capital»",
       "club_code_label": "Короткий код",
       "club_code_label_hint": "(необов’язково)",
       "club_code_placeholder": "CAP",

@@ -548,7 +548,7 @@
       "diver_rows_with_missing_many": "{name} — {rows} / {total} ronde, {missing} kode loncatan hilang",
       "incomplete_overflow": "+ {n} lagi",
       "judges_seated": "{seated} dari {total} juri ditempatkan",
-      "judge_label": "J{n} {name}",
+      "judge_label": "Juri {n} {name}",
       "judge_fallback": "Juri",
       "ref_signed_off": "Telah menandatangani",
       "ref_not_signed_off": "Belum menandatangani",
