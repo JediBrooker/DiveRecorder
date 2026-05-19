@@ -1,0 +1,121 @@
+// Pure-JS body-scroll-lock implementation. No Vue, no DOM
+// globals at the module scope — every API takes the
+// `window` / `document` it operates on explicitly. This makes
+// the module trivially testable (the unit suite passes in
+// fake objects) AND keeps the production composable a thin
+// Vue wrapper around this.
+//
+// See useBodyScrollLock.js for the why-this-exists narrative;
+// this file is just the mechanics.
+
+// Module-level state. One lock counter for the whole app — the
+// same body element is locked or it isn't.
+let lockCount = 0
+let savedScrollY = 0
+// We stash the styles we OVERWRITE so the unlock can restore
+// the original values (the body has its own design styles that
+// must not be nuked). Only populated when going 0 -> 1.
+let savedBodyStyles = null
+
+function applyLock(win, doc) {
+  // Only act on the 0 -> 1 transition. Nested locks are no-ops
+  // at the DOM level; just bump the counter.
+  if (lockCount > 0) {
+    lockCount++
+    return
+  }
+  lockCount = 1
+
+  savedScrollY = win.scrollY || win.pageYOffset || 0
+  const body = doc.body
+  savedBodyStyles = {
+    position: body.style.position,
+    top:      body.style.top,
+    left:     body.style.left,
+    right:    body.style.right,
+    width:    body.style.width,
+    // Belt-and-braces: also pin overflow on the html element,
+    // which catches the small number of layouts where body's
+    // overflow isn't the scroll container.
+    htmlOverflow: doc.documentElement.style.overflow,
+  }
+  body.style.position = 'fixed'
+  body.style.top      = `-${savedScrollY}px`
+  body.style.left     = '0'
+  body.style.right    = '0'
+  body.style.width    = '100%'
+  doc.documentElement.style.overflow = 'hidden'
+}
+
+function applyUnlock(win, doc) {
+  if (lockCount <= 0) {
+    // Already unlocked. Don't underflow.
+    return
+  }
+  lockCount--
+  if (lockCount > 0) {
+    // Outer modal still open. Leave the lock in place.
+    return
+  }
+
+  // 1 -> 0 transition. Restore body + scroll.
+  const body = doc.body
+  if (savedBodyStyles) {
+    body.style.position = savedBodyStyles.position
+    body.style.top      = savedBodyStyles.top
+    body.style.left     = savedBodyStyles.left
+    body.style.right    = savedBodyStyles.right
+    body.style.width    = savedBodyStyles.width
+    doc.documentElement.style.overflow = savedBodyStyles.htmlOverflow
+    savedBodyStyles = null
+  }
+  // Use scrollTo with the saved offset. window.scroll() would
+  // animate on some browsers if scroll-behavior: smooth is set
+  // globally — restore is supposed to be instant.
+  win.scrollTo(0, savedScrollY)
+}
+
+/**
+ * Public API. Each caller gets its own instance counter so
+ * lockup on component unmount can release exactly what that
+ * instance locked, without underflowing global state.
+ *
+ * Pass `null` (or omit the args) for SSR safety — every
+ * method becomes a silent no-op when there's no environment
+ * to act on.
+ *
+ * @param {Window|null}   win
+ * @param {Document|null} doc
+ */
+export function createBodyScrollLock(win, doc) {
+  const hasEnv = !!(win && doc)
+  let instanceLocks = 0
+
+  function lock() {
+    if (!hasEnv) return
+    instanceLocks++
+    applyLock(win, doc)
+  }
+
+  function unlock() {
+    if (!hasEnv) return
+    if (instanceLocks <= 0) return
+    instanceLocks--
+    applyUnlock(win, doc)
+  }
+
+  function releaseAll() {
+    while (instanceLocks > 0) unlock()
+  }
+
+  return { lock, unlock, releaseAll }
+}
+
+// Test-only exports — read/reset module-level state. Not part
+// of the public API; production code should not import these.
+export function __getLockCount() { return lockCount }
+export function __reset() {
+  lockCount = 0
+  savedScrollY = 0
+  savedBodyStyles = null
+}
