@@ -29,7 +29,11 @@
 
 .broadcast-exit {
   position: fixed; top: 1rem; inset-inline-end: 1rem; z-index: 90;
-  width: 36px; height: 36px;
+  /* 44×44 minimum (WCAG 2.5.5 / Apple HIG). The visible chip
+     stays small via the inner glyph + border-radius; the larger
+     hit area is invisible but tappable, so we don't enlarge the
+     design's visual weight. */
+  width: 44px; height: 44px;
   display: flex; align-items: center; justify-content: center;
   background: rgba(0,0,0,0.4); color: var(--text-3);
   border: 1px solid var(--border); border-radius: 50%;

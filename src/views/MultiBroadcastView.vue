@@ -188,7 +188,16 @@ const gridStyle = computed(() => {
 <style scoped>
 .mbcast-root {
   position: fixed;
-  inset: 0;
+  /* inset:0 alone doesn't account for the iOS Safari dynamic
+     toolbar. Anchor explicitly using safe-area insets so an
+     accidental iPhone preview doesn't render the bottom 50-90px
+     of the multi-stream behind Safari's UI. height:100dvh +
+     inset 0 0 auto 0 + bottom safe-area gives a stream area
+     that's actually visible on a phone. On laptops/projectors
+     env() values are 0 so this still behaves like inset:0. */
+  top: 0; inset-inline-start: 0; inset-inline-end: 0;
+  bottom: env(safe-area-inset-bottom, 0px);
+  height: 100dvh;
   background: var(--bg, #0f172a);
   overflow: hidden;
   font-family: var(--font-display, sans-serif);

@@ -1,9 +1,18 @@
 /* =============================================================
    DIVING APP — Design System v2
    Place at: public/css/app.css
-   ============================================================= */
 
-@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,300;0,400;0,600;0,700;0,900;1,700;1,900&family=DM+Mono:wght@300;400;500&display=swap');
+   Fonts: see index.html. The Google Fonts stylesheet used to be
+   imported here with @import, which blocks first paint while the
+   CSSOM waits for the network round-trip — bad on slow poolside
+   cell connections (judges' phones on 3G/4G). It's now loaded
+   from index.html as a parallel <link rel="preconnect"> +
+   <link rel="stylesheet">, which lets the HTML parser kick off
+   the DNS lookup + TLS handshake in parallel with this CSS
+   bundle's download. First contentful paint is faster, and
+   "Barlow Condensed" still resolves before the design needs it
+   because display=swap means we render with the fallback first.
+   ============================================================= */
 
 /* ── Variables ────────────────────────────────────────────── */
 :root {

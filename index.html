@@ -25,6 +25,20 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
   <link rel="apple-touch-icon" sizes="192x192" href="/icon-192.png">
+  <!-- Fonts. preconnect lets the HTML parser kick off DNS + TLS
+       to fonts.googleapis.com + fonts.gstatic.com in parallel
+       with the main JS/CSS bundle download. The stylesheet link
+       itself is render-blocking by default, but display=swap on
+       the font URL means the design still paints (with a system
+       fallback) immediately and swaps to Barlow Condensed when
+       ready. Previously this was an @import at the top of
+       app.css, which blocks first paint while the CSSOM waits
+       for the round-trip — measurable papercut on slow poolside
+       cell connections. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,300;0,400;0,600;0,700;0,900;1,700;1,900&family=DM+Mono:wght@300;400;500&display=swap">
   <!-- Global stylesheet is imported by src/main.js so Vite
        content-hashes the bundled filename. -->
 </head>

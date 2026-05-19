@@ -1292,7 +1292,11 @@ function attachSocketHandlers() {
      overflow without creating a scroll container. Universally
      supported since Safari 16. */
   width: 100%;
-  max-width: 100vw;
+  /* 100% (not 100vw) — 100vw includes the scrollbar gutter on
+     some browsers, overshoots the parent on iOS, and can force
+     a horizontal scrollbar from rounding. The parent already
+     caps the width at the viewport; 100% inherits that cleanly. */
+  max-width: 100%;
   padding-bottom: 4rem;
 }
 
