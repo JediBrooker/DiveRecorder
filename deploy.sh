@@ -203,8 +203,18 @@ fi
 # ---- 6. Restart service ---------------------------------------
 # Named process, not "all", so other PM2 processes on this box
 # (cron workers, side services) aren't disturbed.
-step "pm2 restart ${PM2_PROCESS_NAME}"
-run pm2 restart "${PM2_PROCESS_NAME}"
+#
+# --update-env tells PM2 to re-read the process's environment
+# (including .env via PM2's dotenv) instead of reusing whatever
+# shell env was in scope when `pm2 start` first booted the
+# process. Without it, edits to .env (rotated JWT_SECRET, new
+# OPENAI_API_KEY for the translator, etc.) silently fail to
+# take effect after a deploy until someone notices the process
+# is still using the old values. Pay the re-read on every
+# deploy — it's free when nothing changed, and removes a class
+# of "why isn't the new env var live?" debugging session.
+step "pm2 restart ${PM2_PROCESS_NAME} --update-env"
+run pm2 restart "${PM2_PROCESS_NAME}" --update-env
 
 # ---- 7. Health check ------------------------------------------
 # Poll /api/health until it returns 200 or HEALTH_TIMEOUT_S
