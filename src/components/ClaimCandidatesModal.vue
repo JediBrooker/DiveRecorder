@@ -19,6 +19,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 
 const props = defineProps({
   // Pre-fetched candidates (when the caller already has them).
@@ -30,6 +31,12 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close', 'claimed', 'skipped'])
+
+// Lock background scroll for the lifetime of this modal — the
+// component is mounted only while open, so a single lock at
+// setup is sufficient. The composable's own onUnmounted releases
+// the lock when this component is torn down.
+useBodyScrollLock().lock()
 
 const { t, locale } = useI18n()
 const auth = useAuthStore()

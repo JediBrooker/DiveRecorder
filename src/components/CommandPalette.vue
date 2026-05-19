@@ -22,11 +22,16 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 
 const router = useRouter()
 const auth   = useAuthStore()
 
 const open    = ref(false)
+
+// Lock background scroll while the palette is up so iOS Safari
+// can't drift the page underneath while the user is searching.
+useBodyScrollLock().lockWhile(open)
 const query   = ref('')
 const cursor  = ref(0)
 const inputEl = ref(null)

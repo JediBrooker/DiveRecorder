@@ -19,11 +19,16 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useRouter } from 'vue-router'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 
 const auth = useAuthStore()
 const router = useRouter()
 
 const open    = ref(false)
+
+// Lock background scroll while the tour overlay is up so iOS
+// Safari can't drift the dashboard underneath.
+useBodyScrollLock().lockWhile(open)
 const role    = ref(null)        // 'coach' | 'judge' | 'diver'
 const cursor  = ref(0)
 

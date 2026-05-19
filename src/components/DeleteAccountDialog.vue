@@ -16,9 +16,14 @@
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 
 const { t } = useI18n()
 const auth = useAuthStore()
+
+// Component is mounted only while open — lock for its lifetime
+// and rely on the composable's onUnmounted to release.
+useBodyScrollLock().lock()
 
 const emit = defineEmits(['close', 'deleted'])
 

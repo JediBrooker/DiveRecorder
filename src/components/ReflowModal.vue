@@ -17,9 +17,10 @@
 // emit `close` and the proposal is discarded — the operator can
 // always edit blocks manually in the scheduler view later.
 
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, toRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 
 const props = defineProps({
   open: { type: Boolean, required: true },
@@ -40,6 +41,11 @@ const emit = defineEmits(['close', 'saved'])
 
 const auth = useAuthStore()
 const { t } = useI18n()
+
+// Lock background scroll while open — iOS Safari otherwise lets
+// the operator drag the underlying Control surface while they're
+// reviewing the candidate list.
+useBodyScrollLock().lockWhile(toRef(props, 'open'))
 
 // Per-block selection. Reset to all-checked every time the modal
 // re-opens with a new proposal — the design doc explicitly defaults

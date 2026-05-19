@@ -7,10 +7,11 @@
 // successful POST so the parent can refresh its judgePanel ref and
 // the readiness check ticks green.
 
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, toRef } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 
 const props = defineProps({
   open:      { type: Boolean, required: true },
@@ -30,6 +31,11 @@ const emit = defineEmits(['close', 'saved'])
 const auth = useAuthStore()
 const router = useRouter()
 const { t } = useI18n()
+
+// Lock background scroll while open — iOS Safari otherwise lets
+// the operator drag the page underneath this modal mid-roster-
+// build and lose their place in the control surface.
+useBodyScrollLock().lockWhile(toRef(props, 'open'))
 
 // Phase 2 — post-save conflict warnings. Populated by the
 // optional check after a successful POST /api/events/:id/judges.

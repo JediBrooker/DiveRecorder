@@ -6,11 +6,18 @@
 // Replaces native window.confirm() — which can't render a
 // rich consequences list, can't be styled, and trains
 // operators to dismiss-by-instinct.
-import { onBeforeUnmount, watch, nextTick, ref } from 'vue'
+import { onBeforeUnmount, watch, nextTick, ref, computed } from 'vue'
 import { useConfirmState, resolveConfirm } from '@/composables/useConfirm'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 
 const state = useConfirmState()
 const confirmBtnRef = ref(null)
+
+// Lock background scroll while open. iOS Safari otherwise lets
+// the user drag the page underneath the dialog and end up at a
+// different scroll position when it closes — disorienting on a
+// confirm that's supposed to be a yes/no moment.
+useBodyScrollLock().lockWhile(computed(() => !!state.value))
 
 function onConfirm() { resolveConfirm(true) }
 function onCancel()  { resolveConfirm(false) }
@@ -86,8 +93,21 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
   position: fixed; inset: 0;
   z-index: 1100;
   background: rgba(0, 0, 0, 0.6);
-  display: flex; align-items: center; justify-content: center;
-  padding: 1.5rem;
+  /* iOS-aware top/bottom padding so the modal never overlaps
+     the notch or home-indicator gesture zone. */
+  padding:
+    max(1.5rem, env(safe-area-inset-top))
+    1.5rem
+    max(1.5rem, env(safe-area-inset-bottom));
+  /* Let the backdrop scroll if the modal taller than the
+     viewport (long consequences list on a short iPhone). The
+     original `align-items: center` produced a centred-but-
+     unscrollable layout — buttons disappeared off the bottom on
+     iPhone SE. `align-items: safe center` keeps centering but
+     falls back to top-anchoring when content overflows so the
+     scroll affordance is reachable. */
+  display: flex; align-items: safe center; justify-content: center;
+  overflow-y: auto;
 }
 .confirm-modal {
   background: var(--bg-2);
