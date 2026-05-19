@@ -101,14 +101,34 @@ const io = new Server(server, { cors: { origin: CORS_ORIGIN } });
 // The Vite build emits no inline <script> tags — the only inline
 // element in dist/index.html is a <link rel="stylesheet"> — so
 // strict script-src 'self' works without a nonce or hash list.
+// In test mode (RATE_LIMIT_DISABLED=true), drop the
+// upgrade-insecure-requests CSP directive. Production unaffected.
+//
+// Why: the local Playwright webServer only listens on HTTP, but
+// WebKit obeys upgrade-insecure-requests by silently rewriting
+// every asset URL from http://127.0.0.1:3097 to https://...
+// which then fails with a TLS error and the SPA never mounts.
+// Chromium has a localhost exemption so the existing chromium
+// tests aren't affected; WebKit doesn't. Keeping the directive
+// disabled in production-style runs (where HTTPS is real and
+// the upgrade is a no-op) avoids the routing complexity that
+// would otherwise be needed in test/e2e/mobile-safari.spec.js.
+const cspDirectives = {
+  "connect-src": ["'self'", "ws:", "wss:"],
+  "img-src": ["'self'", "data:", "blob:"],
+};
+if (process.env.RATE_LIMIT_DISABLED === "true") {
+  cspDirectives["upgrade-insecure-requests"] = null;
+}
 app.use(helmet({
   contentSecurityPolicy: {
     useDefaults: true,
-    directives: {
-      "connect-src": ["'self'", "ws:", "wss:"],
-      "img-src": ["'self'", "data:", "blob:"],
-    },
+    directives: cspDirectives,
   },
+  // Skip HSTS in test mode for the same reason — HSTS would
+  // make WebKit upgrade on subsequent visits even with CSP
+  // disabled.
+  strictTransportSecurity: process.env.RATE_LIMIT_DISABLED !== "true",
   crossOriginEmbedderPolicy: false,
 }));
 app.use(cors({ origin: CORS_ORIGIN }));

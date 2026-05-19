@@ -11,7 +11,7 @@
 // covered by `npm test` (Node test runner), so the two suites
 // don't interfere.
 
-const { defineConfig } = require("@playwright/test");
+const { defineConfig, devices } = require("@playwright/test");
 
 const DOCS_E2E = process.env.E2E_DOCS === "1";
 const requestedCiWorkers = Number(process.env.PW_WORKERS);
@@ -47,8 +47,48 @@ module.exports = defineConfig({
     video: "retain-on-failure",
   },
   projects: [
+    // Mobile-Safari project — runs only the mobile-safari.spec.js
+    // file by default (testMatch keeps it out of the regular
+    // chromium project) using Playwright's iPhone 13 device
+    // profile + the WebKit engine. WebKit is the actual rendering
+    // engine that ships in iOS Safari, so CSS quirks (font-size
+    // auto-zoom, safe-area-inset behaviour, backdrop-filter
+    // prefix requirements, position:fixed under transformed
+    // ancestors) match production Safari rather than a Chromium
+    // emulation.
+    //
+    // Requires the WebKit binary, installed once via
+    //   `npx playwright install webkit`
+    // CI image already has it from the @playwright/test postinstall
+    // hook. Local devs see a friendly prompt the first time they
+    // run this project if it's missing.
+    {
+      name: "mobile-safari",
+      testMatch: /mobile-safari\.spec\.js$/,
+      use: {
+        ...devices["iPhone 13"],
+        // Newer WebKit features (dvh, safe-area-inset, :has()) all
+        // landed before iOS 16, which the iPhone 13 profile maps
+        // to. No additional flags required.
+
+        // bypassCSP: the production server (helmet middleware) sets
+        // `upgrade-insecure-requests` in its CSP, which WebKit
+        // respects by silently rewriting every asset URL from
+        // http://127.0.0.1:3097/... to https://... The local test
+        // server only listens on HTTP, so every JS/CSS/manifest
+        // fetch fails with a TLS error and the SPA never mounts.
+        // Chromium isn't affected because its localhost handling
+        // skips the upgrade.
+        //
+        // Disabling CSP in the test context lets WebKit fetch the
+        // built assets over HTTP — the production HTTPS posture
+        // is unchanged.
+        bypassCSP: true,
+      },
+    },
     {
       name: "chromium",
+      testIgnore: /mobile-safari\.spec\.js$/,
       use: {
         // Don't spread devices["Desktop Chrome"] — it bakes in
         // a fixed 1280×720 viewport plus a deviceScaleFactor,
