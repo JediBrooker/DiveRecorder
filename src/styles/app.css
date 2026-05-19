@@ -75,7 +75,11 @@ body {
   font-family: var(--font-mono);
   background: var(--bg);
   color: var(--text);
-  min-height: 100vh;
+  /* dvh, not vh — iOS Safari's collapsing URL bar makes 100vh
+     equal the large viewport (bar collapsed). With the bar
+     expanded, a 100vh body is taller than the visible area
+     and content at the bottom is hidden under the toolbar. */
+  min-height: 100dvh;
   /* Match html's overflow clamp + cap width to the viewport so
      a descendant's intrinsic size can't push the body wider. */
   overflow-x: hidden;

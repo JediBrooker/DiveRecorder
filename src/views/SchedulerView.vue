@@ -1549,7 +1549,10 @@ async function confirmDuplicate() {
   inset-inline-end: 12px;
   width: 360px;
   max-width: calc(100vw - 24px);
-  max-height: calc(100vh - 90px);
+  /* dvh: stable height on iOS Safari's collapsing toolbar.
+     Plus a safe-area-aware bottom inset so the drawer's
+     scroll-to-bottom stays reachable on notch iPhones. */
+  max-height: calc(100dvh - 90px - env(safe-area-inset-bottom, 0px));
   background: var(--panel-elev, #222);
   border: 1px solid var(--border, #333);
   border-radius: 8px;

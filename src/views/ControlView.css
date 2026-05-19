@@ -1,10 +1,15 @@
 .ctrl-layout {
   /* Natural document flow — page scrolls if content exceeds the
      viewport. No 100vh / overflow:hidden lock; the operator can
-     scroll like any other page. */
+     scroll like any other page.
+
+     dvh, not vh — iOS Safari's collapsing URL bar makes 100vh =
+     the *large* viewport (bar collapsed); with the bar expanded
+     a 100vh page is taller than the visible area and produces a
+     persistent vertical scroll bounce. */
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 .ctrl-header {
   /* 3-column grid. Left and right tracks are `minmax(0, 1fr)` so
@@ -757,7 +762,8 @@
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  max-height: 50vh;
+  /* dvh: stable height on iOS Safari (see notes on .lb-modal). */
+  max-height: 50dvh;
   overflow-y: auto;
 }
 .broadcast-picker-row {
@@ -942,7 +948,8 @@
 }
 
 .venue-bridge-instructions {
-  max-height: min(72vh, 760px);
+  /* dvh: stable height on iOS Safari (see notes on .lb-modal). */
+  max-height: min(72dvh, 760px);
   overflow-y: auto;
 }
 .venue-command-grid {

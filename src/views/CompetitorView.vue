@@ -1510,9 +1510,15 @@ watch(currentEvent, async (ev) => {
 
   /* Partner typeahead: dropdown was max-height 280 + bottom-relative
      which spilled off-screen on phones. Cap to half viewport with
-     scroll, and grow the clear button to a tappable size. */
+     scroll, and grow the clear button to a tappable size.
+
+     dvh, not vh: focusing the input triggers the iOS keyboard,
+     which collapses the layout viewport. 50vh would lock the
+     dropdown to the pre-keyboard size (= half the *large*
+     viewport), making it taller than the visible area. 50dvh
+     tracks the live viewport so the dropdown stays usable. */
   .partner-dropdown {
-    max-height: 50vh;
+    max-height: 50dvh;
     inset-inline-start: 0;
     inset-inline-end: 0;
   }

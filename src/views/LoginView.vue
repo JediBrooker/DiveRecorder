@@ -163,7 +163,11 @@ async function handleSubmit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
+  /* dvh, not vh — iOS Safari's collapsing URL bar makes 100vh
+     equal the large viewport, so on iPhone SE-class screens
+     with the bar expanded the Sign In button sits below the
+     visible area. dvh tracks the live viewport. */
+  min-height: 100dvh;
   padding: 1.5rem;
 }
 .login-wrap {

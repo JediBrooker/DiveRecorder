@@ -1961,13 +1961,16 @@ function attachSocketHandlers() {
     min-width: 0;
     max-width: none;
     width: 100%;
-    max-height: 70vh;
+    /* dvh, not vh — iOS Safari toolbar collapse + bottom-sheet
+       layout. Adds env(safe-area-inset-bottom) so the last row
+       in the sheet clears the home-indicator gesture zone. */
+    max-height: 70dvh;
     overflow-y: auto;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     border-bottom: 0;
     box-shadow: 0 -16px 36px rgba(0, 0, 0, 0.55);
     z-index: 200;
-    padding: 0.5rem 0;
+    padding: 0.5rem 0 calc(0.5rem + env(safe-area-inset-bottom, 0px));
     animation: pulse-sheet-up 0.2s ease-out;
   }
   /* Backdrop dimming when a chip popover is open. The pseudo

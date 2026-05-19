@@ -313,7 +313,9 @@ onBeforeUnmount(() => {
   -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
   display: flex; align-items: flex-start; justify-content: center;
-  padding-top: 12vh;
+  /* dvh: keeps the palette anchored to the *live* viewport so
+     it doesn't jitter as iOS Safari's URL bar collapses. */
+  padding-top: 12dvh;
   z-index: 9000;
   animation: cmdk-fade 0.15s ease-out;
 }

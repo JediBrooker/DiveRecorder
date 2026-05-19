@@ -184,7 +184,11 @@ async function handleSubmit() {
 </template>
 
 <style scoped>
-:global(body) { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1.5rem; }
+/* dvh, not vh — iOS Safari's collapsing URL bar makes 100vh =
+   the *large* viewport (bar collapsed). With the bar expanded
+   the Submit button on iPhone SE-class screens sits below the
+   visible area. dvh tracks the live viewport. */
+:global(body) { display: flex; align-items: center; justify-content: center; min-height: 100dvh; padding: 1.5rem; }
 .wrap { width: 100%; max-width: 460px; animation: fadeUp 0.4s ease; }
 .login-mark {
   font-family: var(--font-display); font-size: 13px; font-weight: 700;

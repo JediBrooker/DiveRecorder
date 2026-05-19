@@ -109,7 +109,8 @@ async function handleSubmit() {
 </template>
 
 <style scoped>
-:global(body) { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1.5rem; }
+/* dvh: see RegisterView.vue for the iOS Safari rationale. */
+:global(body) { display: flex; align-items: center; justify-content: center; min-height: 100dvh; padding: 1.5rem; }
 .wrap { width: 100%; max-width: 520px; animation: fadeUp 0.4s ease; }
 .login-mark {
   font-family: var(--font-display); font-size: 13px; font-weight: 700;

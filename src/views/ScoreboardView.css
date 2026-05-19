@@ -711,7 +711,7 @@
    Activated by adding `?overlay=1` to the scoreboard URL; the
    chroma colour is set inline on .sb-layout via ?bg=<hex>.
    ========================================================= */
-.sb-layout.overlay-mode { color: #fff; min-height: 100vh; padding: 1.5rem; }
+.sb-layout.overlay-mode { color: #fff; min-height: 100dvh; padding: 1.5rem; }
 .sb-layout.overlay-mode .sb-header,
 .sb-layout.overlay-mode .sb-controls,
 .sb-layout.overlay-mode .sb-footer,
