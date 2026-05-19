@@ -466,6 +466,74 @@
       "bookmark_shortcuts_desc": "コントロールルーム用の ← / → / Space / T / F / R / H / L",
       "cta_register": "アカウントを作成",
       "cta_scoreboard": "得点掲示板を閲覧 →"
+    },
+    "section_quick_actions": "Quick actions",
+    "section_shortcuts": "Keyboard shortcuts",
+    "section_glossary": "Glossary",
+    "toc": {
+      "label": "On this page",
+      "overview": "Overview",
+      "roles": "Roles",
+      "quick_actions": "Quick actions",
+      "shortcuts": "Shortcuts",
+      "glossary": "Glossary",
+      "faq": "FAQ",
+      "wiki": "More on the wiki"
+    },
+    "quick_actions": {
+      "lede": "Skip the menu — jump straight into the screen you need. Each tile opens the live page."
+    },
+    "tile": {
+      "scoreboard": {
+        "label": "Scoreboard & Results",
+        "sub": "Browse live + completed meets. No sign-in needed."
+      },
+      "control_room": {
+        "label": "Control Room",
+        "sub": "Operator console — drive scoring, run the shot clock, hold the meet."
+      },
+      "judge": {
+        "label": "Judge Terminal",
+        "sub": "Score dives from your phone in 0.5-point steps."
+      },
+      "coach": {
+        "label": "Coach Dashboard",
+        "sub": "Your linked divers, last + next dive, live up-next strip."
+      },
+      "meet_manager": {
+        "label": "Meet Manager",
+        "sub": "Create meets, build events, seed rosters, seat judges."
+      },
+      "dive_directory": {
+        "label": "Dive Directory",
+        "sub": "Official catalog with DDs by board height."
+      }
+    },
+    "shortcuts": {
+      "lede": "Keyboard hotkeys for the Control Room. Press ? in-app to open the cheat sheet overlay."
+    },
+    "shortcut": {
+      "next_diver": "Advance to the next diver in the queue.",
+      "top_of_round": "Snap the queue back to the top of the current round.",
+      "fail": "Mark the current dive as failed (0 across the board).",
+      "redive": "Grant the current diver a redive.",
+      "hold": "Hold the meet — pauses the clock and active-diver banner.",
+      "live_toggle": "Toggle the live-broadcast flag for the meet's public scoreboard.",
+      "queue_nav": "Move the cursor through the on-deck queue.",
+      "help_overlay": "Open the in-app keyboard cheat sheet."
+    },
+    "glossary": {
+      "lede": "Diving vocabulary you'll hit on day one.",
+      "dd": "Degree of Difficulty. A per-dive multiplier set by World Aquatics; harder dives carry a higher DD.",
+      "trim": "On a 5-judge panel: drop the highest and lowest scores, keep the middle three. The kept scores are multiplied by DD.",
+      "synchro": "Two divers performing the same dive simultaneously. Three sub-panels score Exec A, Exec B, and Sync separately.",
+      "redive": "When something interferes with a dive (bad board, distraction), the referee may grant a redive. The original score is discarded.",
+      "failed": "Dive that breaks the rules (wrong position, no attempt). All judges score 0 and DD is still applied (so the dive contributes 0 points).",
+      "dive_code": "A 3–4 character code identifying the dive — e.g. 107B (forward 3½ pike). First digit = group, middle digits = somersaults, last letter = position.",
+      "boards": "Board heights, low to high. Springboards at 1m and 3m; platforms at 5m, 7.5m, and 10m. Each height has its own DD table for the same dive.",
+      "round": "One pass through the event's diver list. A typical event runs 5–6 rounds with each diver performing one dive per round.",
+      "reference_judge": "Senior judge on the panel who can sign off on rule decisions. Visible in Pre-Flight and in the panel header.",
+      "signoff": "Referee-approved final score for an event. Sign-off codes (in Control Room → Sign-off) lock the result so the wiki/Recap pages can publish it."
     }
   },
   "inbox": {
