@@ -467,73 +467,73 @@
       "cta_register": "إنشاء حساب",
       "cta_scoreboard": "تصفّح لوحة النتائج ←"
     },
-    "section_quick_actions": "Quick actions",
-    "section_shortcuts": "Keyboard shortcuts",
-    "section_glossary": "Glossary",
+    "section_quick_actions": "إجراءات سريعة",
+    "section_shortcuts": "اختصارات لوحة المفاتيح",
+    "section_glossary": "مسرد المصطلحات",
     "toc": {
-      "label": "On this page",
-      "overview": "Overview",
-      "roles": "Roles",
-      "quick_actions": "Quick actions",
-      "shortcuts": "Shortcuts",
-      "glossary": "Glossary",
-      "faq": "FAQ",
-      "wiki": "More on the wiki"
+      "label": "في هذه الصفحة",
+      "overview": "نظرة عامة",
+      "roles": "الأدوار",
+      "quick_actions": "إجراءات سريعة",
+      "shortcuts": "اختصارات",
+      "glossary": "مسرد المصطلحات",
+      "faq": "الأسئلة الشائعة",
+      "wiki": "المزيد في الويكي"
     },
     "quick_actions": {
-      "lede": "Skip the menu — jump straight into the screen you need. Each tile opens the live page."
+      "lede": "تخطّوا القائمة — انتقلوا مباشرة إلى الشاشة التي تحتاجونها. كل بطاقة تفتح الصفحة الحية."
     },
     "tile": {
       "scoreboard": {
-        "label": "Scoreboard & Results",
-        "sub": "Browse live + completed meets. No sign-in needed."
+        "label": "لوحة العرض والنتائج",
+        "sub": "تصفحوا المسابقات الجارية والمكتملة. لا حاجة لتسجيل الدخول."
       },
       "control_room": {
-        "label": "Control Room",
-        "sub": "Operator console — drive scoring, run the shot clock, hold the meet."
+        "label": "غرفة التحكم",
+        "sub": "لوحة المشغّل — إدارة الدرجات، تشغيل المؤقت، إدارة المسابقة."
       },
       "judge": {
-        "label": "Judge Terminal",
-        "sub": "Score dives from your phone in 0.5-point steps."
+        "label": "محطة القاضي",
+        "sub": "قَيِّموا الغطسات من هاتفكم بخطوات قدرها 0.5 نقطة."
       },
       "coach": {
-        "label": "Coach Dashboard",
-        "sub": "Your linked divers, last + next dive, live up-next strip."
+        "label": "لوحة المدرب",
+        "sub": "غواصوكم المرتبطون، الغطسة الأخيرة والتالية، شريط التالي المباشر."
       },
       "meet_manager": {
-        "label": "Meet Manager",
-        "sub": "Create meets, build events, seed rosters, seat judges."
+        "label": "مدير اللقاء",
+        "sub": "إنشاء اللقاءات، بناء الفِعاليات، تعبئة قوائم المشاركين، تعيين القضاة."
       },
       "dive_directory": {
-        "label": "Dive Directory",
-        "sub": "Official catalog with DDs by board height."
+        "label": "دليل الغطسات",
+        "sub": "الفهرس الرسمي مع DD حسب ارتفاع اللوح."
       }
     },
     "shortcuts": {
-      "lede": "Keyboard hotkeys for the Control Room. Press ? in-app to open the cheat sheet overlay."
+      "lede": "اختصارات لوحة المفاتيح لغرفة التحكم. اضغطوا ? داخل التطبيق لفتح تراكب ورقة الاختصارات."
     },
     "shortcut": {
-      "next_diver": "Advance to the next diver in the queue.",
-      "top_of_round": "Snap the queue back to the top of the current round.",
-      "fail": "Mark the current dive as failed (0 across the board).",
-      "redive": "Grant the current diver a redive.",
-      "hold": "Hold the meet — pauses the clock and active-diver banner.",
-      "live_toggle": "Toggle the live-broadcast flag for the meet's public scoreboard.",
-      "queue_nav": "Move the cursor through the on-deck queue.",
-      "help_overlay": "Open the in-app keyboard cheat sheet."
+      "next_diver": "التقدّم إلى الغواص التالي في قائمة الانتظار.",
+      "top_of_round": "إعادة قائمة الانتظار إلى بداية الجولة الحالية.",
+      "fail": "وضع علامة فشل على الغطسة الحالية (0 من جميع الحكّام).",
+      "redive": "منح الغواص الحالي إعادة الغطسة.",
+      "hold": "إيقاف اللقاء مؤقتًا — يُوقِف المؤقت ولافتة الغواص النشط.",
+      "live_toggle": "تبديل علامة البث المباشر للوحة النتائج العامة للقاء.",
+      "queue_nav": "تحريك المؤشر عبر قائمة الانتظار الجاهزة.",
+      "help_overlay": "فتح تراكب ورقة اختصارات لوحة المفاتيح داخل التطبيق."
     },
     "glossary": {
-      "lede": "Diving vocabulary you'll hit on day one.",
-      "dd": "Degree of Difficulty. A per-dive multiplier set by World Aquatics; harder dives carry a higher DD.",
-      "trim": "On a 5-judge panel: drop the highest and lowest scores, keep the middle three. The kept scores are multiplied by DD.",
-      "synchro": "Two divers performing the same dive simultaneously. Three sub-panels score Exec A, Exec B, and Sync separately.",
-      "redive": "When something interferes with a dive (bad board, distraction), the referee may grant a redive. The original score is discarded.",
-      "failed": "Dive that breaks the rules (wrong position, no attempt). All judges score 0 and DD is still applied (so the dive contributes 0 points).",
-      "dive_code": "A 3–4 character code identifying the dive — e.g. 107B (forward 3½ pike). First digit = group, middle digits = somersaults, last letter = position.",
-      "boards": "Board heights, low to high. Springboards at 1m and 3m; platforms at 5m, 7.5m, and 10m. Each height has its own DD table for the same dive.",
-      "round": "One pass through the event's diver list. A typical event runs 5–6 rounds with each diver performing one dive per round.",
-      "reference_judge": "Senior judge on the panel who can sign off on rule decisions. Visible in Pre-Flight and in the panel header.",
-      "signoff": "Referee-approved final score for an event. Sign-off codes (in Control Room → Sign-off) lock the result so the wiki/Recap pages can publish it."
+      "lede": "مصطلحات الغطس التي ستواجهونها من اليوم الأول.",
+      "dd": "درجة الصعوبة. معامل لكل غطسة تحدده المنظمة العالمية للرياضات المائية؛ الغطسات الأصعب تحمل قيمة DD أعلى.",
+      "trim": "في لجنة من 5 حكّام: استبعدوا أعلى وأدنى الدرجات، احتفظوا بالثلاث درجات الوسطى. تُضرب الدرجات المحتفظ بها في DD.",
+      "synchro": "غطّاسان يؤديان نفس الغطسة في وقت واحد. ثلاث لجان فرعية تقيم الأداء التنفيذي A، الأداء التنفيذي B، والتزامن بشكل منفصل.",
+      "redive": "عندما يعيق شيء ما الغطسة (لوح معيب، تشتيت)، قد يمنح الحكم إعادة غطسة. يُتجاهل التقييم الأصلي.",
+      "failed": "غطسة تنتهك القوانين (وضعية خاطئة، عدم محاولة). يمنح جميع الحكّام 0 ولا تزال DD مطبقة (لذا تسهم الغطسة بصفر نقطة).",
+      "dive_code": "رمز مكوّن من 3–4 أحرف يعرّف الغطسة — مثلاً 107B (3½ دوران أمامي بوضعية الانثناء). الرقم الأول = المجموعة، الأرقام الوسطى = الحولات، الحرف الأخير = الوضع.",
+      "boards": "ارتفاعات الألواح، من الأدنى إلى الأعلى. ألواح زنبركية عند 1م و3م؛ منصات عند 5م و7.5م و10م. لكل ارتفاع جدول DD خاص بنفس الغطسة.",
+      "round": "مرة مرور واحدة عبر قائمة غواصي الفعالية. تُجرى الفعالية النموذجية على 5–6 جولات، يؤدّي كل غواص غطسة واحدة في كل جولة.",
+      "reference_judge": "القاضي الأقدم في اللجنة الذي يمكنه المصادقة على قرارات القواعد. يظهر في مرحلة ما قبل العرض وفي رأس اللجنة.",
+      "signoff": "النتيجة النهائية المعتمدة من الحكم للفعالية. رموز المصادقة (في غرفة التحكم → المصادقة) تُقفل النتيجة حتى تتمكن صفحات الويكي/ملخص الحدث من نشرها."
     }
   },
   "inbox": {

@@ -467,73 +467,73 @@
       "cta_register": "Отвори налог",
       "cta_scoreboard": "Прегледај семафор →"
     },
-    "section_quick_actions": "Quick actions",
-    "section_shortcuts": "Keyboard shortcuts",
-    "section_glossary": "Glossary",
+    "section_quick_actions": "Брзе радње",
+    "section_shortcuts": "Пречице на тастатури",
+    "section_glossary": "Речник",
     "toc": {
-      "label": "On this page",
-      "overview": "Overview",
-      "roles": "Roles",
-      "quick_actions": "Quick actions",
-      "shortcuts": "Shortcuts",
-      "glossary": "Glossary",
-      "faq": "FAQ",
-      "wiki": "More on the wiki"
+      "label": "На овој страници",
+      "overview": "Преглед",
+      "roles": "Улоге",
+      "quick_actions": "Брзе радње",
+      "shortcuts": "Пречице",
+      "glossary": "Речник",
+      "faq": "Често постављана питања",
+      "wiki": "Више на викију"
     },
     "quick_actions": {
-      "lede": "Skip the menu — jump straight into the screen you need. Each tile opens the live page."
+      "lede": "Прескочите мени — директно пређите на екран који вам је потребан. Свака плочица отвара страницу уживо."
     },
     "tile": {
       "scoreboard": {
-        "label": "Scoreboard & Results",
-        "sub": "Browse live + completed meets. No sign-in needed."
+        "label": "Табла и резултати",
+        "sub": "Прегледајте уживо и завршена такмичења. Нема потребе за пријављивањем."
       },
       "control_room": {
-        "label": "Control Room",
-        "sub": "Operator console — drive scoring, run the shot clock, hold the meet."
+        "label": "Контролна соба",
+        "sub": "Оператерска конзола — управљајте бодовањем, контролишите тајмер и водите такмичење."
       },
       "judge": {
-        "label": "Judge Terminal",
-        "sub": "Score dives from your phone in 0.5-point steps."
+        "label": "Терминал за судију",
+        "sub": "Оцјењујте скокове са телефона у корацима од 0.5 поена."
       },
       "coach": {
-        "label": "Coach Dashboard",
-        "sub": "Your linked divers, last + next dive, live up-next strip."
+        "label": "Табла тренера",
+        "sub": "Ваши повезани скакачи, последњи и следећи скок, уживо приказ следећих."
       },
       "meet_manager": {
-        "label": "Meet Manager",
-        "sub": "Create meets, build events, seed rosters, seat judges."
+        "label": "Управљач такмичења",
+        "sub": "Креирајте такмичења, правите дисциплине, попуњавајте листе такмичара, распоредите судије."
       },
       "dive_directory": {
-        "label": "Dive Directory",
-        "sub": "Official catalog with DDs by board height."
+        "label": "Каталог скокова",
+        "sub": "Званични каталог са коефицијентима тежине (DD) по висини даске."
       }
     },
     "shortcuts": {
-      "lede": "Keyboard hotkeys for the Control Room. Press ? in-app to open the cheat sheet overlay."
+      "lede": "Тастерске пречице за Контролну собу. Притисните ? у апликацији да отворите преклопни списак пречица."
     },
     "shortcut": {
-      "next_diver": "Advance to the next diver in the queue.",
-      "top_of_round": "Snap the queue back to the top of the current round.",
-      "fail": "Mark the current dive as failed (0 across the board).",
-      "redive": "Grant the current diver a redive.",
-      "hold": "Hold the meet — pauses the clock and active-diver banner.",
-      "live_toggle": "Toggle the live-broadcast flag for the meet's public scoreboard.",
-      "queue_nav": "Move the cursor through the on-deck queue.",
-      "help_overlay": "Open the in-app keyboard cheat sheet."
+      "next_diver": "Померите се на следећег скакача у реду.",
+      "top_of_round": "Вратите ред на почетак тренутног кола.",
+      "fail": "Означите тренутни скок као неуспешан (све оцене 0).",
+      "redive": "Дозволите тренутном скакачу понављање.",
+      "hold": "Пауза такмичења — зауставља тајмер и банер активног скакача.",
+      "live_toggle": "Укључите/искључите ознаку за пренос уживо на јавну таблу резултата такмичења.",
+      "queue_nav": "Померајте курсор кроз ред спремних скакача.",
+      "help_overlay": "Отворите у апликацији листу тастерских пречица."
     },
     "glossary": {
-      "lede": "Diving vocabulary you'll hit on day one.",
-      "dd": "Degree of Difficulty. A per-dive multiplier set by World Aquatics; harder dives carry a higher DD.",
-      "trim": "On a 5-judge panel: drop the highest and lowest scores, keep the middle three. The kept scores are multiplied by DD.",
-      "synchro": "Two divers performing the same dive simultaneously. Three sub-panels score Exec A, Exec B, and Sync separately.",
-      "redive": "When something interferes with a dive (bad board, distraction), the referee may grant a redive. The original score is discarded.",
-      "failed": "Dive that breaks the rules (wrong position, no attempt). All judges score 0 and DD is still applied (so the dive contributes 0 points).",
-      "dive_code": "A 3–4 character code identifying the dive — e.g. 107B (forward 3½ pike). First digit = group, middle digits = somersaults, last letter = position.",
-      "boards": "Board heights, low to high. Springboards at 1m and 3m; platforms at 5m, 7.5m, and 10m. Each height has its own DD table for the same dive.",
-      "round": "One pass through the event's diver list. A typical event runs 5–6 rounds with each diver performing one dive per round.",
-      "reference_judge": "Senior judge on the panel who can sign off on rule decisions. Visible in Pre-Flight and in the panel header.",
-      "signoff": "Referee-approved final score for an event. Sign-off codes (in Control Room → Sign-off) lock the result so the wiki/Recap pages can publish it."
+      "lede": "Термини у скакању у воду с којима ћете се сусрести већ на први дан.",
+      "dd": "Коефицијент тежине (Degree of Difficulty). Мултипликатор по скоку који одређује World Aquatics; сложенији скокови имају већи DD.",
+      "trim": "На панелу од 5 судија: одбаците највишу и најнижу оцену, задржите средње три. Задржане оцене се множе са DD.",
+      "synchro": "Двоје скакача изводи исти скок истовремено. Три подпанела засебно оцењују Извођење A, Извођење B и Синхронизацију.",
+      "redive": "Када нешто утиче на извођење скока (лоша даска, ометање), главни судија може одобрити понављање. Првобитна оцена се одбацује.",
+      "failed": "Скок који крши правила (погрешан положај, нема покушаја). Све судије дају 0 и DD се и даље примењује (па скок даје 0 поена).",
+      "dive_code": "Код скока од 3–4 карактера који идентификује скок — нпр. 107B (напред 3½ пике). Прва цифра = група, средње цифре = салта, последње слово = положај.",
+      "boards": "Висине даски, од најниже до највише. Трамплине на 1м и 3м; платформе на 5м, 7,5м и 10м. За сваку висину постоји посебна табела DD за исти скок.",
+      "round": "Један пролаз кроз списак скакача у дисциплини. Типично такмичење има 5–6 кола где сваки скакач изводи по један скок по колу.",
+      "reference_judge": "Старешина панела који може потврдити одлуке везане за правила. Видљиво у Pre-Flight и у заглављу панела.",
+      "signoff": "Коначна оцена одобрена од стране рефера за дисциплину. Кодови одобрења (у Контролној соби → Одобрење) закључавају резултат тако да га вики/странице са резимеом могу објавити."
     }
   },
   "inbox": {

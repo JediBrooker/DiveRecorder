@@ -478,73 +478,73 @@
       "cta_register": "Crea un account",
       "cta_scoreboard": "Vedi il tabellone →"
     },
-    "section_quick_actions": "Quick actions",
-    "section_shortcuts": "Keyboard shortcuts",
-    "section_glossary": "Glossary",
+    "section_quick_actions": "Azioni rapide",
+    "section_shortcuts": "Scorciatoie da tastiera",
+    "section_glossary": "Glossario",
     "toc": {
-      "label": "On this page",
-      "overview": "Overview",
-      "roles": "Roles",
-      "quick_actions": "Quick actions",
-      "shortcuts": "Shortcuts",
-      "glossary": "Glossary",
+      "label": "In questa pagina",
+      "overview": "Panoramica",
+      "roles": "Ruoli",
+      "quick_actions": "Azioni rapide",
+      "shortcuts": "Scorciatoie",
+      "glossary": "Glossario",
       "faq": "FAQ",
-      "wiki": "More on the wiki"
+      "wiki": "Ulteriori informazioni sul wiki"
     },
     "quick_actions": {
-      "lede": "Skip the menu — jump straight into the screen you need. Each tile opens the live page."
+      "lede": "Tralasciare il menu — accedere direttamente alla schermata necessaria. Ogni riquadro apre la pagina live."
     },
     "tile": {
       "scoreboard": {
-        "label": "Scoreboard & Results",
-        "sub": "Browse live + completed meets. No sign-in needed."
+        "label": "Tabellone & Risultati",
+        "sub": "Sfoglia le gare live + concluse. Non è necessario effettuare il login."
       },
       "control_room": {
-        "label": "Control Room",
-        "sub": "Operator console — drive scoring, run the shot clock, hold the meet."
+        "label": "Sala di controllo",
+        "sub": "Console per l'operatore — gestire il punteggio, azionare il cronometro e gestire la gara."
       },
       "judge": {
-        "label": "Judge Terminal",
-        "sub": "Score dives from your phone in 0.5-point steps."
+        "label": "Terminale giudice",
+        "sub": "Punteggiare i tuffi dal telefono in incrementi di 0,5 punti."
       },
       "coach": {
-        "label": "Coach Dashboard",
-        "sub": "Your linked divers, last + next dive, live up-next strip."
+        "label": "Pannello allenatore",
+        "sub": "I tuffatori collegati, ultimo + prossimo tuffo, striscia live dei prossimi."
       },
       "meet_manager": {
-        "label": "Meet Manager",
-        "sub": "Create meets, build events, seed rosters, seat judges."
+        "label": "Gestore della gara",
+        "sub": "Creare gare, impostare gli eventi, predisporre le liste dei partecipanti, assegnare i giudici."
       },
       "dive_directory": {
-        "label": "Dive Directory",
-        "sub": "Official catalog with DDs by board height."
+        "label": "Elenco dei tuffi",
+        "sub": "Catalogo ufficiale con i coefficienti di difficoltà (DD) per altezza del trampolino."
       }
     },
     "shortcuts": {
-      "lede": "Keyboard hotkeys for the Control Room. Press ? in-app to open the cheat sheet overlay."
+      "lede": "Scorciatoie da tastiera per la Sala di controllo. Premere ? nell'app per aprire la sovrapposizione con i tasti rapidi."
     },
     "shortcut": {
-      "next_diver": "Advance to the next diver in the queue.",
-      "top_of_round": "Snap the queue back to the top of the current round.",
-      "fail": "Mark the current dive as failed (0 across the board).",
-      "redive": "Grant the current diver a redive.",
-      "hold": "Hold the meet — pauses the clock and active-diver banner.",
-      "live_toggle": "Toggle the live-broadcast flag for the meet's public scoreboard.",
-      "queue_nav": "Move the cursor through the on-deck queue.",
-      "help_overlay": "Open the in-app keyboard cheat sheet."
+      "next_diver": "Passare al tuffatore successivo in coda.",
+      "top_of_round": "Riportare la coda all'inizio del round corrente.",
+      "fail": "Segnare il tuffo corrente come fallito (0 da tutti i giudici).",
+      "redive": "Concedere al tuffatore corrente una ripetizione.",
+      "hold": "Mettere in pausa la gara — sospende il cronometro e il banner del tuffatore attivo.",
+      "live_toggle": "Attivare/disattivare la modalità di trasmissione live per il tabellone pubblico della gara.",
+      "queue_nav": "Spostare il cursore attraverso la coda dei tuffatori in attesa.",
+      "help_overlay": "Aprire la guida rapida dei tasti integrata nell'app."
     },
     "glossary": {
-      "lede": "Diving vocabulary you'll hit on day one.",
-      "dd": "Degree of Difficulty. A per-dive multiplier set by World Aquatics; harder dives carry a higher DD.",
-      "trim": "On a 5-judge panel: drop the highest and lowest scores, keep the middle three. The kept scores are multiplied by DD.",
-      "synchro": "Two divers performing the same dive simultaneously. Three sub-panels score Exec A, Exec B, and Sync separately.",
-      "redive": "When something interferes with a dive (bad board, distraction), the referee may grant a redive. The original score is discarded.",
-      "failed": "Dive that breaks the rules (wrong position, no attempt). All judges score 0 and DD is still applied (so the dive contributes 0 points).",
-      "dive_code": "A 3–4 character code identifying the dive — e.g. 107B (forward 3½ pike). First digit = group, middle digits = somersaults, last letter = position.",
-      "boards": "Board heights, low to high. Springboards at 1m and 3m; platforms at 5m, 7.5m, and 10m. Each height has its own DD table for the same dive.",
-      "round": "One pass through the event's diver list. A typical event runs 5–6 rounds with each diver performing one dive per round.",
-      "reference_judge": "Senior judge on the panel who can sign off on rule decisions. Visible in Pre-Flight and in the panel header.",
-      "signoff": "Referee-approved final score for an event. Sign-off codes (in Control Room → Sign-off) lock the result so the wiki/Recap pages can publish it."
+      "lede": "Vocabolario dei tuffi che incontrerete fin dal primo giorno.",
+      "dd": "Grado di difficoltà. Un moltiplicatore per ogni tuffo stabilito da World Aquatics; i tuffi più difficili hanno un DD più alto.",
+      "trim": "Su una giuria di 5 giudici: scartare il punteggio più alto e quello più basso, mantenere i tre centrali. I punteggi mantenuti vengono moltiplicati per il DD.",
+      "synchro": "Due tuffatori che eseguono lo stesso tuffo simultaneamente. Tre sottogruppi valutano separatamente Esecuzione A, Esecuzione B e la Sincronizzazione.",
+      "redive": "Quando qualcosa interferisce con un tuffo (tavola difettosa, distrazione), l'arbitro può concedere una ripetizione. Il punteggio originale viene scartato.",
+      "failed": "Tuffo che infrange le regole (posizione errata, nessun tentativo). Tutti i giudici assegnano 0 e il DD viene comunque applicato (quindi il tuffo contribuisce con 0 punti).",
+      "dive_code": "Un codice di 3–4 caratteri che identifica il tuffo — es. 107B (avanti 3½ carpiato). La prima cifra = gruppo, le cifre centrali = rotazioni, l'ultima lettera = posizione.",
+      "boards": "Altezze dei trampolini, dalla più bassa alla più alta. Trampolini a 1 m e 3 m; piattaforme a 5 m, 7,5 m e 10 m. Ogni altezza ha la propria tabella DD per lo stesso tuffo.",
+      "round": "Un giro attraverso la lista dei tuffatori dell'evento. Un evento tipico prevede 5–6 round con ogni tuffatore che esegue un tuffo per round.",
+      "reference_judge": "Giudice referente nel collegio che può approvare le decisioni sulle regole. Visibile in Pre-Flight e nell'intestazione del pannello.",
+      "signoff": "Punteggio finale approvato dall'arbitro per un evento. I codici di approvazione (in Sala di controllo → Sign-off) bloccano il risultato affinché le pagine wiki/Recap possano pubblicarlo."
     }
   },
   "inbox": {

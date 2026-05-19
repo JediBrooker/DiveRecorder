@@ -478,73 +478,73 @@
       "cta_register": "Créer un compte",
       "cta_scoreboard": "Voir le tableau d'affichage →"
     },
-    "section_quick_actions": "Quick actions",
-    "section_shortcuts": "Keyboard shortcuts",
-    "section_glossary": "Glossary",
+    "section_quick_actions": "Actions rapides",
+    "section_shortcuts": "Raccourcis clavier",
+    "section_glossary": "Glossaire",
     "toc": {
-      "label": "On this page",
-      "overview": "Overview",
-      "roles": "Roles",
-      "quick_actions": "Quick actions",
-      "shortcuts": "Shortcuts",
-      "glossary": "Glossary",
+      "label": "Sur cette page",
+      "overview": "Aperçu",
+      "roles": "Rôles",
+      "quick_actions": "Actions rapides",
+      "shortcuts": "Raccourcis",
+      "glossary": "Glossaire",
       "faq": "FAQ",
-      "wiki": "More on the wiki"
+      "wiki": "Plus d'informations sur le wiki"
     },
     "quick_actions": {
-      "lede": "Skip the menu — jump straight into the screen you need. Each tile opens the live page."
+      "lede": "Passez le menu — accédez directement à l'écran dont vous avez besoin. Chaque tuile ouvre la page en direct."
     },
     "tile": {
       "scoreboard": {
-        "label": "Scoreboard & Results",
-        "sub": "Browse live + completed meets. No sign-in needed."
+        "label": "Tableau des scores et résultats",
+        "sub": "Parcourez les compétitions en direct et terminées. Aucune connexion requise."
       },
       "control_room": {
-        "label": "Control Room",
-        "sub": "Operator console — drive scoring, run the shot clock, hold the meet."
+        "label": "Salle de contrôle",
+        "sub": "Console de l'opérateur — gérer le scoring, piloter le chronomètre et diriger la rencontre."
       },
       "judge": {
-        "label": "Judge Terminal",
-        "sub": "Score dives from your phone in 0.5-point steps."
+        "label": "Terminal des juges",
+        "sub": "Notez les plongeons depuis votre téléphone par incréments de 0,5 point."
       },
       "coach": {
-        "label": "Coach Dashboard",
-        "sub": "Your linked divers, last + next dive, live up-next strip."
+        "label": "Tableau de bord de l'entraîneur",
+        "sub": "Vos plongeurs liés, dernier et prochain plongeon, bandeau des prochains en direct."
       },
       "meet_manager": {
-        "label": "Meet Manager",
-        "sub": "Create meets, build events, seed rosters, seat judges."
+        "label": "Gestionnaire de compétition",
+        "sub": "Créer des compétitions, configurer les épreuves, composer les listes, attribuer les juges."
       },
       "dive_directory": {
-        "label": "Dive Directory",
-        "sub": "Official catalog with DDs by board height."
+        "label": "Répertoire des plongeons",
+        "sub": "Catalogue officiel avec les DD selon la hauteur du plongeoir."
       }
     },
     "shortcuts": {
-      "lede": "Keyboard hotkeys for the Control Room. Press ? in-app to open the cheat sheet overlay."
+      "lede": "Raccourcis clavier pour la salle de contrôle. Appuyez sur ? dans l'application pour ouvrir la feuille de référence des raccourcis."
     },
     "shortcut": {
-      "next_diver": "Advance to the next diver in the queue.",
-      "top_of_round": "Snap the queue back to the top of the current round.",
-      "fail": "Mark the current dive as failed (0 across the board).",
-      "redive": "Grant the current diver a redive.",
-      "hold": "Hold the meet — pauses the clock and active-diver banner.",
-      "live_toggle": "Toggle the live-broadcast flag for the meet's public scoreboard.",
-      "queue_nav": "Move the cursor through the on-deck queue.",
-      "help_overlay": "Open the in-app keyboard cheat sheet."
+      "next_diver": "Passer au plongeur suivant dans la file d'attente.",
+      "top_of_round": "Remettre la file d'attente en tête pour la manche en cours.",
+      "fail": "Marquer le plongeon en cours comme manqué (0 pour tous les juges).",
+      "redive": "Accorder un nouveau plongeon au plongeur en cours.",
+      "hold": "Suspendre la compétition — met le chronomètre et la bannière du plongeur actif en pause.",
+      "live_toggle": "Basculer le statut de diffusion en direct du tableau public de la compétition.",
+      "queue_nav": "Déplacer le curseur dans la file des plongeurs prêts.",
+      "help_overlay": "Ouvrir la feuille de référence des raccourcis dans l'application."
     },
     "glossary": {
-      "lede": "Diving vocabulary you'll hit on day one.",
-      "dd": "Degree of Difficulty. A per-dive multiplier set by World Aquatics; harder dives carry a higher DD.",
-      "trim": "On a 5-judge panel: drop the highest and lowest scores, keep the middle three. The kept scores are multiplied by DD.",
-      "synchro": "Two divers performing the same dive simultaneously. Three sub-panels score Exec A, Exec B, and Sync separately.",
-      "redive": "When something interferes with a dive (bad board, distraction), the referee may grant a redive. The original score is discarded.",
-      "failed": "Dive that breaks the rules (wrong position, no attempt). All judges score 0 and DD is still applied (so the dive contributes 0 points).",
-      "dive_code": "A 3–4 character code identifying the dive — e.g. 107B (forward 3½ pike). First digit = group, middle digits = somersaults, last letter = position.",
-      "boards": "Board heights, low to high. Springboards at 1m and 3m; platforms at 5m, 7.5m, and 10m. Each height has its own DD table for the same dive.",
-      "round": "One pass through the event's diver list. A typical event runs 5–6 rounds with each diver performing one dive per round.",
-      "reference_judge": "Senior judge on the panel who can sign off on rule decisions. Visible in Pre-Flight and in the panel header.",
-      "signoff": "Referee-approved final score for an event. Sign-off codes (in Control Room → Sign-off) lock the result so the wiki/Recap pages can publish it."
+      "lede": "Vocabulaire de plongeon que vous rencontrerez dès le premier jour.",
+      "dd": "Degré de difficulté. Un multiplicateur par plongeon fixé par World Aquatics ; les plongeons plus difficiles ont un DD plus élevé.",
+      "trim": "Sur un jury de 5 juges : supprimer les notes la plus haute et la plus basse, conserver les trois notes centrales. Les notes conservées sont multipliées par le DD.",
+      "synchro": "Deux plongeurs effectuant le même plongeon simultanément. Trois sous-panels de notation attribuent séparément les notes pour Exécution A, Exécution B et Synchronisation.",
+      "redive": "Lorsqu'un élément perturbe un plongeon (plongeoir défectueux, distraction), l'arbitre peut accorder un replongeon. La note initiale est annulée.",
+      "failed": "Plongeon qui enfreint les règles (mauvaise position, absence de tentative). Tous les juges attribuent 0 et le DD est toujours appliqué (donc le plongeon rapporte 0 point).",
+      "dive_code": "Un code de 3–4 caractères identifiant le plongeon — ex. 107B (avant 3½ en pike). Premier chiffre = groupe, chiffres du milieu = rotations, dernière lettre = position.",
+      "boards": "Hauteurs des plongeoirs, du plus bas au plus haut. Plongeoirs à ressort à 1 m et 3 m ; plateformes à 5 m, 7,5 m et 10 m. Chaque hauteur a son propre tableau de DD pour un même plongeon.",
+      "round": "Un passage sur la liste des plongeurs de l'épreuve. Une compétition type comporte 5 à 6 manches, chaque plongeur effectuant un plongeon par manche.",
+      "reference_judge": "Juge principal du jury qui peut valider les décisions de règle. Visible dans Pre-Flight et dans l'en-tête du jury.",
+      "signoff": "Score final approuvé par l'arbitre pour une épreuve. Les codes de validation (dans Salle de contrôle → Validation) verrouillent le résultat afin que les pages wiki/Récap puissent le publier."
     }
   },
   "inbox": {

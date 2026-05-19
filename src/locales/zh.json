@@ -467,73 +467,73 @@
       "cta_register": "创建账户",
       "cta_scoreboard": "浏览记分牌 →"
     },
-    "section_quick_actions": "Quick actions",
-    "section_shortcuts": "Keyboard shortcuts",
-    "section_glossary": "Glossary",
+    "section_quick_actions": "快速操作",
+    "section_shortcuts": "键盘快捷键",
+    "section_glossary": "术语表",
     "toc": {
-      "label": "On this page",
-      "overview": "Overview",
-      "roles": "Roles",
-      "quick_actions": "Quick actions",
-      "shortcuts": "Shortcuts",
-      "glossary": "Glossary",
-      "faq": "FAQ",
-      "wiki": "More on the wiki"
+      "label": "页面目录",
+      "overview": "概览",
+      "roles": "角色",
+      "quick_actions": "快速操作",
+      "shortcuts": "快捷键",
+      "glossary": "术语",
+      "faq": "常见问题",
+      "wiki": "在维基上了解更多"
     },
     "quick_actions": {
-      "lede": "Skip the menu — jump straight into the screen you need. Each tile opens the live page."
+      "lede": "跳过菜单 — 直接进入所需界面。每个方块将打开实时页面。"
     },
     "tile": {
       "scoreboard": {
-        "label": "Scoreboard & Results",
-        "sub": "Browse live + completed meets. No sign-in needed."
+        "label": "记分牌与成绩",
+        "sub": "浏览实时和已结束的比赛。无需登录。"
       },
       "control_room": {
-        "label": "Control Room",
-        "sub": "Operator console — drive scoring, run the shot clock, hold the meet."
+        "label": "控制室",
+        "sub": "操作台 — 控制计分、运行计时器、主持比赛。"
       },
       "judge": {
-        "label": "Judge Terminal",
-        "sub": "Score dives from your phone in 0.5-point steps."
+        "label": "裁判终端",
+        "sub": "在手机上以0.5分步长为跳水打分。"
       },
       "coach": {
-        "label": "Coach Dashboard",
-        "sub": "Your linked divers, last + next dive, live up-next strip."
+        "label": "教练面板",
+        "sub": "您关联的跳水员、上一跳与下一跳、实时的上场提示条。"
       },
       "meet_manager": {
-        "label": "Meet Manager",
-        "sub": "Create meets, build events, seed rosters, seat judges."
+        "label": "赛事管理",
+        "sub": "创建赛事、设置项目、编排名单、安排裁判席位。"
       },
       "dive_directory": {
-        "label": "Dive Directory",
-        "sub": "Official catalog with DDs by board height."
+        "label": "跳水目录",
+        "sub": "官方目录，按跳板高度列出难度系数(DD)。"
       }
     },
     "shortcuts": {
-      "lede": "Keyboard hotkeys for the Control Room. Press ? in-app to open the cheat sheet overlay."
+      "lede": "控制室的键盘快捷键。在应用内按 ? 可打开快捷键提示覆盖层。"
     },
     "shortcut": {
-      "next_diver": "Advance to the next diver in the queue.",
-      "top_of_round": "Snap the queue back to the top of the current round.",
-      "fail": "Mark the current dive as failed (0 across the board).",
-      "redive": "Grant the current diver a redive.",
-      "hold": "Hold the meet — pauses the clock and active-diver banner.",
-      "live_toggle": "Toggle the live-broadcast flag for the meet's public scoreboard.",
-      "queue_nav": "Move the cursor through the on-deck queue.",
-      "help_overlay": "Open the in-app keyboard cheat sheet."
+      "next_diver": "将队列推进到下一位跳水员。",
+      "top_of_round": "将队列重置到当前轮次的顶端。",
+      "fail": "将当前跳水标记为失败（全票0分）。",
+      "redive": "为当前跳水员授予重跳机会。",
+      "hold": "暂停赛事 — 同时暂停计时器与当前上场选手横幅。",
+      "live_toggle": "切换赛事公共记分牌的直播标志。",
+      "queue_nav": "在候场队列中移动光标。",
+      "help_overlay": "打开应用内的键盘快捷键提示。"
     },
     "glossary": {
-      "lede": "Diving vocabulary you'll hit on day one.",
-      "dd": "Degree of Difficulty. A per-dive multiplier set by World Aquatics; harder dives carry a higher DD.",
-      "trim": "On a 5-judge panel: drop the highest and lowest scores, keep the middle three. The kept scores are multiplied by DD.",
-      "synchro": "Two divers performing the same dive simultaneously. Three sub-panels score Exec A, Exec B, and Sync separately.",
-      "redive": "When something interferes with a dive (bad board, distraction), the referee may grant a redive. The original score is discarded.",
-      "failed": "Dive that breaks the rules (wrong position, no attempt). All judges score 0 and DD is still applied (so the dive contributes 0 points).",
-      "dive_code": "A 3–4 character code identifying the dive — e.g. 107B (forward 3½ pike). First digit = group, middle digits = somersaults, last letter = position.",
-      "boards": "Board heights, low to high. Springboards at 1m and 3m; platforms at 5m, 7.5m, and 10m. Each height has its own DD table for the same dive.",
-      "round": "One pass through the event's diver list. A typical event runs 5–6 rounds with each diver performing one dive per round.",
-      "reference_judge": "Senior judge on the panel who can sign off on rule decisions. Visible in Pre-Flight and in the panel header.",
-      "signoff": "Referee-approved final score for an event. Sign-off codes (in Control Room → Sign-off) lock the result so the wiki/Recap pages can publish it."
+      "lede": "您在第一天就会遇到的跳水术语。",
+      "dd": "难度系数（Degree of Difficulty，DD）。由 World Aquatics 为每个动作设定的乘数；动作越难，DD 越高。",
+      "trim": "在五人评审组中：去掉最高分和最低分，保留中间的三位评分。保留的分数再乘以难度系数（DD）。",
+      "synchro": "两名跳水员同时完成相同动作。评分分为三个子项：动作 A、动作 B 和同步，由不同子评审组分别评分。",
+      "redive": "当某些因素干扰跳水（例如跳板故障、被干扰）时，裁判可批准重跳。原始成绩将被丢弃。",
+      "failed": "违反规则的跳水（例如姿势错误、未做尝试）。所有裁判给出0分且仍适用难度系数（因此该跳不记分，即贡献0分）。",
+      "dive_code": "用于识别动作的3到4字符代码 — 例如 107B（前空翻3½屈体）。首位数字表示组别，中间数字表示翻腾次数，末位字母表示姿势。",
+      "boards": "跳板高度，由低到高。跳板为1米和3米；平台为5米、7.5米和10米。每个高度对同一动作有各自的难度系数表。",
+      "round": "对参赛名单的一次轮次。典型赛事进行5至6轮，每位跳水员每轮完成一次动作。",
+      "reference_judge": "评审团中的高级裁判，可对规则判定签署确认。在预检（Pre-Flight）界面和评审组标题中可见。",
+      "signoff": "由裁判长确认的赛事最终成绩。签署代码（在 控制室 → Sign-off）将锁定结果，以便维基/赛后汇总页面发布。"
     }
   },
   "inbox": {
