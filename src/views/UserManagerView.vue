@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
@@ -48,6 +49,8 @@ const ROLE_ORDER = { org_admin: 0, meet_manager: 1, referee: 2, judge: 3, coach:
 
 // Per-user edit drawer
 const drawerUserId = ref(null)
+// Lock background scroll while the user drawer is open.
+useBodyScrollLock().lockWhile(computed(() => drawerUserId.value !== null))
 const drawerUser = computed(() =>
   drawerUserId.value
     ? allUsers.value.find(u => u.id === drawerUserId.value) || null

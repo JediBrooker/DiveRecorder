@@ -29,6 +29,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -83,6 +84,8 @@ const JUDGE_WIDGET_CATALOG = [
 // State for customise modal + persistence
 // =============================================================
 const customizing = ref(false)
+// Lock background scroll while the dashboard-customize modal is open.
+useBodyScrollLock().lockWhile(customizing)
 const customizeSaving = ref(false)
 const customizeErr = ref('')
 const dragIndex = ref(null)

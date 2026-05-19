@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
@@ -24,6 +25,8 @@ const errorMsg = ref('')
 
 // Modal for picking a dive
 const showDiveModal = ref(false)
+// Lock background scroll while the dive-picker modal is open.
+useBodyScrollLock().lockWhile(showDiveModal)
 const diveModalRoundIdx = ref(-1)
 const diveSearch = ref('')
 

@@ -5,6 +5,7 @@ import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { cachedFetch, idbDelete } from '@/lib/idbCache'
 import { showSuccess } from '@/composables/useNotify'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 
 // Migration 053 surfaces — self-delete + reunite-on-return.
 import DeleteAccountDialog   from '@/components/DeleteAccountDialog.vue'
@@ -316,6 +317,14 @@ async function saveEmail() {
 //   stage = 'disable' user must provide password + a current code
 // =============================================================
 const tfaOpen   = ref(false)
+// Lock background scroll for every modal on this profile screen.
+// DeleteAccountDialog + ClaimCandidatesModal lock themselves via
+// their own useBodyScrollLock calls — the composable's reference
+// counter means double-locking is safe.
+useBodyScrollLock().lockWhile(computed(() =>
+  customizing.value || editing.value ||
+  pwEditing.value || emEditing.value || tfaOpen.value
+))
 const tfaStage  = ref('idle')               // idle | setup | disable
 const tfaStatus = ref(null)                  // { enabled, recovery_codes_remaining }
 const tfaSetup  = ref(null)                  // { base32, qr_data_url, recovery_codes[] }

@@ -10,6 +10,7 @@ import SuperFinalModals from '@/components/manager/SuperFinalModals.vue'
 import RoundDivesEditor from '@/components/manager/RoundDivesEditor.vue'
 import SponsorLogosManager from '@/components/manager/SponsorLogosManager.vue'
 import { filterStandardTemplates } from '@/lib/standard-templates'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -18,9 +19,21 @@ const events = ref([])
 const meets = ref([])
 const formErr = ref('')
 const editErr = ref('')
+// Single composable instance, used to lock the body whenever
+// any of this view's many modals is open. iOS Safari otherwise
+// lets the user drag the page underneath. lockWhile is called
+// next to each modal ref's declaration so the locking stays
+// colocated with the modal logic; the composable's reference
+// counter handles the nested-lock case (e.g. editing an event
+// while a confirm dialog is also open).
+const scrollLock = useBodyScrollLock()
+
 const showCreateModal = ref(false)     // New Event form lives in a modal
 const showCreateMeetModal = ref(false) // New Meet form (was inline)
 const showEditModal = ref(false)
+scrollLock.lockWhile(computed(() =>
+  showCreateModal.value || showCreateMeetModal.value || showEditModal.value
+))
 
 // Create form
 const createName = ref('')
@@ -73,6 +86,7 @@ const editRoundDivesEditor   = ref(null)
 // submit replay back into the editor via its exposed
 // `applyDiveAtRow`.
 const showCreateDiveModal = ref(false)
+scrollLock.lockWhile(showCreateDiveModal)
 const newDiveCtx          = ref(null)   // 'create' | 'edit' — which editor asked
 const newDiveRowIdx       = ref(-1)
 const newDiveCode = ref('')
@@ -446,6 +460,7 @@ async function deleteEventTemplate(t) {
 // Stage-progression modal state. Opens when the operator clicks
 // "Advance to next stage →" on a Completed prelim/semifinal row.
 const advanceModalOpen   = ref(false)
+scrollLock.lockWhile(advanceModalOpen)
 const advanceParent      = ref(null)
 const advanceChild       = ref(null)
 const advanceRanked      = ref([])
@@ -901,6 +916,7 @@ async function createMeet() {
 // drives the sponsor-logos manager (which is self-fetching).
 // =============================================================
 const showEditMeetModal = ref(false)
+scrollLock.lockWhile(showEditMeetModal)
 const editingMeetId = ref(null)
 const editMeetForm = ref({
   name: '', venue: '', start_date: '', end_date: '',

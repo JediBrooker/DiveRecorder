@@ -6,6 +6,7 @@
 // recap.
 
 import { ref, computed, onMounted, watch } from 'vue'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 import { useRoute, RouterLink } from 'vue-router'
 import { fmtDate } from '@/lib/format'
 import SponsorRotation from '@/components/scoreboard/SponsorRotation.vue'
@@ -37,6 +38,8 @@ const error = ref('')
 //               shot clock.
 // =============================================================
 const exportChooserOpen = ref(false)
+// Lock background scroll while the export-chooser modal is open.
+useBodyScrollLock().lockWhile(exportChooserOpen)
 const exportOpts = ref({
   diveLists: false,
   judges:    false,

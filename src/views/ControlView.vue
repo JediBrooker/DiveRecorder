@@ -17,6 +17,7 @@ import ReadinessChecklist from '@/components/ReadinessChecklist.vue'
 import JudgePanelModal from '@/components/JudgePanelModal.vue'
 import ReflowModal from '@/components/ReflowModal.vue'
 import SponsorLogosManager from '@/components/manager/SponsorLogosManager.vue'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 import {
   annotatedScores,
   annotatedSynchroScores,
@@ -1951,6 +1952,42 @@ const editDiveTarget = ref(null)   // { dive_list_id, competitor_id, full_name, 
 const editDiveSearch = ref("")
 const editDiveBusy   = ref(false)
 const editDiveErr    = ref("")
+
+// ----------------------------------------------------------------
+// Body scroll lock — locks the underlying page whenever any modal
+// here is open. iOS Safari otherwise lets the operator drag the
+// page underneath the modal during a sign-off / preflight /
+// late-entry flow and lose their place in the control surface.
+//
+// One composed computed covers every modal in this view; the
+// composable's reference counter handles nested modals (e.g. a
+// confirm dialog over the preflight modal). Anchored at the
+// bottom of the modal-ref block so every ref is in scope.
+//
+// Excluded by design: dropdown menus (.dropdown-menu — header
+// menu, adjust menu, autonext menu, kbd hints) and inline
+// reveals (.reserves-list, .dive-order-body, .help-popover) —
+// those don't take over the screen and benefit from letting the
+// underlying surface scroll.
+// ----------------------------------------------------------------
+useBodyScrollLock().lockWhile(computed(() =>
+  lbShow.value ||
+  judgeRankingOpen.value ||
+  broadcastChoiceOpen.value ||
+  sponsorBrandingOpen.value ||
+  daktronicsInstructionsOpen.value ||
+  reflowOpen.value ||
+  holdPromptOpen.value ||
+  correctOpen.value ||
+  roundEndPromptOpen.value ||
+  randomiseModalOpen.value ||
+  signoffOpen.value ||
+  preFlightOpen.value ||
+  judgePanelModalOpen.value ||
+  lateOpen.value ||
+  checkInOpen.value ||
+  editDiveOpen.value
+))
 async function loadDiveDirectory() {
   try {
     diveDirectory.value = await auth.apiFetch("/api/dive-directory")

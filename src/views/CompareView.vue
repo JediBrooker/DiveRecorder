@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 import { useRoute, useRouter, RouterLink } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { fmtDate } from '@/lib/format'
@@ -176,6 +177,8 @@ function clearSide(side) {
 // side and closes the modal.
 // =========================================================
 const browseOpen   = ref(false)
+// Lock background scroll while the athlete-browse modal is open.
+useBodyScrollLock().lockWhile(browseOpen)
 const browseSide   = ref('a')         // which side the modal will set
 const browseRows   = ref([])
 const browseTotal  = ref(0)

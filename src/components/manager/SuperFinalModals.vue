@@ -17,9 +17,10 @@
  *
  * Backend routes all live in routes/events/super-final-bridge.js.
  */
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { showSuccess } from '@/composables/useNotify'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 
 const auth = useAuthStore()
 
@@ -192,6 +193,15 @@ async function confirmFSeed() {
 const superFinalRankingsModalOpen = ref(false)
 const superFinalRankings          = ref(null)
 const superFinalRankingsErr       = ref('')
+
+// Lock background scroll while any of the 5 super-final modals
+// is open — iOS Safari otherwise lets the manager drag the
+// underlying events list mid-bracket-setup.
+useBodyScrollLock().lockWhile(computed(() =>
+  h2hModalOpen.value || h2hResultsModalOpen.value ||
+  sfSeedModalOpen.value || fSeedModalOpen.value ||
+  superFinalRankingsModalOpen.value
+))
 
 async function openSuperFinalRankingsModal(ev) {
   superFinalRankings.value = null

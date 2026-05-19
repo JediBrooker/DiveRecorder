@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useBodyScrollLock } from '@/composables/useBodyScrollLock'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
@@ -35,6 +36,8 @@ const editBusy = ref(false)
 
 // Member drawer
 const drawerTeam = ref(null)         // team object
+// Lock background scroll while the team drawer is open.
+useBodyScrollLock().lockWhile(computed(() => drawerTeam.value !== null))
 const drawerMembers = ref([])
 const drawerEvents = ref([])         // events the team is in
 const drawerBusy = ref(false)

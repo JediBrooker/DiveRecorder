@@ -57,6 +57,9 @@ import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { useSocket } from '@/composables/useSocket'
 import { useBlockDrag } from '@/composables/useBlockDrag'
+// NB: SchedulerView's drawer is a docked side panel, not an
+// overlay — drag-and-drop in the underlying calendar is
+// intentional while it's open. No body-scroll-lock here.
 
 const route = useRoute()
 const { t } = useI18n()
