@@ -59,6 +59,15 @@
 const fs = require("fs");
 const path = require("path");
 
+// Load .env from the project root so OPENAI_API_KEY / ANTHROPIC_API_KEY
+// (and TRANSLATE_PROVIDER, OPENAI_MODEL, etc.) reach process.env when
+// this script runs from any directory. Soft-required: if dotenv isn't
+// installed the script keeps working — env vars set directly in the
+// shell still resolve. dotenv is already a runtime dep of the server
+// so the require should always succeed in a working tree.
+try { require("dotenv").config({ path: path.join(__dirname, "..", ".env") }); }
+catch { /* dotenv not installed — fall through, shell env still works */ }
+
 const LOCALES_DIR = path.join(__dirname, "..", "src", "locales");
 const SOURCE_LOCALE = "en";
 const TARGET_LANGUAGES = {
@@ -304,11 +313,18 @@ async function callClaude(prompt, apiKey, model) {
 // ---------- Helpers ----------
 
 function resolveProvider(arg) {
+  // Explicit --provider flag (or TRANSLATE_PROVIDER env) wins.
   const requested = (arg || process.env.TRANSLATE_PROVIDER || "").trim().toLowerCase();
   if (requested) {
     if (requested === "openai" || requested === "anthropic") return requested;
     fail(`Unknown translation provider "${requested}". Use --provider openai or --provider anthropic.`);
   }
+  // Auto-detect: per the wiki Languages.md "Choosing a provider"
+  // table, Anthropic is the default WHEN BOTH KEYS ARE PRESENT
+  // (it was the original provider). OpenAI is picked only when
+  // Anthropic is absent. This contract is intentional — set
+  // `TRANSLATE_PROVIDER=openai` to override on a box that has
+  // both keys but prefers OpenAI.
   if (process.env.OPENAI_API_KEY && !process.env.ANTHROPIC_API_KEY) return "openai";
   return "anthropic";
 }
