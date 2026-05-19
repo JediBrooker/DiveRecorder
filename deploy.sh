@@ -268,14 +268,13 @@ done
 #     can `tail -f` it from another shell. Each deploy gets its own
 #     file — old logs accumulate, prune them with logrotate or
 #     cron if that becomes an issue.
-#   * Runs even on no-op deploys. A previous deploy may have left
-#     stuck keys (the translator survives this script exiting, but
-#     could fail or get killed before finishing), and a subsequent
-#     no-op `./deploy.sh` is a natural retry surface — gating on
-#     NOOP=0 would leave those keys stuck across restarts. The
-#     internal `--dry-run` probe (no API call) exits cheaply when
-#     nothing's stuck, so there's no cost to running on no-ops.
-#   * Skipped on dry-run.
+#   * Skipped entirely on no-op deploys (no code change → no new
+#     keys could have been added) and on dry-run. If a translator
+#     dies mid-flight, the resulting dirty locale files block
+#     `git pull --ff-only` on the next deploy anyway, so retrying
+#     the translator from a no-op deploy isn't a real recovery
+#     path — you commit manually, push, then the next code-change
+#     deploy picks up the remaining stuck keys.
 #   * Skipped silently if neither OPENAI_API_KEY nor
 #     ANTHROPIC_API_KEY is set in .env — same gate as the inline
 #     version had.
@@ -283,7 +282,7 @@ done
 # The deploy-side test gate (section 5) defers the english-stuck
 # subtest of test/i18n-parity.test.js via SKIP_I18N_STUCK_CHECK=1,
 # trusting this step to fix any stuck keys post-deploy.
-if [[ $HEALTHY -eq 1 && $DRY_RUN -eq 0 ]]; then
+if [[ $HEALTHY -eq 1 && $NOOP -eq 0 && $DRY_RUN -eq 0 ]]; then
   TRANSLATE_LOG="/tmp/divinghq-translate-${NEW_SHA}-$(date -u +%Y%m%dT%H%M%SZ).log"
   step "translate: backgrounded (log: ${TRANSLATE_LOG})"
   (
