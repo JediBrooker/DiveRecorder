@@ -125,7 +125,14 @@ async function handleSubmit() {
     <form @submit.prevent="handleSubmit" class="form-stack">
       <div class="field">
         <label class="label">{{ $t('auth.login.username_label') }}</label>
-        <input class="input" type="text" v-model="username" autocomplete="username" required>
+        <!-- iOS Safari capitalises the first letter of any text
+             input by default and red-underlines it as a typo.
+             Usernames in this app are not sentences — disable the
+             keyboard helpers so iOS doesn't fight the user. -->
+        <input class="input" type="text" v-model="username"
+               autocomplete="username"
+               autocapitalize="none" autocorrect="off" spellcheck="false"
+               required>
       </div>
       <div class="field">
         <label class="label">{{ $t('auth.login.password_label') }}</label>

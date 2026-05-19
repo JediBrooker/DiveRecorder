@@ -7,6 +7,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#06b6d4">
+  <!-- iOS Safari PWA tags. The manifest.webmanifest declares
+       display: standalone, but iOS Safari ignores the manifest
+       for "Add to Home Screen" — it needs these apple-mobile-
+       web-app-* meta tags instead. Without them, an installed
+       PWA opens in Safari WITH the URL bar visible, breaking
+       the standalone illusion (and stealing ~80px of vertical
+       space, which matters poolside on a small phone).
+       black-translucent + viewport-fit=cover lets the page
+       draw under the notch / status bar so the safe-area-inset
+       env() values become non-zero and the design's notch-aware
+       paddings actually apply. -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="DivingHQ">
   <title>DivingHQ</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">

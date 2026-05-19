@@ -85,11 +85,19 @@ async function handleSubmit() {
         <div class="section-label">{{ $t('auth.register_org.section_admin') }}</div>
         <div class="field">
           <label class="label">{{ $t('auth.register_org.full_name') }}</label>
-          <input class="input" type="text" v-model="fullName" required>
+          <!-- autocomplete="name" lets iOS surface the contact-
+               card AutoFill chip for the admin's own name. -->
+          <input class="input" type="text" v-model="fullName"
+                 autocomplete="name" required>
         </div>
         <div class="field">
           <label class="label">{{ $t('auth.register_org.username') }}</label>
-          <input class="input" type="text" v-model="username" autocomplete="username" required>
+          <!-- See LoginView: usernames are not sentences, suppress
+               iOS keyboard auto-capitalize + autocorrect + spellcheck. -->
+          <input class="input" type="text" v-model="username"
+                 autocomplete="username"
+                 autocapitalize="none" autocorrect="off" spellcheck="false"
+                 required>
         </div>
         <div class="field">
           <label class="label">{{ $t('auth.register_org.password') }}</label>

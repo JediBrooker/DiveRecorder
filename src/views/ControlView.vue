@@ -5471,8 +5471,14 @@ onUnmounted(() => {
           </div>
           <div class="field">
             <label class="label">Password</label>
+            <!-- current-password (not new-password): this is a re-auth
+                 prompt for an EXISTING referee account, not a new-account
+                 creation form. iOS Safari only surfaces AutoFill on
+                 current-password fields; new-password suppresses it and
+                 forces manual entry of a (usually complex) referee
+                 password on a borrowed device mid-meet. -->
             <input class="input" type="password" v-model="credPassword"
-                   autocomplete="new-password" :disabled="orderBusy">
+                   autocomplete="current-password" :disabled="orderBusy">
           </div>
           <div v-if="credNeedsTotp" class="field">
             <label class="label">TOTP / recovery code</label>
