@@ -317,7 +317,9 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(4px);
   display: flex; align-items: flex-start; justify-content: center;
   /* dvh: keeps the palette anchored to the *live* viewport so
-     it doesn't jitter as iOS Safari's URL bar collapses. */
+     it doesn't jitter as iOS Safari's URL bar collapses.
+     vh fallback for browsers older than ~Q4-2022. */
+  padding-top: 12vh;
   padding-top: 12dvh;
   z-index: 9000;
   animation: cmdk-fade 0.15s ease-out;

@@ -180,7 +180,10 @@ onMounted(() => {
 .hero {
   /* dvh: see LoginView for the iOS Safari rationale — the
      landing hero CTA buttons sit at the bottom on small
-     phones and 100vh hides them under the address bar. */
+     phones and 100vh hides them under the address bar.
+     vh fallback first so browsers older than ~Q4-2022 still
+     get a sane min-height; modern browsers use dvh. */
+  min-height: 100vh;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;

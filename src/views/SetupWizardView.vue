@@ -294,7 +294,9 @@ onMounted(() => {
 
 <style scoped>
 .wizard-shell {
-  /* dvh: see LoginView for the iOS Safari rationale. */
+  /* dvh: see LoginView for the iOS Safari rationale.
+     vh fallback first for browsers older than ~Q4-2022. */
+  min-height: 100vh;
   min-height: 100dvh;
   background: var(--bg);
   display: flex; flex-direction: column;

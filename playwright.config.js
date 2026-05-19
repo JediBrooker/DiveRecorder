@@ -62,6 +62,32 @@ module.exports = defineConfig({
     // CI image already has it from the @playwright/test postinstall
     // hook. Local devs see a friendly prompt the first time they
     // run this project if it's missing.
+    // Firefox project — runs the cross-browser spec only.
+    // Gecko has different CSS quirks than WebKit/Blink and
+    // a few of our fixes (autocorrect attribute, -webkit-
+    // backdrop-filter prefix, env(safe-area-inset)) behave
+    // differently. The smoke test asserts the page still
+    // renders + the form is reachable; engine-specific
+    // attributes are scoped to the mobile-safari project.
+    {
+      name: "firefox",
+      testMatch: /cross-browser\.spec\.js$/,
+      use: {
+        browserName: "firefox",
+        viewport: { width: 1280, height: 800 },
+      },
+    },
+    // Mobile-Chrome project — Android-like (Pixel 7) profile
+    // against Chromium. Catches issues that would affect Android
+    // Chrome users specifically (different default font-size,
+    // viewport handling).
+    {
+      name: "mobile-chrome",
+      testMatch: /cross-browser\.spec\.js$/,
+      use: {
+        ...devices["Pixel 7"],
+      },
+    },
     {
       name: "mobile-safari",
       testMatch: /mobile-safari\.spec\.js$/,
@@ -88,7 +114,7 @@ module.exports = defineConfig({
     },
     {
       name: "chromium",
-      testIgnore: /mobile-safari\.spec\.js$/,
+      testIgnore: /(mobile-safari|cross-browser)\.spec\.js$/,
       use: {
         // Don't spread devices["Desktop Chrome"] — it bakes in
         // a fixed 1280×720 viewport plus a deviceScaleFactor,

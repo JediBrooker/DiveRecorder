@@ -1967,7 +1967,9 @@ function attachSocketHandlers() {
     width: 100%;
     /* dvh, not vh — iOS Safari toolbar collapse + bottom-sheet
        layout. Adds env(safe-area-inset-bottom) so the last row
-       in the sheet clears the home-indicator gesture zone. */
+       in the sheet clears the home-indicator gesture zone.
+       vh fallback first for browsers older than ~Q4-2022. */
+    max-height: 70vh;
     max-height: 70dvh;
     overflow-y: auto;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;

@@ -78,8 +78,11 @@ async function submit() {
 <style scoped>
 :global(body) {
   display: flex; align-items: center; justify-content: center;
-  /* dvh: see LoginView for the iOS Safari rationale. */
-  min-height: 100dvh; padding: 1.5rem;
+  /* dvh: see LoginView for the iOS Safari rationale.
+     vh fallback for browsers older than ~Q4-2022. */
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 1.5rem;
 }
 .reset-wrap { width: 100%; max-width: 420px; animation: fadeUp 0.4s ease; }
 .reset-mark {

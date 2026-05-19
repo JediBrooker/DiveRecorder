@@ -9,6 +9,7 @@
      persistent vertical scroll bounce. */
   display: flex;
   flex-direction: column;
+  min-height: 100vh;
   min-height: 100dvh;
 }
 .ctrl-header {
@@ -762,7 +763,9 @@
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  /* dvh: stable height on iOS Safari (see notes on .lb-modal). */
+  /* dvh: stable height on iOS Safari (see notes on .lb-modal).
+     vh fallback for browsers older than ~Q4-2022. */
+  max-height: 50vh;
   max-height: 50dvh;
   overflow-y: auto;
 }
@@ -948,7 +951,9 @@
 }
 
 .venue-bridge-instructions {
-  /* dvh: stable height on iOS Safari (see notes on .lb-modal). */
+  /* dvh: stable height on iOS Safari (see notes on .lb-modal).
+     vh fallback for browsers older than ~Q4-2022. */
+  max-height: min(72vh, 760px);
   max-height: min(72dvh, 760px);
   overflow-y: auto;
 }
@@ -1031,7 +1036,9 @@
      area and the Confirm/Cancel buttons fall into the
      overflow-y:auto scroll trap, with no way to reach them
      because the toolbar can't collapse while a modal is open.
-     dvh tracks the live viewport. */
+     dvh tracks the live viewport. vh fallback for older
+     browsers. */
+  max-height: 90vh;
   max-height: 90dvh;
   overflow-y: auto;
   /* Clip horizontal overflow (see .lb-modal). */
@@ -1191,7 +1198,9 @@
   background: var(--surface); border: 1px solid var(--border-2); border-radius: 28px;
   width: calc(100% - 3rem); max-width: 560px;
   /* See .preflight-modal note above — 90dvh, not 90vh, to
-     survive iOS Safari's collapsing toolbar. */
+     survive iOS Safari's collapsing toolbar. vh fallback for
+     pre-2022 browsers. */
+  max-height: 90vh;
   max-height: 90dvh;
   overflow-y: auto; animation: fadeUp 0.3s ease;
   /* Clip horizontal overflow — CSS promotes a `visible` axis to
@@ -1340,7 +1349,9 @@
 .randomise-modal {
   max-width: 760px;
   /* `dvh` so the modal shrinks with the iOS Safari toolbar
-     rather than being clipped behind it. */
+     rather than being clipped behind it. vh fallback for
+     browsers older than ~Q4-2022. */
+  max-height: 92vh;
   max-height: 92dvh;
   display: flex; flex-direction: column;
 }
@@ -2744,7 +2755,8 @@
      corners + actions don't hug the toolbar edge. */
   .lb-modal,
   .preflight-modal {
-    max-height: calc(100dvh - 1.5rem);
+    max-height: calc(100vh - 1.5rem);   /* fallback */
+    max-height: calc(100dvh - 1.5rem);  /* preferred */
     border-radius: var(--radius-lg);
     /* `calc(100% - 3rem)` was the desktop sizing — keep it
        horizontal-only, vertical is now dvh-bound. */

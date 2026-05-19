@@ -1516,8 +1516,10 @@ watch(currentEvent, async (ev) => {
      which collapses the layout viewport. 50vh would lock the
      dropdown to the pre-keyboard size (= half the *large*
      viewport), making it taller than the visible area. 50dvh
-     tracks the live viewport so the dropdown stays usable. */
+     tracks the live viewport so the dropdown stays usable.
+     vh fallback first for browsers older than ~Q4-2022. */
   .partner-dropdown {
+    max-height: 50vh;
     max-height: 50dvh;
     inset-inline-start: 0;
     inset-inline-end: 0;

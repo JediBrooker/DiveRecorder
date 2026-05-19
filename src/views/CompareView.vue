@@ -672,7 +672,9 @@ onMounted(async () => {
   /* `dvh` not `vh` so the modal shrinks with the iOS Safari
      URL/toolbar rather than being clipped behind it — otherwise
      the bottom rows of the dive-browse table can sit physically
-     under the toolbar and be unreachable. */
+     under the toolbar and be unreachable. vh fallback first
+     for browsers older than ~Q4-2022. */
+  height: min(640px, calc(100vh - 2rem));
   height: min(640px, calc(100dvh - 2rem));
   background: var(--surface);
   border: 1px solid var(--border); border-radius: var(--radius-lg);
@@ -740,6 +742,7 @@ onMounted(async () => {
 
   .picker-clear { inset-inline-end: 5rem; }
   .browse-filters { grid-template-columns: 1fr; }
-  .browse-modal { height: 92dvh; }
+  /* vh fallback first for browsers older than ~Q4-2022. */
+  .browse-modal { height: 92vh; height: 92dvh; }
 }
 </style>

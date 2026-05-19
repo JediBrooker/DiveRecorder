@@ -523,7 +523,9 @@ const submitLabel = computed(() => {
   /* Natural document flow — page scrolls if content exceeds
      the viewport. No 100dvh / overflow:hidden lock; resizing
      the window resizes the page like any other. The keypad +
-     submit footer flow naturally below the diver header. */
+     submit footer flow naturally below the diver header.
+     vh fallback first for browsers older than ~Q4-2022. */
+  min-height: 100vh;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;

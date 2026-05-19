@@ -9,11 +9,15 @@
    when the bar is expanded the layout is taller than the
    screen and the bottom rows are unreachable. 100dvh tracks
    the live viewport instead. */
-.sb-layout { min-height: 100dvh; display: flex; flex-direction: column; }
+/* Each rule pairs a vh fallback with the preferred dvh so
+   browsers older than ~Q4-2022 still get a sane height. */
+.sb-layout { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
 .sb-layout.broadcast-mode,
 .sb-layout.overlay-mode {
   overflow: hidden;
+  height: 100vh;
   height: 100dvh;
+  min-height: 100vh;
   min-height: 100dvh;
 }
 
@@ -715,7 +719,7 @@
    Activated by adding `?overlay=1` to the scoreboard URL; the
    chroma colour is set inline on .sb-layout via ?bg=<hex>.
    ========================================================= */
-.sb-layout.overlay-mode { color: #fff; min-height: 100dvh; padding: 1.5rem; }
+.sb-layout.overlay-mode { color: #fff; min-height: 100vh; min-height: 100dvh; padding: 1.5rem; }
 .sb-layout.overlay-mode .sb-header,
 .sb-layout.overlay-mode .sb-controls,
 .sb-layout.overlay-mode .sb-footer,

@@ -297,7 +297,9 @@ function onSkip() {
      expanded, a 100vh-sized modal extends below the visible
      area and the Apply/Cancel buttons end up trapped in the
      modal's overflow-y:auto scroll with no way to reach them
-     (the toolbar can't collapse while a modal is open). */
+     (the toolbar can't collapse while a modal is open).
+     vh fallback for browsers older than ~Q4-2022. */
+  max-height: calc(100vh - 3rem);
   max-height: calc(100dvh - 3rem);
   overflow-y: auto;
 }

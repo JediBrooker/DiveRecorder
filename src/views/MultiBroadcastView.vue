@@ -197,6 +197,8 @@ const gridStyle = computed(() => {
      env() values are 0 so this still behaves like inset:0. */
   top: 0; inset-inline-start: 0; inset-inline-end: 0;
   bottom: env(safe-area-inset-bottom, 0px);
+  /* vh fallback for browsers older than ~Q4-2022. */
+  height: 100vh;
   height: 100dvh;
   background: var(--bg, #0f172a);
   overflow: hidden;

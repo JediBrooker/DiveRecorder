@@ -86,8 +86,12 @@ onMounted(confirm)
 <style scoped>
 :global(body) {
   display: flex; align-items: center; justify-content: center;
-  /* dvh: see LoginView for the iOS Safari rationale. */
-  min-height: 100dvh; padding: 1.5rem;
+  /* dvh: see LoginView for the iOS Safari rationale.
+     vh first for pre-2022 browsers, dvh second so modern
+     browsers prefer it. */
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 1.5rem;
 }
 .confirm-wrap { width: 100%; max-width: 420px; animation: fadeUp 0.4s ease; }
 .confirm-mark {
