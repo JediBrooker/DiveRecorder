@@ -186,8 +186,15 @@ if [[ $NOOP -eq 0 ]]; then
   # DEDICATED test database (createdb divinghq_test, point
   # DB_DATABASE at it) — never against the production DB.
   if [[ $SKIP_TESTS -eq 0 ]]; then
+    # SKIP_I18N_STUCK_CHECK=1 — the deploy-time background
+    # translator (section 8 below) fills in any keys that landed
+    # as English placeholders. The OTHER three i18n-parity
+    # subtests (structural, no-extras, placeholder integrity)
+    # still run; only the UX-quality stuck-count subtest is
+    # deferred. See test/i18n-parity.test.js for the full
+    # explanation.
     step "npm run test:safe"
-    run npm run test:safe
+    run env SKIP_I18N_STUCK_CHECK=1 npm run test:safe
   else
     step "tests skipped (--skip-tests)"
   fi

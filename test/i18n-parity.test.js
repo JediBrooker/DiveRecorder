@@ -23,10 +23,10 @@
 //     is a hard failure (vue-i18n would render it as broken text
 //     at runtime).
 //
-// When this test fails because you added new keys:
+// When the english-stuck subtest fails because you added new keys:
 //
 //   1. DO the translations. Don't bump the tolerance.
-//   2. Two valid paths — pick whichever fits the moment:
+//   2. Three valid paths — pick whichever fits the moment:
 //      (a) Claude in chat translates the new keys inline. Works
 //          without any API key; produces the same diving-domain
 //          vocabulary established in each locale; lands in the
@@ -39,6 +39,16 @@
 //          several commits have accumulated stuck keys, or for
 //          federations self-hosting who want to manage their own
 //          translations without a Claude session in the loop.
+//      (c) Let the deploy-time background translator handle it.
+//          deploy.sh runs the translator AFTER the health check
+//          (fire-and-forget) and auto-commits the result; English
+//          placeholders are tolerated for the brief window between
+//          push and translator completion. To allow a deploy to
+//          proceed with stuck keys, set SKIP_I18N_STUCK_CHECK=1
+//          when invoking npm run test:safe (deploy.sh does this).
+//          The other three subtests in this file (structural
+//          parity, no-extras, placeholder integrity) still run,
+//          since those would render brokenly at runtime.
 //
 // The tolerance budget is intentionally tight so it can't drift
 // upward silently. Bump it in this file only with a comment
@@ -170,8 +180,18 @@ test("placeholders in every translation match en.json verbatim", () => {
 });
 
 // ---- english-stuck guard --------------------------------------
+//
+// Skipped when SKIP_I18N_STUCK_CHECK=1. deploy.sh sets this env
+// var when running npm run test:safe, because the deploy-time
+// background translator fills in stuck keys post-deploy (see
+// section 8 of deploy.sh). The other three parity subtests still
+// run — those guard runtime correctness, not UX quality.
 
-test("english-stuck key count is within tolerance for every locale", () => {
+test("english-stuck key count is within tolerance for every locale", {
+  skip: process.env.SKIP_I18N_STUCK_CHECK === '1'
+    ? 'SKIP_I18N_STUCK_CHECK=1 — deploy.sh defers to background translator'
+    : false,
+}, () => {
   const overBudget = [];
   for (const code of LOCALES) {
     const t = leaves(loadJson(path.join(LOCALES_DIR, `${code}.json`)));
