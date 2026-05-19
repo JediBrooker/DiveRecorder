@@ -13,6 +13,12 @@
         "DB_DATABASE": "divinghq_test",
         "JWT_SECRET": "local-test-secret-do-not-use-in-prod-aaaaa"
       }
+    },
+    {
+      "name": "vite-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173
     }
   ]
 }
