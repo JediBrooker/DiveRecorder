@@ -208,6 +208,7 @@ const gridStyle = computed(() => {
   justify-content: space-between;
   padding: 0.5rem 1rem;
   background: rgba(15, 23, 42, 0.55);
+  -webkit-backdrop-filter: blur(6px);  /* iOS Safari */
   backdrop-filter: blur(6px);
   opacity: 0.25;
   transition: opacity 0.2s;

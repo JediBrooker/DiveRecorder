@@ -446,6 +446,10 @@ h1, h2, h3, h4 {
   position: fixed;
   inset: 0;
   background: rgba(3,7,18,0.9);
+  /* -webkit- prefix for iOS 15 + macOS Safari 14. Without it
+     the blur silently no-ops on those versions and the modal
+     backdrop renders as a flat rectangle. */
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   z-index: 200;
   display: flex;

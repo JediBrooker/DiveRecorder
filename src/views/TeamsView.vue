@@ -616,7 +616,9 @@ watch(() => drawerTeam.value, (val) => {
 /* Drawer (mirrors UserManagerView's drawer) */
 .drawer-backdrop {
   position: fixed; inset: 0; z-index: 90;
-  background: rgba(3, 7, 18, 0.55); backdrop-filter: blur(2px);
+  background: rgba(3, 7, 18, 0.55);
+  -webkit-backdrop-filter: blur(2px);  /* iOS Safari */
+  backdrop-filter: blur(2px);
 }
 .drawer {
   position: fixed; top: 0; inset-inline-end: 0; bottom: 0; z-index: 100;

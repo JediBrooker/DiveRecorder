@@ -385,7 +385,9 @@ onMounted(load)
    child DOM: <.modal-backdrop> <.dive-modal>…</.dive-modal> </.modal-backdrop> */
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 90;
-  background: rgba(3, 7, 18, 0.55); backdrop-filter: blur(2px);
+  background: rgba(3, 7, 18, 0.55);
+  -webkit-backdrop-filter: blur(2px);  /* iOS Safari */
+  backdrop-filter: blur(2px);
   display: flex; align-items: center; justify-content: center;
   padding: 1.5rem;
   overflow-y: auto;

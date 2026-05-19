@@ -1314,6 +1314,7 @@ onUnmounted(() => {
 .drawer-backdrop {
   position: fixed; inset: 0; z-index: 90;
   background: rgba(3, 7, 18, 0.55);
+  -webkit-backdrop-filter: blur(2px);  /* iOS Safari */
   backdrop-filter: blur(2px);
 }
 .drawer {

@@ -557,6 +557,7 @@ onMounted(() => { if (route.params.id) load(route.params.id) })
 .export-backdrop {
   position: fixed; inset: 0; z-index: 300;
   background: rgba(3, 7, 18, 0.85);
+  -webkit-backdrop-filter: blur(8px);  /* iOS Safari */
   backdrop-filter: blur(8px);
   display: flex; align-items: center; justify-content: center;
   padding: 1rem;

@@ -304,6 +304,8 @@ onBeforeUnmount(() => {
 .cmdk-backdrop {
   position: fixed; inset: 0;
   background: rgba(2, 6, 18, 0.7);
+  /* iOS Safari < 16 / older macOS Safari need the -webkit- prefix. */
+  -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
   display: flex; align-items: flex-start; justify-content: center;
   padding-top: 12vh;

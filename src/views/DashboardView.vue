@@ -1978,6 +1978,7 @@ function attachSocketHandlers() {
     position: fixed;
     inset: 0;
     background: rgba(3, 7, 18, 0.55);
+    -webkit-backdrop-filter: blur(4px);  /* iOS Safari */
     backdrop-filter: blur(4px);
     z-index: 150;
     animation: pulse-sheet-fade 0.2s ease-out;

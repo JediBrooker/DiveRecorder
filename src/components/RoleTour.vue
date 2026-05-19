@@ -216,6 +216,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onTourKey))
 .role-tour-backdrop {
   position: fixed; inset: 0;
   background: rgba(2,6,18,0.78);
+  -webkit-backdrop-filter: blur(4px);  /* iOS Safari */
   backdrop-filter: blur(4px);
   display: flex; align-items: center; justify-content: center;
   padding: 1rem;
