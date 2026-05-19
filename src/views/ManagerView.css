@@ -12,7 +12,12 @@
   flex-wrap:wrap;
 }
 
-.modal-create-event { max-width:720px; max-height:calc(100vh - 4rem); overflow-y:auto; }
+/* dvh, not vh: iOS Safari's collapsing URL bar makes 100vh =
+   the *large* viewport (bar collapsed). With the bar expanded
+   a 100vh modal extends below the visible area and the
+   Save/Cancel buttons fall into the overflow-y:auto scroll
+   trap — toolbar can't collapse while a modal is open. */
+.modal-create-event { max-width:720px; max-height:calc(100dvh - 4rem); overflow-y:auto; }
 .modal-create-dive  { max-width:480px; }
 
 /* Round-dives editor — the .rd-* styles moved into

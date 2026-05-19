@@ -1015,7 +1015,15 @@
   position: fixed; top: 50%; inset-inline-start: 50%;
   transform: translate(-50%, -50%);
   z-index: 301;
-  width: calc(100% - 3rem); max-width: 560px; max-height: 90vh;
+  width: calc(100% - 3rem); max-width: 560px;
+  /* max-height in dynamic viewport units. iOS Safari counts
+     100vh as the *large* viewport (URL bar collapsed); when
+     the bar is expanded the modal extends below the visible
+     area and the Confirm/Cancel buttons fall into the
+     overflow-y:auto scroll trap, with no way to reach them
+     because the toolbar can't collapse while a modal is open.
+     dvh tracks the live viewport. */
+  max-height: 90dvh;
   overflow-y: auto;
   /* Clip horizontal overflow (see .lb-modal). */
   overflow-x: clip;
@@ -1172,7 +1180,10 @@
   position: fixed; top: 50%; inset-inline-start: 50%; transform: translate(-50%, -50%);
   z-index: 301;
   background: var(--surface); border: 1px solid var(--border-2); border-radius: 28px;
-  width: calc(100% - 3rem); max-width: 560px; max-height: 90vh;
+  width: calc(100% - 3rem); max-width: 560px;
+  /* See .preflight-modal note above — 90dvh, not 90vh, to
+     survive iOS Safari's collapsing toolbar. */
+  max-height: 90dvh;
   overflow-y: auto; animation: fadeUp 0.3s ease;
   /* Clip horizontal overflow — CSS promotes a `visible` axis to
      `auto` whenever the other axis is non-visible, so without

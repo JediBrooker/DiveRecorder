@@ -89,7 +89,15 @@ async function onDismiss(n, ev) {
 
 <style scoped>
 .notif-stack {
-  position: fixed; inset-inline-end: 1.5rem; bottom: 1.5rem;
+  /* Anchor against the iOS safe-area on notch iPhones — the
+     referee-signoff banner has Approve/Deny buttons that must
+     not overlap the home-indicator gesture zone. max(..) keeps
+     the design's 1.5rem inset on devices without safe-area
+     insets, and the larger of (inset + 0.75rem, 1.5rem)
+     elsewhere. Same idea on the inline-end side for landscape. */
+  position: fixed;
+  inset-inline-end: max(1.5rem, env(safe-area-inset-right, 0px));
+  bottom: max(1.5rem, calc(env(safe-area-inset-bottom, 0px) + 0.75rem));
   display: flex; flex-direction: column; gap: 0.6rem;
   z-index: 9999; max-width: 360px;
   pointer-events: none;

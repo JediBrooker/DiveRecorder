@@ -2,12 +2,19 @@
    exceeds the viewport. Broadcast + overlay modes (kiosk /
    projector / OBS) opt back into the locked-to-viewport
    layout below. */
-.sb-layout { min-height: 100vh; display: flex; flex-direction: column; }
+/* Use the *dynamic* viewport unit (100dvh) so iOS Safari's
+   collapsing URL bar doesn't push the bottom standings row
+   beneath the toolbar while overflow:hidden traps the scroll.
+   100vh on iOS = the *large* viewport (URL bar collapsed), so
+   when the bar is expanded the layout is taller than the
+   screen and the bottom rows are unreachable. 100dvh tracks
+   the live viewport instead. */
+.sb-layout { min-height: 100dvh; display: flex; flex-direction: column; }
 .sb-layout.broadcast-mode,
 .sb-layout.overlay-mode {
   overflow: hidden;
-  height: 100vh;
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 100dvh;
 }
 
 /* Broadcast / kiosk mode — header is hidden via v-if, but we

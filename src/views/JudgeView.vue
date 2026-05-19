@@ -816,6 +816,15 @@ const submitLabel = computed(() => {
   margin: 0 auto;
   box-sizing: border-box;
 }
+/* The signal-flag and submit-score buttons live in the bottom
+   bar — on notch iPhones the home-indicator overlays the bottom
+   ~20 px. Without an env(safe-area-inset-bottom) gutter the
+   button edges land inside the system swipe-gesture zone and
+   mis-register as "swipe up" instead of a tap. Tested with a
+   wet thumb at the deck because that's the real condition. */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .signal-footer { padding-bottom: env(safe-area-inset-bottom); }
+}
 .signal-btn {
   width: 100%;
   display: flex; align-items: center; justify-content: center; gap: 0.5rem;
@@ -857,7 +866,10 @@ const submitLabel = computed(() => {
 .signal-btn-on .signal-dot { background: white; box-shadow: 0 0 8px white; }
 
 .submit-footer {
-  padding: 0.625rem 0.75rem 0.875rem;
+  /* See note on .signal-footer above. Bottom padding adds the
+     iOS safe-area inset on top of the design's 0.875rem so the
+     submit button never crosses the home-indicator gesture zone. */
+  padding: 0.625rem 0.75rem calc(0.875rem + env(safe-area-inset-bottom, 0px));
   flex-shrink: 0;
   max-width: 360px;
   width: 100%;
@@ -914,7 +926,7 @@ const submitLabel = computed(() => {
   .key-half { font-size: 17px; }
   .signal-footer { max-width: none; padding: 0 0.6rem; }
   .signal-btn { padding: 0.95rem 0.75rem; font-size: 14px; }
-  .submit-footer { padding: 0.6rem 0.6rem 0.85rem; }
+  .submit-footer { padding: 0.6rem 0.6rem calc(0.85rem + env(safe-area-inset-bottom, 0px)); }
   .submit-btn { padding: 1.3rem 1rem; font-size: 18px; }
   /* Touch-target lift for the small ghost links at the top
      right — at WCAG 2.5.5's 44 px floor a wet thumb still

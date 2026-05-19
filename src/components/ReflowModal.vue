@@ -279,8 +279,15 @@ function onSkip() {
   padding: 1.4rem 1.6rem 1.15rem;
   /* Long-session days can produce a dozen+ candidates — let the
      modal scroll its body rather than spilling off-screen on a
-     phone in the Control Room. */
-  max-height: calc(100vh - 3rem);
+     phone in the Control Room.
+
+     dvh, not vh: iOS Safari's collapsing URL bar makes 100vh
+     equal the *large* viewport (bar collapsed). With the bar
+     expanded, a 100vh-sized modal extends below the visible
+     area and the Apply/Cancel buttons end up trapped in the
+     modal's overflow-y:auto scroll with no way to reach them
+     (the toolbar can't collapse while a modal is open). */
+  max-height: calc(100dvh - 3rem);
   overflow-y: auto;
 }
 .reflow-title {
