@@ -613,7 +613,7 @@
       "dak_url_hint": "Bir tahtayı yönlendirmeden önce seçili etkinliğin mekan durumunu yayınladığını doğrulamak için önce bu URL'yi açın.",
       "dak_block1_title": "1. Çıkışı test et",
       "dak_block1_desc": "Tahtaya dokunmadan Terminal'de bir RTD çerçevesi yazdırın.",
-      "dak_block2_title": "2. All Sport Pro / ERTD UDP",
+      "dak_block2_title": "2. Tüm Spor Pro / ERTD UDP",
       "dak_block2_desc": "Varsayılan mekan tahtası modu. Daktronics kurulumuyla eşleşecek şekilde host ve data-source değerlerini değiştirin.",
       "dak_block3_title": "İsteğe bağlı: TCP üzerinden JSON",
       "dak_block3_desc": "Yalnızca mekânın Data Studio iş akışı JSON alanları bekliyorsa kullanın.",

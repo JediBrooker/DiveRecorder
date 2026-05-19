@@ -831,7 +831,7 @@
       "club_name_placeholder": "Клуб прыжков в воду «Capital Diving Club»",
       "club_code_label": "Короткий код",
       "club_code_label_hint": "(необязательно)",
-      "club_code_placeholder": "CAP",
+      "club_code_placeholder": "КОД",
       "club_create_btn": "Создать клуб и продолжить →",
       "club_creating": "Создание…",
       "club_no_org_error": "Невозможно создать клуб — у вашей учётной записи нет org_id.",

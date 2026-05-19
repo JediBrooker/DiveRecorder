@@ -548,7 +548,7 @@
       "diver_rows_with_missing_many": "{name} — {rows} / {total} рунда, {missing} кодова скока недостаје",
       "incomplete_overflow": "+ {n} више",
       "judges_seated": "{seated} од {total} судија посађено",
-      "judge_label": "J{n} {name}",
+      "judge_label": "С{n} {name}",
       "judge_fallback": "Судија",
       "ref_signed_off": "Потписано",
       "ref_not_signed_off": "Није потписано",

@@ -831,7 +831,7 @@
       "club_name_placeholder": "Клуб стрибків у воду «Capital»",
       "club_code_label": "Короткий код",
       "club_code_label_hint": "(необов’язково)",
-      "club_code_placeholder": "CAP",
+      "club_code_placeholder": "КОД",
       "club_create_btn": "Створити клуб і продовжити →",
       "club_creating": "Створення…",
       "club_no_org_error": "Неможливо створити клуб — у вашого облікового запису немає org_id.",

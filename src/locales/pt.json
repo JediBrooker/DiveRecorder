@@ -559,7 +559,7 @@
       "diver_rows_with_missing_many": "{name} — {rows} / {total} rondas, faltam {missing} códigos de salto",
       "incomplete_overflow": "+ mais {n}",
       "judges_seated": "{seated} de {total} juízes sentados",
-      "judge_label": "J{n} {name}",
+      "judge_label": "Juiz {n} {name}",
       "judge_fallback": "Juiz",
       "ref_signed_off": "Validado",
       "ref_not_signed_off": "Não validado",

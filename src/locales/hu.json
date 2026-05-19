@@ -559,7 +559,7 @@
       "diver_rows_with_missing_many": "{name} — {rows} / {total} forduló, {missing} ugráskód hiányzik",
       "incomplete_overflow": "+ {n} további",
       "judges_seated": "{seated} / {total} pontozóbíró elhelyezve",
-      "judge_label": "J{n} {name}",
+      "judge_label": "Bíró {n} {name}",
       "judge_fallback": "Pontozóbíró",
       "ref_signed_off": "Aláírva",
       "ref_not_signed_off": "Nincs aláírva",

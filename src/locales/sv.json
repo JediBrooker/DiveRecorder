@@ -831,7 +831,7 @@
       "club_name_placeholder": "Huvudstadens Dykklubb",
       "club_code_label": "Kort kod",
       "club_code_label_hint": "(valfritt)",
-      "club_code_placeholder": "CAP",
+      "club_code_placeholder": "KOD",
       "club_create_btn": "Skapa klubb och fortsätt →",
       "club_creating": "Skapar…",
       "club_no_org_error": "Kan inte skapa en klubb — ditt konto har inget org_id.",

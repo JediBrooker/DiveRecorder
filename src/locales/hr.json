@@ -820,7 +820,7 @@
       "club_name_placeholder": "Klub skokova u vodu Capital",
       "club_code_label": "Kratki kod",
       "club_code_label_hint": "(opcionalno)",
-      "club_code_placeholder": "CAP",
+      "club_code_placeholder": "ŠIFRA",
       "club_create_btn": "Stvori klub i nastavi →",
       "club_creating": "Stvaranje…",
       "club_no_org_error": "Nije moguće stvoriti klub — vaš račun nema org_id.",

@@ -613,7 +613,7 @@
       "dak_url_hint": "보드를 향하기 전에 먼저 이 URL을 열어 선택한 종목이 회장 상태를 게시하고 있는지 확인하십시오.",
       "dak_block1_title": "1. 출력 테스트",
       "dak_block1_desc": "보드를 건드리지 않고 Terminal에서 RTD 프레임 한 개를 출력합니다.",
-      "dak_block2_title": "2. All Sport Pro / ERTD UDP",
+      "dak_block2_title": "2. 올 스포츠 프로 / ERTD UDP",
       "dak_block2_desc": "기본 회장 보드 모드입니다. Daktronics 설정에 맞추어 host와 data-source를 변경하십시오.",
       "dak_block3_title": "선택: JSON over TCP",
       "dak_block3_desc": "회장의 Data Studio 워크플로우가 JSON 필드를 기대하는 경우에만 사용하십시오.",
