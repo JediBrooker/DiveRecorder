@@ -234,6 +234,10 @@
   color-scheme: dark;
 }
 .filter-input:focus { outline: 1px solid var(--cyan); border-color: var(--cyan); }
+/* Avoid iOS Safari's focus-zoom on <input> with font-size < 16px. */
+@media (max-width: 720px) {
+  .filter-input { font-size: 16px; }
+}
 .filter-sep { color: var(--text-3); }
 .filter-active {
   color: var(--cyan); font-size: 11px;

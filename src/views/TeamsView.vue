@@ -577,6 +577,10 @@ watch(() => drawerTeam.value, (val) => {
 .actions-col .btn + .btn { margin-inline-start: 0.4rem; }
 .team-row-editing { background: var(--cyan-dim); }
 .input-sm { padding: 0.3rem 0.5rem; font-size: 13px; }
+/* Avoid iOS Safari's focus-zoom on <input> with font-size < 16px. */
+@media (max-width: 720px) {
+  .input-sm { font-size: 16px; }
+}
 
 .event-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.4rem; }
 .event-list-row {

@@ -686,6 +686,14 @@ watch(countryFilter, (val) => {
   .meet-row-date   { grid-area: date; text-align: end; }
   .meet-row-meta   { grid-area: meta; }
   .meet-row-arrow  { display: none; }
+
+  /* iOS Safari auto-zooms whenever an <input>/<select> with
+     font-size < 16px receives focus. Bump the meets-browser
+     search + tool + filter controls so tapping them on a phone
+     doesn't jolt the viewport. */
+  .sb-search-input,
+  .sb-tool-select,
+  .sb-filter-select { font-size: 16px; }
 }
 
 /* Meet card grid — like the live cards but neutral colour. */

@@ -425,6 +425,10 @@ onMounted(async () => {
 
 .club-row-editing { background: var(--cyan-dim); }
 .input-sm { padding: 0.3rem 0.5rem; font-size: 13px; }
+/* Avoid iOS Safari's focus-zoom on <input> with font-size < 16px. */
+@media (max-width: 720px) {
+  .input-sm { font-size: 16px; }
+}
 
 .sys-badge {
   display: inline-block;

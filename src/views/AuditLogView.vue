@@ -815,6 +815,14 @@ onMounted(async () => {
 }
 .select-sm { padding: 0.3rem 0.5rem; font-size: 12px; min-width: 110px; }
 .input-sm { padding: 0.3rem 0.5rem; font-size: 12px; min-width: 130px; }
+/* iOS Safari auto-zooms whenever an <input> or <select> with
+   font-size < 16px receives focus. That's especially jarring
+   here because the date-range filters are tapped frequently
+   when investigating an audit trail on a phone. Bump to 16px
+   at phone widths only — desktop keeps the compact 12px. */
+@media (max-width: 720px) {
+  .select-sm, .input-sm { font-size: 16px; }
+}
 .filter-search {
   flex: 1 1 220px; min-width: 0;
   max-width: 360px;

@@ -320,5 +320,12 @@ defineExpose({ applyDiveAtRow })
     grid-column: 1 / -1;
     white-space: normal;
   }
+
+  /* iOS Safari auto-zooms whenever an <input> with font-size <
+     16px receives focus. The dive-code picker and height input
+     are the coach's primary editing surface — getting zoomed
+     every time they tap is unworkable. */
+  .rd-pick-input,
+  .rd-row-height { font-size: 16px; }
 }
 </style>

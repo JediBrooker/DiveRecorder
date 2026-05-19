@@ -138,6 +138,10 @@
   display: flex; gap: 0.5rem; margin-top: 0.5rem;
 }
 .event-template-save .input { flex: 1; font-size: 12px; padding: 0.4rem 0.6rem; }
+/* Avoid iOS Safari's focus-zoom on <input> with font-size < 16px. */
+@media (max-width: 720px) {
+  .event-template-save .input { font-size: 16px; }
+}
 
 /* Suggested templates — collapsible. Closed = a single compact
    line so the strip doesn't dominate the top of the modal.
