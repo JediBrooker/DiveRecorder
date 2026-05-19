@@ -589,7 +589,13 @@ function warningNames(c) {
   color: var(--text-3);
   cursor: pointer;
   font-size: 14px;
-  padding: 0.2rem 0.4rem;
+  /* WCAG 2.5.5: 44×44 minimum. This button unseats a judge —
+     misregistering on it during roster build is a destructive
+     mis-tap. The ✕ glyph still sits centred inside the larger
+     hit area. */
+  min-width: 44px; min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0;
   line-height: 1;
   transition: color 0.1s;
   flex-shrink: 0;

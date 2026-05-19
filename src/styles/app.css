@@ -57,6 +57,14 @@
 /* ── Reset ────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Suppress iOS Safari's default grey tap-flash on every
+   interactive element. Each :active style in the design
+   provides its own feedback; the system flash on top of that
+   reads as a UI glitch ("did I tap twice?") rather than a
+   confirmation. Anchors still get a subtle underline on tap
+   from their own :active state where designed. */
+* { -webkit-tap-highlight-color: transparent; }
+
 html {
   font-size: 16px;
   -webkit-font-smoothing: antialiased;
@@ -1236,7 +1244,17 @@ h1, h2, h3, h4 {
      through) — the bubble's own text should always be plain. */
   text-decoration: none;
 }
-[data-tip]:hover::after,
+/* Show on hover ONLY where hover is actually a thing. On iOS
+   Safari (no real hover), tapping a [data-tip] element fired
+   both the tooltip-reveal AND consumed the tap event — the
+   click handler then needed a SECOND tap to fire. The
+   @media (hover: hover) wrapper restricts the hover-reveal to
+   devices with a real pointer, so touch users get straight-
+   through taps. Keyboard users still get the tooltip on
+   focus-visible (works on all platforms). */
+@media (hover: hover) {
+  [data-tip]:hover::after { opacity: 1; visibility: visible; }
+}
 [data-tip]:focus-visible::after {
   opacity: 1;
   visibility: visible;

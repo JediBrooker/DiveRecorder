@@ -59,7 +59,10 @@ function iconFor(kind) { return ICONS[kind] ?? '' }
    route changes inside the app shell. */
 .notify-bar {
   position: fixed;
-  inset-inline-start: 50%; bottom: 1.5rem;
+  inset-inline-start: 50%;
+  /* Sit above the iOS home-indicator gesture zone on notch
+     iPhones; design's 1.5rem on devices without insets. */
+  bottom: max(1.5rem, calc(env(safe-area-inset-bottom, 0px) + 0.75rem));
   transform: translateX(-50%);
   z-index: 1000;
   display: flex; align-items: center; gap: 0.7rem;
@@ -105,7 +108,11 @@ function iconFor(kind) { return ICONS[kind] ?? '' }
   color: var(--cyan);
   font-family: inherit; font-size: 11px; font-weight: 700;
   letter-spacing: 0.16em; text-transform: uppercase;
-  padding: 0.3rem 0.85rem;
+  /* WCAG 2.5.5 minimum 44×44 — this button is the user's last
+     line of defence after an accidental destructive action. */
+  min-height: 44px;
+  padding: 0 1rem;
+  display: inline-flex; align-items: center;
   border-radius: 999px; cursor: pointer;
   transition: background 0.12s, color 0.12s;
 }

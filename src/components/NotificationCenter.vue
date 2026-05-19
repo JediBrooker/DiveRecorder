@@ -122,7 +122,12 @@ async function onDismiss(n, ev) {
   position: absolute; top: 0.4rem; inset-inline-end: 0.5rem;
   background: transparent; border: none; cursor: pointer;
   font-size: 13px; color: var(--text-3, #64748b);
-  padding: 0.2rem 0.4rem; line-height: 1;
+  /* WCAG 2.5.5: 44×44 minimum. The notif card has Approve and
+     Deny buttons just below — a small ✕ between them risks
+     mis-dismissing the alert instead of acting on it. */
+  min-width: 44px; min-height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0; line-height: 1;
 }
 .notif-dismiss:hover { color: var(--text, #f1f5f9); }
 .notif-title {
